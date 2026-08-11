@@ -6680,22 +6680,28 @@ mod tests {
         let core = shutdown_completed
             .recv_timeout(Duration::from_secs(2))
             .expect("96 held processes must share one shutdown deadline");
-        shutdown.join().unwrap();
-
-        assert!(core.statuses().is_empty());
-        assert!(!spawner.all_reaped(), "shutdown must return before process release");
-        assert!(statuses.iter().all(|status| spawner.control_closed(status.pid.unwrap())));
+        let shutdown_result = shutdown.join();
+        let statuses_empty = core.statuses().is_empty();
+        let all_reaped_before_release = spawner.all_reaped();
+        let all_controls_closed =
+            statuses.iter().all(|status| spawner.control_closed(status.pid.unwrap()));
 
         for reap_hold in reap_holds {
             reap_hold.release();
         }
-        for status in &statuses {
-            assert!(core.reaper.wait_until_epoch_quiesced(
+        let all_epochs_quiesced = statuses.iter().all(|status| {
+            core.reaper.wait_until_epoch_quiesced(
                 status.workspace_uuid,
                 status.renderer_epoch,
                 Duration::from_secs(1),
-            ));
-        }
+            )
+        });
+
+        assert!(shutdown_result.is_ok());
+        assert!(statuses_empty);
+        assert!(!all_reaped_before_release, "shutdown must return before process release");
+        assert!(all_controls_closed);
+        assert!(all_epochs_quiesced);
         assert!(spawner.all_reaped());
     }
 
@@ -6711,6 +6717,7 @@ mod tests {
             })
             .unwrap();
         let pid = process.pid();
+        let reaper = RendererProcessReaper::start(Arc::new(|| {})).unwrap();
         let reap_hold = spawner.hold_reap(pid);
         let identity = RendererWorkerIdentity {
             workspace_uuid,
@@ -6718,7 +6725,6 @@ mod tests {
             process_id: Some(pid),
             process_instance_token: process.process_instance_token(),
         };
-        let reaper = RendererProcessReaper::start(Arc::new(|| {})).unwrap();
         let permit = reaper.try_acquire().unwrap();
 
         let report = reaper.retire(
@@ -6754,6 +6760,7 @@ mod tests {
             })
             .unwrap();
         let pid = process.pid();
+        let reaper = RendererProcessReaper::start(Arc::new(|| {})).unwrap();
         let reap_hold = spawner.hold_reap(pid);
         let identity = RendererWorkerIdentity {
             workspace_uuid,
@@ -6761,7 +6768,6 @@ mod tests {
             process_id: Some(pid),
             process_instance_token: process.process_instance_token(),
         };
-        let reaper = RendererProcessReaper::start(Arc::new(|| {})).unwrap();
         let report = reaper.retire(
             vec![RetiredRendererProcess {
                 identity,
