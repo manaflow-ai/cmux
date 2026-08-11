@@ -55,6 +55,8 @@ describe("dashboard shell", () => {
       /<nav[^>]*id="dashboard-mobile-nav"[^>]*>/,
     )?.[0];
     expect(controlledNavigation).toContain("hidden");
+    expect(html).toContain("pb-28");
+    expect(html).toContain("max-h-[calc(100vh-6rem)]");
   });
 
   test("removes every Vault navigation entry when the release flag is off", () => {
