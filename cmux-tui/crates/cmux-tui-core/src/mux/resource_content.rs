@@ -727,22 +727,8 @@ impl Mux {
 
                     let mut tab_order = Vec::with_capacity(pane.tabs.len());
                     for (position, surface_slot) in pane.tabs.iter().enumerate() {
-                        // Restored terminal tabs exist in the topology before
-                        // their host runtime is adopted. A structural commit
-                        // must preserve those durable views instead of making
-                        // unrelated host adoption a precondition.
                         let surface = state.surfaces.get(surface_slot);
-                        let identity = surface
-                            .and_then(|surface| surface.resource_identity().cloned())
-                            .or_else(|| {
-                                Some(TabResourceIdentity::new(
-                                    state.resource_indexes.tab_ids.get(surface_slot)?.clone(),
-                                    state.resource_indexes.content_ids.get(surface_slot)?.clone(),
-                                ))
-                            })
-                            .with_context(|| {
-                                format!("pane surface {surface_slot} has no resource identity")
-                            })?;
+                        let identity = tab_resource_identity(state, *surface_slot)?;
                         let before_tab = before_tabs.get(&identity.tab_id);
                         live_tabs.insert(identity.tab_id.clone());
                         tab_order.push(identity.tab_id.clone());
@@ -1078,13 +1064,7 @@ fn ordered_terminal_tab_ids(
     let mut tabs = Vec::new();
     for pane in state.panes.values() {
         for (position, surface_slot) in pane.tabs.iter().enumerate() {
-            let surface = state
-                .surfaces
-                .get(surface_slot)
-                .with_context(|| format!("pane references missing surface {surface_slot}"))?;
-            let identity = surface
-                .resource_identity()
-                .with_context(|| format!("pane surface {surface_slot} has no resource identity"))?;
+            let identity = tab_resource_identity(state, *surface_slot)?;
             if let ContentPublicId::Terminal(terminal_id) = &identity.content_id {
                 tabs.push((
                     terminal_id.clone(),
@@ -1096,6 +1076,32 @@ fn ordered_terminal_tab_ids(
         }
     }
     Ok(terminal_tab_ids_in_canonical_order(tabs))
+}
+
+/// A restored tab is durable before its terminal or browser runtime is
+/// materialized. Structural projection must use the durable indexes during
+/// that bounded startup state instead of making runtime adoption a
+/// precondition for unrelated mutations.
+fn tab_resource_identity(
+    state: &State,
+    surface_slot: crate::SurfaceId,
+) -> anyhow::Result<TabResourceIdentity> {
+    if let Some(identity) =
+        state.surfaces.get(&surface_slot).and_then(|surface| surface.resource_identity())
+    {
+        return Ok(identity.clone());
+    }
+    let tab_id = state
+        .resource_indexes
+        .tab_ids
+        .get(&surface_slot)
+        .cloned()
+        .with_context(|| format!("pane surface {surface_slot} has no public tab identity"))?;
+    let content_id =
+        state.resource_indexes.content_ids.get(&surface_slot).cloned().with_context(|| {
+            format!("pane surface {surface_slot} has no public content identity")
+        })?;
+    Ok(TabResourceIdentity::new(tab_id, content_id))
 }
 
 fn registry_screen_from_live(
@@ -1361,4 +1367,54 @@ fn public_tab_value(tab: &RegistryTab, focused: bool) -> Value {
         "content_kind": content_kind,
         "content_id": tab.content_id.as_str(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Pane;
+    use crate::resource::{PublicSlotIndexes, TerminalPublicId};
+
+    #[test]
+    fn restored_terminal_tab_order_uses_durable_identity_before_adoption() {
+        let pane_slot = 7;
+        let surface_slot = 16;
+        let pane_id = PanePublicId::parse("pane_00000000000000000000000000000007").unwrap();
+        let tab_id = TabPublicId::parse("tab_00000000000000000000000000000016").unwrap();
+        let terminal_id = TerminalPublicId::parse("term_00000000000000000000000000000016").unwrap();
+        let mut indexes = PublicSlotIndexes::default();
+        indexes.tab_ids.insert(surface_slot, tab_id.clone());
+        indexes.content_ids.insert(surface_slot, ContentPublicId::Terminal(terminal_id.clone()));
+        let state = State {
+            workspaces: Vec::new(),
+            workspace_index_by_id: HashMap::new(),
+            workspace_id_by_key: HashMap::new(),
+            workspace_revision: 0,
+            pane_revision: 0,
+            resource_revision: 0,
+            focus_sequence: 0,
+            active_workspace: 0,
+            panes: HashMap::from([(
+                pane_slot,
+                Pane {
+                    id: pane_slot,
+                    public_id: pane_id,
+                    name: None,
+                    tabs: vec![surface_slot],
+                    active_tab: 0,
+                    active_at: 0,
+                    focused_at: 0,
+                },
+            )]),
+            surfaces: HashMap::new(),
+            terminal_catalog: HashMap::new(),
+            terminal_catalog_by_runtime: HashMap::new(),
+            split_screens: HashMap::new(),
+            resource_indexes: indexes,
+        };
+
+        let ordered = ordered_terminal_tab_ids(&state).unwrap();
+
+        assert_eq!(ordered.get(&terminal_id), Some(&vec![tab_id]));
+    }
 }

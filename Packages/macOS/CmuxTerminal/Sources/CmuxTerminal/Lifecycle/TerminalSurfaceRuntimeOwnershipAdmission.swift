@@ -3,6 +3,8 @@ internal import os
 
 typealias TerminalSurfaceRuntimeOwnershipRecovery =
     @MainActor @Sendable (TerminalSurfaceRuntimeOwnershipReservation) -> Void
+typealias TerminalSurfaceRuntimeOwnershipRecoveryFailure =
+    @MainActor @Sendable () -> Void
 
 /// Synchronous, bounded admission for native-surface ownership.
 ///
@@ -43,6 +45,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     func reserve() -> TerminalSurfaceRuntimeOwnershipReservation? {
         state.withLock { state in
             guard !state.closeTeardownDegraded,
+                  !state.closeTeardownAllStalled,
                   state.reservationIDs.count < maximumOwnerCount,
                   state.ingressReservationIDs.count < maximumOwnerCount else {
                 return nil
@@ -54,6 +57,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     func reserve(
         recoveryID: UUID,
         onRecovery: @escaping TerminalSurfaceRuntimeOwnershipRecovery,
+        onFailure: @escaping TerminalSurfaceRuntimeOwnershipRecoveryFailure = {},
         capacityReservation:
             TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? = nil
     ) -> TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult {
@@ -72,6 +76,9 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
             } else {
                 claimedCapacity = false
             }
+            guard !state.closeTeardownAllStalled else {
+                return (.closeTeardownStalled, claimedCapacity)
+            }
             if !state.closeTeardownDegraded,
                 state.reservationIDs.count < maximumOwnerCount,
                 state.ingressReservationIDs.count < maximumOwnerCount
@@ -84,6 +91,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
             }
             if state.recoveryEntriesByID[recoveryID] != nil {
                 state.recoveryEntriesByID[recoveryID]?.action = onRecovery
+                state.recoveryEntriesByID[recoveryID]?.failure = onFailure
                 return (.deferred, claimedCapacity)
             }
             guard claimedCapacity || recoveryCapacityIsOpen(in: state) else {
@@ -91,6 +99,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
             }
             enqueueRecoveryAction(
                 onRecovery,
+                onFailure: onFailure,
                 id: recoveryID,
                 in: &state
             )
@@ -105,7 +114,10 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     func claimRecoveryCapacity()
         -> TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation? {
         state.withLock { state in
-            guard recoveryCapacityIsOpen(in: state) else { return nil }
+            guard !state.closeTeardownAllStalled,
+                  recoveryCapacityIsOpen(in: state) else {
+                return nil
+            }
             let reservation =
                 TerminalSurfaceRuntimeOwnershipRecoveryCapacityReservation()
             state.recoveryCapacityReservationIDs.insert(reservation.id)
@@ -114,7 +126,9 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     }
 
     func recoveryCapacityIsOpen() -> Bool {
-        state.withLock { recoveryCapacityIsOpen(in: $0) }
+        state.withLock {
+            !$0.closeTeardownAllStalled && recoveryCapacityIsOpen(in: $0)
+        }
     }
 
     func releaseRecoveryCapacity(
@@ -243,6 +257,61 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         }
     }
 
+    func failRecoveriesForAllStalledCloseTeardowns()
+        -> [TerminalSurfaceRuntimeOwnershipRecoveryFailure] {
+        state.withLock { state in
+            state.closeTeardownAllStalled = true
+            var failures: [TerminalSurfaceRuntimeOwnershipRecoveryFailure] = []
+            while let recoveryID = state.recoveryHeadID,
+                  let failure = state.recoveryEntriesByID[recoveryID]?.failure {
+                failures.append(failure)
+                _ = removeRecoveryAction(recoveryID, from: &state)
+            }
+            state.pendingRecoveryFailureCount += failures.count
+            precondition(
+                state.pendingRecoveryFailureCount <= maximumOwnerCount,
+                "stalled recovery failures must remain bounded"
+            )
+            state.recoveryRescanRequested = false
+            return failures
+        }
+    }
+
+    func completeStalledCloseRecoveryFailures(_ completedCount: Int) {
+        precondition(completedCount > 0)
+        let output = state.withLock { state in
+            precondition(
+                completedCount <= state.pendingRecoveryFailureCount,
+                "completed stalled recovery failures must be owned"
+            )
+            state.pendingRecoveryFailureCount -= completedCount
+            let grant = takeNextRecoveryGrant(from: &state)
+            return (grant, takeRecoveryRescanRequest(from: &state))
+        }
+        schedule(output.0)
+        if output.1 {
+            recoveryRescanScheduler.requestRescan()
+        }
+    }
+
+    func clearAllStalledCloseTeardowns() {
+        let output: (
+            grant: TerminalSurfaceRuntimeOwnershipRecoveryGrant?,
+            requestRescan: Bool
+        ) = state.withLock { state in
+            guard state.closeTeardownAllStalled else {
+                return (nil, false)
+            }
+            state.closeTeardownAllStalled = false
+            let grant = takeNextRecoveryGrant(from: &state)
+            return (grant, takeRecoveryRescanRequest(from: &state))
+        }
+        schedule(output.0)
+        if output.1 {
+            recoveryRescanScheduler.requestRescan()
+        }
+    }
+
     func cancelRecovery(_ recoveryID: UUID) {
         let requestRescan = state.withLock { state in
             _ = removeRecoveryAction(recoveryID, from: &state)
@@ -278,6 +347,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
 
     private func enqueueRecoveryAction(
         _ action: @escaping TerminalSurfaceRuntimeOwnershipRecovery,
+        onFailure: @escaping TerminalSurfaceRuntimeOwnershipRecoveryFailure,
         id recoveryID: UUID,
         in state: inout TerminalSurfaceRuntimeOwnershipAdmissionState
     ) {
@@ -285,6 +355,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         state.recoveryEntriesByID[recoveryID] =
             TerminalSurfaceRuntimeOwnershipRecoveryEntry(
                 action: action,
+                failure: onFailure,
                 previousID: previousID,
                 nextID: nil
             )
@@ -301,6 +372,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     ) -> Bool {
         state.recoveryEntriesByID.count
             + state.recoveryCapacityReservationIDs.count
+            + state.pendingRecoveryFailureCount
             < maximumOwnerCount
     }
 
@@ -326,6 +398,7 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         from state: inout TerminalSurfaceRuntimeOwnershipAdmissionState
     ) -> TerminalSurfaceRuntimeOwnershipRecoveryGrant? {
         guard !state.closeTeardownDegraded,
+              !state.closeTeardownAllStalled,
               !state.recoveryGrantIsScheduled,
               state.reservationIDs.count < maximumOwnerCount,
               state.ingressReservationIDs.count < maximumOwnerCount,
@@ -369,6 +442,10 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
 #if DEBUG
     var debugCloseTeardownDegraded: Bool {
         state.withLock { $0.closeTeardownDegraded }
+    }
+
+    var debugCloseTeardownAllStalled: Bool {
+        state.withLock { $0.closeTeardownAllStalled }
     }
 
     var debugOwnerCount: Int {

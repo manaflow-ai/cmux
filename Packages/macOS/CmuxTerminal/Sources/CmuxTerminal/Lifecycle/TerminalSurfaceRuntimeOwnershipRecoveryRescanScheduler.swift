@@ -40,11 +40,15 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     var entriesByID: [UUID: OverflowEntry] = [:]
     var headID: UUID?
     var tailID: UUID?
+    var failureThroughSequence: UInt64?
     var rescanRequested = false
     var rescanTask: Task<Void, Never>?
   }
 
-  private let state = OSAllocatedUnfairLock(initialState: State())
+  // Safety: this lock owns all mutable links and task state. The weak,
+  // non-Sendable surface references are dereferenced only by the MainActor
+  // batch in `runScheduledBatch()`.
+  private let state = OSAllocatedUnfairLock(uncheckedState: State())
 
   internal init(maximumEntryCount: Int) {
     precondition(maximumEntryCount > 0)
@@ -60,7 +64,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
         tailID: UUID?
       )
     {
-      state.withLock { state in
+      state.withLockUnchecked { state in
         var linkedIDs = Set<UUID>()
         var currentID = state.headID
         while let nodeID = currentID, linkedIDs.insert(nodeID).inserted {
@@ -81,44 +85,45 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     surface: TerminalSurface
   ) -> TerminalSurfaceRuntimeOwnershipRecoveryOverflowRegistration {
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
-    let registration = state.withLock { state in
-      if let entry = state.entriesByID[surfaceID] {
-        entry.surface = surface
+    let registration: TerminalSurfaceRuntimeOwnershipRecoveryOverflowRegistration =
+      state.withLockUnchecked { state in
+        if let entry = state.entriesByID[surfaceID] {
+          entry.surface = surface
+          state.rescanRequested = true
+          prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
+          return .updated(sequence: entry.sequence)
+        }
+
+        guard state.entriesByID.count < maximumEntryCount else {
+          return .rejected
+        }
+
+        precondition(state.nextSequence < UInt64.max)
+        state.nextSequence += 1
+        let previousID = state.tailID
+        let entry = OverflowEntry(
+          surfaceID: surfaceID,
+          sequence: state.nextSequence,
+          surface: surface,
+          previousID: previousID
+        )
+        state.entriesByID[surfaceID] = entry
+        if let previousID {
+          state.entriesByID[previousID]?.nextID = surfaceID
+        } else {
+          state.headID = surfaceID
+        }
+        state.tailID = surfaceID
         state.rescanRequested = true
         prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
-        return .updated(sequence: entry.sequence)
+        return .registered(sequence: entry.sequence)
       }
-
-      guard state.entriesByID.count < maximumEntryCount else {
-        return .rejected
-      }
-
-      precondition(state.nextSequence < UInt64.max)
-      state.nextSequence += 1
-      let previousID = state.tailID
-      let entry = OverflowEntry(
-        surfaceID: surfaceID,
-        sequence: state.nextSequence,
-        surface: surface,
-        previousID: previousID
-      )
-      state.entriesByID[surfaceID] = entry
-      if let previousID {
-        state.entriesByID[previousID]?.nextID = surfaceID
-      } else {
-        state.headID = surfaceID
-      }
-      state.tailID = surfaceID
-      state.rescanRequested = true
-      prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
-      return .registered(sequence: entry.sequence)
-    }
     startGate?.start()
     return registration
   }
 
   internal func cancelOverflow(surfaceID: UUID) {
-    let removed = state.withLock { state in
+    let removed = state.withLockUnchecked { state in
       removeOverflow(surfaceID: surfaceID, from: &state) != nil
     }
     if removed {
@@ -128,7 +133,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
 
   internal func requestRescan() {
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
-    state.withLock { state in
+    state.withLockUnchecked { state in
       guard state.headID != nil else { return }
       state.rescanRequested = true
       prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
@@ -136,8 +141,24 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     startGate?.start()
   }
 
+  internal func failPendingOverflowCreations() {
+    var startGate: TerminalSurfaceRuntimeTeardownStartGate?
+    state.withLockUnchecked { state in
+      guard let tailID = state.tailID,
+        let tail = state.entriesByID[tailID]
+      else { return }
+      state.failureThroughSequence = max(
+        state.failureThroughSequence ?? 0,
+        tail.sequence
+      )
+      state.rescanRequested = true
+      prepareRescanTaskIfNeeded(state: &state, startGate: &startGate)
+    }
+    startGate?.start()
+  }
+
   deinit {
-    state.withLock { state in
+    state.withLockUnchecked { state in
       state.rescanTask?.cancel()
       state.rescanTask = nil
     }
@@ -158,22 +179,40 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
 
   @MainActor
   private func runScheduledBatch() {
-    let shouldRun = state.withLock { state in
+    let shouldRun = state.withLockUnchecked { state in
       state.rescanRequested = false
       return state.headID != nil
     }
     var processedCount = 0
     if shouldRun {
       while processedCount < Self.maximumBatchCount {
+        if let failedEntry = state.withLockUnchecked({ state -> OverflowEntry? in
+          guard let cutoff = state.failureThroughSequence,
+            let headID = state.headID,
+            let entry = state.entriesByID[headID],
+            entry.sequence <= cutoff
+          else {
+            normalizeFailureCutoff(in: &state)
+            return nil
+          }
+          _ = removeOverflow(surfaceID: entry.surfaceID, from: &state)
+          normalizeFailureCutoff(in: &state)
+          return entry
+        }) {
+          failedEntry.surface?
+            .failRuntimeSurfaceCreationForTeardownCapacity()
+          processedCount += 1
+          continue
+        }
         guard
-          let entry = state.withLock({ state in
+          let entry = state.withLockUnchecked({ state in
             state.headID.flatMap { state.entriesByID[$0] }
           })
         else {
           break
         }
         guard let surface = entry.surface else {
-          state.withLock { state in
+          state.withLockUnchecked { state in
             _ = removeOverflow(
               surfaceID: entry.surfaceID,
               from: &state
@@ -194,14 +233,15 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
         )
         processedCount += 1
 
-        let madeProgress = state.withLock { state in
+        let madeProgress = state.withLockUnchecked { state in
           state.entriesByID[entry.surfaceID] == nil
         }
         guard madeProgress else { break }
       }
     }
 
-    let followUp = state.withLock { state -> (OverflowEntry, Bool)? in
+    let followUp = state.withLockUnchecked {
+      state -> (OverflowEntry, Bool, Bool)? in
       state.rescanTask = nil
       let externallyRequested = state.rescanRequested
       state.rescanRequested = false
@@ -210,19 +250,29 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
       else {
         return nil
       }
-      return (entry, externallyRequested)
+      return (
+        entry,
+        externallyRequested,
+        state.failureThroughSequence != nil
+      )
     }
-    guard let (entry, externallyRequested) = followUp else { return }
+    guard let (entry, externallyRequested, failurePending) = followUp else {
+      return
+    }
     let batchWasExhausted = processedCount == Self.maximumBatchCount
     let capacityRemains: Bool
-    if let surface = entry.surface {
+    if failurePending {
+      capacityRemains = true
+    } else if let surface = entry.surface {
       capacityRemains =
         surface.runtimeTeardown
         .runtimeSurfaceOwnershipRecoveryCapacityIsOpen()
     } else {
       capacityRemains = true
     }
-    if capacityRemains && (batchWasExhausted || externallyRequested) {
+    if capacityRemains
+      && (batchWasExhausted || externallyRequested || failurePending)
+    {
       requestRescan()
     }
   }
@@ -248,8 +298,20 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     if state.entriesByID.isEmpty {
       state.headID = nil
       state.tailID = nil
+      state.failureThroughSequence = nil
       state.rescanRequested = false
     }
     return entry
+  }
+
+  private func normalizeFailureCutoff(in state: inout State) {
+    guard let cutoff = state.failureThroughSequence else { return }
+    guard let headID = state.headID,
+      let head = state.entriesByID[headID],
+      head.sequence <= cutoff
+    else {
+      state.failureThroughSequence = nil
+      return
+    }
   }
 }

@@ -412,6 +412,10 @@ extension DockSplitStore {
         }
         surfaceIdToPanelId[tabId] = panel.id
         installSubscription(for: panel)
+        applyWindowDockUnreadState(
+            snapshot.isManuallyUnread,
+            panelId: panel.id
+        )
         applyVisibility(to: panel)
         return tabId
     }

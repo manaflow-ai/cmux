@@ -15,6 +15,8 @@ public enum ControlSurfaceFocusResolution: Sendable, Equatable {
     /// The surface id did not match any surface in the workspace (legacy
     /// `not_found` / "Surface not found", `data: {"surface_id": …}`).
     case surfaceNotFound(UUID)
+    /// The surface belongs to a live window Dock that could not be revealed.
+    case dockUnavailable(message: String)
     /// The surface was focused. Carries the echoed identity (window may be absent).
     case focused(windowID: UUID?, workspaceID: UUID, surfaceID: UUID)
 }

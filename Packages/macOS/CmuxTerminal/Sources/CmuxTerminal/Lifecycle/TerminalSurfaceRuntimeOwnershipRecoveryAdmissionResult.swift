@@ -8,4 +8,7 @@ nonisolated enum TerminalSurfaceRuntimeOwnershipRecoveryAdmissionResult: Equatab
 
     /// The bounded recovery queue rejected the request without retaining it.
     case rejected
+
+    /// Every bounded close worker exceeded its watchdog deadline.
+    case closeTeardownStalled
 }

@@ -8770,6 +8770,10 @@ impl Mux {
             }
         }
 
+        #[cfg(test)]
+        if let Some(hook) = self.browser_runtime_connect.lock().unwrap().clone() {
+            hook();
+        }
         let connected = BrowserRuntime::connect_provider(&lease.endpoint, &lease.authentication);
         let mut state = self.browser_runtime.state.lock().unwrap();
         match connected {
@@ -9093,6 +9097,15 @@ impl Mux {
         validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
+        }
+        if let Some(result) = self.commit_legacy_terminal_close(
+            terminal_id,
+            terminal_incarnation,
+            expected_generation,
+            expected_revision,
+            mutation,
+        )? {
+            return Ok(result);
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -23615,6 +23628,118 @@ mod tests {
     }
 
     #[test]
+    fn replayed_host_close_does_not_acquire_public_resource_effects() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        let public_id = match &surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(public_id) => public_id.clone(),
+            ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+        };
+        let mutation = WorkspaceMutation::new("lost-host-close-reply", "legacy-client").unwrap();
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+
+        let host_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .close_terminal(&mutation, None, None, &host.terminal_id, Some(&host.incarnation))
+            .unwrap();
+        assert!(!host_close.replayed);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id.clone())
+        );
+
+        let retry = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert_eq!(retry.terminal_revision, host_close.revision);
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id)
+        );
+    }
+
+    #[test]
+    fn replayed_resource_close_does_not_acquire_terminal_effects() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        let public_id = match &surface.resource_identity().unwrap().content_id {
+            ContentPublicId::Terminal(public_id) => public_id.clone(),
+            ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+        };
+        let host_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .close_terminal(
+                &WorkspaceMutation::new("closed-host", "legacy-client").unwrap(),
+                None,
+                None,
+                &host.terminal_id,
+                Some(&host.incarnation),
+            )
+            .unwrap();
+        let mutation =
+            WorkspaceMutation::new("lost-resource-close-reply", "resource-client").unwrap();
+        let fingerprint = serde_json::json!({
+            "op":"close-terminal",
+            "terminal_id":host.terminal_id,
+            "incarnation":host.incarnation,
+        });
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+        let resource_close = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .commit_resource_patch(
+                &mutation,
+                "terminal.close",
+                &fingerprint,
+                None,
+                Some(resource_revision),
+                &ResourcePatch { changes: Vec::new() },
+                &serde_json::json!({}),
+                &serde_json::json!([]),
+            )
+            .unwrap();
+
+        let retry = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert!(retry.already_closed);
+        assert_eq!(retry.terminal_revision, host_close.revision);
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_close.revision);
+        assert!(mux.surface(surface.id).is_some());
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),
+            Some(public_id)
+        );
+    }
+
+    #[test]
     fn failed_browser_surface_attach_kills_worker() {
         let mux = test_mux();
         let opts = mux.surface_options.lock().unwrap().clone();
@@ -27359,7 +27484,7 @@ mod tests {
     }
 
     #[test]
-    fn bulk_surface_close_uses_one_shared_termination_deadline() {
+    fn server_shutdown_uses_bounded_parallel_termination_fanout() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -27379,7 +27504,10 @@ mod tests {
         }
 
         let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
-        let close = std::thread::spawn(move || result_tx.send(mux.close_pane(pane)).unwrap());
+        let close_mux = mux.clone();
+        let close = std::thread::spawn(move || {
+            result_tx.send(close_mux.close_all_surfaces_for_shutdown()).unwrap();
+        });
         assert!(
             shutdown_gate.wait_until_entered(
                 SHUTDOWN_FANOUT_WORKERS,
@@ -27388,8 +27516,18 @@ mod tests {
             "bulk close did not use the bounded parallel shutdown fanout"
         );
         shutdown_gate.release();
-        assert!(result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap());
+        let error = result_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .expect_err("gated terminal owners unexpectedly completed shutdown");
+        assert!(error.to_string().contains("could not terminate 64 surface process"));
         close.join().unwrap();
+
+        for surface in &surfaces {
+            surface.set_server_shutdown_failure_for_test(false);
+        }
+        mux.close_all_surfaces_for_shutdown().unwrap();
+        assert!(mux.shutdown_owners.is_empty());
     }
 
     #[cfg(unix)]
@@ -27807,13 +27945,7 @@ mod tests {
 
     #[test]
     fn browser_runtime_connection_does_not_hold_the_shared_slot() {
-        let mux = Mux::new_for_test(
-            "browser-runtime-slot",
-            SurfaceOptions {
-                cdp_url: Some("ws://127.0.0.1:9/devtools/browser/unreachable".into()),
-                ..SurfaceOptions::default()
-            },
-        );
+        let mux = Mux::new_for_test("browser-runtime-slot", SurfaceOptions::default());
         let (connect_started_tx, connect_started_rx) = std::sync::mpsc::sync_channel(1);
         let (release_connect_tx, release_connect_rx) = std::sync::mpsc::sync_channel(1);
         let release_connect_rx = Arc::new(Mutex::new(release_connect_rx));
@@ -27823,21 +27955,41 @@ mod tests {
                 release_connect_rx.lock().unwrap().recv().unwrap();
             }
         }));
-        mux.new_browser_tab("about:blank".into(), None, Some((80, 24))).unwrap();
-        connect_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let lease = BrowserProviderTargetLease {
+            provider_id: "browser-runtime-slot".into(),
+            endpoint: "ws://127.0.0.1:9/devtools/browser/unreachable".into(),
+            authentication: crate::browser_provider::BrowserProviderAuthentication::None,
+            tab_id: TabPublicId::parse("tab_00000000000000000000000000000001").unwrap(),
+            target_id: "target-1".into(),
+            revision: 1,
+        };
+        let (connect_done_tx, connect_done_rx) = std::sync::mpsc::sync_channel(1);
+        let connect = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                connect_done_tx.send(mux.browser_runtime_for_provider(&lease).is_err()).unwrap();
+            }
+        });
+        let connect_started = connect_started_rx.recv_timeout(Duration::from_secs(1)).is_ok();
 
         let slot_available = mux.browser_runtime.lock_available_for_test();
-        release_connect_tx.send(()).unwrap();
-        assert!(
-            mux.async_surface_creations.wait_until_idle(Instant::now() + Duration::from_secs(1)),
-            "browser surface creation did not finish"
-        );
+        let _ = release_connect_tx.send(());
+        let connect_failed = connect_done_rx.recv_timeout(Duration::from_secs(1)).ok();
+        if connect_failed.is_some() {
+            connect.join().unwrap();
+        }
         mux.request_daemon_shutdown();
         mux.shutdown().unwrap();
 
+        assert!(connect_started, "provider connection did not reach the blocking test hook");
         assert!(
             slot_available,
             "browser connection setup held the shared runtime slot across blocking work"
+        );
+        assert_eq!(
+            connect_failed,
+            Some(true),
+            "provider connection did not fail within the final bound"
         );
     }
 
@@ -29560,6 +29712,91 @@ mod tests {
         assert_eq!(exited.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
         let _ = reopened.shutdown();
         drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detached_terminal_close_rejects_stale_cleanup_identity_before_commit() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        const TERMINAL: &str = "0000000000004000800000000000000d";
+        const INCARNATION: &str = "1000000000004000800000000000000d";
+        const OTHER_INCARNATION: &str = "1000000000004000800000000000000e";
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-detached-cleanup-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let host_root = crate::terminal_host_runtime::terminal_host_root(&root, "detached-cleanup");
+        let options = SurfaceOptions {
+            terminal_host_root: Some(host_root.clone()),
+            ..SurfaceOptions::default()
+        };
+        let mux = Mux::new_for_test("detached-cleanup", options);
+        let workspace =
+            mux.create_empty_workspace(Some("detached-cleanup".into()), None, None).unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        assert!(
+            mux.persist_terminal_exit_for_test(
+                &terminal,
+                &TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+                    exited_at_ms: 1,
+                },
+            )
+            .unwrap()
+        );
+        mux.surface_exited(surface);
+        let detached = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(detached.surface, None);
+        assert_eq!(detached.terminal.lifecycle, TerminalLifecycle::Exited);
+
+        mux.terminal_adoption_coordinator.state.lock().unwrap().stopping = true;
+        std::fs::create_dir_all(&host_root).unwrap();
+        let uid = std::fs::metadata(&host_root).unwrap().uid();
+        let host_record = crate::terminal_host_runtime::TerminalHostRecord {
+            record_version: 1,
+            terminal_id: TERMINAL.into(),
+            incarnation: OTHER_INCARNATION.into(),
+            endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL}.sock"),
+            owner_token: "01".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+            host_pid: 0,
+            host_start_nonce: String::new(),
+            workspace_key: workspace.key,
+            supports_set_defaults: false,
+            supports_terminate_only: false,
+            supports_terminate_ack: false,
+            supports_clear_history: false,
+        };
+        let host_record_path = host_root.join(format!("{TERMINAL}.json"));
+        std::fs::write(&host_record_path, serde_json::to_vec(&host_record).unwrap()).unwrap();
+        let mut permissions = std::fs::metadata(&host_record_path).unwrap().permissions();
+        permissions.set_mode(0o600);
+        std::fs::set_permissions(&host_record_path, permissions).unwrap();
+
+        let error = mux
+            .close_terminal(TERMINAL, INCARNATION)
+            .expect_err("detached terminal close accepted a different host incarnation");
+        assert!(format!("{error:#}").contains("terminal-host incarnation changed"));
+        assert_eq!(
+            mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Exited,
+            "rejected host cleanup changed the detached terminal lifecycle"
+        );
+
+        std::fs::remove_file(host_record_path).unwrap();
+        let closed = mux.close_terminal(TERMINAL, INCARNATION).unwrap();
+        assert_eq!(closed.surface, None);
+        assert_eq!(
+            mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Tombstoned
+        );
+        mux.terminal_adoption_coordinator.state.lock().unwrap().stopping = false;
+        mux.shutdown().unwrap();
+        drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
 
