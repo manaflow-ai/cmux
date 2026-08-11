@@ -493,7 +493,7 @@ fn reset_exclusive_rename_probe_rejects_blocked_syscalls() {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
-fn checked_reset_deletion_support_rejects_read_only_state_root() {
+fn checked_reset_deletion_support_does_not_require_writable_state_root() {
     use std::os::unix::fs::PermissionsExt;
 
     if unsafe { libc::geteuid() } == 0 {
@@ -510,7 +510,7 @@ fn checked_reset_deletion_support_rejects_read_only_state_root() {
 
     fs::set_permissions(&root, original_permissions).unwrap();
     fs::remove_dir_all(root).unwrap();
-    assert!(!supported);
+    assert!(supported, "capability detection must not create probe files");
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
