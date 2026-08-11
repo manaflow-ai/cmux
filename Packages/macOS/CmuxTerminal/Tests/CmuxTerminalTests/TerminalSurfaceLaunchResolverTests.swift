@@ -153,6 +153,40 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(resolved.arguments == ["/bin/zsh", "-l"])
     }
 
+    @Test func fixedBundleResourceChecksRunOffMainActorOncePerResolver() {
+        let recorder = LaunchResourceFileCheckRecorder()
+        let filesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+            installAgentCommandShims: { _, _, _ in nil },
+            isExecutableFile: { recorder.record(path: $0) }
+        )
+        let resolver = makeResolver(
+            defaultArguments: ["/bin/zsh", "-l"],
+            runtimeFilesystem: filesystem,
+            resourceURL: URL(fileURLWithPath: "/tmp/cmux-test-resources")
+        )
+        let request = TerminalSurfaceLaunchRequest(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            configTemplate: nil,
+            workingDirectory: nil,
+            portOrdinal: 0,
+            initialCommand: nil,
+            initialInput: nil,
+            initialEnvironmentOverrides: [:],
+            additionalEnvironment: [:]
+        )
+
+        _ = resolver.resolve(request, commandShims: nil)
+        _ = resolver.resolve(request, commandShims: nil)
+
+        #expect(recorder.paths == [
+            "/tmp/cmux-test-resources/bin/cmux",
+            "/tmp/cmux-test-resources/bin/ghostty",
+        ])
+        #expect(!recorder.checkedOnMainThread)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func commandShimInstallUsesInjectedFiveSecondDeadline() async throws {
         let clock = LaunchResolverManualClock()
@@ -250,6 +284,28 @@ struct TerminalSurfaceLaunchResolverTests {
             agentCommandShimInstallDeadline: agentCommandShimInstallDeadline,
             agentCommandShimInstallDeadlineClock: agentCommandShimInstallDeadlineClock
         )
+    }
+}
+
+private final class LaunchResourceFileCheckRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedPaths: [String] = []
+    private var didCheckOnMainThread = false
+
+    var paths: [String] {
+        lock.withLock { recordedPaths }
+    }
+
+    var checkedOnMainThread: Bool {
+        lock.withLock { didCheckOnMainThread }
+    }
+
+    func record(path: String) -> Bool {
+        lock.withLock {
+            recordedPaths.append(path)
+            didCheckOnMainThread = didCheckOnMainThread || Thread.isMainThread
+        }
+        return true
     }
 }
 
