@@ -492,9 +492,12 @@ jobs:
           $env:TEMP = $testTemp
           $env:TMP = $testTemp
           Set-Location cmux-tui
-          # The published Rust SDK, sidebar wrapper, and terminal-host client use Unix sockets.
-          # Test every Windows-capable workspace crate on the hosted Windows runner.
-          cargo test --workspace --exclude cmux-sdk --exclude cmux-sidebar --exclude cmux-terminal-client --locked --target x86_64-pc-windows-gnu
+          # The published Rust SDK, sidebar wrapper, terminal-host client, and legacy TUI test
+          # fixtures use Unix sockets or /bin/sh. Test every other workspace crate, then run
+          # the Windows-specific TUI unit and integration suites explicitly.
+          cargo test --workspace --exclude cmux-sdk --exclude cmux-sidebar --exclude cmux-terminal-client --exclude cmux-tui --locked --target x86_64-pc-windows-gnu
+          cargo test -p cmux-tui --bin cmux-tui --locked --target x86_64-pc-windows-gnu windows
+          cargo test -p cmux-tui --test windows_remote_owner --locked --target x86_64-pc-windows-gnu
 
       - name: Verify long Windows state path
         shell: bash
