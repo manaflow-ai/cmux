@@ -657,7 +657,11 @@ fn finish_projection_commit(
 ) -> Result<Value, ResourceError> {
     let commit = match commit {
         Ok(commit) => commit,
-        Err(_) => {
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: {} projection commit failed: {error:#}",
+                prepared.operation
+            );
             let _ = mux.mark_resource_effect_indeterminate(&prepared.idempotency_key);
             return Err(effects::indeterminate_error(
                 &prepared.idempotency_key,

@@ -1,6 +1,7 @@
 use std::fs;
+use std::io::Read;
 #[cfg(unix)]
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
@@ -236,12 +237,20 @@ impl Drop for HeadlessServer {
         let hosts_stopped = self.close_all_resources();
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let mut server_stderr = String::new();
+        if hosts_stopped.is_err()
+            && let Some(mut stderr) = self.child.stderr.take()
+        {
+            let _ = stderr.read_to_string(&mut server_stderr);
+        }
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(&self.dir);
         if let Err(error) = hosts_stopped
             && !std::thread::panicking()
         {
-            panic!("headless CLI fixture left a durable terminal-host process behind: {error}");
+            panic!(
+                "headless CLI fixture left a durable terminal-host process behind: {error}; server stderr: {server_stderr}"
+            );
         }
     }
 }
