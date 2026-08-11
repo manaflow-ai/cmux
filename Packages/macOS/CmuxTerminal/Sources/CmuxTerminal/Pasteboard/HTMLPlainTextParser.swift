@@ -13,6 +13,7 @@ struct HTMLPlainTextParser: Sendable {
 
     private static let hiddenBlockTags: Set<String> = [
         "head",
+        "iframe",
         "noscript",
         "script",
         "style",
