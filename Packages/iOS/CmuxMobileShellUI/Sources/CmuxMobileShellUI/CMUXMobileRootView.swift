@@ -432,8 +432,8 @@ struct CMUXMobileRootView: View {
                 // auto-presents the pairing sheet since there is nothing to list).
                 DisconnectedWorkspaceShellView(
                     hasKnownPairedMac: store.hasKnownPairedMac,
-                    connectionMethodStore: connectionMethodStore,
-                    showAddDevice: showAddDevice,
+                    showAddDevice: addComputerAction,
+                    showPairingScanner: pairingScannerAction,
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
@@ -455,9 +455,8 @@ struct CMUXMobileRootView: View {
                     store: store,
                     isRestoringStoredMac: isRestoringStoredMac,
                     signOut: signOut,
-                    connectionMethodStore: connectionMethodStore,
-                    showAddDevice: showAddDevice,
-                    showPairingScanner: showPairingScanner,
+                    showAddDevice: addComputerAction,
+                    showPairingScanner: pairingScannerAction,
                     showSettings: showSettings,
                     deviceTreePresentation: childSheetPresentation(
                         for: .workspaceDeviceTree
@@ -913,6 +912,13 @@ struct CMUXMobileRootView: View {
     /// connection method. Its presentation contains no manual pairing controls.
     private func showAttachVersionApproval() {
         presentPairing(.versionApproval)
+    }
+
+    /// Manual host and pairing-code authorization create Tailscale routes, so
+    /// every ordinary Add Computer entrypoint shares this availability gate.
+    private var addComputerAction: (() -> Void)? {
+        guard allowsManualPairing else { return nil }
+        return showAddDevice
     }
 
     /// Scanner entrypoints use the same gate as the manual pairing form.

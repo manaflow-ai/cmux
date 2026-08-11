@@ -1,6 +1,5 @@
 import CmuxMobilePairedMac
 import CmuxMobileShell
-import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
@@ -14,11 +13,10 @@ struct DisconnectedWorkspaceShellView: View {
     /// Whether this install has ever paired a Mac. Used to distinguish first
     /// setup from reconnect guidance.
     let hasKnownPairedMac: Bool
-    /// This long-lived shell remains mounted behind Settings, so it observes the
-    /// shared choice directly instead of depending on a parent diff while hidden.
-    let connectionMethodStore: MobileConnectionMethodStore?
-    /// Present manual pairing. The root re-checks authorization when invoked.
-    let showAddDevice: () -> Void
+    /// Present manual pairing. `nil` when the selected connection method cannot
+    /// use the Tailscale route that pairing authorizes.
+    let showAddDevice: (() -> Void)?
+    let showPairingScanner: (() -> Void)?
     let signOut: () -> Void
     /// The setup gate to highlight in the "Trouble connecting?" help (iOS only).
     /// The root passes `.macUnreachable` for a returning device whose stored Mac
@@ -40,7 +38,6 @@ struct DisconnectedWorkspaceShellView: View {
     /// The display name of the computer whose reconnect just failed, driving
     /// the failure alert. `nil` = no alert.
     @State private var connectFailedComputerName: String?
-    @State private var observedConnectionMethod: MobileConnectionMethod?
     #endif
 
     var body: some View {
@@ -113,23 +110,6 @@ struct DisconnectedWorkspaceShellView: View {
         } message: {
             Text(connectFailedMessage)
         }
-        .task(id: connectionMethodStore.map(ObjectIdentifier.init)) {
-            guard let connectionMethodStore else {
-                observedConnectionMethod = nil
-                return
-            }
-            for await method in connectionMethodStore.changes() {
-                observedConnectionMethod = method
-            }
-        }
-        #endif
-    }
-
-    private var allowsManualPairing: Bool {
-        #if os(iOS)
-        (observedConnectionMethod ?? connectionMethodStore?.method) == .tailscale
-        #else
-        true
         #endif
     }
 
@@ -176,7 +156,7 @@ struct DisconnectedWorkspaceShellView: View {
                 ))
             }
             Section {
-                if allowsManualPairing {
+                if let showAddDevice {
                     Button(action: showAddDevice) {
                         Label(
                             L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
@@ -220,7 +200,7 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
             ))
         } actions: {
-            if allowsManualPairing {
+            if let showAddDevice {
                 Button(action: showAddDevice) {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                 }
@@ -305,7 +285,7 @@ struct DisconnectedWorkspaceShellView: View {
     private var savedMacs: [MobilePairedMac] { store?.pairedMacs ?? [] }
 
     private var savedMacDescription: String {
-        guard allowsManualPairing else {
+        guard showAddDevice != nil else {
             return L10n.string(
                 "mobile.devices.savedDescription.reconnectOnly",
                 defaultValue: "Tap a saved computer to reconnect."
@@ -356,7 +336,7 @@ struct DisconnectedWorkspaceShellView: View {
                 .frame(maxWidth: 320)
                 .padding(.bottom, 4)
             }
-            if allowsManualPairing {
+            if let showAddDevice {
                 Button(action: showAddDevice) {
                     Text(
                         savedMacs.isEmpty
@@ -407,7 +387,7 @@ struct DisconnectedWorkspaceShellView: View {
 
     @ViewBuilder
     private var addDeviceToolbarButton: some View {
-        if allowsManualPairing {
+        if let showAddDevice {
             Button(action: showAddDevice) {
                 Image(systemName: "plus")
             }
