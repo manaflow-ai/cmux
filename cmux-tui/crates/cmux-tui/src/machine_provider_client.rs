@@ -2515,9 +2515,7 @@ mod tests {
                     );
                 }
             };
-            accept_rejection_close(
-                stream.write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1]),
-            );
+            accept_rejection_close(stream.write_all(&vec![b'x'; MAX_CONTROL_FRAME_BYTES + 1]));
             accept_rejection_close(stream.write_all(b"\n"));
             accept_rejection_close(stream.flush());
         });
