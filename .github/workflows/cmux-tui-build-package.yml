@@ -488,7 +488,8 @@ jobs:
         run: |
           Remove-Item Env:CMUX_GHOSTTY_SRC -ErrorAction SilentlyContinue
           $localAppData = [IO.Path]::GetFullPath($env:LOCALAPPDATA).TrimEnd([IO.Path]::DirectorySeparatorChar)
-          $testTempName = "cmux-tui-native-tests-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$([guid]::NewGuid().ToString('N'))"
+          # Keep the owned root short enough for Windows AF_UNIX test sockets.
+          $testTempName = "ct-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
           $testTemp = [IO.Path]::GetFullPath((Join-Path $localAppData $testTempName))
           if (-not $testTemp.StartsWith("$localAppData$([IO.Path]::DirectorySeparatorChar)", [StringComparison]::OrdinalIgnoreCase)) {
             throw "Native Windows test temp root escaped LOCALAPPDATA: $testTemp"
