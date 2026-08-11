@@ -8770,14 +8770,28 @@ impl Mux {
         state: &State,
         terminal_id: &str,
     ) -> anyhow::Result<Option<Arc<Surface>>> {
-        unique_terminal_match(
-            terminal_id,
-            state.terminal_catalog.values().filter_map(|surface| {
-                self.resource_terminal_host_identity(surface)
-                    .map(|identity| (surface.clone(), identity))
-            }),
-        )
-        .map(|matched| matched.map(|(surface, _)| surface))
+        let Some(public_ids) = state.terminal_catalog_by_host.get(terminal_id) else {
+            return Ok(None);
+        };
+        let mut runtime: Option<Arc<Surface>> = None;
+        for public_id in public_ids {
+            let candidate = state.terminal_catalog.get(public_id).with_context(|| {
+                format!("terminal host index references missing catalog entry {public_id}")
+            })?;
+            let identity = self.resource_terminal_host_identity(candidate).with_context(|| {
+                format!("terminal catalog entry {public_id} has no host identity")
+            })?;
+            anyhow::ensure!(identity.terminal_id == terminal_id, "terminal_host_index_mismatch");
+            if let Some(existing) = runtime.as_ref() {
+                anyhow::ensure!(
+                    existing.shares_terminal_runtime(candidate),
+                    "duplicate_terminal_id"
+                );
+            } else {
+                runtime = Some(candidate.clone());
+            }
+        }
+        Ok(runtime)
     }
 
     fn terminal_host_callback_target(
