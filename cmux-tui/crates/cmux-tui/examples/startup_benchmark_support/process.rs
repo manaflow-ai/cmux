@@ -2327,6 +2327,19 @@ mod tests {
     }
 
     #[test]
+    fn restored_fixture_teardown_accepts_its_owned_durable_terminal() {
+        let value = serde_json::json!([
+            {"id": "term:owned", "workspace_ref": "workspace:one"}
+        ]);
+
+        assert_eq!(
+            restored_cleanup_plan(&value, "term:owned").unwrap(),
+            RestoredCleanupPlan::AlreadyQuiescent,
+            "fixture teardown must use process shutdown when its durable terminal remains listed"
+        );
+    }
+
+    #[test]
     fn restored_cleanup_accepts_an_empty_terminal_list_as_quiescent() {
         assert_eq!(
             restored_cleanup_plan(&serde_json::json!([]), "term:owned").unwrap(),
