@@ -2260,42 +2260,28 @@ struct TerminalBackendTopologyCoordinatorTests {
     }
 
     @Test
-    func unsupportedStructuralMutationsAreExhaustive() {
-        #expect(TerminalBackendTopologyMutationCoordinator.supportedMutations == [
-            .closeTerminal,
-            .reparentTerminal,
-        ])
+    func structuralMutationSupportIsExhaustive() {
         #expect(
-            Set(TerminalBackendTopologyMutation.allCases)
-                .subtracting(TerminalBackendTopologyMutationCoordinator.supportedMutations)
-            == [
-                .createWorkspace,
-                .closeWorkspace,
-                .renameWorkspace,
-                .splitPane,
-                .closePane,
-                .attachSurface,
-                .renameSurface,
-                .moveTab,
-                .reorderTab,
-                .reorderWorkspace,
-                .changeSplitRatio,
-            ]
+            TerminalBackendTopologyMutationCoordinator.supportedMutations
+                == Set(TerminalBackendTopologyMutation.allCases)
         )
     }
 
     @Test
     func structuralProjectionPlanScalesToOneThousandDormantWorkspaces() throws {
-        let workspaces = (0..<1_000).map { index in
-            makeWorkspace(
+        var workspaces: [CanonicalWorkspace] = []
+        workspaces.reserveCapacity(1_000)
+        for index in 0..<1_000 {
+            let ordinal = UInt64(index + 1)
+            workspaces.append(makeWorkspace(
                 workspaceID: UUID(),
                 workspaceName: "workspace \(index)",
-                workspaceNumber: UInt64(index + 1),
-                screenNumber: UInt64(index + 1),
-                paneNumber: UInt64(index + 1),
-                firstSurfaceNumber: UInt64(index + 1),
+                workspaceNumber: ordinal,
+                screenNumber: ordinal,
+                paneNumber: ordinal,
+                firstSurfaceNumber: ordinal,
                 surfaceIDs: [UUID()]
-            )
+            ))
         }
         let topology = try CanonicalTopology(workspaces: workspaces)
 
@@ -2309,15 +2295,18 @@ struct TerminalBackendTopologyCoordinatorTests {
 
     @Test
     func supersededStructuralProjectionStopsBeforeScanningTheTopology() async throws {
-        let workspaces = (0..<1_000).map { index in
-            makeWorkspace(
+        var workspaces: [CanonicalWorkspace] = []
+        workspaces.reserveCapacity(1_000)
+        for index in 0..<1_000 {
+            let ordinal = UInt64(index + 1)
+            workspaces.append(makeWorkspace(
                 workspaceID: UUID(),
-                workspaceNumber: UInt64(index + 1),
-                screenNumber: UInt64(index + 1),
-                paneNumber: UInt64(index + 1),
-                firstSurfaceNumber: UInt64(index + 1),
+                workspaceNumber: ordinal,
+                screenNumber: ordinal,
+                paneNumber: ordinal,
+                firstSurfaceNumber: ordinal,
                 surfaceIDs: [UUID()]
-            )
+            ))
         }
         let topology = try CanonicalTopology(workspaces: workspaces)
         let gate = ProjectionPlanCancellationGate()
@@ -2335,20 +2324,20 @@ struct TerminalBackendTopologyCoordinatorTests {
     }
 
     @Test @MainActor
-    func everyUnsupportedMutationReportsAndReturnsFalse() {
+    func explicitRejectionReportsEveryMutationAndReturnsFalse() {
         var failures: [String] = []
-        let coordinator = TerminalBackendTopologyMutationCoordinator {
-            failures.append($0)
-        }
-        let unsupported = Set(TerminalBackendTopologyMutation.allCases)
-            .subtracting(TerminalBackendTopologyMutationCoordinator.supportedMutations)
+        let coordinator = TerminalBackendTopologyMutationCoordinator(
+            mutator: RejectingTopologyMutator(),
+            failureReporter: { failures.append($0) }
+        )
+        let mutations = TerminalBackendTopologyMutation.allCases
 
-        for mutation in unsupported {
+        for mutation in mutations {
             #expect(coordinator.reject(mutation) == false)
         }
 
-        #expect(failures.count == unsupported.count)
-        for mutation in unsupported {
+        #expect(failures.count == mutations.count)
+        for mutation in mutations {
             #expect(failures.contains(where: { $0.contains(mutation.rawValue) }))
         }
     }
@@ -4261,6 +4250,7 @@ private final class CanonicalTestTerminalPanelFactory: TerminalPanelCreating {
     func makeTerminalPanel(_ request: TerminalPanelCreationRequest) -> TerminalPanel {
         TerminalPanel(
             externalRequest: request,
+            terminalLifecycleID: UUID(),
             presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
             externalRuntime: CanonicalTestTerminalRuntime()
         )
@@ -4536,7 +4526,8 @@ private actor RecordingNativeBrowserService:
         guard activeClaimCount < expectedCount else { return }
         let identifier = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else if activeClaimCount >= expectedCount {
@@ -4560,7 +4551,8 @@ private actor RecordingNativeBrowserService:
     private func waitForClaimRelease() async throws {
         let identifier = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else if blocksClaims {

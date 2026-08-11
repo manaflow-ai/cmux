@@ -27,6 +27,7 @@ extension TabManager {
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
+        focusHistoryNow: @escaping @MainActor @Sendable () -> Date = { Date() },
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard
@@ -43,6 +44,7 @@ extension TabManager {
             workspaceGitMetadataReader: workspaceGitMetadataReader,
             gitPollClock: gitPollClock,
             gitProbeLimiter: gitProbeLimiter,
+            focusHistoryNow: focusHistoryNow,
             panelTitleUpdateCoalescer: panelTitleUpdateCoalescer,
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults
