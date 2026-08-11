@@ -5822,7 +5822,7 @@ fn journal_agent_append_applies_a_contiguous_projection_prefix() {
 }
 
 #[test]
-fn journal_agent_future_socket_from_different_session_preserves_hook_session() {
+fn journal_agent_future_socket_from_different_hook_session_is_rejected() {
     let mut registry = WorkspaceRegistry::in_memory("journal-agent-socket-transition").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-socket-transition-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
@@ -5861,24 +5861,27 @@ fn journal_agent_future_socket_from_different_session_preserves_hook_session() {
             "source_session":source_session,
             "extra":{"provider":"pi"},
         });
-        registry
-            .commit_agent_projection(
-                &WorkspaceMutation::new(
-                    format!("journal-agent-socket-transition-{revision}"),
-                    "socket-test",
-                )
-                .unwrap(),
-                &json!({"source_session":source_session}),
-                Some(revision),
-                &terminal_id,
-                &result,
-                &json!([]),
+        let commit = registry.commit_agent_projection(
+            &WorkspaceMutation::new(
+                format!("journal-agent-socket-transition-{revision}"),
+                "socket-test",
             )
-            .unwrap();
+            .unwrap(),
+            &json!({"source_session":source_session}),
+            Some(revision),
+            &terminal_id,
+            &result,
+            &json!([]),
+        );
         let agent = registry.public_projections().unwrap().agents.remove(0);
         if source_session == "old-hook-session" {
+            commit.unwrap();
             assert_eq!(agent.source, "hook");
         } else {
+            let error = commit.unwrap_err();
+            assert!(error.to_string().contains(
+                "agent socket report session Some(\"new-socket-session\") conflicts with active hook session Some(\"old-hook-session\")"
+            ));
             assert_eq!(agent.source, "hook");
             assert_eq!(agent.source_session.as_deref(), Some("old-hook-session"));
         }
@@ -6029,7 +6032,7 @@ fn journal_agent_stale_socket_does_not_replace_hook_without_session_identity() {
 }
 
 #[test]
-fn journal_agent_delayed_socket_report_does_not_replace_active_hook_session() {
+fn journal_agent_delayed_socket_report_for_different_hook_session_is_rejected() {
     let mut registry = WorkspaceRegistry::in_memory("journal-agent-delayed-socket").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-delayed-socket-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
@@ -6063,7 +6066,7 @@ fn journal_agent_delayed_socket_report_does_not_replace_active_hook_session() {
         "source_session":"stale-socket-session",
         "extra":{"provider":"socket-test"},
     });
-    registry
+    let error = registry
         .commit_agent_projection(
             &WorkspaceMutation::new("journal-agent-delayed-socket", "socket-test").unwrap(),
             &json!({"source_session":"stale-socket-session"}),
@@ -6072,7 +6075,10 @@ fn journal_agent_delayed_socket_report_does_not_replace_active_hook_session() {
             &result,
             &json!([]),
         )
-        .unwrap();
+        .unwrap_err();
+    assert!(error.to_string().contains(
+        "agent socket report session Some(\"stale-socket-session\") conflicts with active hook session Some(\"active-hook-session\")"
+    ));
     let agent = registry.public_projections().unwrap().agents.remove(0);
     assert_eq!(agent.source, "hook");
     assert_eq!(agent.source_session.as_deref(), Some("active-hook-session"));
@@ -6372,6 +6378,95 @@ fn journal_agent_explicit_start_reopens_final_same_session_identity() {
     assert_eq!(agent.state, "idle");
     assert_eq!(agent.source, "hook");
     assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
+}
+
+#[test]
+fn journal_agent_new_turn_identity_reopens_final_reused_session() {
+    let root = temp_root("journal-agent-reused-session-new-turn");
+    let session = "journal-agent-reused-session-new-turn";
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-reused-session-topology");
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        for (index, event, turn_id) in [
+            (0, "SessionStart", "turn-one"),
+            (1, "AgentEnd", "turn-one"),
+            (2, "AgentStart", "turn-two"),
+        ] {
+            let ingress = crate::agent_hook_journal_ingress(
+                "pi",
+                event,
+                Some(terminal_id.as_str()),
+                json!({"session_id":"reused-session","turn_id":turn_id}),
+            )
+            .unwrap();
+            registry
+                .append_journal_ingress(
+                    &ingress,
+                    &validated,
+                    "client_reused_session_new_turn",
+                    &format!("journal_agent_reused_session_new_turn_{index}"),
+                )
+                .unwrap();
+        }
+        let stored_turn_id = registry
+            .connection
+            .query_row(
+                "SELECT json_extract(result_json, '$.extra.turn_id')
+                 FROM resource_agent_projections
+                 WHERE terminal_id = ?1",
+                [terminal_id.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(stored_turn_id, "turn-two");
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source, "hook");
+    assert_eq!(agent.source_session.as_deref(), Some("reused-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn journal_agent_same_turn_identity_does_not_reopen_final_session() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-same-turn-after-final").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-same-turn-after-final-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, event) in ["SessionStart", "AgentEnd", "AgentStart"].into_iter().enumerate() {
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            event,
+            Some(terminal_id.as_str()),
+            json!({"session_id":"reused-session","turn_id":"turn-one"}),
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_same_turn_after_final",
+                &format!("journal_agent_same_turn_after_final_{index}"),
+            )
+            .unwrap();
+    }
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "done");
+    assert_eq!(agent.source_session.as_deref(), Some("reused-session"));
 }
 
 #[test]
