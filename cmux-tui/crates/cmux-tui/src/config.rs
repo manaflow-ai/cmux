@@ -3889,7 +3889,10 @@ fn desktop_theme_command_output_with_lifecycle_signals(
         Err(mpsc::RecvTimeoutError::Timeout) => {
             #[cfg(unix)]
             kill_ghostty_process_group(child_group);
-            if output_reader.recv_timeout(GHOSTTY_HELPER_REAP_DEADLINE).is_ok()
+            let reap_timeout = ghostty_config_deadline_remaining(deadline_at)?
+                .min(GHOSTTY_HELPER_REAP_DEADLINE);
+            if !reap_timeout.is_zero()
+                && output_reader.recv_timeout(reap_timeout).is_ok()
                 && let Some(reaped_sender) = reaped_sender
             {
                 let _ = reaped_sender.send(());
