@@ -1157,6 +1157,19 @@ mod tests {
         assert!(error.contains("cannot connect external machines"), "{error}");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn added_ssh_machine_defaults_to_the_installed_windows_companion() {
+        let mut runtime = MachineRuntime::external(Vec::new(), true);
+        let key = runtime.connect_machine("buildbox").unwrap();
+
+        assert!(matches!(
+            runtime.entry(key).map(|entry| &entry.target),
+            Some(MachineTargetConfig::Ssh { binary, .. })
+                if binary == cmux_remote::ssh_bootstrap::WINDOWS_REMOTE_BINARY
+        ));
+    }
+
     #[cfg(unix)]
     #[test]
     fn ssh_machine_connection_uses_managed_bootstrap_and_fail_closed_policy() {

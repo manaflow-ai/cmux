@@ -1195,6 +1195,16 @@ mod tests {
     }
 
     #[test]
+    fn native_ssh_defaults_to_the_installed_windows_companion() {
+        let flags = parse_windows_ssh_flags(&["buildbox".into()]).unwrap();
+
+        assert_eq!(
+            flags.options.remote_binary,
+            cmux_remote::ssh_bootstrap::WINDOWS_REMOTE_BINARY
+        );
+    }
+
+    #[test]
     fn windows_relay_command_quotes_expanding_paths() {
         let options = ManagedSshOptions {
             destination: "buildbox".into(),
