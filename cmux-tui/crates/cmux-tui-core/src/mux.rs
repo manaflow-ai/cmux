@@ -20905,13 +20905,10 @@ mod tests {
             }),
             Some("create-detached-terminal"),
         );
-        let terminal_id = TerminalPublicId::parse(
-            created["result"]["value"]["terminal_id"].as_str().unwrap(),
-        )
-        .unwrap();
-        let first = mux
-            .surface(mux.resource_surface_for_terminal(&terminal_id).unwrap())
-            .unwrap();
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let first = mux.surface(mux.resource_surface_for_terminal(&terminal_id).unwrap()).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         // A second tab keeps the pane live after the terminal view detaches.
         let second = mux.new_tab(Some(pane), None, None).unwrap();
