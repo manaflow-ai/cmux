@@ -226,7 +226,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         }
 
         cmux_ssh_auth_stopped_identity() {
-          cmux_ssh_auth_kernel_record=$(cmux_ssh_auth_kernel_process_identity "$1") || return 1
+          cmux_ssh_auth_kernel_record=$(cmux_ssh_auth_kernel_process_identity \
+            "$1" "${2:-}") || return $?
           cmux_ssh_auth_kernel_parent=${cmux_ssh_auth_kernel_record%%|*}
           cmux_ssh_auth_kernel_remainder=${cmux_ssh_auth_kernel_record#*|}
           cmux_ssh_auth_kernel_group=${cmux_ssh_auth_kernel_remainder%%|*}

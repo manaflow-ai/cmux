@@ -697,6 +697,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
               cmux_current[$1 SUBSEP $3 SUBSEP cmux_start] = 1
               cmux_current_group[$1] = $3
               cmux_current_parent[$1] = $2
+              cmux_current_started[$1] = cmux_start
               next
             }
             FILENAME == ARGV[2] {
@@ -735,6 +736,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
                 cmux_current_key = cmux_fields[2] SUBSEP cmux_fields[1] SUBSEP cmux_fields[3]
                 if (cmux_current_key in cmux_current) {
                   cmux_resume_pid[cmux_fields[2]] = cmux_fields[1]
+                  cmux_resume_started[cmux_fields[2]] = cmux_fields[3]
                   cmux_resume_tree[cmux_fields[2]] = cmux_fields[1]
                 }
               }
@@ -742,6 +744,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
                 if (cmux_key in cmux_current) {
                   split(cmux_key, cmux_fields, SUBSEP)
                   cmux_resume_pid[cmux_fields[1]] = cmux_fields[2]
+                  cmux_resume_started[cmux_fields[1]] = cmux_fields[3]
                 }
               }
               # If the first post-STOP snapshot failed, recover stopped
@@ -758,12 +761,14 @@ extension SSHForegroundAuthenticationRetryPolicy {
                       cmux_resume_tree[cmux_parent] == cmux_group) {
                     cmux_resume_tree[cmux_pid] = cmux_group
                     cmux_resume_pid[cmux_pid] = cmux_group
+                    cmux_resume_started[cmux_pid] = cmux_current_started[cmux_pid]
                     cmux_changed = 1
                   }
                 }
               } while (cmux_changed)
               for (cmux_pid in cmux_resume_pid) {
-                print cmux_pid > cmux_pids
+                print cmux_pid, cmux_resume_pid[cmux_pid], \
+                  cmux_resume_started[cmux_pid] > cmux_pids
               }
             }
           ' "$cmux_ssh_auth_process_snapshot" \
@@ -777,9 +782,17 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
           cmux_ssh_auth_rollback_signal_count=0
           cmux_ssh_auth_rollback_signal_budget=0
-          while IFS= read -r cmux_ssh_auth_pid; do
+          while read -r cmux_ssh_auth_pid cmux_ssh_auth_group \
+            cmux_ssh_auth_started; do
             case "$cmux_ssh_auth_pid" in ''|0|*[!0-9]*) continue ;; esac
+            case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
+            case "$cmux_ssh_auth_started" in
+              ''|*[!A-Za-z0-9_:]*) continue ;;
+            esac
             if [ "$cmux_ssh_auth_rollback_signal_count" -ge 1024 ]; then return 1; fi
+            cmux_ssh_auth_rollback_signal_count=$((
+              cmux_ssh_auth_rollback_signal_count + 1
+            ))
             if [ "$cmux_ssh_auth_rollback_signal_budget" -le 0 ]; then
               cmux_ssh_auth_rollback_now="$(cmux_ssh_auth_now_millis)" || return 1
               if [ "$cmux_ssh_auth_rollback_now" -ge \
@@ -790,10 +803,16 @@ extension SSHForegroundAuthenticationRetryPolicy {
                 cmux_ssh_auth_rollback_signal_budget - 1
               ))
             fi
+            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_group|$cmux_ssh_auth_started"
+            if cmux_ssh_auth_current_identity=$(cmux_ssh_auth_stopped_identity \
+              "$cmux_ssh_auth_pid" "$cmux_ssh_auth_rollback_deadline_millis"); then
+              cmux_ssh_auth_current_remainder=${cmux_ssh_auth_current_identity#*|}
+            else
+              case "$?" in 124) return 1 ;; *) continue ;; esac
+            fi
+            if [ "$cmux_ssh_auth_current_remainder" != \
+              "$cmux_ssh_auth_expected_identity" ]; then continue; fi
             kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-            cmux_ssh_auth_rollback_signal_count=$((
-              cmux_ssh_auth_rollback_signal_count + 1
-            ))
           done < "$cmux_ssh_auth_individual_processes"
           return 0
         }
