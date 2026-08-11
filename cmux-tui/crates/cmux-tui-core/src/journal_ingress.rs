@@ -467,6 +467,10 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
                 match mux.commit_session_journal_events(&events) {
                     Ok(commits) => {
+                        // A durable completion also closes this batch's ownership scope. Callers
+                        // may tear down the mux as soon as the receipt arrives, so release the
+                        // writer's transient owner before waking them.
+                        drop(mux);
                         complete_batch_success(&batch, commits);
                         break;
                     }
