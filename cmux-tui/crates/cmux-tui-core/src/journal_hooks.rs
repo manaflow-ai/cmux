@@ -846,9 +846,11 @@ mod tests {
     use serde_json::Value;
     use sha2::Digest;
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::io::Read;
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
-    use std::os::unix::ffi::OsStrExt;
+    use std::os::fd::AsRawFd;
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
 
     fn document(kind: &str, payload: Value) -> JournalDocument {
         JournalDocument::new(SessionJournalRecord {
@@ -967,112 +969,38 @@ mod tests {
     }
 
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
-    struct TestProcessExitSignal {
-        descriptor: OwnedFd,
-    }
-
-    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
-    impl TestProcessExitSignal {
-        fn observe(pid: libc::pid_t) -> std::io::Result<Option<Self>> {
-            if unsafe { libc::kill(pid, 0) } < 0
-                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-            {
-                return Ok(None);
+    fn wait_for_fifo_event(
+        descriptor: std::os::fd::RawFd,
+        event: libc::c_short,
+        deadline: Instant,
+    ) -> std::io::Result<bool> {
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(false);
             }
-            #[cfg(target_os = "linux")]
-            let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as libc::c_int;
-            #[cfg(target_vendor = "apple")]
-            let descriptor = unsafe { libc::kqueue() };
-            if descriptor < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() == Some(libc::ESRCH) {
-                    return Ok(None);
+            let timeout_ms = remaining.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
+            let mut poll_descriptor =
+                libc::pollfd { fd: descriptor, events: libc::POLLIN | libc::POLLHUP, revents: 0 };
+            let ready = unsafe { libc::poll(&raw mut poll_descriptor, 1, timeout_ms) };
+            if ready > 0 {
+                if poll_descriptor.revents & event != 0 {
+                    return Ok(true);
                 }
+                if poll_descriptor.revents & (libc::POLLERR | libc::POLLNVAL) != 0 {
+                    return Err(std::io::Error::other(format!(
+                        "fixture lease poll failed with events {:#x}",
+                        poll_descriptor.revents
+                    )));
+                }
+                continue;
+            }
+            if ready == 0 {
+                return Ok(false);
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
                 return Err(error);
-            }
-            // SAFETY: pidfd_open or kqueue returned a new owned descriptor.
-            let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
-            #[cfg(target_vendor = "apple")]
-            {
-                let change = libc::kevent {
-                    ident: pid as libc::uintptr_t,
-                    filter: libc::EVFILT_PROC,
-                    flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_ONESHOT,
-                    fflags: libc::NOTE_EXIT,
-                    data: 0,
-                    udata: std::ptr::null_mut(),
-                };
-                if unsafe {
-                    libc::kevent(
-                        descriptor.as_raw_fd(),
-                        &raw const change,
-                        1,
-                        std::ptr::null_mut(),
-                        0,
-                        std::ptr::null(),
-                    )
-                } < 0
-                {
-                    let error = std::io::Error::last_os_error();
-                    if error.raw_os_error() == Some(libc::ESRCH) {
-                        return Ok(None);
-                    }
-                    return Err(error);
-                }
-            }
-            Ok(Some(Self { descriptor }))
-        }
-
-        fn wait_until(&self, deadline: Instant) -> std::io::Result<bool> {
-            #[cfg(target_os = "linux")]
-            {
-                let mut descriptor = libc::pollfd {
-                    fd: self.descriptor.as_raw_fd(),
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
-                loop {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    let timeout_ms =
-                        remaining.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
-                    let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
-                    if ready >= 0 {
-                        return Ok(ready > 0);
-                    }
-                    let error = std::io::Error::last_os_error();
-                    if error.kind() != std::io::ErrorKind::Interrupted {
-                        return Err(error);
-                    }
-                }
-            }
-            #[cfg(target_vendor = "apple")]
-            {
-                let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
-                loop {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    let timeout = libc::timespec {
-                        tv_sec: libc::time_t::try_from(remaining.as_secs())
-                            .unwrap_or(libc::time_t::MAX),
-                        tv_nsec: libc::c_long::from(remaining.subsec_nanos()),
-                    };
-                    let ready = unsafe {
-                        libc::kevent(
-                            self.descriptor.as_raw_fd(),
-                            std::ptr::null(),
-                            0,
-                            &raw mut event,
-                            1,
-                            &raw const timeout,
-                        )
-                    };
-                    if ready >= 0 {
-                        return Ok(ready > 0);
-                    }
-                    let error = std::io::Error::last_os_error();
-                    if error.kind() != std::io::ErrorKind::Interrupted {
-                        return Err(error);
-                    }
-                }
             }
         }
     }
@@ -1080,25 +1008,42 @@ mod tests {
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn hook_exit_is_not_blocked_by_a_descendant_holding_stdin_open() {
-        let child_pid_path = std::env::temp_dir().join(format!(
-            "cmux-hook-stdin-child-{}-{}",
+        let fixture_path = std::env::temp_dir().join(format!(
+            "cmux-hook-stdin-lease-{}-{}",
             std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
-        let child_ready_path = child_pid_path.with_extension("ready");
-        let hook_group_pid_path = child_pid_path.with_extension("group");
-        let child_ready_c_path = std::ffi::CString::new(child_ready_path.as_os_str().as_bytes())
-            .expect("hook descendant ready path");
-        assert_eq!(unsafe { libc::mkfifo(child_ready_c_path.as_ptr(), 0o600) }, 0);
+        let lease_path = fixture_path.with_extension("lease");
+        let release_path = fixture_path.with_extension("release");
+        for path in [&lease_path, &release_path] {
+            let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+                .expect("hook fixture FIFO path");
+            assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        }
+        let mut lease_reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
+            .open(&lease_path)
+            .expect("open hook descendant lease reader");
+        let lease_registration = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
+            .open(&lease_path)
+            .expect("register hook descendant lease reader");
+        let mut release_gate = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_CLOEXEC)
+            .open(&release_path)
+            .expect("open hook release gate");
         let mut manifest = manifest();
         manifest.exec.argv = vec![
             "/bin/sh".into(),
             "-c".into(),
-            "printf '%s\\n' \"$$\" > \"$3\"; exec 3<&0; (/bin/sh -c 'printf \"ready\\n\" > \"$1\"; kill -STOP $$' cmux-hook-child \"$2\" <&3) & printf '%s\\n' \"$!\" > \"$1\"; IFS= read -r ready < \"$2\"; exit 0".into(),
+            "exec 3<&0; (/bin/sh -c 'exec 4>\"$1\"; printf \"ready\\n\" >&4; kill -STOP $$' cmux-hook-child \"$1\" <&3) & IFS= read -r release < \"$2\"; exit 0".into(),
             "cmux-hook-test".into(),
-            child_pid_path.to_string_lossy().into_owned(),
-            child_ready_path.to_string_lossy().into_owned(),
-            hook_group_pid_path.to_string_lossy().into_owned(),
+            lease_path.to_string_lossy().into_owned(),
+            release_path.to_string_lossy().into_owned(),
         ];
         let delivery = JournalHookDelivery {
             manifest,
@@ -1106,71 +1051,34 @@ mod tests {
             attempt: 0,
         };
         let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
-        let ((exit_code, error), delivery_timed_out) = std::thread::scope(|scope| {
+        let failure_deadline = Instant::now() + Duration::from_secs(2);
+        let (exit_code, error) = std::thread::scope(|scope| {
             let (result_tx, result_rx) = mpsc::sync_channel(1);
             scope.spawn(move || {
                 let _ = result_tx.send(execute_delivery(&delivery, &attempt));
             });
-            match result_rx.recv_timeout(Duration::from_secs(2)) {
-                Ok(result) => (result, false),
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    if let Ok(process_group) = std::fs::read_to_string(&hook_group_pid_path)
-                        .and_then(|pid| {
-                            pid.trim().parse::<libc::pid_t>().map_err(std::io::Error::other)
-                        })
-                    {
-                        // SAFETY: the hook executable publishes its isolated
-                        // process group before it starts the blocking fixture.
-                        unsafe {
-                            libc::kill(-process_group, libc::SIGKILL);
-                        }
-                    }
-                    (
-                        result_rx
-                            .recv_timeout(Duration::from_secs(1))
-                            .expect("hook delivery did not stop after failure cleanup"),
-                        true,
-                    )
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    panic!("hook delivery worker stopped without a result")
-                }
-            }
+            let lease_ready =
+                wait_for_fifo_event(lease_reader.as_raw_fd(), libc::POLLIN, failure_deadline)
+                    .expect("wait for hook descendant lease publication");
+            assert!(lease_ready, "hook descendant did not publish its lease");
+            let mut ready = [0; 6];
+            lease_reader.read_exact(&mut ready).expect("read hook descendant lease publication");
+            assert_eq!(&ready, b"ready\n");
+            drop(lease_registration);
+            release_gate.write_all(b"release\n").expect("release direct hook process");
+            result_rx
+                .recv_timeout(failure_deadline.saturating_duration_since(Instant::now()))
+                .expect("hook delivery did not complete after release")
         });
-        let child_pid = std::fs::read_to_string(&child_pid_path)
-            .expect("hook descendant PID publication")
-            .trim()
-            .parse::<libc::pid_t>()
-            .expect("hook descendant PID");
-        let child_exit =
-            TestProcessExitSignal::observe(child_pid).expect("observe hook descendant exit");
-        let child_stopped = child_exit.as_ref().is_none_or(|exit| {
-            exit.wait_until(Instant::now() + Duration::from_secs(1))
-                .expect("wait for hook descendant cleanup")
-        });
-        if !child_stopped {
-            let process_group = std::fs::read_to_string(&hook_group_pid_path)
-                .ok()
-                .and_then(|pid| pid.trim().parse::<libc::pid_t>().ok());
-            // SAFETY: both PIDs belong to this isolated test fixture. The
-            // negative group target is preferred when its publication exists.
-            unsafe {
-                libc::kill(process_group.map_or(child_pid, |pid| -pid), libc::SIGKILL);
-            }
-            let cleanup_completed = child_exit.as_ref().is_none_or(|exit| {
-                exit.wait_until(Instant::now() + Duration::from_secs(1))
-                    .expect("wait for failed hook descendant cleanup")
-            });
-            assert!(cleanup_completed, "failed hook descendant cleanup did not complete");
-        }
-        let _ = std::fs::remove_file(&child_pid_path);
-        let _ = std::fs::remove_file(&child_ready_path);
-        let _ = std::fs::remove_file(&hook_group_pid_path);
+        let descendant_stopped =
+            wait_for_fifo_event(lease_reader.as_raw_fd(), libc::POLLHUP, failure_deadline)
+                .expect("wait for hook descendant lease release");
+        let _ = std::fs::remove_file(&lease_path);
+        let _ = std::fs::remove_file(&release_path);
 
         assert_eq!(exit_code, Some(0), "{error:?}");
         assert_eq!(error, None);
-        assert!(!delivery_timed_out, "hook delivery needed failure cleanup");
-        assert!(child_stopped, "hook process-group cleanup left its stdin holder alive");
+        assert!(descendant_stopped, "hook process-group cleanup retained its stdin holder");
     }
 
     #[test]
