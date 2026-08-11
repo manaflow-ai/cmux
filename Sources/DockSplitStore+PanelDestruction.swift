@@ -23,6 +23,9 @@ extension DockSplitStore {
         )
         TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId])
         removeDetachedSurfaceTransfer(forPanelID: panelId)
+        terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(
+            panelID: panelId
+        )
         clearSessionRestoreState(panelId: panelId)
         manualUnreadPanelIds.remove(panelId)
 
