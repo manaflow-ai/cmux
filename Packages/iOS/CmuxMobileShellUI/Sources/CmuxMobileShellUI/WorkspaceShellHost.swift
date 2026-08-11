@@ -1,5 +1,6 @@
 import CmuxAuthRuntime
 import CmuxMobileShell
+import CmuxMobileShellModel
 import SwiftUI
 
 /// Hosts ``WorkspaceShellView`` for every authenticated state that renders the
@@ -18,9 +19,9 @@ struct WorkspaceShellHost: View {
     /// shell's initial-loading and timed-out inputs; never this host's identity.
     let isRestoringStoredMac: Bool
     let signOut: @MainActor @Sendable () -> Void
-    /// Explicit data makes a Settings method change invalidate this host even
-    /// though SwiftUI treats action closures as opaque values.
-    let allowsManualPairing: Bool
+    /// This host persists behind Settings and across reconnect transitions, so
+    /// it owns observation of the method that gates its pairing affordances.
+    let connectionMethodStore: MobileConnectionMethodStore?
     let showAddDevice: () -> Void
     let showPairingScanner: () -> Void
     var showSettings: () -> Void = {}
@@ -32,6 +33,7 @@ struct WorkspaceShellHost: View {
     @Environment(AuthCoordinator.self) private var authManager
     @State private var loadingTimedOut = false
     @State private var retryGeneration = 0
+    @State private var observedConnectionMethod: MobileConnectionMethod?
 
     var body: some View {
         WorkspaceShellView(
@@ -52,6 +54,23 @@ struct WorkspaceShellHost: View {
         .task {
             await workspaceListDidBecomeVisible()
         }
+        .task(id: connectionMethodStore.map(ObjectIdentifier.init)) {
+            guard let connectionMethodStore else {
+                observedConnectionMethod = nil
+                return
+            }
+            for await method in connectionMethodStore.changes() {
+                observedConnectionMethod = method
+            }
+        }
+    }
+
+    private var allowsManualPairing: Bool {
+        #if os(iOS)
+        (observedConnectionMethod ?? connectionMethodStore?.method) == .tailscale
+        #else
+        true
+        #endif
     }
 
     private struct DeadlineTaskID: Equatable {

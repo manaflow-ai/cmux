@@ -432,7 +432,7 @@ struct CMUXMobileRootView: View {
                 // auto-presents the pairing sheet since there is nothing to list).
                 DisconnectedWorkspaceShellView(
                     hasKnownPairedMac: store.hasKnownPairedMac,
-                    allowsManualPairing: allowsManualPairing,
+                    connectionMethodStore: connectionMethodStore,
                     showAddDevice: showAddDevice,
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
@@ -455,7 +455,7 @@ struct CMUXMobileRootView: View {
                     store: store,
                     isRestoringStoredMac: isRestoringStoredMac,
                     signOut: signOut,
-                    allowsManualPairing: allowsManualPairing,
+                    connectionMethodStore: connectionMethodStore,
                     showAddDevice: showAddDevice,
                     showPairingScanner: showPairingScanner,
                     showSettings: showSettings,

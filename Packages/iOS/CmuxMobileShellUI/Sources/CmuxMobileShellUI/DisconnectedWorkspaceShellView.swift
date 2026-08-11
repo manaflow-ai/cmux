@@ -1,5 +1,6 @@
 import CmuxMobilePairedMac
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
@@ -13,9 +14,9 @@ struct DisconnectedWorkspaceShellView: View {
     /// Whether this install has ever paired a Mac. Used to distinguish first
     /// setup from reconnect guidance.
     let hasKnownPairedMac: Bool
-    /// Availability is explicit data so SwiftUI refreshes this shell when the
-    /// selected method changes behind Settings.
-    let allowsManualPairing: Bool
+    /// This long-lived shell remains mounted behind Settings, so it observes the
+    /// shared choice directly instead of depending on a parent diff while hidden.
+    let connectionMethodStore: MobileConnectionMethodStore?
     /// Present manual pairing. The root re-checks authorization when invoked.
     let showAddDevice: () -> Void
     let signOut: () -> Void
@@ -39,6 +40,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// The display name of the computer whose reconnect just failed, driving
     /// the failure alert. `nil` = no alert.
     @State private var connectFailedComputerName: String?
+    @State private var observedConnectionMethod: MobileConnectionMethod?
     #endif
 
     var body: some View {
@@ -111,6 +113,23 @@ struct DisconnectedWorkspaceShellView: View {
         } message: {
             Text(connectFailedMessage)
         }
+        .task(id: connectionMethodStore.map(ObjectIdentifier.init)) {
+            guard let connectionMethodStore else {
+                observedConnectionMethod = nil
+                return
+            }
+            for await method in connectionMethodStore.changes() {
+                observedConnectionMethod = method
+            }
+        }
+        #endif
+    }
+
+    private var allowsManualPairing: Bool {
+        #if os(iOS)
+        (observedConnectionMethod ?? connectionMethodStore?.method) == .tailscale
+        #else
+        true
         #endif
     }
 
