@@ -109,10 +109,14 @@ import CmuxTerminalCore
         )
         let scheduler = RecordingRestoreSpawnScheduler()
         let shimInstaller = ManualAgentCommandShimInstaller()
+        let cleanupRecorder = CommandShimCleanupRecorder()
         let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
             agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installAgentCommandShims: {
                 await shimInstaller.install(wrapperDirectoryURL: $0, surfaceId: $1, temporaryDirectory: $2)
+            },
+            removeAgentCommandShims: { shims in
+                await cleanupRecorder.record(shims)
             },
             isExecutableFile: { _ in false }
         )
@@ -134,6 +138,13 @@ import CmuxTerminalCore
         // still proceed without it instead of waiting forever (#9769).
         await waitForCreateAttemptCount(surface, 1)
 
+        let lateShims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/late-surface-command-shims",
+            shims: []
+        )
+        await shimInstaller.complete(with: lateShims)
+        #expect(await cleanupRecorder.next() == lateShims)
+
         // A deadline-released spawn must not lock the surface into shim-less
         // mode: after the lifecycle cancels the hung install (teardown,
         // agent-hibernation suspend), the next runtime creation attempts a
@@ -142,8 +153,6 @@ import CmuxTerminalCore
         let regatedState = surface.agentCommandShimStateForSurface(view: nativeView, source: .inputDemand)
         #expect(!regatedState.isReady)
 
-        // Resume the parked install continuations so teardown stays clean.
-        await shimInstaller.complete()
     }
 
     private func waitForCreateAttemptCount(

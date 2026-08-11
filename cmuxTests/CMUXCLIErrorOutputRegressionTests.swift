@@ -220,6 +220,47 @@ import Testing
         )
     }
 
+    @Test func testTerminalBackendDiagnosticsAcceptsDocumentedJSONOption() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-backend-diagnostics-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: try jsonResponse(result: [
+                "metrics": ["frames": 7]
+            ])
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["terminal-backend-diagnostics", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8))
+                as? [String: Any]
+        )
+        let metrics = try #require(payload["metrics"] as? [String: Any])
+        #expect(metrics["frames"] as? Int == 7)
+        let request = try #require(responder.receivedRequests.first)
+        let requestPayload = try #require(
+            JSONSerialization.jsonObject(with: Data(request.utf8))
+                as? [String: Any]
+        )
+        #expect(requestPayload["method"] as? String == "debug.terminal_backend")
+    }
+
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
         let workspaceID = UUID().uuidString.lowercased()

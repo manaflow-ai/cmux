@@ -302,7 +302,7 @@ private actor BlockingCommandShimInstaller {
     }
 }
 
-private actor CommandShimCleanupRecorder {
+actor CommandShimCleanupRecorder {
     private var recorded: [TerminalSurfaceAgentCommandShimSet] = []
     private var waiters:
         [CheckedContinuation<TerminalSurfaceAgentCommandShimSet, Never>] = []
