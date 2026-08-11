@@ -114,9 +114,7 @@ mod windows {
         let long_local_app_data = long_path_with_missing_suffix(&local_app_data)?;
         let relative = relative_components_case_insensitive(path, &local_app_data)
             .or_else(|| relative_components_case_insensitive(path, &trusted_root))
-            .or_else(|| {
-                relative_components_case_insensitive(&long_path, &long_local_app_data)
-            })
+            .or_else(|| relative_components_case_insensitive(&long_path, &long_local_app_data))
             .or_else(|| relative_components_case_insensitive(&long_path, &trusted_root))
             .ok_or_else(|| invalid_path(path, "must stay within LOCALAPPDATA"))?;
         let mut current = trusted_root.clone();
@@ -148,15 +146,13 @@ mod windows {
             match fs::symlink_metadata(&existing) {
                 Ok(_) => break,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    let component = existing.file_name().ok_or_else(|| {
-                        invalid_path(path, "has no existing Windows path prefix")
-                    })?;
+                    let component = existing
+                        .file_name()
+                        .ok_or_else(|| invalid_path(path, "has no existing Windows path prefix"))?;
                     missing.push(PathBuf::from(component));
                     existing = existing
                         .parent()
-                        .ok_or_else(|| {
-                            invalid_path(path, "has no existing Windows path prefix")
-                        })?
+                        .ok_or_else(|| invalid_path(path, "has no existing Windows path prefix"))?
                         .to_path_buf();
                 }
                 Err(error) => return Err(error),
@@ -181,16 +177,13 @@ mod windows {
         let mut buffer = vec![0_u16; required as usize];
         // SAFETY: both buffers remain live and the output buffer has the size
         // returned by the query above.
-        let written = unsafe {
-            GetLongPathNameW(encoded.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32)
-        };
+        let written =
+            unsafe { GetLongPathNameW(encoded.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
         if written == 0 {
             return Err(io::Error::last_os_error());
         }
         if written as usize >= buffer.len() {
-            return Err(io::Error::other(
-                "Windows long-path expansion changed during validation",
-            ));
+            return Err(io::Error::other("Windows long-path expansion changed during validation"));
         }
         Ok(PathBuf::from(OsString::from_wide(&buffer[..written as usize])))
     }
@@ -511,11 +504,7 @@ mod windows_tests {
     fn short_path(path: &std::path::Path) -> PathBuf {
         let encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
         let required = unsafe { GetShortPathNameW(encoded.as_ptr(), std::ptr::null_mut(), 0) };
-        assert!(
-            required > 0,
-            "short-path size query failed: {}",
-            io::Error::last_os_error()
-        );
+        assert!(required > 0, "short-path size query failed: {}", io::Error::last_os_error());
         let mut buffer = vec![0_u16; required as usize];
         let written = unsafe {
             GetShortPathNameW(encoded.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32)
