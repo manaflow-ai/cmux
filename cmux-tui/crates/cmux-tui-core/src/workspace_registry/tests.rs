@@ -5192,8 +5192,7 @@ fn journal_agent_generation_backfill_is_bounded_and_resumable() {
         });
         registry
             .commit_agent_projection(
-                &WorkspaceMutation::new("journal-agent-generation-current", "socket-test")
-                    .unwrap(),
+                &WorkspaceMutation::new("journal-agent-generation-current", "socket-test").unwrap(),
                 &json!({"source_session":"current-generation-session"}),
                 Some(1),
                 &terminal_id,
@@ -7015,7 +7014,8 @@ fn journal_agent_late_hook_does_not_reopen_final_socket_session() {
 
 #[test]
 fn journal_agent_sessionless_activity_does_not_reopen_final_session() {
-    let mut registry = WorkspaceRegistry::in_memory("journal-agent-sessionless-after-final").unwrap();
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-sessionless-after-final").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-sessionless-after-final-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
     let validated = crate::journal_kernel::ValidatedJournalIngress {
@@ -7028,13 +7028,9 @@ fn journal_agent_sessionless_activity_does_not_reopen_final_session() {
         (1, "AgentEnd", json!({"session_id":"final-session"})),
         (2, "PreToolUse", json!({})),
     ] {
-        let ingress = crate::agent_hook_journal_ingress(
-            "pi",
-            event,
-            Some(terminal_id.as_str()),
-            payload,
-        )
-        .unwrap();
+        let ingress =
+            crate::agent_hook_journal_ingress("pi", event, Some(terminal_id.as_str()), payload)
+                .unwrap();
         registry
             .append_journal_ingress(
                 &ingress,
