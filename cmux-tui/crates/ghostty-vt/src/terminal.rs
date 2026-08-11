@@ -2,8 +2,8 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use ghostty_vt_sys as sys;
@@ -3347,7 +3347,8 @@ impl Terminal {
         let (x, y) = self.cursor_position().ok_or(Error::InvalidValue)?;
         let origin_mode = self.mode(6, false);
         let (row, column) = if origin_mode {
-            self.cursor_position_report()?
+            let (origin_x, origin_y) = self.scrolling_region_origin(x, y)?;
+            (u32::from(y).saturating_sub(origin_y) + 1, u32::from(x).saturating_sub(origin_x) + 1)
         } else {
             (u32::from(y) + 1, u32::from(x) + 1)
         };
@@ -3410,35 +3411,31 @@ impl Terminal {
         Ok(ReplayCursorPlan { bytes: suffix })
     }
 
-    fn cursor_position_report(&mut self) -> Result<(u32, u32)> {
-        if !self.vt_stream_is_ground() {
-            return Err(Error::InvalidValue);
-        }
-
-        let report = Arc::new(Mutex::new(Vec::new()));
-        let captured = Arc::clone(&report);
-        let original_callback = self.callbacks.on_pty_write.replace(Box::new(move |bytes| {
-            captured.lock().unwrap().extend_from_slice(bytes);
-        }));
-        // This is an internal state query, not process output. Feed it only to
-        // Ghostty so replay tracking still describes the real PTY stream.
-        let query = b"\x1b[6n";
-        unsafe { sys::ghostty_terminal_vt_write(self.raw, query.as_ptr(), query.len()) };
-        self.callbacks.on_pty_write = original_callback;
-
-        let report = report.lock().map_err(|_| Error::InvalidValue)?;
-        let report = std::str::from_utf8(&report).map_err(|_| Error::InvalidValue)?;
-        let body = report
-            .strip_prefix("\x1b[")
-            .and_then(|value| value.strip_suffix('R'))
+    fn scrolling_region_origin(&mut self, x: u16, y: u16) -> Result<(u32, u32)> {
+        let cursor_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, x, u64::from(y))
             .ok_or(Error::InvalidValue)?;
-        let (row, column) = body.split_once(';').ok_or(Error::InvalidValue)?;
-        let row = row.parse::<u32>().map_err(|_| Error::InvalidValue)?;
-        let column = column.parse::<u32>().map_err(|_| Error::InvalidValue)?;
-        if row == 0 || column == 0 {
-            return Err(Error::InvalidValue);
-        }
-        Ok((row, column))
+        let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: cursor_ref,
+            end: cursor_ref,
+            rectangle: false,
+        };
+        let mut options = Self::vt_replay_options(Some(&selection), false);
+        options.extra.modes = false;
+        options.extra.tabstops = false;
+        options.extra.pwd = false;
+        options.extra.keyboard = false;
+        options.extra.screen.cursor = false;
+        options.extra.screen.style = false;
+        options.extra.screen.hyperlink = false;
+        options.extra.screen.protection = false;
+        options.extra.screen.kitty_keyboard = false;
+        options.extra.screen.charsets = false;
+        let cols = self.cols();
+        let rows = self.rows();
+        let fragment = self.format(options)?;
+        scrolling_region_origin_from_vt(&fragment, cols, rows)
     }
 
     fn vt_replay_segment_options(
@@ -3619,6 +3616,61 @@ struct ReplayRowRange {
 
 struct ReplayCursorPlan {
     bytes: Vec<u8>,
+}
+
+fn scrolling_region_origin_from_vt(bytes: &[u8], cols: u16, rows: u16) -> Result<(u32, u32)> {
+    let mut origin_x = 0;
+    let mut origin_y = 0;
+    let mut index = 0;
+    while index + 2 < bytes.len() {
+        if bytes[index..].starts_with(b"\x1b[") {
+            let body_start = index + 2;
+            let Some(final_offset) =
+                bytes[body_start..].iter().position(|byte| matches!(byte, 0x40..=0x7e))
+            else {
+                break;
+            };
+            let final_index = body_start + final_offset;
+            let final_byte = bytes[final_index];
+            if matches!(final_byte, b'r' | b's') {
+                let (start, end) = parse_csi_decimal_pair(&bytes[body_start..final_index])
+                    .ok_or(Error::InvalidValue)?;
+                let limit = u32::from(if final_byte == b'r' { rows } else { cols });
+                if start == 0 || start > end || end > limit {
+                    return Err(Error::InvalidValue);
+                }
+                if final_byte == b'r' {
+                    origin_y = start - 1;
+                } else {
+                    origin_x = start - 1;
+                }
+            }
+            index = final_index + 1;
+        } else {
+            index += 1;
+        }
+    }
+    Ok((origin_x, origin_y))
+}
+
+fn parse_csi_decimal_pair(bytes: &[u8]) -> Option<(u32, u32)> {
+    let separator = bytes.iter().position(|byte| *byte == b';')?;
+    if bytes[separator + 1..].contains(&b';') {
+        return None;
+    }
+    Some((parse_csi_decimal(&bytes[..separator])?, parse_csi_decimal(&bytes[separator + 1..])?))
+}
+
+fn parse_csi_decimal(bytes: &[u8]) -> Option<u32> {
+    if bytes.is_empty() {
+        return None;
+    }
+    bytes.iter().try_fold(0_u32, |value, byte| {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value.checked_mul(10)?.checked_add(u32::from(*byte - b'0'))
+    })
 }
 
 #[derive(Default)]
