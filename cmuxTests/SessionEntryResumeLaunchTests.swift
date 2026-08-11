@@ -93,6 +93,38 @@ struct SessionEntryResumeLaunchTests {
         )
     }
 
+    @Test("Unencodable custom Vault kinds use the explicit legacy strategy")
+    func unencodableCustomKindUsesLegacyFallback() throws {
+        let registration = CmuxVaultAgentRegistration(
+            id: "legacy agent",
+            name: "Legacy Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "legacy-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            cwd: .preserve
+        )
+        let entry = SessionEntry(
+            id: "legacy agent:legacy-session",
+            agent: .registered(RegisteredSessionAgent(registration: registration)),
+            sessionId: "legacy-session",
+            title: "Legacy session",
+            cwd: "/tmp/legacy-project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_002),
+            fileURL: nil,
+            specifics: .registered(registration)
+        )
+
+        let copiedCommand = try #require(entry.copyResumeCommand)
+        let launch = try #require(entry.resumeLaunch)
+        #expect(launch.strategy == .legacyCommand)
+        #expect(launch.initialInput == copiedCommand + "\n")
+        #expect(launch.workingDirectory == "/tmp/legacy-project")
+        #expect(launch.startupRestoreAgent == nil)
+        #expect(!launch.initialInput.contains(" restore legacy agent "))
+    }
+
     @Test("Restore responder resolves a Vault snapshot through lifecycle state")
     func responderResolvesVaultLifecycleSnapshot() throws {
         let entry = SessionEntry(
@@ -154,6 +186,10 @@ struct SessionEntryResumeLaunchTests {
             target: target,
             binding: nil
         ) == nil)
+        #expect(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelID }?.terminal?.agent == nil
+        )
     }
 
     @Test("Vault-restored chats persist and resume after a session round trip")
@@ -265,5 +301,87 @@ struct SessionEntryResumeLaunchTests {
                     == sessionID
             )
         }
+    }
+
+    @Test("Vault coordinator preserves matching-cwd and new-workspace placement")
+    func coordinatorPreservesWorkingDirectoryPlacement() throws {
+        let matchingDirectory = "/tmp/vault-coordinator-match"
+        let manager = TabManager(
+            initialWorkingDirectory: matchingDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let originalWorkspace = try #require(manager.selectedWorkspace)
+        let originalPanelID = try #require(originalWorkspace.focusedPanelId)
+
+        let matchingEntry = SessionEntry(
+            id: "codex:matching-session",
+            agent: .codex,
+            sessionId: "matching-session",
+            title: "Matching session",
+            cwd: matchingDirectory,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_005),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+        let matchingLaunch = try #require(matchingEntry.resumeLaunch)
+
+        SessionEntryResumeCoordinator.resume(matchingEntry, tabManager: manager)
+
+        #expect(manager.tabs.count == 1)
+        #expect(manager.selectedWorkspace === originalWorkspace)
+        let matchingPanelID = try #require(originalWorkspace.focusedPanelId)
+        #expect(matchingPanelID != originalPanelID)
+        #expect(
+            originalWorkspace.restoredAgentSnapshotsByPanelId[matchingPanelID]?.sessionId
+                == "matching-session"
+        )
+        #expect(
+            originalWorkspace.terminalPanel(for: matchingPanelID)?
+                .surface.debugInitialInputForTesting() == matchingLaunch.initialInput
+        )
+
+        let differentDirectory = "/tmp/vault-coordinator-new-workspace"
+        let differentEntry = SessionEntry(
+            id: "codex:different-session",
+            agent: .codex,
+            sessionId: "different-session",
+            title: "Different session",
+            cwd: differentDirectory,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_006),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+        let differentLaunch = try #require(differentEntry.resumeLaunch)
+
+        SessionEntryResumeCoordinator.resume(differentEntry, tabManager: manager)
+
+        #expect(manager.tabs.count == 2)
+        let createdWorkspace = try #require(manager.selectedWorkspace)
+        #expect(createdWorkspace !== originalWorkspace)
+        #expect(createdWorkspace.currentDirectory == differentDirectory)
+        let createdPanelID = try #require(createdWorkspace.focusedPanelId)
+        #expect(
+            createdWorkspace.restoredAgentSnapshotsByPanelId[createdPanelID]?.sessionId
+                == "different-session"
+        )
+        #expect(
+            createdWorkspace.terminalPanel(for: createdPanelID)?
+                .surface.debugInitialInputForTesting() == differentLaunch.initialInput
+        )
     }
 }
