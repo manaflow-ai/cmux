@@ -18,5 +18,26 @@ import Testing
 
         #expect(beforeSwitch == afterSwitch)
     }
+
+    @Test func failedProbeRepeatsOnceFromTheSettledConnection() {
+        let refresh = TaskComposerModelRefreshID(
+            provider: .claude,
+            macPairingID: "selected-mac#nightly",
+            connectedMacPairingID: "other-mac#stable"
+        )
+
+        #expect(refresh.shouldRefreshAgain(
+            connectedMacPairingID: "selected-mac#nightly",
+            source: .backend
+        ))
+        #expect(!refresh.shouldRefreshAgain(
+            connectedMacPairingID: "selected-mac#nightly",
+            source: .discovered
+        ))
+        #expect(!refresh.shouldRefreshAgain(
+            connectedMacPairingID: "other-mac#stable",
+            source: .backend
+        ))
+    }
 }
 #endif

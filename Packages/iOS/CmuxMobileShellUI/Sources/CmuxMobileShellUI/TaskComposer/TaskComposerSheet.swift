@@ -21,6 +21,7 @@ struct TaskComposerSheet: View {
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
     @State private var modelRefreshTask: Task<Void, Never>?
+    @State private var modelRefreshOperationID: UUID?
     @State var displayedModels: [MobileTaskAgentModel]
     @State var directory: String
     @State var didEditDirectory = false
@@ -273,6 +274,7 @@ struct TaskComposerSheet: View {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
                 modelRefreshTask?.cancel()
+                modelRefreshOperationID = nil
                 attachmentStagingTask?.cancel()
                 removeStagedAttachmentFiles()
                 if shouldPersistDraftOnDisappear {
@@ -467,6 +469,7 @@ struct TaskComposerSheet: View {
 
     private func restartModelRefresh() {
         modelRefreshTask?.cancel()
+        modelRefreshOperationID = nil
         guard let provider = modelRefreshID.provider,
               !selectedMacDeviceID.isEmpty else {
             displayedModels = []
@@ -476,6 +479,8 @@ struct TaskComposerSheet: View {
         let macDeviceID = selectedMacDeviceID
         let instanceTag = selectedMacInstanceTag
         let refreshID = modelRefreshID
+        let operationID = UUID()
+        modelRefreshOperationID = operationID
         let cachedModels = store.discoveredTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
@@ -490,16 +495,34 @@ struct TaskComposerSheet: View {
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag
             ) { result in
-                guard !Task.isCancelled, modelRefreshID == refreshID else { return }
+                guard !Task.isCancelled,
+                      modelRefreshOperationID == operationID,
+                      modelRefreshID == refreshID else { return }
                 displayedModels = result.models
             }
-            guard !Task.isCancelled, modelRefreshID == refreshID else { return }
+            guard !Task.isCancelled,
+                  modelRefreshOperationID == operationID,
+                  modelRefreshID == refreshID else { return }
             if let refreshedModels = store.discoveredTaskModels(
                 provider: provider,
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag
             ) {
                 displayedModels = refreshedModels
+            }
+            let source = store.taskModelListSource(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+            let shouldRefreshAgain = refreshID.shouldRefreshAgain(
+                connectedMacPairingID: modelRefreshID.connectedMacPairingID,
+                source: source
+            )
+            modelRefreshTask = nil
+            modelRefreshOperationID = nil
+            if shouldRefreshAgain {
+                restartModelRefresh()
             }
         }
     }
