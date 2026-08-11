@@ -104,6 +104,52 @@ struct MobileTaskModelCatalogClientTests {
     }
 
     @MainActor
+    @Test func safeHostProbeWinsWhenCapabilitySnapshotIsStale() async throws {
+        let probe = MobileTaskModelCatalogProbe(responses: [
+            catalogData(claude: [("backend-next-999", "Backend Next 999")]),
+        ])
+        let router = RoutingHostRouter()
+        await router.setTaskModels(
+            [
+                MobileTaskAgentModel(
+                    id: "host-next-999",
+                    displayName: "Host Next 999"
+                ),
+            ],
+            provider: .claude
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [],
+            taskModelCatalogClient: makeClient(probe: probe)
+        )
+
+        await store.refreshTaskModels(
+            provider: .claude,
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        )
+
+        #expect(await router.recordedTaskModelListProviders() == ["claude"])
+        #expect(store.discoveredTaskModels(
+            provider: .claude,
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        ) == [
+            MobileTaskAgentModel(
+                id: "host-next-999",
+                displayName: "Host Next 999"
+            ),
+        ])
+        #expect(store.taskModelListSource(
+            provider: .claude,
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        ) == .discovered)
+        #expect(await probe.requestCount == 0)
+    }
+
+    @MainActor
     @Test func refreshFallsBackToBackendAndPreservesLastValidCatalogOnFailure() async {
         let initialData = catalogData(
             claude: [("backend-next-999", "Backend Next 999")]

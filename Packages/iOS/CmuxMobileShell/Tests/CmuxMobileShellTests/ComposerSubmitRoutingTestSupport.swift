@@ -71,6 +71,8 @@ actor RoutingHostRouter {
     private(set) var directoryListRequests: [(path: String, offset: Int, limit: Int)] = []
     private var directoryListError: (code: String?, message: String)?
     private var directorySearchError: (code: String?, message: String)?
+    private var taskModelsByProvider: [String: [MobileTaskAgentModel]] = [:]
+    private var taskModelListProviders: [String] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -141,6 +143,13 @@ actor RoutingHostRouter {
         hostCapabilities = capabilities
     }
 
+    func setTaskModels(
+        _ models: [MobileTaskAgentModel],
+        provider: MobileTaskAgentProvider
+    ) {
+        taskModelsByProvider[provider.rawValue] = models
+    }
+
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
         holdFirstWorkspaceCreate = hold
     }
@@ -163,6 +172,7 @@ actor RoutingHostRouter {
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
     func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
+    func recordedTaskModelListProviders() -> [String] { taskModelListProviders }
     func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
         directoryListRequests
     }
@@ -190,6 +200,7 @@ actor RoutingHostRouter {
         var directoryPath: String?
         var directoryOffset: Int?
         var directoryLimit: Int?
+        var provider: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -349,6 +360,16 @@ actor RoutingHostRouter {
                 "total_count": allEntries.count,
                 "next_offset": end < allEntries.count ? end : NSNull() as Any,
             ])
+        case "mobile.task.models.list":
+            let provider = info.provider ?? ""
+            taskModelListProviders.append(provider)
+            let models = taskModelsByProvider[provider, default: []].map { model in
+                ["id": model.id, "display_name": model.displayName]
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "source": "discovered",
+                "models": models,
+            ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
             let format = info.imageFormat ?? ""
@@ -477,7 +498,8 @@ private actor RoutingTransport: CmxByteTransport {
                 query: params?["query"] as? String,
                 directoryPath: params?["path"] as? String,
                 directoryOffset: params?["offset"] as? Int,
-                directoryLimit: params?["limit"] as? Int
+                directoryLimit: params?["limit"] as? Int,
+                provider: params?["provider"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
