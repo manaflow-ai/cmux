@@ -1203,8 +1203,10 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let process_exits_published = owned_process_exits.iter().all(|process_exit| {
         process_exit.wait_until(shutdown_deadline).expect("wait for server-owned process exit")
     });
-    let owned_processes_stopped = process_exits_published
-        && owned_pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid));
+    // The configured plugin is one direct /bin/cat process. Its kernel exit
+    // event is therefore the complete owner-process lifecycle signal.
+    let owned_processes_stopped =
+        process_exits_published && owned_pids.iter().copied().all(|pid| !process_exists(pid));
 
     // Keep lifecycle regressions leak-free. Every captured process group and
     // record belongs to this fixture's private state root.

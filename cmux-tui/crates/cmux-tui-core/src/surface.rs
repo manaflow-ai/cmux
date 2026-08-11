@@ -1716,6 +1716,18 @@ impl TerminalStreamProgress {
     fn resource_subscription_count(&self) -> u64 {
         self.state.lock().unwrap().resource_subscriptions
     }
+
+    #[cfg(test)]
+    fn resource_waiting_without_deadline_count(&self) -> usize {
+        self.state
+            .lock()
+            .unwrap()
+            .resource_waiters
+            .values()
+            .filter_map(|waiter| waiter.upgrade())
+            .filter(|waiter| waiter.is_waiting_without_deadline())
+            .count()
+    }
 }
 
 impl TerminalStreamSubscription<'_> {
@@ -3920,6 +3932,11 @@ impl Surface {
     #[cfg(test)]
     pub(crate) fn terminal_stream_subscription_count_for_test(&self) -> Option<u64> {
         Some(self.as_pty()?.stream_progress.resource_subscription_count())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_stream_indefinite_waiter_count_for_test(&self) -> Option<usize> {
+        Some(self.as_pty()?.stream_progress.resource_waiting_without_deadline_count())
     }
 
     pub fn encode_mouse(

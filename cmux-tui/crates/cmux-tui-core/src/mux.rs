@@ -1558,11 +1558,18 @@ fn validate_cell_pixel_convergence(
 pub(crate) struct ResourceWaitWake {
     notified: Mutex<bool>,
     changed: Condvar,
+    #[cfg(test)]
+    waiting_without_deadline: AtomicBool,
 }
 
 impl Default for ResourceWaitWake {
     fn default() -> Self {
-        Self { notified: Mutex::new(false), changed: Condvar::new() }
+        Self {
+            notified: Mutex::new(false),
+            changed: Condvar::new(),
+            #[cfg(test)]
+            waiting_without_deadline: AtomicBool::new(false),
+        }
     }
 }
 
@@ -1588,10 +1595,21 @@ impl ResourceWaitWake {
                         return false;
                     }
                 }
-                None => notified = self.changed.wait(notified).unwrap(),
+                None => {
+                    #[cfg(test)]
+                    self.waiting_without_deadline.store(true, Ordering::Release);
+                    notified = self.changed.wait(notified).unwrap();
+                    #[cfg(test)]
+                    self.waiting_without_deadline.store(false, Ordering::Release);
+                }
             }
         }
         true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_waiting_without_deadline(&self) -> bool {
+        self.waiting_without_deadline.load(Ordering::Acquire)
     }
 }
 
@@ -1685,6 +1703,19 @@ impl TerminalExitWaiters {
     #[cfg(test)]
     fn waiter_count(&self, terminal_id: &TerminalPublicId) -> usize {
         self.waiters.lock().unwrap().get(terminal_id).map(HashMap::len).unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    fn waiting_without_deadline_count(&self, terminal_id: &TerminalPublicId) -> usize {
+        self.waiters
+            .lock()
+            .unwrap()
+            .get(terminal_id)
+            .into_iter()
+            .flat_map(HashMap::values)
+            .filter_map(|waiter| waiter.upgrade())
+            .filter(|waiter| waiter.is_waiting_without_deadline())
+            .count()
     }
 }
 
@@ -4446,6 +4477,14 @@ impl Mux {
         terminal_id: &TerminalPublicId,
     ) -> usize {
         self.terminal_exit_waiters.waiter_count(terminal_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_exit_indefinite_waiter_count_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> usize {
+        self.terminal_exit_waiters.waiting_without_deadline_count(terminal_id)
     }
 
     #[cfg(test)]

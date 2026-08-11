@@ -13698,6 +13698,7 @@ mod tests {
         let waiting_deadline = Instant::now() + Duration::from_secs(1);
         while surface.terminal_stream_waiter_count_for_test() != Some(1)
             || surface.terminal_stream_subscription_count_for_test() != Some(1)
+            || surface.terminal_stream_indefinite_waiter_count_for_test() != Some(1)
         {
             assert!(Instant::now() < waiting_deadline, "terminal wait did not become idle");
             std::thread::yield_now();
@@ -13705,7 +13706,7 @@ mod tests {
         assert_eq!(
             surface.terminal_stream_subscription_count_for_test(),
             Some(1),
-            "idle terminal.wait worker polled"
+            "idle terminal.wait worker resubscribed"
         );
 
         let cancel = resource_request(
@@ -13844,6 +13845,8 @@ mod tests {
             != RESOURCE_WAITS_PER_CLIENT_CAPACITY
             || mux.terminal_exit_state_query_count_for_test()
                 != RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64
+            || mux.terminal_exit_indefinite_waiter_count_for_test(&terminal_id)
+                != RESOURCE_WAITS_PER_CLIENT_CAPACITY
         {
             assert!(Instant::now() < admission_deadline, "exit waits did not become idle");
             std::thread::yield_now();

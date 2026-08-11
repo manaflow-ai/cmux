@@ -845,6 +845,10 @@ mod tests {
     };
     use serde_json::Value;
     use sha2::Digest;
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    use std::os::fd::{FromRawFd, OwnedFd};
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    use std::os::unix::ffi::OsStrExt;
 
     fn document(kind: &str, payload: Value) -> JournalDocument {
         JournalDocument::new(SessionJournalRecord {
@@ -962,14 +966,137 @@ mod tests {
         assert!(!filter.matches(&manifest, &document("hook.delivery.completed", json!({}))));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    struct TestProcessExitSignal {
+        descriptor: OwnedFd,
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    impl TestProcessExitSignal {
+        fn observe(pid: libc::pid_t) -> std::io::Result<Option<Self>> {
+            if unsafe { libc::kill(pid, 0) } < 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            {
+                return Ok(None);
+            }
+            #[cfg(target_os = "linux")]
+            let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as libc::c_int;
+            #[cfg(target_vendor = "apple")]
+            let descriptor = unsafe { libc::kqueue() };
+            if descriptor < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ESRCH) {
+                    return Ok(None);
+                }
+                return Err(error);
+            }
+            // SAFETY: pidfd_open or kqueue returned a new owned descriptor.
+            let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+            #[cfg(target_vendor = "apple")]
+            {
+                let change = libc::kevent {
+                    ident: pid as libc::uintptr_t,
+                    filter: libc::EVFILT_PROC,
+                    flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_ONESHOT,
+                    fflags: libc::NOTE_EXIT,
+                    data: 0,
+                    udata: std::ptr::null_mut(),
+                };
+                if unsafe {
+                    libc::kevent(
+                        descriptor.as_raw_fd(),
+                        &raw const change,
+                        1,
+                        std::ptr::null_mut(),
+                        0,
+                        std::ptr::null(),
+                    )
+                } < 0
+                {
+                    let error = std::io::Error::last_os_error();
+                    if error.raw_os_error() == Some(libc::ESRCH) {
+                        return Ok(None);
+                    }
+                    return Err(error);
+                }
+            }
+            Ok(Some(Self { descriptor }))
+        }
+
+        fn wait_until(&self, deadline: Instant) -> std::io::Result<bool> {
+            #[cfg(target_os = "linux")]
+            {
+                let mut descriptor = libc::pollfd {
+                    fd: self.descriptor.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                loop {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    let timeout_ms =
+                        remaining.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
+                    let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+                    if ready >= 0 {
+                        return Ok(ready > 0);
+                    }
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() != std::io::ErrorKind::Interrupted {
+                        return Err(error);
+                    }
+                }
+            }
+            #[cfg(target_vendor = "apple")]
+            {
+                let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
+                loop {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    let timeout = libc::timespec {
+                        tv_sec: libc::time_t::try_from(remaining.as_secs())
+                            .unwrap_or(libc::time_t::MAX),
+                        tv_nsec: libc::c_long::from(remaining.subsec_nanos()),
+                    };
+                    let ready = unsafe {
+                        libc::kevent(
+                            self.descriptor.as_raw_fd(),
+                            std::ptr::null(),
+                            0,
+                            &raw mut event,
+                            1,
+                            &raw const timeout,
+                        )
+                    };
+                    if ready >= 0 {
+                        return Ok(ready > 0);
+                    }
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() != std::io::ErrorKind::Interrupted {
+                        return Err(error);
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn hook_exit_is_not_blocked_by_a_descendant_holding_stdin_open() {
+        let child_pid_path = std::env::temp_dir().join(format!(
+            "cmux-hook-stdin-child-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let child_ready_path = child_pid_path.with_extension("ready");
+        let child_ready_c_path = std::ffi::CString::new(child_ready_path.as_os_str().as_bytes())
+            .expect("hook descendant ready path");
+        assert_eq!(unsafe { libc::mkfifo(child_ready_c_path.as_ptr(), 0o600) }, 0);
         let mut manifest = manifest();
         manifest.exec.argv = vec![
             "/bin/sh".into(),
             "-c".into(),
-            "exec 3<&0; (/bin/cat <&3 >/dev/null) & exit 0".into(),
+            "exec 3<&0; (/bin/sh -c 'printf \"ready\\n\" > \"$1\"; kill -STOP $$' cmux-hook-child \"$2\" <&3) & printf '%s\\n' \"$!\" > \"$1\"; IFS= read -r ready < \"$2\"; exit 0".into(),
+            "cmux-hook-test".into(),
+            child_pid_path.to_string_lossy().into_owned(),
+            child_ready_path.to_string_lossy().into_owned(),
         ];
         let delivery = JournalHookDelivery {
             manifest,
@@ -978,9 +1105,23 @@ mod tests {
         };
         let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
         let (exit_code, error) = execute_delivery(&delivery, &attempt);
+        let child_pid = std::fs::read_to_string(&child_pid_path)
+            .expect("hook descendant PID publication")
+            .trim()
+            .parse::<libc::pid_t>()
+            .expect("hook descendant PID");
+        let child_exit =
+            TestProcessExitSignal::observe(child_pid).expect("observe hook descendant exit");
+        let child_stopped = child_exit.is_none_or(|exit| {
+            exit.wait_until(Instant::now() + Duration::from_secs(1))
+                .expect("wait for hook descendant cleanup")
+        });
+        let _ = std::fs::remove_file(&child_pid_path);
+        let _ = std::fs::remove_file(&child_ready_path);
 
         assert_eq!(exit_code, Some(0), "{error:?}");
         assert_eq!(error, None);
+        assert!(child_stopped, "hook process-group cleanup left its stdin holder alive");
     }
 
     #[test]
