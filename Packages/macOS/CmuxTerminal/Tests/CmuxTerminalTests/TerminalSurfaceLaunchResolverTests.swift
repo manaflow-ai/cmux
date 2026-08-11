@@ -871,6 +871,50 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(await owner.pendingRetryCount == 0)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func retryScheduleRetainsLeaseAddedAfterFinalRetrySnapshot() async throws {
+        let firstShims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/first-late-command-shims",
+            shims: []
+        )
+        let secondShims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/second-late-command-shims",
+            shims: []
+        )
+        let clock = LaunchResolverManualClock()
+        let remover = InterleavingCommandShimRemover()
+        let owner = TerminalSurfaceAgentCommandShimCleanupOwner(
+            removalAttemptLimit: 1,
+            removalLane: TerminalSurfaceAgentCommandShimRemovalLane(),
+            retryDelays: [.seconds(5)],
+            remove: { shims in
+                try await remover.remove(shims)
+            },
+            reportRemovalFailure: { _, _ in }
+        )
+
+        await owner.cleanup(firstShims, retryClock: clock)
+        try await clock.waitUntilSleepers()
+        clock.advance(by: .seconds(5))
+        await remover.waitUntilSecondAttemptStarts()
+
+        await owner.cleanup(secondShims, retryClock: clock)
+        #expect(await owner.retainedLeaseCount == 2)
+        let sleepInvocationCount = clock.sleepInvocationCount
+
+        await remover.completeSecondAttempt()
+        while clock.sleepInvocationCount <= sleepInvocationCount {
+            await Task.yield()
+        }
+
+        #expect(await remover.attemptedDirectoryPaths == [
+            firstShims.directoryPath,
+            firstShims.directoryPath,
+        ])
+        #expect(await owner.retainedLeaseCount == 1)
+        #expect(await owner.pendingRetryCount == 1)
+    }
+
     private func makeResolver(
         defaultArguments: [String],
         defaultArgumentsProvider: (@Sendable () -> [String])? = nil,
@@ -1076,6 +1120,48 @@ private final class CommandShimRemovalRecorder: @unchecked Sendable {
         errorDescription: String
     ) {
         state.withLock { $0.failures.append((shims, errorDescription)) }
+    }
+}
+
+private actor InterleavingCommandShimRemover {
+    private var directoryPaths: [String] = []
+    private var secondAttemptStarted = false
+    private var secondAttemptStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var secondAttemptCanComplete = false
+    private var secondAttemptCompletion: CheckedContinuation<Void, Never>?
+
+    var attemptedDirectoryPaths: [String] { directoryPaths }
+
+    func remove(_ shims: TerminalSurfaceAgentCommandShimSet) async throws {
+        directoryPaths.append(shims.directoryPath)
+        let attempt = directoryPaths.count
+        if attempt == 2 {
+            secondAttemptStarted = true
+            let waiters = secondAttemptStartWaiters
+            secondAttemptStartWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+            await withCheckedContinuation { continuation in
+                if secondAttemptCanComplete {
+                    continuation.resume()
+                } else {
+                    secondAttemptCompletion = continuation
+                }
+            }
+        }
+        throw CommandShimRemovalTestError(attempt: attempt)
+    }
+
+    func waitUntilSecondAttemptStarts() async {
+        guard !secondAttemptStarted else { return }
+        await withCheckedContinuation { continuation in
+            secondAttemptStartWaiters.append(continuation)
+        }
+    }
+
+    func completeSecondAttempt() {
+        secondAttemptCanComplete = true
+        secondAttemptCompletion?.resume()
+        secondAttemptCompletion = nil
     }
 }
 
