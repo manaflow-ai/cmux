@@ -129,20 +129,9 @@ struct TaskComposerLayout: View {
             }
 
             HStack(spacing: 10) {
-                optionsButton
+                leadingUtilityButtons
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(1)
-
-                if showsAttachmentButton {
-                    TaskComposerAttachmentPickerMenu(
-                        style: .circularPlus,
-                        isDisabled: isDisabled,
-                        choosePhotos: chooseAttachmentPhotos,
-                        chooseFiles: chooseAttachmentFiles
-                    )
-                    .fixedSize(horizontal: true, vertical: false)
-                    .layoutPriority(1)
-                }
 
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
@@ -177,6 +166,23 @@ struct TaskComposerLayout: View {
         .background(Color(uiColor: .systemBackground))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileTaskComposerAccessoryBar")
+    }
+
+    private var leadingUtilityButtons: some View {
+        // Adjacent 44pt hit regions leave a deliberate 6pt gap between the
+        // 38pt circles, grouping these related utilities without overlap.
+        HStack(spacing: 0) {
+            optionsButton
+
+            if showsAttachmentButton {
+                TaskComposerAttachmentPickerMenu(
+                    style: .circularPlus,
+                    isDisabled: isDisabled,
+                    choosePhotos: chooseAttachmentPhotos,
+                    chooseFiles: chooseAttachmentFiles
+                )
+            }
+        }
     }
 
     private var optionsButton: some View {
