@@ -6,7 +6,17 @@ final class TerminalSurfaceDefaultShellArgumentsProvider: Sendable {
         task = Task.detached(priority: .utility, operation: resolve)
     }
 
-    func arguments() async -> [String] {
-        await task.value
+    func arguments(
+        fallback: [String],
+        deadline: Duration,
+        clock: any Clock<Duration>
+    ) async -> [String] {
+        let attempt = TerminalSurfaceDefaultShellArgumentsAttempt(fallback: fallback)
+        await attempt.start(task: task, deadline: deadline, clock: clock)
+        return await withTaskCancellationHandler {
+            await attempt.value()
+        } onCancel: {
+            attempt.cancel()
+        }
     }
 }

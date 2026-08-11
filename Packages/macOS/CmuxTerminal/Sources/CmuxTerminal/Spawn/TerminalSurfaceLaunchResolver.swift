@@ -96,9 +96,7 @@ public final class TerminalSurfaceLaunchResolver {
         _ request: TerminalSurfaceLaunchRequest,
         reusing commandShimLease: TerminalSurfaceAgentCommandShimLease? = nil
     ) async -> TerminalSurfaceOwnedLaunch {
-        async let resourceSnapshot = launchResourceProvider.snapshot()
-        async let resolvedDefaultShellArguments = defaultShellArgumentsProvider.arguments()
-        let launchResourceSnapshot = await resourceSnapshot
+        let launchResourceSnapshot = await launchResourceProvider.snapshot()
         let shims: TerminalSurfaceAgentCommandShimSet?
         if let commandShimLease {
             shims = commandShimLease.shims
@@ -118,12 +116,29 @@ public final class TerminalSurfaceLaunchResolver {
         } else {
             shims = nil
         }
-        let resolvedLaunch = resolve(
+        var resolution = resolve(
             request,
             commandShims: shims,
             launchResourceSnapshot: launchResourceSnapshot,
-            defaultShellArguments: await resolvedDefaultShellArguments
+            defaultShellArguments: nil
         )
+        if resolution.requiresDefaultShellArguments {
+            let defaultShellArguments = await defaultShellArgumentsProvider.arguments(
+                fallback: synchronousDefaultShellArguments,
+                deadline: agentCommandShimInstallDeadline,
+                clock: agentCommandShimInstallDeadlineClock
+            )
+            let launchForm = TerminalSurfaceLaunchForm(arguments: defaultShellArguments)
+                ?? .fallbackLoginShell
+            let draft = resolution.resolvedLaunch
+            resolution.resolvedLaunch = TerminalSurfaceResolvedLaunch(
+                workingDirectory: draft.workingDirectory,
+                launchForm: launchForm,
+                environment: draft.environment,
+                initialInput: draft.initialInput,
+                waitAfterCommand: draft.waitAfterCommand
+            )
+        }
         let ownedCommandShimLease = commandShimLease ?? shims.map {
             TerminalSurfaceAgentCommandShimLease(
                 shims: $0,
@@ -131,7 +146,7 @@ public final class TerminalSurfaceLaunchResolver {
             )
         }
         return TerminalSurfaceOwnedLaunch(
-            resolvedLaunch: resolvedLaunch,
+            resolvedLaunch: resolution.resolvedLaunch,
             commandShimLease: ownedCommandShimLease
         )
     }
@@ -147,15 +162,18 @@ public final class TerminalSurfaceLaunchResolver {
             commandShims: commandShims,
             launchResourceSnapshot: launchResourceSnapshot,
             defaultShellArguments: synchronousDefaultShellArguments
-        )
+        ).resolvedLaunch
     }
 
     private func resolve(
         _ request: TerminalSurfaceLaunchRequest,
         commandShims: TerminalSurfaceAgentCommandShimSet?,
         launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot,
-        defaultShellArguments: [String]
-    ) -> TerminalSurfaceResolvedLaunch {
+        defaultShellArguments: [String]?
+    ) -> (
+        resolvedLaunch: TerminalSurfaceResolvedLaunch,
+        requiresDefaultShellArguments: Bool
+    ) {
         var baseConfig = request.configTemplate ?? CmuxSurfaceConfigTemplate()
         var environment = baseConfig.environmentVariables
         var protectedKeys: Set<String> = []
@@ -315,15 +333,19 @@ public final class TerminalSurfaceLaunchResolver {
         let initialInput = runtimeInitialInput.map {
             $0 + (appInitialInput ?? "")
         } ?? appInitialInput
+        let requiresDefaultShellArguments = configuredLaunchForm == nil
         let launchForm = configuredLaunchForm
-            ?? TerminalSurfaceLaunchForm(arguments: defaultShellArguments)
+            ?? defaultShellArguments.flatMap(TerminalSurfaceLaunchForm.init(arguments:))
             ?? .fallbackLoginShell
-        return TerminalSurfaceResolvedLaunch(
-            workingDirectory: workingDirectory,
-            launchForm: launchForm,
-            environment: environment,
-            initialInput: initialInput,
-            waitAfterCommand: baseConfig.waitAfterCommand
+        return (
+            resolvedLaunch: TerminalSurfaceResolvedLaunch(
+                workingDirectory: workingDirectory,
+                launchForm: launchForm,
+                environment: environment,
+                initialInput: initialInput,
+                waitAfterCommand: baseConfig.waitAfterCommand
+            ),
+            requiresDefaultShellArguments: requiresDefaultShellArguments
         )
     }
 
