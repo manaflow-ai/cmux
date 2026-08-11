@@ -789,7 +789,8 @@ jobs:
             throw "trusted minimal MSVC startup bootstrap import audit failed"
           }
           foreach ($dll in $imports) {
-            if (-not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dll") -PathType Leaf)) {
+            $apiSet = $dll -match '^(?i:(api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)$'
+            if (-not $apiSet -and -not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dll") -PathType Leaf)) {
               throw "bootstrap dependency is not a System32 DLL: $dll"
             }
             if (Test-Path -LiteralPath (Join-Path (Split-Path $bootstrap) $dll)) {
