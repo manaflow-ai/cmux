@@ -982,8 +982,8 @@ mod tests {
 
     #[test]
     fn managed_ssh_hardening_values_keep_their_option_markers() {
-        let options = managed_ssh_options("buildbox", None, None, None, "main", "cmux-tui")
-            .unwrap();
+        let options =
+            managed_ssh_options("buildbox", None, None, None, "main", "cmux-tui").unwrap();
 
         assert_eq!(
             options.ssh_args,
