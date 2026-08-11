@@ -61,6 +61,8 @@ pub enum BootstrapStage {
     StandardHandlesValidated,
     TimingConsumed,
     RestrictedProductTokenReady,
+    PrivateDesktopReady,
+    RestrictedDesktopAccessReady,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -913,6 +915,13 @@ mod tests {
             trusted_path_write_denied: true,
             bootstrap_write_denied: true,
             restricting_sid: "S-1-5-21-1-2-3-4".into(),
+            system_restricting_sid: cmux_startup_bootstrap::WINDOWS_WRITE_RESTRICTED_CODE_SID.into(),
+            private_window_station: "cmux-ws-abababababababababababababababab".into(),
+            private_desktop:
+                "cmux-ws-abababababababababababababababab\\cmux-desk-abababababababababababababababab"
+                    .into(),
+            private_desktop_ready_before_resume: true,
+            bootstrap_create_no_window: true,
             broker_authentication_id: "0000000900000007".into(),
             restricted_authentication_id: "0000000900000007".into(),
             product_authentication_id: "0000000900000007".into(),
@@ -923,13 +932,22 @@ mod tests {
             create_process_as_user_succeeded: true,
             restricted_token_write_restricted: true,
             restricted_token_restricting_sid_match: true,
+            restricted_token_system_restricting_sid_match: true,
             restricted_token_low_integrity: true,
             restricted_token_no_enabled_privileges: true,
+            window_station_dacl_proven: true,
+            desktop_dacl_proven: true,
+            window_station_low_integrity: true,
+            desktop_low_integrity: true,
+            restricted_desktop_access_proven: true,
             product_write_restricted: true,
             product_restricting_sid_match: true,
+            product_system_restricting_sid_match: true,
             product_low_integrity: true,
             product_no_enabled_privileges: true,
             product_exact_job: true,
+            product_private_desktop: true,
+            product_create_no_window: true,
             product_resume_previous_count: 1,
         };
         let line = product_started_line(&nonce, &evidence).unwrap();

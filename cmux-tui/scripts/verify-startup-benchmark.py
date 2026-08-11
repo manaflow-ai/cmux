@@ -127,7 +127,7 @@ if hashlib.sha256(preflight_bytes).hexdigest() != get(
 ):
     raise SystemExit("sandbox preflight file does not match its attested SHA-256")
 preflight = json.loads(preflight_bytes)
-if not isinstance(preflight, dict) or preflight.get("schema_version") != 6:
+if not isinstance(preflight, dict) or preflight.get("schema_version") != 7:
     raise SystemExit("sandbox preflight evidence has the wrong schema")
 windows_preflight_fields = (
     "windows_bootstrap_sha256",
@@ -139,6 +139,11 @@ windows_preflight_fields = (
     "windows_bootstrap_trusted_path_write_denied",
     "windows_bootstrap_self_write_denied",
     "windows_restricting_sid",
+    "windows_system_restricting_sid",
+    "windows_private_window_station",
+    "windows_private_desktop",
+    "windows_private_desktop_ready_before_resume",
+    "windows_bootstrap_create_no_window",
     "windows_broker_authentication_id",
     "windows_restricted_authentication_id",
     "windows_product_authentication_id",
@@ -151,11 +156,20 @@ windows_preflight_fields = (
     "windows_restricted_token_low_integrity",
     "windows_restricted_token_no_enabled_privileges",
     "windows_restricted_token_restricting_sid_match",
+    "windows_restricted_token_system_restricting_sid_match",
+    "windows_window_station_dacl_proven",
+    "windows_desktop_dacl_proven",
+    "windows_window_station_low_integrity",
+    "windows_desktop_low_integrity",
+    "windows_restricted_desktop_access_proven",
     "windows_product_write_restricted",
     "windows_product_low_integrity",
     "windows_product_no_enabled_privileges",
     "windows_product_restricting_sid_match",
+    "windows_product_system_restricting_sid_match",
     "windows_product_exact_job",
+    "windows_product_private_desktop",
+    "windows_product_create_no_window",
     "windows_product_resume_previous_count",
 )
 if any(field not in preflight for field in windows_preflight_fields):
@@ -208,7 +222,12 @@ if os.environ["RUNNER_OS"] == "Windows":
         )
     ):
         raise SystemExit("trusted Windows bootstrap import evidence is invalid")
-    approved_physical_dependencies = {"advapi32.dll", "bcrypt.dll", "kernel32.dll"}
+    approved_physical_dependencies = {
+        "advapi32.dll",
+        "bcrypt.dll",
+        "kernel32.dll",
+        "user32.dll",
+    }
     api_set_pattern = re.compile(
         r"(?i:(?:api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)"
     )
@@ -221,6 +240,13 @@ if os.environ["RUNNER_OS"] == "Windows":
     ready_elapsed_ms = preflight["windows_bootstrap_ready_elapsed_ms"]
     restricting_sid = preflight["windows_restricting_sid"]
     broker_authentication_id = preflight["windows_broker_authentication_id"]
+    nonce = preflight["windows_bootstrap_config_nonce"]
+    private_window_station = f"cmux-ws-{nonce[:32]}" if isinstance(nonce, str) else ""
+    private_desktop = (
+        f"{private_window_station}\\cmux-desk-{nonce[32:]}"
+        if isinstance(nonce, str)
+        else ""
+    )
     if (
         preflight["windows_bootstrap_sha256"] != bootstrap_sha256
         or not isinstance(preflight["windows_bootstrap_config_nonce"], str)
@@ -239,6 +265,11 @@ if os.environ["RUNNER_OS"] == "Windows":
         or not isinstance(restricting_sid, str)
         or len(restricting_sid) > 184
         or re.fullmatch(r"S-1(?:-\d+)+", restricting_sid) is None
+        or preflight["windows_system_restricting_sid"] != "S-1-5-33"
+        or preflight["windows_private_window_station"] != private_window_station
+        or preflight["windows_private_desktop"] != private_desktop
+        or preflight["windows_private_desktop_ready_before_resume"] is not True
+        or preflight["windows_bootstrap_create_no_window"] is not True
         or not isinstance(broker_authentication_id, str)
         or re.fullmatch(r"[0-9a-fA-F]{16}", broker_authentication_id) is None
         or preflight["windows_restricted_authentication_id"]
@@ -254,11 +285,20 @@ if os.environ["RUNNER_OS"] == "Windows":
         or preflight["windows_restricted_token_low_integrity"] is not True
         or preflight["windows_restricted_token_no_enabled_privileges"] is not True
         or preflight["windows_restricted_token_restricting_sid_match"] is not True
+        or preflight["windows_restricted_token_system_restricting_sid_match"] is not True
+        or preflight["windows_window_station_dacl_proven"] is not True
+        or preflight["windows_desktop_dacl_proven"] is not True
+        or preflight["windows_window_station_low_integrity"] is not True
+        or preflight["windows_desktop_low_integrity"] is not True
+        or preflight["windows_restricted_desktop_access_proven"] is not True
         or preflight["windows_product_write_restricted"] is not True
         or preflight["windows_product_low_integrity"] is not True
         or preflight["windows_product_no_enabled_privileges"] is not True
         or preflight["windows_product_restricting_sid_match"] is not True
+        or preflight["windows_product_system_restricting_sid_match"] is not True
         or preflight["windows_product_exact_job"] is not True
+        or preflight["windows_product_private_desktop"] is not True
+        or preflight["windows_product_create_no_window"] is not True
         or preflight["windows_product_resume_previous_count"] != 1
     ):
         raise SystemExit("sandbox preflight has invalid native Windows bootstrap proof")

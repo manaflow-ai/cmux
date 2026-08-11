@@ -788,7 +788,7 @@ jobs:
             "/Fo$object" "/Fe$bootstrap" `
             /link /ENTRY:bootstrap_entry /NODEFAULTLIB /INCREMENTAL:NO `
             /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /GUARD:CF `
-            /OPT:REF /OPT:ICF kernel32.lib advapi32.lib bcrypt.lib `
+            /OPT:REF /OPT:ICF kernel32.lib advapi32.lib bcrypt.lib user32.lib `
             libcmt.lib libvcruntime.lib
           if ($LASTEXITCODE -ne 0) { throw "trusted native MSVC startup bootstrap build failed" }
           if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
@@ -816,7 +816,7 @@ jobs:
           foreach ($dll in $imports) {
             $apiSet = $dll -match '^(?i:(api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)$'
             $physical = $dll.ToLowerInvariant()
-            if (-not $apiSet -and $physical -notin @("advapi32.dll", "bcrypt.dll", "kernel32.dll")) {
+            if (-not $apiSet -and $physical -notin @("advapi32.dll", "bcrypt.dll", "kernel32.dll", "user32.dll")) {
               throw "bootstrap dependency is not approved: $dll"
             }
             if (-not $apiSet -and -not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dll") -PathType Leaf)) {
@@ -1951,6 +1951,8 @@ jobs:
             Where-Object { $_ }
           $sid = if ($env:WINDOWS_CONTAINMENT_SID) { $env:WINDOWS_CONTAINMENT_SID } elseif ($user -and (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) { (Get-LocalUser -Name $user).SID.Value } else { "" }
           $quotaRight = $env:WINDOWS_CONTAINMENT_QUOTA_RIGHT
+          $remainingRights = @()
+          $accountRightVerified = $false
           if (-not $user -and $rules.Count -eq 0 -and -not $sid -and -not $quotaRight) { exit 0 }
           function Get-OwnedProcess {
             @(Get-CimInstance Win32_Process | ForEach-Object {
@@ -1982,13 +1984,20 @@ jobs:
           if ($sid -and $quotaRight) {
             & "$env:TRUSTED_SOURCE/cmux-tui/scripts/windows-account-right.ps1" `
               -Operation Remove -Sid $sid -Right $quotaRight
+            $rightsEvidence = & "$env:TRUSTED_SOURCE/cmux-tui/scripts/windows-account-right.ps1" `
+              -Operation Enumerate -Sid $sid -Right $quotaRight | ConvertFrom-Json
+            $remainingRights = @($rightsEvidence.rights)
+            if ($rightsEvidence.schema_version -ne 2 -or $remainingRights -contains $quotaRight) {
+              throw "Windows containment account right remains: $quotaRight"
+            }
+            $accountRightVerified = $true
           }
           if ($user -and (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) { Remove-LocalUser -Name $user }
           foreach ($rule in $rules) {
             if (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue) { throw "Windows containment firewall rule remains: $rule" }
           }
           if ($user -and (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) { throw "Windows containment account remains" }
-          @{ schema_version = 2; processes_remaining = $false; firewall_removed = $true; profile_removed = $true; account_right = $quotaRight; account_right_removed = ($quotaRight -eq "SeIncreaseQuotaPrivilege"); user_removed = $true } |
+          @{ schema_version = 3; processes_remaining = $false; firewall_removed = $true; profile_removed = $true; account_right = $quotaRight; account_right_removed = $accountRightVerified; remaining_account_rights = @($remainingRights); user_removed = $true } |
             ConvertTo-Json | Set-Content -Encoding utf8 "$env:ARTIFACT_DIR/windows-containment-cleanup.json"
 
       - name: Remove Linux containment account

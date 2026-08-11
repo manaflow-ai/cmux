@@ -68,6 +68,11 @@ struct PreflightEvidence {
     windows_bootstrap_trusted_path_write_denied: Option<bool>,
     windows_bootstrap_self_write_denied: Option<bool>,
     windows_restricting_sid: Option<String>,
+    windows_system_restricting_sid: Option<String>,
+    windows_private_window_station: Option<String>,
+    windows_private_desktop: Option<String>,
+    windows_private_desktop_ready_before_resume: Option<bool>,
+    windows_bootstrap_create_no_window: Option<bool>,
     windows_broker_authentication_id: Option<String>,
     windows_restricted_authentication_id: Option<String>,
     windows_product_authentication_id: Option<String>,
@@ -78,13 +83,22 @@ struct PreflightEvidence {
     windows_create_process_as_user_succeeded: Option<bool>,
     windows_restricted_token_write_restricted: Option<bool>,
     windows_restricted_token_restricting_sid_match: Option<bool>,
+    windows_restricted_token_system_restricting_sid_match: Option<bool>,
     windows_restricted_token_low_integrity: Option<bool>,
     windows_restricted_token_no_enabled_privileges: Option<bool>,
+    windows_window_station_dacl_proven: Option<bool>,
+    windows_desktop_dacl_proven: Option<bool>,
+    windows_window_station_low_integrity: Option<bool>,
+    windows_desktop_low_integrity: Option<bool>,
+    windows_restricted_desktop_access_proven: Option<bool>,
     windows_product_write_restricted: Option<bool>,
     windows_product_restricting_sid_match: Option<bool>,
+    windows_product_system_restricting_sid_match: Option<bool>,
     windows_product_low_integrity: Option<bool>,
     windows_product_no_enabled_privileges: Option<bool>,
     windows_product_exact_job: Option<bool>,
+    windows_product_private_desktop: Option<bool>,
+    windows_product_create_no_window: Option<bool>,
     windows_product_resume_previous_count: Option<u32>,
     supervisor_ready: bool,
     timing_records: u64,
@@ -803,7 +817,7 @@ fn run_controller(values: &[String]) -> Result<()> {
     #[cfg(not(windows))]
     let bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
     let evidence = PreflightEvidence {
-        schema_version: 6,
+        schema_version: 7,
         backend,
         policy: "fixture-root-only-write",
         handshake: "nonce-bound-ready-arm-with-pre-exec-t0",
@@ -862,6 +876,21 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_restricting_sid: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.restricting_sid.clone()),
+        windows_system_restricting_sid: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.system_restricting_sid.clone()),
+        windows_private_window_station: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_window_station.clone()),
+        windows_private_desktop: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_desktop.clone()),
+        windows_private_desktop_ready_before_resume: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_desktop_ready_before_resume),
+        windows_bootstrap_create_no_window: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.bootstrap_create_no_window),
         windows_broker_authentication_id: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.broker_authentication_id.clone()),
@@ -892,18 +921,39 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_restricted_token_restricting_sid_match: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.restricted_token_restricting_sid_match),
+        windows_restricted_token_system_restricting_sid_match: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.restricted_token_system_restricting_sid_match),
         windows_restricted_token_low_integrity: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.restricted_token_low_integrity),
         windows_restricted_token_no_enabled_privileges: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.restricted_token_no_enabled_privileges),
+        windows_window_station_dacl_proven: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.window_station_dacl_proven),
+        windows_desktop_dacl_proven: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.desktop_dacl_proven),
+        windows_window_station_low_integrity: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.window_station_low_integrity),
+        windows_desktop_low_integrity: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.desktop_low_integrity),
+        windows_restricted_desktop_access_proven: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.restricted_desktop_access_proven),
         windows_product_write_restricted: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.product_write_restricted),
         windows_product_restricting_sid_match: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.product_restricting_sid_match),
+        windows_product_system_restricting_sid_match: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_system_restricting_sid_match),
         windows_product_low_integrity: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.product_low_integrity),
@@ -913,6 +963,12 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_product_exact_job: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.product_exact_job),
+        windows_product_private_desktop: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_private_desktop),
+        windows_product_create_no_window: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_create_no_window),
         windows_product_resume_previous_count: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.product_resume_previous_count),
@@ -1166,6 +1222,20 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
                 .windows_restricting_sid
                 .as_ref()
                 .is_some_and(|value| value.starts_with("S-1-") && value.len() <= 184)
+            && evidence.windows_system_restricting_sid.as_deref()
+                == Some(cmux_startup_bootstrap::WINDOWS_WRITE_RESTRICTED_CODE_SID)
+            && evidence
+                .windows_bootstrap_config_nonce
+                .as_ref()
+                .and_then(|nonce| {
+                    cmux_startup_bootstrap::windows_private_desktop_identity(nonce).ok()
+                })
+                .is_some_and(|(station, desktop)| {
+                    evidence.windows_private_window_station.as_ref() == Some(&station)
+                        && evidence.windows_private_desktop.as_ref() == Some(&desktop)
+                })
+            && evidence.windows_private_desktop_ready_before_resume == Some(true)
+            && evidence.windows_bootstrap_create_no_window == Some(true)
             && evidence.windows_broker_authentication_id.as_ref().is_some_and(|value| {
                 value.len() == 16 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
             })
@@ -1180,13 +1250,22 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_create_process_as_user_succeeded == Some(true)
             && evidence.windows_restricted_token_write_restricted == Some(true)
             && evidence.windows_restricted_token_restricting_sid_match == Some(true)
+            && evidence.windows_restricted_token_system_restricting_sid_match == Some(true)
             && evidence.windows_restricted_token_low_integrity == Some(true)
             && evidence.windows_restricted_token_no_enabled_privileges == Some(true)
+            && evidence.windows_window_station_dacl_proven == Some(true)
+            && evidence.windows_desktop_dacl_proven == Some(true)
+            && evidence.windows_window_station_low_integrity == Some(true)
+            && evidence.windows_desktop_low_integrity == Some(true)
+            && evidence.windows_restricted_desktop_access_proven == Some(true)
             && evidence.windows_product_write_restricted == Some(true)
             && evidence.windows_product_restricting_sid_match == Some(true)
+            && evidence.windows_product_system_restricting_sid_match == Some(true)
             && evidence.windows_product_low_integrity == Some(true)
             && evidence.windows_product_no_enabled_privileges == Some(true)
             && evidence.windows_product_exact_job == Some(true)
+            && evidence.windows_product_private_desktop == Some(true)
+            && evidence.windows_product_create_no_window == Some(true)
             && evidence.windows_product_resume_previous_count == Some(1)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -1198,6 +1277,11 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn windows_account_broker_proofs_absent(evidence: &PreflightEvidence) -> bool {
     evidence.windows_restricting_sid.is_none()
+        && evidence.windows_system_restricting_sid.is_none()
+        && evidence.windows_private_window_station.is_none()
+        && evidence.windows_private_desktop.is_none()
+        && evidence.windows_private_desktop_ready_before_resume.is_none()
+        && evidence.windows_bootstrap_create_no_window.is_none()
         && evidence.windows_broker_authentication_id.is_none()
         && evidence.windows_restricted_authentication_id.is_none()
         && evidence.windows_product_authentication_id.is_none()
@@ -1208,13 +1292,22 @@ fn windows_account_broker_proofs_absent(evidence: &PreflightEvidence) -> bool {
         && evidence.windows_create_process_as_user_succeeded.is_none()
         && evidence.windows_restricted_token_write_restricted.is_none()
         && evidence.windows_restricted_token_restricting_sid_match.is_none()
+        && evidence.windows_restricted_token_system_restricting_sid_match.is_none()
         && evidence.windows_restricted_token_low_integrity.is_none()
         && evidence.windows_restricted_token_no_enabled_privileges.is_none()
+        && evidence.windows_window_station_dacl_proven.is_none()
+        && evidence.windows_desktop_dacl_proven.is_none()
+        && evidence.windows_window_station_low_integrity.is_none()
+        && evidence.windows_desktop_low_integrity.is_none()
+        && evidence.windows_restricted_desktop_access_proven.is_none()
         && evidence.windows_product_write_restricted.is_none()
         && evidence.windows_product_restricting_sid_match.is_none()
+        && evidence.windows_product_system_restricting_sid_match.is_none()
         && evidence.windows_product_low_integrity.is_none()
         && evidence.windows_product_no_enabled_privileges.is_none()
         && evidence.windows_product_exact_job.is_none()
+        && evidence.windows_product_private_desktop.is_none()
+        && evidence.windows_product_create_no_window.is_none()
         && evidence.windows_product_resume_previous_count.is_none()
 }
 

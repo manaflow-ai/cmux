@@ -13,7 +13,8 @@ use anyhow::{Context, Result, bail};
 use cmux_startup_bootstrap::{
     BOOTSTRAP_SCHEMA_VERSION, BootstrapChildStage, BootstrapConfig, BootstrapLaunchEvidence,
     BootstrapMessage, BootstrapProductLaunch, NativeEntryCheckpointStage,
-    decode_native_entry_checkpoint, encode_arm, encode_config, read_event,
+    WINDOWS_WRITE_RESTRICTED_CODE_SID, decode_native_entry_checkpoint, encode_arm, encode_config,
+    read_event, windows_private_desktop_identity,
 };
 use cmux_tui_core::platform::transport;
 #[cfg(any(target_os = "linux", windows))]
@@ -917,16 +918,19 @@ mod platform {
         WAIT_OBJECT_0, WAIT_TIMEOUT,
     };
     use windows_sys::Win32::Security::Authorization::{
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
         ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
-        NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, SetEntriesInAclW, SetNamedSecurityInfoW,
-        TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+        GetSecurityInfo, NO_MULTIPLE_TRUSTEE, SDDL_REVISION_1, SE_FILE_OBJECT, SE_WINDOW_OBJECT,
+        SetEntriesInAclW, SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
     };
     use windows_sys::Win32::Security::{
-        ACL, AdjustTokenPrivileges, DACL_SECURITY_INFORMATION, LOGON32_LOGON_INTERACTIVE,
+        ACCESS_ALLOWED_ACE, ACL, AdjustTokenPrivileges, DACL_SECURITY_INFORMATION, EqualSid,
+        GetAce, GetTokenInformation, LABEL_SECURITY_INFORMATION, LOGON32_LOGON_INTERACTIVE,
         LOGON32_PROVIDER_DEFAULT, LUID_AND_ATTRIBUTES, LogonUserW, LookupPrivilegeValueW,
         PRIVILEGE_SET, PSECURITY_DESCRIPTOR, PSID, PrivilegeCheck, SE_IMPERSONATE_NAME,
-        SE_PRIVILEGE_ENABLED, SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_ADJUST_PRIVILEGES,
-        TOKEN_PRIVILEGES, TOKEN_QUERY,
+        SE_PRIVILEGE_ENABLED, SE_SECURITY_NAME, SECURITY_ATTRIBUTES,
+        SUB_CONTAINERS_AND_OBJECTS_INHERIT, SYSTEM_MANDATORY_LABEL_ACE, TOKEN_ADJUST_PRIVILEGES,
+        TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_USER, TokenUser,
     };
     use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
     use windows_sys::Win32::System::Console::{
@@ -940,8 +944,14 @@ mod platform {
         SetInformationJobObject, TerminateJobObject,
     };
     use windows_sys::Win32::System::Pipes::CreatePipe;
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        CloseDesktop, CloseWindowStation, CreateDesktopW, CreateWindowStationW,
+        GetProcessWindowStation, SetProcessWindowStation,
+    };
     use windows_sys::Win32::System::SystemServices::{
-        JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY, PRIVILEGE_SET_ALL_NECESSARY,
+        ACCESS_ALLOWED_ACE_TYPE, JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY,
+        PRIVILEGE_SET_ALL_NECESSARY, SYSTEM_MANDATORY_LABEL_ACE_TYPE,
+        SYSTEM_MANDATORY_LABEL_NO_WRITE_UP,
     };
     use windows_sys::Win32::System::Threading::{
         CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithTokenW,
@@ -949,6 +959,7 @@ mod platform {
         ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
     };
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{CWF_CREATE_ONLY, WINSTA_ALL_ACCESS};
 
     use super::*;
     use crate::startup_benchmark_protocol::{BootstrapHangArtifactReference, BootstrapTerminal};
@@ -1113,11 +1124,380 @@ mod platform {
         }
     }
 
+    const READ_CONTROL_ACCESS: u32 = 0x0002_0000;
+    const PRIVATE_DESKTOP_ALL_ACCESS: u32 = 0x000f_01ff;
+
+    struct PrivateDesktopOwner {
+        _desktop: OwnedDesktop,
+        _station: OwnedWindowStation,
+        station_name: String,
+        desktop_name: String,
+        qualified_wide: Vec<u16>,
+    }
+
+    impl PrivateDesktopOwner {
+        fn create(
+            account_token: HANDLE,
+            restricting_sid: &str,
+            nonce: &str,
+            deadline: Instant,
+            trace: &mut BootstrapStartupTrace,
+        ) -> Result<Self> {
+            let (station_name, qualified_name) = windows_private_desktop_identity(nonce)?;
+            let desktop_name = qualified_name
+                .strip_prefix(&format!("{station_name}\\"))
+                .context("private desktop identity did not contain its window station")?
+                .to_string();
+            let account_sid = OwnedSid::from_string(&token_user_sid_string(account_token)?)?;
+            let restricting_sid = OwnedSid::from_string(restricting_sid)?;
+            let system_restricting_sid = OwnedSid::from_string(WINDOWS_WRITE_RESTRICTED_CODE_SID)?;
+            let low_integrity_sid = OwnedSid::from_string("S-1-16-4096")?;
+            let station_access = u32::try_from(WINSTA_ALL_ACCESS)? | READ_CONTROL_ACCESS;
+            let station_security = PrivateObjectSecurity::new(
+                account_sid.0,
+                restricting_sid.0,
+                system_restricting_sid.0,
+                station_access,
+            )?;
+            let desktop_security = PrivateObjectSecurity::new(
+                account_sid.0,
+                restricting_sid.0,
+                system_restricting_sid.0,
+                PRIVATE_DESKTOP_ALL_ACCESS,
+            )?;
+            let station_wide = wide(std::ffi::OsStr::new(&station_name));
+            let station_attributes = station_security.attributes()?;
+            // SAFETY: the name and security descriptor remain live for this call.
+            let station = unsafe {
+                CreateWindowStationW(
+                    station_wide.as_ptr(),
+                    CWF_CREATE_ONLY,
+                    station_access,
+                    &station_attributes,
+                )
+            };
+            if station.is_null() {
+                return Err(std::io::Error::last_os_error())
+                    .context("create nonce-bound private window station");
+            }
+            let station = OwnedWindowStation(station);
+            check_security_deadline(deadline, trace, "create private window station")?;
+            let original_station = unsafe { GetProcessWindowStation() };
+            if original_station.is_null() {
+                return Err(std::io::Error::last_os_error())
+                    .context("get supervisor window station");
+            }
+            check(
+                unsafe { SetProcessWindowStation(station.0) },
+                "select private window station for desktop creation",
+            )?;
+            let desktop_wide = wide(std::ffi::OsStr::new(&desktop_name));
+            let desktop_attributes = desktop_security.attributes()?;
+            // SAFETY: the private station is selected and all pointed-to values remain live.
+            let desktop_raw = unsafe {
+                CreateDesktopW(
+                    desktop_wide.as_ptr(),
+                    null(),
+                    null(),
+                    0,
+                    PRIVATE_DESKTOP_ALL_ACCESS,
+                    &desktop_attributes,
+                )
+            };
+            let desktop_error =
+                if desktop_raw.is_null() { Some(std::io::Error::last_os_error()) } else { None };
+            let restore = check(
+                unsafe { SetProcessWindowStation(original_station) },
+                "restore supervisor window station",
+            );
+            if let Some(error) = desktop_error {
+                return Err(error).context("create nonce-bound private desktop");
+            }
+            restore?;
+            let desktop = OwnedDesktop(desktop_raw);
+            prove_private_object_security(
+                station.0,
+                account_sid.0,
+                restricting_sid.0,
+                system_restricting_sid.0,
+                low_integrity_sid.0,
+                station_access,
+                "private window station",
+            )?;
+            prove_private_object_security(
+                desktop.0,
+                account_sid.0,
+                restricting_sid.0,
+                system_restricting_sid.0,
+                low_integrity_sid.0,
+                PRIVATE_DESKTOP_ALL_ACCESS,
+                "private desktop",
+            )?;
+            complete_security_stage(
+                deadline,
+                trace,
+                BootstrapStage::PrivateDesktopReady,
+                "prove private window station and desktop",
+            )?;
+            let qualified_wide = wide(std::ffi::OsStr::new(&qualified_name));
+            Ok(Self {
+                _desktop: desktop,
+                _station: station,
+                station_name,
+                desktop_name,
+                qualified_wide,
+            })
+        }
+
+        fn close(mut self) -> Result<()> {
+            let desktop = self._desktop.close();
+            let station = self._station.close();
+            match (desktop, station) {
+                (Ok(()), Ok(())) => Ok(()),
+                (Err(error), Ok(())) => Err(error),
+                (Ok(()), Err(error)) => Err(error),
+                (Err(desktop), Err(station)) => {
+                    Err(desktop.context(format!("also close private window station: {station:#}")))
+                }
+            }
+        }
+    }
+
+    struct PrivateObjectSecurity(PSECURITY_DESCRIPTOR);
+
+    impl PrivateObjectSecurity {
+        fn new(
+            account_sid: PSID,
+            restricting_sid: PSID,
+            system_restricting_sid: PSID,
+            access: u32,
+        ) -> Result<Self> {
+            let account = sid_string(account_sid)?;
+            let restricting = sid_string(restricting_sid)?;
+            let system = sid_string(system_restricting_sid)?;
+            let sddl = format!(
+                "D:P(A;;0x{access:08x};;;OW)(A;;0x{access:08x};;;{account})(A;;0x{access:08x};;;{restricting})(A;;0x{access:08x};;;{system})S:(ML;;NW;;;LW)"
+            );
+            let sddl = wide(std::ffi::OsStr::new(&sddl));
+            let mut descriptor = null_mut();
+            check(
+                unsafe {
+                    ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                        sddl.as_ptr(),
+                        SDDL_REVISION_1,
+                        &mut descriptor,
+                        null_mut(),
+                    )
+                },
+                "build private window-object security descriptor",
+            )?;
+            Ok(Self(descriptor))
+        }
+
+        fn attributes(&self) -> Result<SECURITY_ATTRIBUTES> {
+            Ok(SECURITY_ATTRIBUTES {
+                nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())?,
+                lpSecurityDescriptor: self.0,
+                bInheritHandle: 0,
+            })
+        }
+    }
+
+    impl Drop for PrivateObjectSecurity {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { LocalFree(self.0.cast()) };
+            }
+        }
+    }
+
+    struct OwnedWindowStation(HANDLE);
+
+    impl OwnedWindowStation {
+        fn close(&mut self) -> Result<()> {
+            if self.0.is_null() {
+                return Ok(());
+            }
+            check(unsafe { CloseWindowStation(self.0) }, "close private window station")?;
+            self.0 = null_mut();
+            Ok(())
+        }
+    }
+
+    impl Drop for OwnedWindowStation {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { CloseWindowStation(self.0) };
+            }
+        }
+    }
+
+    struct OwnedDesktop(HANDLE);
+
+    impl OwnedDesktop {
+        fn close(&mut self) -> Result<()> {
+            if self.0.is_null() {
+                return Ok(());
+            }
+            check(unsafe { CloseDesktop(self.0) }, "close private desktop")?;
+            self.0 = null_mut();
+            Ok(())
+        }
+    }
+
+    impl Drop for OwnedDesktop {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { CloseDesktop(self.0) };
+            }
+        }
+    }
+
+    fn token_user_sid_string(token: HANDLE) -> Result<String> {
+        let mut bytes = 0_u32;
+        unsafe { GetTokenInformation(token, TokenUser, null_mut(), 0, &mut bytes) };
+        if bytes < u32::try_from(size_of::<TOKEN_USER>())? {
+            bail!("account token did not report a user SID size");
+        }
+        let mut buffer = vec![0_u8; usize::try_from(bytes)?];
+        check(
+            unsafe {
+                GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), bytes, &mut bytes)
+            },
+            "read benchmark account token user SID",
+        )?;
+        let user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
+        sid_string(user.User.Sid)
+    }
+
+    fn sid_string(sid: PSID) -> Result<String> {
+        if sid.is_null() {
+            bail!("security SID was null");
+        }
+        let mut value = null_mut();
+        check(unsafe { ConvertSidToStringSidW(sid, &mut value) }, "format security SID")?;
+        let value = OwnedLocalWide(value);
+        let mut length = 0_usize;
+        while length <= 184 && unsafe { *value.0.add(length) } != 0 {
+            length += 1;
+        }
+        if length == 0 || length > 184 {
+            bail!("formatted security SID exceeded its bound");
+        }
+        String::from_utf16(unsafe { std::slice::from_raw_parts(value.0, length) })
+            .context("formatted security SID was invalid UTF-16")
+    }
+
+    fn prove_private_object_security(
+        object: HANDLE,
+        account_sid: PSID,
+        restricting_sid: PSID,
+        system_restricting_sid: PSID,
+        low_integrity_sid: PSID,
+        required_access: u32,
+        object_name: &str,
+    ) -> Result<()> {
+        let mut dacl = null_mut();
+        let mut sacl = null_mut();
+        let mut descriptor = null_mut();
+        let status = unsafe {
+            GetSecurityInfo(
+                object,
+                SE_WINDOW_OBJECT,
+                DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                &mut dacl,
+                &mut sacl,
+                &mut descriptor,
+            )
+        };
+        check_windows_error(status, &format!("read {object_name} security descriptor"))?;
+        let _descriptor = OwnedLocalDescriptor(descriptor);
+        let dacl_valid = unsafe {
+            acl_grants_sid(dacl, account_sid, required_access)
+                && acl_grants_sid(dacl, restricting_sid, required_access)
+                && acl_grants_sid(dacl, system_restricting_sid, required_access)
+        };
+        let low_label_valid = unsafe { acl_has_low_integrity_label(sacl, low_integrity_sid) };
+        if !dacl_valid || !low_label_valid {
+            bail!("{object_name} DACL or low-integrity label proof failed");
+        }
+        Ok(())
+    }
+
+    unsafe fn acl_grants_sid(acl: *mut ACL, sid: PSID, required_access: u32) -> bool {
+        if acl.is_null() || sid.is_null() {
+            return false;
+        }
+        for index in 0..unsafe { (*acl).AceCount } {
+            let mut raw = null_mut();
+            if unsafe { GetAce(acl, u32::from(index), &mut raw) } == 0 || raw.is_null() {
+                return false;
+            }
+            let ace = raw.cast::<ACCESS_ALLOWED_ACE>();
+            if u32::from(unsafe { (*ace).Header.AceType }) != ACCESS_ALLOWED_ACE_TYPE {
+                continue;
+            }
+            let ace_sid = unsafe { std::ptr::addr_of_mut!((*ace).SidStart).cast() };
+            if unsafe { EqualSid(ace_sid, sid) } != 0
+                && unsafe { (*ace).Mask } & required_access == required_access
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    unsafe fn acl_has_low_integrity_label(acl: *mut ACL, low_integrity_sid: PSID) -> bool {
+        if acl.is_null() || low_integrity_sid.is_null() {
+            return false;
+        }
+        for index in 0..unsafe { (*acl).AceCount } {
+            let mut raw = null_mut();
+            if unsafe { GetAce(acl, u32::from(index), &mut raw) } == 0 || raw.is_null() {
+                return false;
+            }
+            let ace = raw.cast::<SYSTEM_MANDATORY_LABEL_ACE>();
+            if u32::from(unsafe { (*ace).Header.AceType }) != SYSTEM_MANDATORY_LABEL_ACE_TYPE {
+                continue;
+            }
+            let ace_sid = unsafe { std::ptr::addr_of_mut!((*ace).SidStart).cast() };
+            if unsafe { EqualSid(ace_sid, low_integrity_sid) } != 0
+                && unsafe { (*ace).Mask } & SYSTEM_MANDATORY_LABEL_NO_WRITE_UP != 0
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    struct OwnedLocalWide(*mut u16);
+
+    impl Drop for OwnedLocalWide {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { LocalFree(self.0.cast()) };
+            }
+        }
+    }
+
+    struct OwnedLocalDescriptor(PSECURITY_DESCRIPTOR);
+
+    impl Drop for OwnedLocalDescriptor {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { LocalFree(self.0.cast()) };
+            }
+        }
+    }
+
     struct WindowsLaunchOwner {
         account_token: Option<OwnedHandle>,
         job: OwnedHandle,
         query_job: Option<OwnedHandle>,
         completion_port: OwnedHandle,
+        private_desktop: Option<PrivateDesktopOwner>,
         // Keep the profile after all Job handles so field-drop fallback closes the containment
         // boundary before it tries to unload a profile after an error.
         profile: Option<LoadedProfile>,
@@ -1174,12 +1554,12 @@ mod platform {
             security_deadline: Instant,
             trace: &mut BootstrapStartupTrace,
         ) -> Result<Self> {
-            ensure_caller_impersonate_privilege(security_deadline, trace)?;
+            ensure_caller_security_privileges(security_deadline, trace)?;
             complete_security_stage(
                 security_deadline,
                 trace,
                 BootstrapStage::PrivilegeEnabled,
-                "enable caller impersonation privilege",
+                "enable caller impersonation and security privileges",
             )?;
             let user = env::var("CMUX_BENCH_WINDOWS_USER")
                 .context("CMUX_BENCH_WINDOWS_USER is required")?;
@@ -1243,6 +1623,18 @@ mod platform {
                 BootstrapStage::AccountBrokerReady,
                 "prepare account-owned broker identity",
             )?;
+            let account_token_handle = profile
+                .as_ref()
+                .map(LoadedProfile::token)
+                .or_else(|| account_token.as_ref().map(|token| token.0))
+                .context("Windows account token owner is missing")?;
+            let private_desktop = PrivateDesktopOwner::create(
+                account_token_handle,
+                &sid_text,
+                &launch.nonce,
+                security_deadline,
+                trace,
+            )?;
             configure_fixture_acl(
                 &launch.fixture_root,
                 &user,
@@ -1264,6 +1656,7 @@ mod platform {
                 job,
                 query_job,
                 completion_port,
+                private_desktop: Some(private_desktop),
                 restricting_sid_text: sid_text,
                 broker_assigned: false,
             })
@@ -1309,6 +1702,13 @@ mod platform {
             // SAFETY: zero is a valid initial state for these Win32 structs.
             let mut startup: STARTUPINFOW = unsafe { zeroed() };
             startup.cb = u32::try_from(size_of::<STARTUPINFOW>())?;
+            let private_desktop = self
+                .private_desktop
+                .as_ref()
+                .context("private window station and desktop owner is missing")?;
+            startup.lpDesktop = private_desktop.qualified_wide.as_ptr().cast_mut();
+            let private_window_station = private_desktop.station_name.clone();
+            let private_desktop_name = private_desktop.desktop_name.clone();
             // SAFETY: zero is a valid initial state for PROCESS_INFORMATION.
             let mut process: PROCESS_INFORMATION = unsafe { zeroed() };
             let mut environment =
@@ -1318,6 +1718,8 @@ mod platform {
             if !target_cmux_bench_environment_filtered {
                 bail!("restricted bootstrap environment retained a CMUX_BENCH secret");
             }
+            let bootstrap_creation_flags =
+                CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT;
             // SAFETY: all strings are NUL-terminated and output storage remains live.
             check(
                 unsafe {
@@ -1326,7 +1728,7 @@ mod platform {
                         0,
                         application.as_ptr(),
                         command_line.as_mut_ptr(),
-                        CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+                        bootstrap_creation_flags,
                         environment.as_mut_ptr().cast::<c_void>(),
                         current_directory.as_ptr(),
                         &startup,
@@ -1389,6 +1791,8 @@ mod platform {
                         trusted_path_probe,
                         expected_bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
                         restricting_sid: self.restricting_sid_text.clone(),
+                        private_window_station,
+                        private_desktop: private_desktop_name,
                     },
                     control_read,
                     control_write,
@@ -1429,6 +1833,8 @@ mod platform {
                     primary_thread_id: process.dwThreadId,
                     target_cmux_bench_environment_filtered,
                     restricting_sid: self.restricting_sid_text.clone(),
+                    private_desktop_ready_before_resume: true,
+                    bootstrap_create_no_window: bootstrap_creation_flags & CREATE_NO_WINDOW != 0,
                 },
             )?;
             Ok(session)
@@ -1439,12 +1845,26 @@ mod platform {
                 self.terminate_descendants_and_wait_empty(deadline)?;
                 self.broker_assigned = false;
             }
-            if Instant::now() >= deadline {
-                bail!("Windows containment cleanup deadline expired before profile cleanup");
-            }
-            match self.profile.as_mut() {
-                Some(profile) => profile.cleanup(),
+            let desktop_cleanup = match self.private_desktop.take() {
+                Some(private_desktop) => private_desktop.close(),
                 None => Ok(()),
+            };
+            let profile_cleanup = if Instant::now() >= deadline {
+                Err(anyhow::anyhow!(
+                    "Windows containment cleanup deadline expired before profile cleanup"
+                ))
+            } else {
+                match self.profile.as_mut() {
+                    Some(profile) => profile.cleanup(),
+                    None => Ok(()),
+                }
+            };
+            match (desktop_cleanup, profile_cleanup) {
+                (Ok(()), Ok(())) => Ok(()),
+                (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+                (Err(desktop), Err(profile)) => {
+                    Err(desktop.context(format!("also unload benchmark profile: {profile:#}")))
+                }
             }
         }
 
@@ -1519,6 +1939,8 @@ mod platform {
         primary_thread_id: u32,
         target_cmux_bench_environment_filtered: bool,
         restricting_sid: String,
+        private_desktop_ready_before_resume: bool,
+        bootstrap_create_no_window: bool,
         product_started_relayed: bool,
     }
 
@@ -1536,6 +1958,8 @@ mod platform {
         primary_thread_id: u32,
         target_cmux_bench_environment_filtered: bool,
         restricting_sid: String,
+        private_desktop_ready_before_resume: bool,
+        bootstrap_create_no_window: bool,
     }
 
     enum BootstrapEvent {
@@ -1566,6 +1990,8 @@ mod platform {
                 primary_thread_id,
                 target_cmux_bench_environment_filtered,
                 restricting_sid,
+                private_desktop_ready_before_resume,
+                bootstrap_create_no_window,
             } = identity;
             let wait_handle =
                 duplicate_current_process_handle(process.0, "restricted bootstrap status wait")?;
@@ -1620,6 +2046,8 @@ mod platform {
                 primary_thread_id,
                 target_cmux_bench_environment_filtered,
                 restricting_sid,
+                private_desktop_ready_before_resume,
+                bootstrap_create_no_window,
                 product_started_relayed: false,
             })
         }
@@ -1699,6 +2127,14 @@ mod platform {
                         restricted_authentication_match,
                         restricting_sid_match,
                         write_restricted_created,
+                        system_restricting_sid_match,
+                        private_window_station,
+                        private_desktop,
+                        window_station_dacl,
+                        desktop_dacl,
+                        window_station_low_integrity,
+                        desktop_low_integrity,
+                        restricted_desktop_access,
                         broker_authentication_id,
                         restricted_authentication_id,
                         restricting_sid,
@@ -1718,8 +2154,18 @@ mod platform {
                         && restricted_authentication_match
                         && restricting_sid_match
                         && write_restricted_created
+                        && system_restricting_sid_match
+                        && private_window_station
+                        && private_desktop
+                        && window_station_dacl
+                        && desktop_dacl
+                        && window_station_low_integrity
+                        && desktop_low_integrity
+                        && restricted_desktop_access
                         && restricting_sid == self.restricting_sid =>
                     {
+                        let (private_window_station_name, private_desktop_name) =
+                            windows_private_desktop_identity(&observed)?;
                         if self.record_native_entry_checkpoint(trace)?
                             != Some(NativeEntryCheckpointStage::ConfigConsumed)
                         {
@@ -1744,6 +2190,12 @@ mod platform {
                             trusted_path_write_denied,
                             bootstrap_write_denied,
                             restricting_sid,
+                            system_restricting_sid: WINDOWS_WRITE_RESTRICTED_CODE_SID.into(),
+                            private_window_station: private_window_station_name,
+                            private_desktop: private_desktop_name,
+                            private_desktop_ready_before_resume: self
+                                .private_desktop_ready_before_resume,
+                            bootstrap_create_no_window: self.bootstrap_create_no_window,
                             broker_authentication_id: broker_authentication_id.evidence_value(),
                             restricted_authentication_id: restricted_authentication_id
                                 .evidence_value(),
@@ -1758,14 +2210,24 @@ mod platform {
                                 && restricted_token
                                 && restricting_sid_match,
                             restricted_token_restricting_sid_match: restricting_sid_match,
+                            restricted_token_system_restricting_sid_match:
+                                system_restricting_sid_match,
                             restricted_token_low_integrity: restricted_low_integrity,
                             restricted_token_no_enabled_privileges:
                                 restricted_no_enabled_privileges,
+                            window_station_dacl_proven: window_station_dacl,
+                            desktop_dacl_proven: desktop_dacl,
+                            window_station_low_integrity,
+                            desktop_low_integrity,
+                            restricted_desktop_access_proven: restricted_desktop_access,
                             product_write_restricted: false,
                             product_restricting_sid_match: false,
+                            product_system_restricting_sid_match: false,
                             product_low_integrity: false,
                             product_no_enabled_privileges: false,
                             product_exact_job: false,
+                            product_private_desktop: false,
+                            product_create_no_window: false,
                             product_resume_previous_count: 0,
                         });
                         fs::remove_file(&self.entry_checkpoint_path).with_context(|| {
@@ -1874,6 +2336,9 @@ mod platform {
                         product_write_restricted,
                         product_no_enabled_privileges,
                         product_restricting_sid_match,
+                        product_system_restricting_sid_match,
+                        product_private_desktop,
+                        product_create_no_window,
                         product_authentication_id,
                         resume_previous_count,
                     }) if observed == nonce => {
@@ -1885,6 +2350,9 @@ mod platform {
                             || !product_write_restricted
                             || !product_no_enabled_privileges
                             || !product_restricting_sid_match
+                            || !product_system_restricting_sid_match
+                            || !product_private_desktop
+                            || !product_create_no_window
                             || resume_previous_count != 1
                         {
                             bail!("restricted bootstrap product-started evidence mismatch");
@@ -1902,9 +2370,13 @@ mod platform {
                         evidence.product_write_restricted =
                             product_write_restricted && product_restricting_sid_match;
                         evidence.product_restricting_sid_match = product_restricting_sid_match;
+                        evidence.product_system_restricting_sid_match =
+                            product_system_restricting_sid_match;
                         evidence.product_low_integrity = product_low_integrity;
                         evidence.product_no_enabled_privileges = product_no_enabled_privileges;
                         evidence.product_exact_job = private_job_descendant_contained;
+                        evidence.product_private_desktop = product_private_desktop;
+                        evidence.product_create_no_window = product_create_no_window;
                         evidence.product_resume_previous_count = resume_previous_count;
                         evidence.validate(&self.nonce, &self.bootstrap_sha256)?;
                         write_control_line(
@@ -1924,6 +2396,9 @@ mod platform {
                         product_write_restricted,
                         product_no_enabled_privileges,
                         product_restricting_sid_match,
+                        product_system_restricting_sid_match,
+                        product_private_desktop,
+                        product_create_no_window,
                         product_authentication_id,
                     }) if observed == nonce => {
                         let evidence = self
@@ -1938,6 +2413,9 @@ mod platform {
                             || !product_write_restricted
                             || !product_no_enabled_privileges
                             || !product_restricting_sid_match
+                            || !product_system_restricting_sid_match
+                            || !product_private_desktop
+                            || !product_create_no_window
                             || product_authentication_id.evidence_value()
                                 != evidence.product_authentication_id
                         {
@@ -2053,6 +2531,9 @@ mod platform {
             BootstrapChildStage::NativeConfigReadStarted => BootstrapStage::NativeConfigReadStarted,
             BootstrapChildStage::RestrictedProductTokenReady => {
                 BootstrapStage::RestrictedProductTokenReady
+            }
+            BootstrapChildStage::RestrictedDesktopAccessReady => {
+                BootstrapStage::RestrictedDesktopAccessReady
             }
         }
     }
@@ -2370,7 +2851,7 @@ mod platform {
         check_security_deadline(deadline, trace, operation)
     }
 
-    fn ensure_caller_impersonate_privilege(
+    fn ensure_caller_security_privileges(
         deadline: Instant,
         trace: &mut BootstrapStartupTrace,
     ) -> Result<()> {
@@ -2426,6 +2907,48 @@ mod platform {
         check_security_deadline(deadline, trace, "verify SeImpersonatePrivilege")?;
         if enabled == 0 {
             bail!("supervisor SeImpersonatePrivilege is not enabled");
+        }
+        let mut security_luid = Default::default();
+        check(
+            unsafe { LookupPrivilegeValueW(null(), SE_SECURITY_NAME, &mut security_luid) },
+            "resolve SeSecurityPrivilege",
+        )?;
+        check_security_deadline(deadline, trace, "resolve SeSecurityPrivilege")?;
+        let security_privilege = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [LUID_AND_ATTRIBUTES {
+                Luid: security_luid,
+                Attributes: SE_PRIVILEGE_ENABLED,
+            }],
+        };
+        unsafe { SetLastError(ERROR_SUCCESS) };
+        check(
+            unsafe {
+                AdjustTokenPrivileges(token.0, 0, &security_privilege, 0, null_mut(), null_mut())
+            },
+            "enable SeSecurityPrivilege",
+        )?;
+        let adjust_error = unsafe { GetLastError() };
+        check_security_deadline(deadline, trace, "enable SeSecurityPrivilege")?;
+        if adjust_error == ERROR_NOT_ALL_ASSIGNED {
+            bail!("supervisor token does not contain SeSecurityPrivilege");
+        }
+        let mut required = PRIVILEGE_SET {
+            PrivilegeCount: 1,
+            Control: PRIVILEGE_SET_ALL_NECESSARY,
+            Privilege: [LUID_AND_ATTRIBUTES {
+                Luid: security_luid,
+                Attributes: SE_PRIVILEGE_ENABLED,
+            }],
+        };
+        enabled = 0;
+        check(
+            unsafe { PrivilegeCheck(token.0, &mut required, &mut enabled) },
+            "verify SeSecurityPrivilege",
+        )?;
+        check_security_deadline(deadline, trace, "verify SeSecurityPrivilege")?;
+        if enabled == 0 {
+            bail!("supervisor SeSecurityPrivilege is not enabled");
         }
         Ok(())
     }

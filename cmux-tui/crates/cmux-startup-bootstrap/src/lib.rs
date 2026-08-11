@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 3;
+pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 4;
 pub const MAX_BOOTSTRAP_CONFIG_BYTES: usize = 64 * 1024;
 pub const MAX_BOOTSTRAP_RECORD_BYTES: usize = 4 * 1024;
 pub const CONFIG_MAGIC: [u8; 8] = *b"CMUXB001";
@@ -14,7 +14,7 @@ pub const NATIVE_ENTRY_CHECKPOINT_MAGIC: [u8; 8] = *b"CMUXN001";
 
 const CONFIG_HEADER_BYTES: usize = 104;
 const RECORD_HEADER_BYTES: usize = 56;
-const CONFIG_FIELD_COUNT: u32 = 7;
+const CONFIG_FIELD_COUNT: u32 = 9;
 const REQUIRED_HANDLE_COUNT: usize = 6;
 const MAX_PRODUCT_ARGUMENTS: usize = 1024;
 const READY_CONFIG_CONSUMED: u32 = 1 << 0;
@@ -31,6 +31,14 @@ const READY_RESTRICTED_NO_ENABLED_PRIVILEGES: u32 = 1 << 10;
 const READY_RESTRICTED_AUTHENTICATION_MATCH: u32 = 1 << 11;
 const READY_RESTRICTING_SID_MATCH: u32 = 1 << 12;
 const READY_WRITE_RESTRICTED_CREATED: u32 = 1 << 13;
+const READY_SYSTEM_RESTRICTING_SID_MATCH: u32 = 1 << 14;
+const READY_PRIVATE_WINDOW_STATION: u32 = 1 << 15;
+const READY_PRIVATE_DESKTOP: u32 = 1 << 16;
+const READY_WINDOW_STATION_DACL: u32 = 1 << 17;
+const READY_DESKTOP_DACL: u32 = 1 << 18;
+const READY_WINDOW_STATION_LOW_INTEGRITY: u32 = 1 << 19;
+const READY_DESKTOP_LOW_INTEGRITY: u32 = 1 << 20;
+const READY_RESTRICTED_DESKTOP_ACCESS: u32 = 1 << 21;
 const READY_ALL_FLAGS: u32 = READY_CONFIG_CONSUMED
     | READY_HANDLES_VALID
     | READY_HANDLES_INHERITABLE
@@ -44,20 +52,35 @@ const READY_ALL_FLAGS: u32 = READY_CONFIG_CONSUMED
     | READY_RESTRICTED_NO_ENABLED_PRIVILEGES
     | READY_RESTRICTED_AUTHENTICATION_MATCH
     | READY_RESTRICTING_SID_MATCH
-    | READY_WRITE_RESTRICTED_CREATED;
+    | READY_WRITE_RESTRICTED_CREATED
+    | READY_SYSTEM_RESTRICTING_SID_MATCH
+    | READY_PRIVATE_WINDOW_STATION
+    | READY_PRIVATE_DESKTOP
+    | READY_WINDOW_STATION_DACL
+    | READY_DESKTOP_DACL
+    | READY_WINDOW_STATION_LOW_INTEGRITY
+    | READY_DESKTOP_LOW_INTEGRITY
+    | READY_RESTRICTED_DESKTOP_ACCESS;
 const EXIT_CREATE_PROCESS_AS_USER_SUCCEEDED: u32 = 1 << 0;
 const EXIT_PRODUCT_AUTHENTICATION_MATCH: u32 = 1 << 1;
 const EXIT_PRODUCT_LOW_INTEGRITY: u32 = 1 << 2;
 const EXIT_PRODUCT_WRITE_RESTRICTED: u32 = 1 << 3;
 const EXIT_PRODUCT_NO_ENABLED_PRIVILEGES: u32 = 1 << 4;
 const EXIT_PRODUCT_RESTRICTING_SID_MATCH: u32 = 1 << 5;
+const EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH: u32 = 1 << 6;
+const EXIT_PRODUCT_PRIVATE_DESKTOP: u32 = 1 << 7;
+const EXIT_PRODUCT_CREATE_NO_WINDOW: u32 = 1 << 8;
 const EXIT_ALL_FLAGS: u32 = EXIT_CREATE_PROCESS_AS_USER_SUCCEEDED
     | EXIT_PRODUCT_AUTHENTICATION_MATCH
     | EXIT_PRODUCT_LOW_INTEGRITY
     | EXIT_PRODUCT_WRITE_RESTRICTED
     | EXIT_PRODUCT_NO_ENABLED_PRIVILEGES
-    | EXIT_PRODUCT_RESTRICTING_SID_MATCH;
+    | EXIT_PRODUCT_RESTRICTING_SID_MATCH
+    | EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH
+    | EXIT_PRODUCT_PRIVATE_DESKTOP
+    | EXIT_PRODUCT_CREATE_NO_WINDOW;
 const MAX_RESTRICTING_SID_BYTES: usize = 184;
+pub const WINDOWS_WRITE_RESTRICTED_CODE_SID: &str = "S-1-5-33";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootstrapProductLaunch {
@@ -69,6 +92,8 @@ pub struct BootstrapProductLaunch {
     pub trusted_path_probe: PathBuf,
     pub expected_bootstrap_sha256: String,
     pub restricting_sid: String,
+    pub private_window_station: String,
+    pub private_desktop: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +116,13 @@ impl BootstrapConfig {
         validate_hex(&self.launch.target_sha256, 64, "bootstrap target SHA-256")?;
         validate_hex(&self.launch.expected_bootstrap_sha256, 64, "bootstrap executable SHA-256")?;
         validate_restricting_sid(&self.launch.restricting_sid)?;
+        let (expected_station, expected_desktop) = windows_private_desktop_identity(&self.nonce)?;
+        if self.launch.private_window_station != expected_station
+            || format!("{}\\{}", self.launch.private_window_station, self.launch.private_desktop)
+                != expected_desktop
+        {
+            bail!("Windows bootstrap private desktop identity changed");
+        }
         let expected_name = format!("bootstrap-{}.bin", &self.nonce[..16]);
         if config_path.file_name().and_then(|name| name.to_str()) != Some(&expected_name) {
             bail!("Windows bootstrap config path did not match its nonce");
@@ -130,6 +162,7 @@ pub enum BootstrapChildStage {
     NativeEntryReached = 5,
     NativeConfigReadStarted = 6,
     RestrictedProductTokenReady = 7,
+    RestrictedDesktopAccessReady = 8,
 }
 
 impl BootstrapChildStage {
@@ -142,6 +175,7 @@ impl BootstrapChildStage {
             5 => Ok(Self::NativeEntryReached),
             6 => Ok(Self::NativeConfigReadStarted),
             7 => Ok(Self::RestrictedProductTokenReady),
+            8 => Ok(Self::RestrictedDesktopAccessReady),
             _ => bail!("Windows bootstrap event contained an unknown stage"),
         }
     }
@@ -201,6 +235,14 @@ pub enum BootstrapMessage {
         restricted_authentication_match: bool,
         restricting_sid_match: bool,
         write_restricted_created: bool,
+        system_restricting_sid_match: bool,
+        private_window_station: bool,
+        private_desktop: bool,
+        window_station_dacl: bool,
+        desktop_dacl: bool,
+        window_station_low_integrity: bool,
+        desktop_low_integrity: bool,
+        restricted_desktop_access: bool,
         broker_authentication_id: AuthenticationId,
         restricted_authentication_id: AuthenticationId,
         restricting_sid: String,
@@ -215,6 +257,9 @@ pub enum BootstrapMessage {
         product_write_restricted: bool,
         product_no_enabled_privileges: bool,
         product_restricting_sid_match: bool,
+        product_system_restricting_sid_match: bool,
+        product_private_desktop: bool,
+        product_create_no_window: bool,
         product_authentication_id: AuthenticationId,
     },
     ProductStarted {
@@ -226,6 +271,9 @@ pub enum BootstrapMessage {
         product_write_restricted: bool,
         product_no_enabled_privileges: bool,
         product_restricting_sid_match: bool,
+        product_system_restricting_sid_match: bool,
+        product_private_desktop: bool,
+        product_create_no_window: bool,
         product_authentication_id: AuthenticationId,
         resume_previous_count: u32,
     },
@@ -261,6 +309,11 @@ pub struct BootstrapLaunchEvidence {
     pub trusted_path_write_denied: bool,
     pub bootstrap_write_denied: bool,
     pub restricting_sid: String,
+    pub system_restricting_sid: String,
+    pub private_window_station: String,
+    pub private_desktop: String,
+    pub private_desktop_ready_before_resume: bool,
+    pub bootstrap_create_no_window: bool,
     pub broker_authentication_id: String,
     pub restricted_authentication_id: String,
     pub product_authentication_id: String,
@@ -271,18 +324,29 @@ pub struct BootstrapLaunchEvidence {
     pub create_process_as_user_succeeded: bool,
     pub restricted_token_write_restricted: bool,
     pub restricted_token_restricting_sid_match: bool,
+    pub restricted_token_system_restricting_sid_match: bool,
     pub restricted_token_low_integrity: bool,
     pub restricted_token_no_enabled_privileges: bool,
+    pub window_station_dacl_proven: bool,
+    pub desktop_dacl_proven: bool,
+    pub window_station_low_integrity: bool,
+    pub desktop_low_integrity: bool,
+    pub restricted_desktop_access_proven: bool,
     pub product_write_restricted: bool,
     pub product_restricting_sid_match: bool,
+    pub product_system_restricting_sid_match: bool,
     pub product_low_integrity: bool,
     pub product_no_enabled_privileges: bool,
     pub product_exact_job: bool,
+    pub product_private_desktop: bool,
+    pub product_create_no_window: bool,
     pub product_resume_previous_count: u32,
 }
 
 impl BootstrapLaunchEvidence {
     pub fn validate(&self, expected_nonce: &str, expected_bootstrap_sha256: &str) -> Result<()> {
+        let (expected_station, expected_desktop) =
+            windows_private_desktop_identity(expected_nonce)?;
         if self.schema_version != BOOTSTRAP_SCHEMA_VERSION
             || self.config_nonce != expected_nonce
             || self.bootstrap_sha256 != expected_bootstrap_sha256
@@ -301,13 +365,27 @@ impl BootstrapLaunchEvidence {
             || !self.create_process_as_user_succeeded
             || !self.restricted_token_write_restricted
             || !self.restricted_token_restricting_sid_match
+            || !self.restricted_token_system_restricting_sid_match
             || !self.restricted_token_low_integrity
             || !self.restricted_token_no_enabled_privileges
+            || self.system_restricting_sid != WINDOWS_WRITE_RESTRICTED_CODE_SID
+            || self.private_window_station != expected_station
+            || self.private_desktop != expected_desktop
+            || !self.private_desktop_ready_before_resume
+            || !self.bootstrap_create_no_window
+            || !self.window_station_dacl_proven
+            || !self.desktop_dacl_proven
+            || !self.window_station_low_integrity
+            || !self.desktop_low_integrity
+            || !self.restricted_desktop_access_proven
             || !self.product_write_restricted
             || !self.product_restricting_sid_match
+            || !self.product_system_restricting_sid_match
             || !self.product_low_integrity
             || !self.product_no_enabled_privileges
             || !self.product_exact_job
+            || !self.product_private_desktop
+            || !self.product_create_no_window
             || self.product_resume_previous_count != 1
         {
             bail!("Windows bootstrap evidence identity or containment proof failed");
@@ -321,6 +399,13 @@ impl BootstrapLaunchEvidence {
     }
 }
 
+pub fn windows_private_desktop_identity(nonce: &str) -> Result<(String, String)> {
+    validate_hex(nonce, 64, "private desktop nonce")?;
+    let station = format!("cmux-ws-{}", &nonce[..32]);
+    let desktop = format!("{station}\\cmux-desk-{}", &nonce[32..]);
+    Ok((station, desktop))
+}
+
 pub fn encode_config(config: &BootstrapConfig) -> Result<Vec<u8>> {
     if config.schema_version != BOOTSTRAP_SCHEMA_VERSION {
         bail!("Windows bootstrap config schema changed");
@@ -329,6 +414,13 @@ pub fn encode_config(config: &BootstrapConfig) -> Result<Vec<u8>> {
     validate_hex(&config.launch.target_sha256, 64, "bootstrap target SHA-256")?;
     validate_hex(&config.launch.expected_bootstrap_sha256, 64, "bootstrap executable SHA-256")?;
     validate_restricting_sid(&config.launch.restricting_sid)?;
+    let (expected_station, expected_desktop) = windows_private_desktop_identity(&config.nonce)?;
+    if config.launch.private_window_station != expected_station
+        || format!("{}\\{}", config.launch.private_window_station, config.launch.private_desktop)
+            != expected_desktop
+    {
+        bail!("Windows bootstrap private desktop identity changed");
+    }
     let handles = [
         config.control_read,
         config.control_write,
@@ -359,6 +451,8 @@ pub fn encode_config(config: &BootstrapConfig) -> Result<Vec<u8>> {
     push_path(&mut bytes, &config.launch.trusted_path_probe)?;
     push_bytes(&mut bytes, config.launch.expected_bootstrap_sha256.as_bytes())?;
     push_bytes(&mut bytes, config.launch.restricting_sid.as_bytes())?;
+    push_utf16(&mut bytes, &config.launch.private_window_station)?;
+    push_utf16(&mut bytes, &config.launch.private_desktop)?;
     for argument in &config.launch.product_args {
         push_utf16(&mut bytes, argument)?;
     }
@@ -403,6 +497,8 @@ pub fn decode_config(bytes: &[u8]) -> Result<BootstrapConfig> {
     let restricting_sid =
         take_ascii_variable(bytes, &mut cursor, MAX_RESTRICTING_SID_BYTES, "restricting SID")?;
     validate_restricting_sid(&restricting_sid)?;
+    let private_window_station = take_utf16_string(bytes, &mut cursor)?;
+    let private_desktop = take_utf16_string(bytes, &mut cursor)?;
     let mut product_args = Vec::with_capacity(arg_count);
     for _ in 0..arg_count {
         product_args.push(take_utf16_string(bytes, &mut cursor)?);
@@ -422,6 +518,8 @@ pub fn decode_config(bytes: &[u8]) -> Result<BootstrapConfig> {
             trusted_path_probe,
             expected_bootstrap_sha256,
             restricting_sid,
+            private_window_station,
+            private_desktop,
         },
         control_read: handles[0],
         control_write: handles[1],
@@ -523,6 +621,14 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
                 restricted_authentication_match: flags & READY_RESTRICTED_AUTHENTICATION_MATCH != 0,
                 restricting_sid_match: flags & READY_RESTRICTING_SID_MATCH != 0,
                 write_restricted_created: flags & READY_WRITE_RESTRICTED_CREATED != 0,
+                system_restricting_sid_match: flags & READY_SYSTEM_RESTRICTING_SID_MATCH != 0,
+                private_window_station: flags & READY_PRIVATE_WINDOW_STATION != 0,
+                private_desktop: flags & READY_PRIVATE_DESKTOP != 0,
+                window_station_dacl: flags & READY_WINDOW_STATION_DACL != 0,
+                desktop_dacl: flags & READY_DESKTOP_DACL != 0,
+                window_station_low_integrity: flags & READY_WINDOW_STATION_LOW_INTEGRITY != 0,
+                desktop_low_integrity: flags & READY_DESKTOP_LOW_INTEGRITY != 0,
+                restricted_desktop_access: flags & READY_RESTRICTED_DESKTOP_ACCESS != 0,
                 broker_authentication_id: AuthenticationId {
                     low_part: read_u32(bytes, 88)?,
                     high_part: read_u32(bytes, 92)? as i32,
@@ -550,6 +656,11 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
                 product_write_restricted: flags & EXIT_PRODUCT_WRITE_RESTRICTED != 0,
                 product_no_enabled_privileges: flags & EXIT_PRODUCT_NO_ENABLED_PRIVILEGES != 0,
                 product_restricting_sid_match: flags & EXIT_PRODUCT_RESTRICTING_SID_MATCH != 0,
+                product_system_restricting_sid_match: flags
+                    & EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH
+                    != 0,
+                product_private_desktop: flags & EXIT_PRODUCT_PRIVATE_DESKTOP != 0,
+                product_create_no_window: flags & EXIT_PRODUCT_CREATE_NO_WINDOW != 0,
                 product_authentication_id: AuthenticationId {
                     low_part: read_u32(bytes, 64)?,
                     high_part: read_u32(bytes, 68)? as i32,
@@ -576,6 +687,11 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
                 product_write_restricted: flags & EXIT_PRODUCT_WRITE_RESTRICTED != 0,
                 product_no_enabled_privileges: flags & EXIT_PRODUCT_NO_ENABLED_PRIVILEGES != 0,
                 product_restricting_sid_match: flags & EXIT_PRODUCT_RESTRICTING_SID_MATCH != 0,
+                product_system_restricting_sid_match: flags
+                    & EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH
+                    != 0,
+                product_private_desktop: flags & EXIT_PRODUCT_PRIVATE_DESKTOP != 0,
+                product_create_no_window: flags & EXIT_PRODUCT_CREATE_NO_WINDOW != 0,
                 product_authentication_id: AuthenticationId {
                     low_part: read_u32(bytes, 60)?,
                     high_part: read_u32(bytes, 64)? as i32,
@@ -610,6 +726,14 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             restricted_authentication_match,
             restricting_sid_match,
             write_restricted_created,
+            system_restricting_sid_match,
+            private_window_station,
+            private_desktop,
+            window_station_dacl,
+            desktop_dacl,
+            window_station_low_integrity,
+            desktop_low_integrity,
+            restricted_desktop_access,
             broker_authentication_id,
             restricted_authentication_id,
             restricting_sid,
@@ -631,6 +755,14 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
                 u32::from(*restricted_authentication_match) * READY_RESTRICTED_AUTHENTICATION_MATCH;
             flags |= u32::from(*restricting_sid_match) * READY_RESTRICTING_SID_MATCH;
             flags |= u32::from(*write_restricted_created) * READY_WRITE_RESTRICTED_CREATED;
+            flags |= u32::from(*system_restricting_sid_match) * READY_SYSTEM_RESTRICTING_SID_MATCH;
+            flags |= u32::from(*private_window_station) * READY_PRIVATE_WINDOW_STATION;
+            flags |= u32::from(*private_desktop) * READY_PRIVATE_DESKTOP;
+            flags |= u32::from(*window_station_dacl) * READY_WINDOW_STATION_DACL;
+            flags |= u32::from(*desktop_dacl) * READY_DESKTOP_DACL;
+            flags |= u32::from(*window_station_low_integrity) * READY_WINDOW_STATION_LOW_INTEGRITY;
+            flags |= u32::from(*desktop_low_integrity) * READY_DESKTOP_LOW_INTEGRITY;
+            flags |= u32::from(*restricted_desktop_access) * READY_RESTRICTED_DESKTOP_ACCESS;
             validate_restricting_sid(restricting_sid)?;
             let mut payload = decode_hex_32(bootstrap_sha256, "bootstrap SHA-256")?.to_vec();
             payload.extend_from_slice(&broker_authentication_id.low_part.to_le_bytes());
@@ -652,6 +784,9 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             product_write_restricted,
             product_no_enabled_privileges,
             product_restricting_sid_match,
+            product_system_restricting_sid_match,
+            product_private_desktop,
+            product_create_no_window,
             product_authentication_id,
         } => {
             let mut flags = 0;
@@ -662,6 +797,10 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             flags |= u32::from(*product_write_restricted) * EXIT_PRODUCT_WRITE_RESTRICTED;
             flags |= u32::from(*product_no_enabled_privileges) * EXIT_PRODUCT_NO_ENABLED_PRIVILEGES;
             flags |= u32::from(*product_restricting_sid_match) * EXIT_PRODUCT_RESTRICTING_SID_MATCH;
+            flags |= u32::from(*product_system_restricting_sid_match)
+                * EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH;
+            flags |= u32::from(*product_private_desktop) * EXIT_PRODUCT_PRIVATE_DESKTOP;
+            flags |= u32::from(*product_create_no_window) * EXIT_PRODUCT_CREATE_NO_WINDOW;
             let mut payload = code.to_le_bytes().to_vec();
             payload.extend_from_slice(&u32::from(*private_job_descendant_contained).to_le_bytes());
             payload.extend_from_slice(&product_authentication_id.low_part.to_le_bytes());
@@ -682,6 +821,9 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             product_write_restricted,
             product_no_enabled_privileges,
             product_restricting_sid_match,
+            product_system_restricting_sid_match,
+            product_private_desktop,
+            product_create_no_window,
             product_authentication_id,
             resume_previous_count,
         } => {
@@ -693,6 +835,10 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             flags |= u32::from(*product_write_restricted) * EXIT_PRODUCT_WRITE_RESTRICTED;
             flags |= u32::from(*product_no_enabled_privileges) * EXIT_PRODUCT_NO_ENABLED_PRIVILEGES;
             flags |= u32::from(*product_restricting_sid_match) * EXIT_PRODUCT_RESTRICTING_SID_MATCH;
+            flags |= u32::from(*product_system_restricting_sid_match)
+                * EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH;
+            flags |= u32::from(*product_private_desktop) * EXIT_PRODUCT_PRIVATE_DESKTOP;
+            flags |= u32::from(*product_create_no_window) * EXIT_PRODUCT_CREATE_NO_WINDOW;
             let mut payload = u32::from(*private_job_descendant_contained).to_le_bytes().to_vec();
             payload.extend_from_slice(&product_authentication_id.low_part.to_le_bytes());
             payload.extend_from_slice(&(product_authentication_id.high_part as u32).to_le_bytes());
@@ -893,6 +1039,8 @@ mod tests {
                 trusted_path_probe: PathBuf::from("/trusted/probe"),
                 expected_bootstrap_sha256: "ef".repeat(32),
                 restricting_sid: "S-1-5-21-1-2-3-4".into(),
+                private_window_station: "cmux-ws-abababababababababababababababab".into(),
+                private_desktop: "cmux-desk-abababababababababababababababab".into(),
             },
             control_read: 11,
             control_write: 12,
@@ -926,6 +1074,10 @@ mod tests {
         let mut invalid_sid = config();
         invalid_sid.launch.restricting_sid = "not-a-sid".into();
         assert!(encode_config(&invalid_sid).is_err());
+        let mut interactive_desktop = config();
+        interactive_desktop.launch.private_window_station = "WinSta0".into();
+        interactive_desktop.launch.private_desktop = "Default".into();
+        assert!(encode_config(&interactive_desktop).is_err());
     }
 
     #[test]
@@ -937,6 +1089,16 @@ mod tests {
         let mut changed = bytes;
         changed.push(0);
         assert!(decode_arm(&changed).is_err());
+    }
+
+    #[test]
+    fn private_desktop_identity_is_nonce_bound_and_noninteractive() {
+        let nonce = format!("{}{}", "12".repeat(16), "34".repeat(16));
+        let (station, desktop) = windows_private_desktop_identity(&nonce).unwrap();
+        assert_eq!(station, format!("cmux-ws-{}", "12".repeat(16)));
+        assert_eq!(desktop, format!("cmux-ws-{}\\cmux-desk-{}", "12".repeat(16), "34".repeat(16)));
+        assert!(!station.eq_ignore_ascii_case("WinSta0"));
+        assert!(windows_private_desktop_identity("bad").is_err());
     }
 
     #[test]
@@ -958,6 +1120,14 @@ mod tests {
             restricted_authentication_match: true,
             restricting_sid_match: true,
             write_restricted_created: true,
+            system_restricting_sid_match: true,
+            private_window_station: true,
+            private_desktop: true,
+            window_station_dacl: true,
+            desktop_dacl: true,
+            window_station_low_integrity: true,
+            desktop_low_integrity: true,
+            restricted_desktop_access: true,
             broker_authentication_id: AuthenticationId { low_part: 7, high_part: 9 },
             restricted_authentication_id: AuthenticationId { low_part: 7, high_part: 9 },
             restricting_sid: "S-1-5-21-1-2-3-4".into(),
@@ -977,6 +1147,9 @@ mod tests {
             product_write_restricted: true,
             product_no_enabled_privileges: true,
             product_restricting_sid_match: true,
+            product_system_restricting_sid_match: true,
+            product_private_desktop: true,
+            product_create_no_window: true,
             product_authentication_id: AuthenticationId { low_part: 7, high_part: 9 },
         };
         assert_eq!(decode_event(&encode_event(&exit).unwrap()).unwrap(), exit);
@@ -990,6 +1163,9 @@ mod tests {
             product_write_restricted: true,
             product_no_enabled_privileges: true,
             product_restricting_sid_match: true,
+            product_system_restricting_sid_match: true,
+            product_private_desktop: true,
+            product_create_no_window: true,
             product_authentication_id: AuthenticationId { low_part: 7, high_part: 9 },
             resume_previous_count: 1,
         };
@@ -1053,6 +1229,13 @@ mod tests {
             trusted_path_write_denied: true,
             bootstrap_write_denied: true,
             restricting_sid: "S-1-5-21-1-2-3-4".into(),
+            system_restricting_sid: WINDOWS_WRITE_RESTRICTED_CODE_SID.into(),
+            private_window_station: "cmux-ws-abababababababababababababababab".into(),
+            private_desktop:
+                "cmux-ws-abababababababababababababababab\\cmux-desk-abababababababababababababababab"
+                    .into(),
+            private_desktop_ready_before_resume: true,
+            bootstrap_create_no_window: true,
             broker_authentication_id: "0000000900000007".into(),
             restricted_authentication_id: "0000000900000007".into(),
             product_authentication_id: "0000000900000007".into(),
@@ -1063,13 +1246,22 @@ mod tests {
             create_process_as_user_succeeded: true,
             restricted_token_write_restricted: true,
             restricted_token_restricting_sid_match: true,
+            restricted_token_system_restricting_sid_match: true,
             restricted_token_low_integrity: true,
             restricted_token_no_enabled_privileges: true,
+            window_station_dacl_proven: true,
+            desktop_dacl_proven: true,
+            window_station_low_integrity: true,
+            desktop_low_integrity: true,
+            restricted_desktop_access_proven: true,
             product_write_restricted: true,
             product_restricting_sid_match: true,
+            product_system_restricting_sid_match: true,
             product_low_integrity: true,
             product_no_enabled_privileges: true,
             product_exact_job: true,
+            product_private_desktop: true,
+            product_create_no_window: true,
             product_resume_previous_count: 1,
         };
         evidence.validate(&"ab".repeat(32), &"ef".repeat(32)).unwrap();
@@ -1079,6 +1271,15 @@ mod tests {
         let mut wrong_sid_proof = evidence.clone();
         wrong_sid_proof.product_restricting_sid_match = false;
         assert!(wrong_sid_proof.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
+        let mut wrong_desktop = evidence.clone();
+        wrong_desktop.private_desktop = "WinSta0\\Default".into();
+        assert!(wrong_desktop.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
+        let mut desktop_proven_too_late = evidence.clone();
+        desktop_proven_too_late.private_desktop_ready_before_resume = false;
+        assert!(desktop_proven_too_late.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
+        let mut console_window_allowed = evidence.clone();
+        console_window_allowed.bootstrap_create_no_window = false;
+        assert!(console_window_allowed.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
         let mut wrong_product_resume = evidence.clone();
         wrong_product_resume.product_resume_previous_count = 2;
         assert!(wrong_product_resume.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
