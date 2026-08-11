@@ -222,14 +222,14 @@ pub(super) fn terminate_process_tree_until(
     process: ProcessIdentity,
     deadline: Instant,
 ) -> io::Result<()> {
-    retry_process_tree_termination(process, deadline, |_| {
+    terminate_process_tree_until_with(process, deadline, |_| {
         let tree = FrozenProcessTree::freeze(process, deadline)?;
         tree.terminate_until(deadline)
     })
 }
 
 #[cfg(test)]
-fn retry_process_tree_termination(
+fn terminate_process_tree_until_with(
     process: ProcessIdentity,
     deadline: Instant,
     mut attempt: impl FnMut(Instant) -> io::Result<()>,
@@ -1005,7 +1005,7 @@ mod tests {
             ProcessIdentity::capture(libc::pid_t::try_from(child.id()).unwrap()).unwrap().unwrap();
         let mut attempts = 0;
 
-        let result = retry_process_tree_termination(
+        let result = terminate_process_tree_until_with(
             process,
             Instant::now() + Duration::from_secs(1),
             |_| {
