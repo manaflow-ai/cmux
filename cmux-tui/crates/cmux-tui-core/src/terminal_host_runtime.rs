@@ -30,8 +30,10 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, Frame,
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD,
-    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
-    TerminalExit, encode_terminal_exit, read_frame, wait_for_native_child_status, write_frame,
+    MAX_KITTY_IMAGE_ALIASES, MAX_SNAPSHOT_REPLAY_BYTES, MessageKind, PROTOCOL_VERSION,
+    RESIZE_ACK_CANONICAL_CHANGED, SnapshotKittyReplayState, SnapshotPayloadRef, TerminalExit,
+    decode_snapshot_payload, encode_snapshot_payload, encode_terminal_exit, read_frame,
+    wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -40,7 +42,6 @@ const SMART_RENDERER_PROTOCOL_VERSION: u16 = 3;
 const HOST_EXIT_RECORD_VERSION: u32 = 1;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
-const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
@@ -75,13 +76,14 @@ pub const MAX_TERMINAL_COLORS_PAYLOAD: usize = 8 + 3 * 3 + 2 + 256 * 4;
 const _: () = assert!(
     2 * size_of::<u16>()
         + size_of::<u32>()
-        + crate::surface::VT_REPLAY_MAX_BYTES
+        + MAX_SNAPSHOT_REPLAY_BYTES
         + KITTY_IMAGE_ALIAS_COUNT_LEN
         + MAX_KITTY_IMAGE_ALIASES * KITTY_IMAGE_ALIAS_ENCODED_LEN
         + CELL_PIXEL_SIZE_ENCODED_LEN
         + KITTY_REPLAY_STATE_ENCODED_LEN
         <= MAX_FRAME_PAYLOAD
 );
+const _: () = assert!(crate::surface::VT_REPLAY_MAX_BYTES == MAX_SNAPSHOT_REPLAY_BYTES);
 const _: () = assert!(SMART_RENDERER_PROTOCOL_VERSION <= PROTOCOL_VERSION);
 
 pub(crate) fn normalize_terminal_geometry(cols: u16, rows: u16) -> anyhow::Result<(u16, u16)> {
@@ -4592,9 +4594,8 @@ mod unix {
                 };
                 break (viewer_sizes, size, cell_pixels, term);
             };
-            let replay = term.vt_replay_bounded_theme_portable_with_aliases(
-                crate::surface::VT_REPLAY_MAX_BYTES,
-            )?;
+            let replay =
+                term.vt_replay_bounded_theme_portable_with_aliases(MAX_SNAPSHOT_REPLAY_BYTES)?;
             let colors = term.color_overrides();
             let (cols, rows) = *size;
             let cell_pixels = *cell_pixels;
@@ -4923,32 +4924,43 @@ mod unix {
     }
 
     fn encode_snapshot(snapshot: &HostSnapshot) -> anyhow::Result<Vec<u8>> {
-        let (cols, rows) = normalize_terminal_geometry(snapshot.cols, snapshot.rows)?;
         snapshot
             .kitty_state
             .validate_for_replay(snapshot.replay.len())
             .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?;
-        let mut output = Vec::new();
-        output.extend_from_slice(&cols.to_le_bytes());
-        output.extend_from_slice(&rows.to_le_bytes());
-        output.extend_from_slice(&snapshot.pid.unwrap_or(0).to_le_bytes());
-        put_blob(&mut output, &snapshot.replay)?;
-        put_optional_string(&mut output, snapshot.cwd.as_deref())?;
-        if snapshot.command.len() > MAX_ARGV {
-            anyhow::bail!("terminal-host snapshot command count is too large");
-        }
-        output.extend_from_slice(&(snapshot.command.len() as u16).to_le_bytes());
-        for argument in &snapshot.command {
-            put_string(&mut output, argument)?;
-        }
-        encode_kitty_image_aliases(&mut output, &snapshot.kitty_image_aliases)?;
-        output.extend_from_slice(&snapshot.cell_pixels.0.max(1).to_le_bytes());
-        output.extend_from_slice(&snapshot.cell_pixels.1.max(1).to_le_bytes());
-        encode_kitty_replay_state(&mut output, snapshot.kitty_state)?;
-        if output.len() > MAX_FRAME_PAYLOAD {
-            anyhow::bail!("terminal-host snapshot payload is too large");
-        }
-        Ok(output)
+        let kitty_image_aliases = snapshot
+            .kitty_image_aliases
+            .iter()
+            .map(|alias| (alias.image_id, alias.image_number))
+            .collect::<Vec<_>>();
+        encode_snapshot_payload(SnapshotPayloadRef {
+            cols: snapshot.cols,
+            rows: snapshot.rows,
+            cell_pixels: snapshot.cell_pixels,
+            replay: &snapshot.replay,
+            kitty_image_aliases: &kitty_image_aliases,
+            kitty_state: SnapshotKittyReplayState {
+                limits: (
+                    snapshot.kitty_state.limits.image_bytes,
+                    snapshot.kitty_state.limits.inflight_bytes,
+                    snapshot.kitty_state.limits.images,
+                    snapshot.kitty_state.limits.placements,
+                ),
+                replay_cursor_offset: snapshot.kitty_state.replay_cursor_offset,
+                replay_next_image_ids: (
+                    snapshot.kitty_state.replay_next_image_ids.primary,
+                    snapshot.kitty_state.replay_next_image_ids.alternate,
+                ),
+                next_image_ids: (
+                    snapshot.kitty_state.next_image_ids.primary,
+                    snapshot.kitty_state.next_image_ids.alternate,
+                ),
+            },
+            pid: snapshot.pid,
+            command: &snapshot.command,
+            cwd: snapshot.cwd.as_deref(),
+        })
+        .map_err(anyhow::Error::msg)
     }
 
     /// Encode the version-current snapshot payload used by native smart
@@ -4971,56 +4983,45 @@ mod unix {
         payload: &[u8],
         protocol_version: u16,
     ) -> anyhow::Result<HostSnapshot> {
-        if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
-            anyhow::bail!("unsupported terminal-host snapshot protocol {protocol_version}");
+        let snapshot =
+            decode_snapshot_payload(payload, protocol_version).map_err(anyhow::Error::msg)?;
+        let kitty_image_aliases = snapshot
+            .kitty_image_aliases
+            .into_iter()
+            .map(|(image_id, image_number)| KittyImageAlias { image_id, image_number })
+            .collect();
+        let kitty_state = KittyReplayState {
+            limits: KittyGraphicsLimits {
+                image_bytes: snapshot.kitty_state.limits.0,
+                inflight_bytes: snapshot.kitty_state.limits.1,
+                images: snapshot.kitty_state.limits.2,
+                placements: snapshot.kitty_state.limits.3,
+            },
+            replay_cursor_offset: snapshot.kitty_state.replay_cursor_offset,
+            replay_next_image_ids: KittyImageIdCursors {
+                primary: snapshot.kitty_state.replay_next_image_ids.0,
+                alternate: snapshot.kitty_state.replay_next_image_ids.1,
+            },
+            next_image_ids: KittyImageIdCursors {
+                primary: snapshot.kitty_state.next_image_ids.0,
+                alternate: snapshot.kitty_state.next_image_ids.1,
+            },
         }
-        let mut decoder = PayloadDecoder::new(payload);
-        let (cols, rows) = normalize_terminal_geometry(decoder.u16()?, decoder.u16()?)?;
-        let pid = match decoder.u32()? {
-            0 => None,
-            pid => Some(pid),
-        };
-        let replay = decoder.blob()?.to_vec();
-        let cwd = decoder.optional_string()?;
-        let argc = decoder.u16()? as usize;
-        if argc > MAX_ARGV {
-            anyhow::bail!("terminal-host snapshot command count is too large");
-        }
-        let mut command = Vec::with_capacity(argc);
-        for _ in 0..argc {
-            command.push(decoder.string()?);
-        }
-        let kitty_image_aliases = if protocol_version >= 2 {
-            decode_kitty_image_aliases(&mut decoder)?
-        } else {
-            Vec::new()
-        };
-        let cell_pixels = if protocol_version >= 2 {
-            (decoder.u16()?.max(1), decoder.u16()?.max(1))
-        } else {
-            DEFAULT_CELL_PIXELS
-        };
-        let kitty_state = if protocol_version >= 3 {
-            decode_kitty_replay_state(&mut decoder)?
-                .validate_for_replay(replay.len())
-                .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?
-        } else {
-            KittyReplayState::disabled()
-        };
-        pty_size(cols, rows, cell_pixels)?;
-        decoder.finish()?;
+        .validate_for_replay(snapshot.replay.len())
+        .map_err(|_| anyhow::anyhow!("terminal-host Kitty replay offset is invalid"))?;
+        pty_size(snapshot.cols, snapshot.rows, snapshot.cell_pixels)?;
         Ok(HostSnapshot {
-            cols,
-            rows,
-            cell_pixels,
-            replay,
+            cols: snapshot.cols,
+            rows: snapshot.rows,
+            cell_pixels: snapshot.cell_pixels,
+            replay: snapshot.replay,
             kitty_image_aliases,
             kitty_state,
             sequence_boundary: 0,
             colors: TerminalColorOverrides::default(),
-            pid,
-            command,
-            cwd,
+            pid: snapshot.pid,
+            command: snapshot.command,
+            cwd: snapshot.cwd,
         })
     }
 
@@ -5335,10 +5336,6 @@ mod unix {
             self.take(length)
         }
 
-        fn blob(&mut self) -> anyhow::Result<&'a [u8]> {
-            self.bytes_with_limit(MAX_BLOB)
-        }
-
         fn string(&mut self) -> anyhow::Result<String> {
             Ok(std::str::from_utf8(self.bytes_with_limit(MAX_STRING)?)?.to_string())
         }
@@ -5370,15 +5367,6 @@ mod unix {
 
     fn put_string(output: &mut Vec<u8>, value: &str) -> anyhow::Result<()> {
         put_bytes(output, value.as_bytes())
-    }
-
-    fn put_blob(output: &mut Vec<u8>, value: &[u8]) -> anyhow::Result<()> {
-        if value.len() > MAX_BLOB {
-            anyhow::bail!("terminal-host payload blob is too large");
-        }
-        output.extend_from_slice(&(value.len() as u32).to_le_bytes());
-        output.extend_from_slice(value);
-        Ok(())
     }
 
     fn put_optional_string(output: &mut Vec<u8>, value: Option<&str>) -> anyhow::Result<()> {
