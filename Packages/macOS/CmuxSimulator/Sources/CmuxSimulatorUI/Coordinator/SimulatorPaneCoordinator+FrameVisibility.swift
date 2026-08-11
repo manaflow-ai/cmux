@@ -44,13 +44,37 @@ extension SimulatorPaneCoordinator {
         setFrameVisibility(isVisible)
     }
 
-    /// Suspends the worker's shared-memory framebuffer when this pane is not visible.
-    /// Device control and inspection remain attached and available.
+    /// Registers a mobile framebuffer consumer independently from AppKit pane
+    /// visibility. Re-registering an existing consumer also reconciles a lost
+    /// transport, which is required after worker or shared-memory replacement.
+    public func setMobileFrameDemand(_ active: Bool, consumerID: UUID) {
+        if active {
+            mobileFrameConsumerIDs.insert(consumerID)
+        } else {
+            mobileFrameConsumerIDs.remove(consumerID)
+        }
+        reconcileFramePublication(forceIfMissing: active)
+    }
+
+    /// Reconciles local pane demand with mobile demand. Device control and
+    /// inspection remain attached when no framebuffer consumer is active.
     public func setFrameVisibility(_ isVisible: Bool) {
-        guard frameIsVisible != isVisible else { return }
-        frameIsVisible = isVisible
-        if !isVisible { frameTransport = nil }
+        localFrameDemand = isVisible
+        reconcileFramePublication()
+    }
+
+    /// The coordinator owns both desired publication and observed transport.
+    /// An unchanged demand bit is not proof that shared memory still exists.
+    func reconcileFramePublication(forceIfMissing: Bool = false) {
+        let shouldPublish = localFrameDemand || !mobileFrameConsumerIDs.isEmpty
+        let demandChanged = frameIsVisible != shouldPublish
+        frameIsVisible = shouldPublish
+        if !shouldPublish { frameTransport = nil }
         guard status == .streaming else { return }
-        enqueue(.setFramebufferPublishing(isVisible))
+        guard demandChanged
+                || (forceIfMissing && (!shouldPublish || frameTransport == nil)) else {
+            return
+        }
+        enqueue(.setFramebufferPublishing(shouldPublish))
     }
 }

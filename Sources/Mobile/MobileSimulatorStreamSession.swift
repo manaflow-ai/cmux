@@ -55,7 +55,7 @@ final class MobileSimulatorStreamSession {
 
     func start() {
         guard !isStopped else { return }
-        panel.setVisibleInUI(true, hostID: id)
+        panel.setMobileFrameDemand(true, consumerID: id)
         observeEventSubscriptions()
         observeCoordinator()
         emitState()
@@ -79,7 +79,7 @@ final class MobileSimulatorStreamSession {
             self.subscriptionObserver = nil
         }
         _ = readerAttachment.detach()?.setFramePublicationHandler(nil)
-        panel.setVisibleInUI(false, hostID: id)
+        panel.setMobileFrameDemand(false, consumerID: id)
         if sendClosed,
            let payload = wireEncoder.object(MobileSimulatorClosedEvent(panelID: panelID.uuidString)) {
             _ = await connection.sendEvent(topic: "simulator.closed", payload: payload)

@@ -202,6 +202,14 @@ final class SimulatorPanel: Panel {
         applyRegisteredVisibility()
     }
 
+    /// Registers mobile framebuffer demand without making the panel logically
+    /// visible in AppKit. The coordinator remains the single publication owner.
+    func setMobileFrameDemand(_ active: Bool, consumerID: UUID) {
+        guard !isClosed else { return }
+        coordinator.setMobileFrameDemand(active, consumerID: consumerID)
+        if active { startCoordinator() }
+    }
+
     func setCanvasRendering(_ rendering: Bool?) {
         guard !isClosed else { return }
         canvasRendering = rendering
