@@ -25059,7 +25059,7 @@ mod tests {
         .unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
-        loop {
+        let completion = loop {
             let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
             if matches!(
                 &event,

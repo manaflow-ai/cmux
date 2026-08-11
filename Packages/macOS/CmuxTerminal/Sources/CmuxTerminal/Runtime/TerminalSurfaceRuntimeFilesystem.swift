@@ -50,7 +50,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         directoryExists: @escaping @Sendable (_ path: String) -> Bool,
         agentCommandShimInstallGate: TerminalSurfaceCommandShimInstallGate = .init()
     ) {
-        precondition(agentCommandShimRemovalAttemptLimit > 0)
+        let removalAttemptLimit = max(1, agentCommandShimRemovalAttemptLimit)
         let removalFailureReporter =
             reportAgentCommandShimRemovalFailure ?? { shims, errorDescription in
                 Logger(
@@ -64,9 +64,9 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         self.installAgentCommandShims = installAgentCommandShims
         self.removeAgentCommandShims = removeAgentCommandShims
         self.reportAgentCommandShimRemovalFailure = removalFailureReporter
-        self.agentCommandShimRemovalAttemptLimit = agentCommandShimRemovalAttemptLimit
+        self.agentCommandShimRemovalAttemptLimit = removalAttemptLimit
         agentCommandShimCleanupOwner = TerminalSurfaceAgentCommandShimCleanupOwner(
-            removalAttemptLimit: agentCommandShimRemovalAttemptLimit,
+            removalAttemptLimit: removalAttemptLimit,
             remove: removeAgentCommandShims,
             reportRemovalFailure: removalFailureReporter
         )

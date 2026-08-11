@@ -223,6 +223,11 @@ public final class TerminalSurfaceLaunchResolver {
             protectedKeys.insert(key)
         }
 
+        func omitManagedValue(_ key: String) {
+            environment.removeValue(forKey: key)
+            protectedKeys.insert(key)
+        }
+
         let resolvedShell = resolvedUserShell()?.nilIfEmpty
         if let resolvedShell {
             setManagedValue("SHELL", resolvedShell)
@@ -254,10 +259,19 @@ public final class TerminalSurfaceLaunchResolver {
             setManagedValue("CMUX_BUNDLE_ID", bundleIdentifier)
         }
 
-        let startPort = sessionPortBase + request.portOrdinal * sessionPortRangeSize
-        setManagedValue("CMUX_PORT", String(startPort))
-        setManagedValue("CMUX_PORT_END", String(startPort + sessionPortRangeSize - 1))
-        setManagedValue("CMUX_PORT_RANGE", String(sessionPortRangeSize))
+        if let portRange = Self.sessionPortRange(
+            base: sessionPortBase,
+            ordinal: request.portOrdinal,
+            size: sessionPortRangeSize
+        ) {
+            setManagedValue("CMUX_PORT", String(portRange.lowerBound))
+            setManagedValue("CMUX_PORT_END", String(portRange.upperBound))
+            setManagedValue("CMUX_PORT_RANGE", String(sessionPortRangeSize))
+        } else {
+            omitManagedValue("CMUX_PORT")
+            omitManagedValue("CMUX_PORT_END")
+            omitManagedValue("CMUX_PORT_RANGE")
+        }
 
         let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
         for (key, value) in spawnPolicy.socketAuthenticationEnvironment
@@ -387,6 +401,21 @@ public final class TerminalSurfaceLaunchResolver {
             ),
             requiresDefaultShellArguments: requiresDefaultShellArguments
         )
+    }
+
+    private static func sessionPortRange(
+        base: Int,
+        ordinal: Int,
+        size: Int
+    ) -> ClosedRange<Int>? {
+        guard base >= 1, ordinal >= 0, size > 0 else { return nil }
+        let (offset, offsetOverflowed) = ordinal.multipliedReportingOverflow(by: size)
+        guard !offsetOverflowed else { return nil }
+        let (start, startOverflowed) = base.addingReportingOverflow(offset)
+        guard !startOverflowed else { return nil }
+        let (end, endOverflowed) = start.addingReportingOverflow(size - 1)
+        guard !endOverflowed, start >= 1, end <= 65_535 else { return nil }
+        return start ... end
     }
 }
 

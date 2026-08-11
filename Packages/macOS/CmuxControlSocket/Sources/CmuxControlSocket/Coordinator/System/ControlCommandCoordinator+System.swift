@@ -78,7 +78,7 @@ extension ControlCommandCoordinator {
             return .ok(.object([
                 "request_id": .string(requestID.uuidString),
                 "status": .string("indeterminate"),
-                "finished": .bool(false),
+                "finished": .bool(true),
                 "committed": .null,
                 "canonical_snapshot_acknowledged": .null,
                 "swift_projection_installed": .null,

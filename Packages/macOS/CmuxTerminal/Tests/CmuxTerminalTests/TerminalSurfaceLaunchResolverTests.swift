@@ -61,6 +61,77 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(resolved.environment["CMUX_PORT_RANGE"] == "100")
     }
 
+    @Test func invalidSessionPortRangeCannotPublishInvalidOrOverriddenPorts() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.environmentVariables = [
+            "CMUX_PORT": "template-port",
+            "CMUX_PORT_END": "template-end",
+            "CMUX_PORT_RANGE": "template-range",
+        ]
+        let resolver = makeResolver(defaultArguments: ["/bin/zsh"], sessionPortBase: 65_535)
+
+        let resolved = resolver.resolve(
+            TerminalSurfaceLaunchRequest(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                configTemplate: template,
+                workingDirectory: nil,
+                portOrdinal: 1,
+                initialCommand: nil,
+                initialInput: nil,
+                initialEnvironmentOverrides: ["CMUX_PORT": "override-port"],
+                additionalEnvironment: ["CMUX_PORT_END": "additional-end"]
+            ),
+            commandShims: nil,
+            launchResourceSnapshot: .unavailable
+        )
+
+        #expect(resolved.environment["CMUX_PORT"] == nil)
+        #expect(resolved.environment["CMUX_PORT_END"] == nil)
+        #expect(resolved.environment["CMUX_PORT_RANGE"] == nil)
+    }
+
+    @Test func overflowingSessionPortCalculationDoesNotTerminate() {
+        let resolver = makeResolver(
+            defaultArguments: ["/bin/zsh"],
+            sessionPortBase: Int.max,
+            sessionPortRangeSize: Int.max
+        )
+
+        let resolved = resolver.resolve(
+            TerminalSurfaceLaunchRequest(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                configTemplate: nil,
+                workingDirectory: nil,
+                portOrdinal: Int.max,
+                initialCommand: nil,
+                initialInput: nil,
+                initialEnvironmentOverrides: [:],
+                additionalEnvironment: [:]
+            ),
+            commandShims: nil,
+            launchResourceSnapshot: .unavailable
+        )
+
+        #expect(resolved.environment["CMUX_PORT"] == nil)
+        #expect(resolved.environment["CMUX_PORT_END"] == nil)
+        #expect(resolved.environment["CMUX_PORT_RANGE"] == nil)
+    }
+
+    @Test func nonpositiveCommandShimRemovalAttemptLimitUsesOneSafeAttempt() {
+        let filesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+            installAgentCommandShims: { _, _, _ in nil },
+            removeAgentCommandShims: { _ in },
+            agentCommandShimRemovalAttemptLimit: 0,
+            isExecutableFile: { _ in false },
+            directoryExists: { _ in false }
+        )
+
+        #expect(filesystem.agentCommandShimRemovalAttemptLimit == 1)
+    }
+
     @Test func defaultShellUsesExplicitLoginArgumentsAndNoCommand() {
         let resolver = makeResolver(defaultArguments: ["/usr/bin/login", "-flp", "tester"])
         let resolved = resolver.resolve(
@@ -692,7 +763,9 @@ struct TerminalSurfaceLaunchResolverTests {
         launchResourceSnapshotDeadline: Duration = .seconds(5),
         launchResourceSnapshotDeadlineClock: any Clock<Duration> = ContinuousClock(),
         agentCommandShimInstallDeadline: Duration = .seconds(5),
-        agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock()
+        agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
+        sessionPortBase: Int = 40_000,
+        sessionPortRangeSize: Int = 100
     ) -> TerminalSurfaceLaunchResolver {
         TerminalSurfaceLaunchResolver(
             userGhosttyShellIntegrationMode: { "none" },
@@ -708,8 +781,8 @@ struct TerminalSurfaceLaunchResolverTests {
                 isExecutableFile: { _ in false },
                 directoryExists: { _ in false }
             ),
-            sessionPortBase: 40_000,
-            sessionPortRangeSize: 100,
+            sessionPortBase: sessionPortBase,
+            sessionPortRangeSize: sessionPortRangeSize,
             resourceURL: resourceURL,
             bundleIdentifier: "com.cmux.test",
             ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
