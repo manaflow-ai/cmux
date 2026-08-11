@@ -1006,6 +1006,7 @@ mod platform {
 
     const MAX_BOOTSTRAP_CHECKPOINT_BYTES: usize = 64 * 1024;
     const LOGON_ID_ATTRIBUTES: u32 = SE_GROUP_LOGON_ID as u32;
+    const STILL_ACTIVE_EXIT_CODE: u32 = STILL_ACTIVE as u32;
 
     pub fn run_outer(launch: &Launch) -> Result<ExitStatus> {
         let mut control = transport::connect(&launch.control)
@@ -2129,7 +2130,7 @@ mod platform {
                 unsafe { GetExitCodeProcess(process.0, &mut exit_code) },
                 "query adopted native bootstrap state",
             )?;
-            if exit_code != STILL_ACTIVE {
+            if exit_code != STILL_ACTIVE_EXIT_CODE {
                 bail!("adopted native bootstrap exited before adoption");
             }
             let previous_count = unsafe { SuspendThread(primary_thread.0) };
