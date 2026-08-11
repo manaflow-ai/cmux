@@ -4822,6 +4822,10 @@ final class cmuxUITests: XCTestCase {
             .matching(NSPredicate(format: "label CONTAINS %@", "ci-failure.png"))
             .firstMatch
         XCTAssertTrue(attachment.waitForExistence(timeout: 4))
+        guard scrollTranscript(table, toReveal: attachment, timeout: 10) else {
+            XCTFail("Missing attachment never became visible")
+            return
+        }
 
         tap(attachment, in: app)
 
@@ -7404,6 +7408,23 @@ final class cmuxUITests: XCTestCase {
             return nil
         }
         return frame
+    }
+
+    @MainActor
+    private func scrollTranscript(
+        _ table: XCUIElement,
+        toReveal element: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.isHittable {
+                return true
+            }
+            table.swipeDown(velocity: .slow)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+        }
+        return element.isHittable
     }
 
     @MainActor
