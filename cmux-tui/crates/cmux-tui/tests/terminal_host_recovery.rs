@@ -265,10 +265,8 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
     assert!(created["terminal_revision"].as_u64().is_some());
 
     let terminal_id = created["terminal_id"].as_str().expect("run omitted terminal id").to_string();
-    let terminal_resource_id = only_terminal_resource_id(
-        &harness.socket,
-        "short-lived-terminal-snapshot",
-    );
+    let terminal_resource_id =
+        only_terminal_resource_id(&harness.socket, "short-lived-terminal-snapshot");
     assert!(created["terminal_incarnation"].as_str().is_some());
     let waited = resource_request(
         &harness.socket,
