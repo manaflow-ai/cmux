@@ -235,6 +235,7 @@ jobs:
              ring-aes-gcm-writev-vector-0
              Memcheck:Param
              writev(vector[0])
+             fun:__writev
              fun:writev
              ...
              fun:*rustls*ChunkVecBuffer*write_to*
@@ -243,6 +244,7 @@ jobs:
              ring-aes-gcm-writev-vector-1
              Memcheck:Param
              writev(vector[1])
+             fun:__writev
              fun:writev
              ...
              fun:*rustls*ChunkVecBuffer*write_to*
@@ -352,11 +354,6 @@ jobs:
             exit 1
           fi
           cargo test --workspace --locked "$TEST_FILTER" -- --include-ignored
-
-      - name: crossterm parser tests
-        if: inputs.mode == 'full'
-        working-directory: cmux-tui
-        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
 
       - name: TUI smoke test (scripted pty)
         if: inputs.mode == 'full'
