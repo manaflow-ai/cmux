@@ -66,9 +66,9 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         return workspaceController?.emptyAreaMenu()
     }
 
-    // The data-source drop callbacks have no exit/cancel counterpart, and a
-    // reorder drag that leaves the sidebar (or is cancelled with Escape while
-    // over it) would otherwise strand the custom drop indicator.
+    // Leaving the destination retires its hover geometry, but does not end the
+    // drag session. `draggingEnded` owns final session cleanup so custom
+    // autoscroll can keep running while the pointer is beyond the viewport.
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         super.draggingExited(sender)
         workspaceController?.reorderDropDragExited()
@@ -78,10 +78,12 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     // destination the table also gets AppKit's built-in drag autoscroll,
     // whose engagement band, speed, and boundary behavior all differ — two
     // drivers fighting reads as flaky scrolling and scrolling that continues
-    // after the pointer left the cmux edge zone. Decline ONLY while a reorder
-    // drop session is hovering: NSTableView's own mouseDown tracking also
-    // calls autoscroll during drag initiation, and returning false there
-    // makes every row drag die at birth (mouse-up lands as a plain click).
+    // after the pointer left the cmux edge zone. Decline only after the native
+    // destination accepts a reorder and until that drag session ends,
+    // including while the pointer is outside the destination. NSTableView's
+    // own mouseDown tracking also calls autoscroll during drag initiation, and
+    // returning false there makes every row drag die at birth (mouse-up lands
+    // as a plain click).
     override func autoscroll(with event: NSEvent) -> Bool {
         if workspaceController?.isReorderDropSessionActive == true {
             return false

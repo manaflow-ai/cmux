@@ -660,9 +660,10 @@ private extension View {
 struct ExtensionSidebarBrowserStackEmptyArea: View {
     let rowSpacing: CGFloat
     let orderedRows: [ExtensionSidebarBrowserStackDropRow]
-    let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
+    let updateAutoscroll: () -> Void
+    let stopAutoscroll: () -> Void
     let onNewTab: () -> Void
     let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
 
@@ -674,8 +675,9 @@ struct ExtensionSidebarBrowserStackEmptyArea: View {
             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackEndDropDelegate(
                 orderedRows: orderedRows,
                 draggedTabId: $draggedTabId,
-                dragAutoScrollController: dragAutoScrollController,
                 dropIndicator: $dropIndicator,
+                updateAutoscroll: updateAutoscroll,
+                stopAutoscroll: stopAutoscroll,
                 onMove: onMove
             ))
             .overlay(alignment: .top) {
@@ -702,8 +704,9 @@ struct ExtensionSidebarBrowserStackEmptyArea: View {
 private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
     let orderedRows: [ExtensionSidebarBrowserStackDropRow]
     @Binding var draggedTabId: UUID?
-    let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
+    let updateAutoscroll: () -> Void
+    let stopAutoscroll: () -> Void
     let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -713,7 +716,7 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
-        dragAutoScrollController.updateFromDragLocation()
+        updateAutoscroll()
         updateDropIndicator()
     }
 
@@ -724,7 +727,7 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        dragAutoScrollController.updateFromDragLocation()
+        updateAutoscroll()
         updateDropIndicator()
         return DropProposal(operation: .move)
     }
@@ -733,7 +736,7 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
         defer {
             draggedTabId = nil
             dropIndicator = nil
-            dragAutoScrollController.stop()
+            stopAutoscroll()
         }
         guard let draggedTabId,
               let insertionPosition = insertionPositionForEndMove(draggedWorkspaceId: draggedTabId),

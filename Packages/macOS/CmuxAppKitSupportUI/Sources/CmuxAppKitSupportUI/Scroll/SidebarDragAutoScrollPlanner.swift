@@ -18,6 +18,14 @@ public struct SidebarAutoScrollPlan: Equatable {
     }
 }
 
+extension SidebarAutoScrollPlan {
+    func verticalDelta(documentViewIsFlipped: Bool) -> CGFloat {
+        let directionMultiplier: CGFloat = direction == .down ? 1 : -1
+        let flippedMultiplier: CGFloat = documentViewIsFlipped ? 1 : -1
+        return directionMultiplier * flippedMultiplier * pointsPerTick
+    }
+}
+
 /// Pure planner value that maps a drag location's distance to the viewport edges
 /// into an auto-scroll plan, ramping the per-tick step between `minStep` and
 /// `maxStep` as the pointer approaches the edge. Construct it with the drag

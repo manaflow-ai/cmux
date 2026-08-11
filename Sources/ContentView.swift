@@ -11723,7 +11723,7 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             clearWorkspaceDropIndicator: {
                 dragState.clearDropIndicator()
-                dragAutoScrollController.stop()
+                dragAutoScrollController.stopForWorkspaceReorder(dragState: dragState)
             },
             currentDropIndicator: {
                 dragState.dropIndicator
@@ -11775,7 +11775,11 @@ struct VerticalTabsSidebar: View, Equatable {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspaceId }
             },
             updateDragAutoscroll: {
-                dragAutoScrollController.updateFromDragLocation()
+                if dragState.currentWorkspaceDragId == nil {
+                    dragAutoScrollController.updateFromDragLocation()
+                } else {
+                    dragAutoScrollController.updateForWorkspaceReorder(dragState: dragState)
+                }
             },
             setBonsplitDropTargetCollectionActive: { isActive in
                 guard isBonsplitWorkspaceDropTargetCollectionActive != isActive else { return }
@@ -12687,9 +12691,14 @@ struct VerticalTabsSidebar: View, Equatable {
             ExtensionSidebarBrowserStackEmptyArea(
                 rowSpacing: tabRowSpacing,
                 orderedRows: dropRows,
-                dragAutoScrollController: dragAutoScrollController,
                 draggedTabId: draggedTabIdBinding,
                 dropIndicator: dropIndicatorBinding,
+                updateAutoscroll: {
+                    dragAutoScrollController.updateForWorkspaceReorder(dragState: dragState)
+                },
+                stopAutoscroll: {
+                    dragAutoScrollController.stopForWorkspaceReorder(dragState: dragState)
+                },
                 onNewTab: onNewTab,
                 onMove: { move in
                     handleExtensionSidebarMutation(.moveWorkspace(move))
@@ -12788,8 +12797,13 @@ struct VerticalTabsSidebar: View, Equatable {
             orderedRows: dropRows,
             draggedTabId: draggedTabIdBinding,
             targetRowHeight: targetRowHeight,
-            dragAutoScrollController: dragAutoScrollController,
             dropIndicator: dropIndicatorBinding,
+            updateAutoscroll: {
+                dragAutoScrollController.updateForWorkspaceReorder(dragState: dragState)
+            },
+            stopAutoscroll: {
+                dragAutoScrollController.stopForWorkspaceReorder(dragState: dragState)
+            },
             onMove: { move in
                 handleExtensionSidebarMutation(.moveWorkspace(move))
             }
@@ -12866,8 +12880,13 @@ struct VerticalTabsSidebar: View, Equatable {
             orderedRows: dropRows,
             draggedTabId: draggedTabIdBinding,
             targetRowHeight: targetRowHeight,
-            dragAutoScrollController: dragAutoScrollController,
             dropIndicator: dropIndicatorBinding,
+            updateAutoscroll: {
+                dragAutoScrollController.updateForWorkspaceReorder(dragState: dragState)
+            },
+            stopAutoscroll: {
+                dragAutoScrollController.stopForWorkspaceReorder(dragState: dragState)
+            },
             onMove: { move in
                 handleExtensionSidebarMutation(.moveWorkspace(move))
             }
@@ -13448,7 +13467,7 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             clearDropIndicator: {
                 dragState.clearDropIndicator()
-                dragAutoScrollController.stop()
+                dragAutoScrollController.stopForWorkspaceReorder(dragState: dragState)
             },
             setWorkspaceDropTargetCollectionActive: { isActive in
                 guard isWorkspaceReorderDropTargetCollectionActive != isActive else { return }
@@ -13516,7 +13535,7 @@ struct VerticalTabsSidebar: View, Equatable {
             dragState.clearDropIndicator()
             return false
         }
-        dragAutoScrollController.updateFromDragLocation()
+        dragAutoScrollController.updateForWorkspaceReorder(dragState: dragState)
         guard dragState.dropIndicator != plan.indicator ||
                 dragState.dropIndicatorScope != plan.indicatorScope else {
             return true
@@ -13540,7 +13559,6 @@ struct VerticalTabsSidebar: View, Equatable {
               let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             return nil
         }
-        dragAutoScrollController.updateFromDragLocation()
         return SidebarWorkspaceTableReorderDropUpdate(
             indicator: plan.indicator,
             scope: plan.indicatorScope,
@@ -16782,7 +16800,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         cmuxDebugLog("sidebar.dropEntered target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
         #endif
         activateForeignDragIfNeeded()
-        dragAutoScrollController.updateFromDragLocation()
+        dragAutoScrollController.updateForWorkspaceReorder(dragState: dragState)
         updateDropIndicator(for: info)
     }
 
@@ -16797,7 +16815,7 @@ struct SidebarTabDropDelegate: DropDelegate {
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         activateForeignDragIfNeeded()
-        dragAutoScrollController.updateFromDragLocation()
+        dragAutoScrollController.updateForWorkspaceReorder(dragState: dragState)
         updateDropIndicator(pointerX: info.location.x, pointerY: plannerPointerY(for: info))
 #if DEBUG
         cmuxDebugLog(
@@ -16821,7 +16839,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             if shouldClearDrag {
                 dragState.clearDrag()
             }
-            dragAutoScrollController.stop()
+            dragAutoScrollController.stopForWorkspaceReorder(dragState: dragState)
         }
         #if DEBUG
         cmuxDebugLog("sidebar.drop target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
@@ -17189,8 +17207,9 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
     let orderedRows: [ExtensionSidebarBrowserStackDropRow]
     @Binding var draggedTabId: UUID?
     let targetRowHeight: CGFloat?
-    let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
+    let updateAutoscroll: () -> Void
+    let stopAutoscroll: () -> Void
     let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -17200,7 +17219,7 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
-        dragAutoScrollController.updateFromDragLocation()
+        updateAutoscroll()
         updateDropIndicator(for: info)
     }
 
@@ -17211,7 +17230,7 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        dragAutoScrollController.updateFromDragLocation()
+        updateAutoscroll()
         updateDropIndicator(for: info)
         return DropProposal(operation: .move)
     }
@@ -17220,7 +17239,7 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
         defer {
             draggedTabId = nil
             dropIndicator = nil
-            dragAutoScrollController.stop()
+            stopAutoscroll()
         }
         guard let draggedTabId else {
             return false

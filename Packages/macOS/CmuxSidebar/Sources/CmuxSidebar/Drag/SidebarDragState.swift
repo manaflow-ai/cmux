@@ -15,7 +15,7 @@ public import CmuxFoundation
 /// window can resolve a drag that originated elsewhere.
 @MainActor
 @Observable
-public final class SidebarDragState {
+public final class SidebarDragState: SidebarWorkspaceDragAutoscrollOwning {
     /// The workspace currently dragged in this window, or `nil` when no local
     /// drag is in flight. A destination window mirrors a foreign id here to drive
     /// the cross-window drop machinery.
@@ -54,6 +54,7 @@ public final class SidebarDragState {
     public var foreignDraggedIsPinned: Bool?
 
     private let workspaceDragRegistry: any SidebarWorkspaceDragRegistering
+    @ObservationIgnored private var relinquishAutoscrollAction: (@MainActor () -> Void)?
 
     /// Creates a drag state wired to the process-wide cross-window registry.
     /// - Parameter workspaceDragRegistry: The shared registry that records which
@@ -68,9 +69,37 @@ public final class SidebarDragState {
         workspaceDragRegistry.currentWorkspaceId
     }
 
+    /// Claims process-wide autoscroll ownership for this destination.
+    ///
+    /// - Parameter relinquish: Stops this destination's autoscroll controller.
+    /// - Returns: Whether a workspace drag is active and ownership was claimed.
+    @discardableResult
+    public func claimWorkspaceDragAutoscroll(
+        relinquish: @escaping @MainActor () -> Void
+    ) -> Bool {
+        guard currentWorkspaceDragId != nil else { return false }
+        relinquishAutoscrollAction = relinquish
+        workspaceDragRegistry.claimAutoscroll(owner: self)
+        return true
+    }
+
+    /// Releases this destination's ownership and stops its controller.
+    public func stopWorkspaceDragAutoscroll() {
+        workspaceDragRegistry.releaseAutoscroll(owner: self)
+        relinquishWorkspaceDragAutoscroll()
+    }
+
+    /// Stops this destination after another sidebar claims autoscroll.
+    public func relinquishWorkspaceDragAutoscroll() {
+        let action = relinquishAutoscrollAction
+        relinquishAutoscrollAction = nil
+        action?()
+    }
+
     /// Marks `tabId` as this window's dragged workspace and records it as the
     /// process-wide in-flight drag.
     public func beginDragging(tabId: UUID) {
+        stopWorkspaceDragAutoscroll()
         draggedTabId = tabId
         clearDropIndicator()
         originatedActiveDrag = true
@@ -102,6 +131,7 @@ public final class SidebarDragState {
     /// window originated the drag, so a destination window that merely mirrored a
     /// foreign id does not cancel the originating window's drag.
     public func clearDrag() {
+        stopWorkspaceDragAutoscroll()
         if originatedActiveDrag, let draggedTabId {
             workspaceDragRegistry.end(workspaceId: draggedTabId)
         }
