@@ -846,7 +846,7 @@ mod tests {
     use serde_json::Value;
     use sha2::Digest;
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
-    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     use std::os::unix::ffi::OsStrExt;
 
@@ -1086,6 +1086,7 @@ mod tests {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         let child_ready_path = child_pid_path.with_extension("ready");
+        let hook_group_pid_path = child_pid_path.with_extension("group");
         let child_ready_c_path = std::ffi::CString::new(child_ready_path.as_os_str().as_bytes())
             .expect("hook descendant ready path");
         assert_eq!(unsafe { libc::mkfifo(child_ready_c_path.as_ptr(), 0o600) }, 0);
@@ -1093,10 +1094,11 @@ mod tests {
         manifest.exec.argv = vec![
             "/bin/sh".into(),
             "-c".into(),
-            "exec 3<&0; (/bin/sh -c 'printf \"ready\\n\" > \"$1\"; kill -STOP $$' cmux-hook-child \"$2\" <&3) & printf '%s\\n' \"$!\" > \"$1\"; IFS= read -r ready < \"$2\"; exit 0".into(),
+            "printf '%s\\n' \"$$\" > \"$3\"; exec 3<&0; (/bin/sh -c 'printf \"ready\\n\" > \"$1\"; kill -STOP $$' cmux-hook-child \"$2\" <&3) & printf '%s\\n' \"$!\" > \"$1\"; IFS= read -r ready < \"$2\"; exit 0".into(),
             "cmux-hook-test".into(),
             child_pid_path.to_string_lossy().into_owned(),
             child_ready_path.to_string_lossy().into_owned(),
+            hook_group_pid_path.to_string_lossy().into_owned(),
         ];
         let delivery = JournalHookDelivery {
             manifest,
@@ -1104,7 +1106,34 @@ mod tests {
             attempt: 0,
         };
         let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
-        let (exit_code, error) = execute_delivery(&delivery, &attempt);
+        let (exit_code, error) = std::thread::scope(|scope| {
+            let (result_tx, result_rx) = mpsc::sync_channel(1);
+            scope.spawn(move || {
+                let _ = result_tx.send(execute_delivery(&delivery, &attempt));
+            });
+            match result_rx.recv_timeout(Duration::from_secs(2)) {
+                Ok(result) => result,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if let Ok(process_group) = std::fs::read_to_string(&hook_group_pid_path)
+                        .and_then(|pid| {
+                            pid.trim().parse::<libc::pid_t>().map_err(std::io::Error::other)
+                        })
+                    {
+                        // SAFETY: the hook executable publishes its isolated
+                        // process group before it starts the blocking fixture.
+                        unsafe {
+                            libc::kill(-process_group, libc::SIGKILL);
+                        }
+                    }
+                    result_rx
+                        .recv_timeout(Duration::from_secs(1))
+                        .expect("hook delivery did not stop after failure cleanup")
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    panic!("hook delivery worker stopped without a result")
+                }
+            }
+        });
         let child_pid = std::fs::read_to_string(&child_pid_path)
             .expect("hook descendant PID publication")
             .trim()
@@ -1118,6 +1147,7 @@ mod tests {
         });
         let _ = std::fs::remove_file(&child_pid_path);
         let _ = std::fs::remove_file(&child_ready_path);
+        let _ = std::fs::remove_file(&hook_group_pid_path);
 
         assert_eq!(exit_code, Some(0), "{error:?}");
         assert_eq!(error, None);
