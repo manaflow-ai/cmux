@@ -96,6 +96,29 @@ impl ResolverTestGate {
 }
 
 #[cfg(test)]
+#[derive(Default)]
+struct ReaderStoppedSignal {
+    stopped: Mutex<bool>,
+    changed: Condvar,
+}
+
+#[cfg(test)]
+impl ReaderStoppedSignal {
+    fn mark(&self) {
+        let mut stopped = self.stopped.lock().unwrap();
+        *stopped = true;
+        self.changed.notify_all();
+    }
+
+    fn wait(&self, timeout: Duration) -> bool {
+        let stopped = self.stopped.lock().unwrap();
+        let (stopped, _) =
+            self.changed.wait_timeout_while(stopped, timeout, |stopped| !*stopped).unwrap();
+        *stopped
+    }
+}
+
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ResolverReaperTestEvent {
     Attempt(u32),
@@ -863,7 +886,7 @@ struct Inner {
     web_socket_url: Arc<str>,
     peer_addr: SocketAddr,
     #[cfg(test)]
-    reader_stopped: Arc<AtomicBool>,
+    reader_stopped: Arc<ReaderStoppedSignal>,
 }
 
 struct PendingCall {
@@ -1362,7 +1385,7 @@ impl CdpClient {
                 web_socket_url: Arc::from(web_socket_url),
                 peer_addr: addr,
                 #[cfg(test)]
-                reader_stopped: Arc::new(AtomicBool::new(false)),
+                reader_stopped: Arc::new(ReaderStoppedSignal::default()),
             }),
         };
         client.spawn_reader(ws, outbound_rx, events)?;
@@ -1381,7 +1404,7 @@ impl CdpClient {
         std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
             reader_loop(&weak, ws, &outbound, &event_output);
             #[cfg(test)]
-            reader_stopped.store(true, Ordering::Release);
+            reader_stopped.mark();
         })?;
         Ok(())
     }
@@ -3064,7 +3087,7 @@ mod tests {
                 timeout: Duration::from_secs(1),
                 web_socket_url: Arc::from("ws://127.0.0.1:1/devtools/browser/test"),
                 peer_addr: "127.0.0.1:1".parse().unwrap(),
-                reader_stopped: Arc::new(AtomicBool::new(false)),
+                reader_stopped: Arc::new(ReaderStoppedSignal::default()),
             }),
             outbound_rx,
         )
@@ -4560,11 +4583,10 @@ mod tests {
         )
         .unwrap();
         drop(command);
-        let close_deadline = Instant::now() + Duration::from_secs(1);
-        while !client.inner.reader_stopped.load(Ordering::Acquire) {
-            assert!(Instant::now() < close_deadline, "initial CDP reader did not stop");
-            thread::yield_now();
-        }
+        assert!(
+            client.inner.reader_stopped.wait(Duration::from_secs(1)),
+            "initial CDP reader did not stop"
+        );
 
         let unused_gate = Arc::new(ResolverTestGate::default());
         *NEXT_RESOLVE_GATE.lock().unwrap() = Some(unused_gate.clone());
@@ -5138,11 +5160,10 @@ mod tests {
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         server.join().unwrap();
 
-        let deadline = Instant::now() + Duration::from_millis(500);
-        while !client.inner.reader_stopped.load(Ordering::Acquire) {
-            assert!(Instant::now() < deadline, "CDP reader did not stop");
-            thread::yield_now();
-        }
+        assert!(
+            client.inner.reader_stopped.wait(Duration::from_millis(500)),
+            "CDP reader did not stop"
+        );
         assert!(matches!(event_rx.recv(), Ok(CdpEvent::Other { .. })));
 
         let shutdown = event_rx.recv_timeout(Duration::from_millis(500));
