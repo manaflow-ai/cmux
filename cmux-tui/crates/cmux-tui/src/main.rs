@@ -36,6 +36,7 @@ mod remote_cli;
 #[cfg(windows)]
 #[path = "remote_cli_windows.rs"]
 mod remote_cli;
+mod remote_cli_help;
 #[cfg(not(any(unix, windows)))]
 mod remote_cli {
     const REMOTE_COMMANDS: &[&str] = &[

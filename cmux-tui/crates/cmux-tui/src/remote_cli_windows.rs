@@ -105,6 +105,10 @@ pub fn run(args: &[String], _: &str) -> i32 {
 }
 
 fn run_inner(args: &[String]) -> anyhow::Result<()> {
+    if crate::remote_cli_help::requested(&args[1..]) {
+        print!("{}", crate::remote_cli_help::help(args.first().map(String::as_str)));
+        return Ok(());
+    }
     match args.first().map(String::as_str) {
         Some("ssh") => run_ssh(&args[1..]),
         Some("remote-probe") => run_probe(&args[1..]),

@@ -646,6 +646,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             $failedSuites += "TUI unit"
           }
+          cargo test -p cmux-tui --test cli --locked --target x86_64-pc-windows-gnu local_and_authenticated_remote_namespaces_do_not_cross_target
+          if ($LASTEXITCODE -ne 0) {
+            $failedSuites += "remote help"
+          }
           cargo test -p cmux-tui --test windows_remote_owner --locked --target x86_64-pc-windows-gnu
           if ($LASTEXITCODE -ne 0) {
             $failedSuites += "remote owner"

@@ -9,10 +9,13 @@ $testRoot = Join-Path $env:RUNNER_TEMP "cmux-native-ssh"
 $keyPath = Join-Path $testRoot "id_ed25519"
 $knownHosts = Join-Path $testRoot "known_hosts"
 $remoteState = Join-Path $env:LOCALAPPDATA "cmux\remote"
+$defaultRemoteBinary = Join-Path $env:LOCALAPPDATA "cmux\bin\cmux-tui.exe"
 $session = "hosted-windows-ssh"
 $client = $null
 
 New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
+New-Item -ItemType Directory -Force -Path (Split-Path $defaultRemoteBinary) | Out-Null
+Copy-Item -Force $binaryPath $defaultRemoteBinary
 
 $server = Get-WindowsCapability -Online |
     Where-Object { $_.Name -like "OpenSSH.Server*" } |
@@ -50,7 +53,7 @@ $sshOptions = @(
     "-o", "UserKnownHostsFile=$knownHosts"
 )
 $target = "$env:USERNAME@localhost"
-$probe = & ssh.exe @sshOptions $target $binaryPath remote-probe --json
+$probe = & ssh.exe @sshOptions $target $defaultRemoteBinary remote-probe --json
 if ($LASTEXITCODE -ne 0) { throw "real OpenSSH probe failed" }
 $probeValue = $probe | ConvertFrom-Json
 if ($probeValue.app -ne "cmux-tui" -or $probeValue.os -ne "windows") {
@@ -67,7 +70,6 @@ foreach ($argument in @(
     "--headless", "--json",
     "--session", $session,
     "--remote-state-dir", $remoteState,
-    "--remote-binary", $binaryPath,
     "--no-install",
     "--connect-timeout-seconds", "20"
 )) {
