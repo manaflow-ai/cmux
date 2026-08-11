@@ -1621,10 +1621,7 @@ mod unix {
             })
         }
 
-        pub fn mint_public_renderer_grant(
-            &self,
-            ttl: Duration,
-        ) -> anyhow::Result<RendererGrant> {
+        pub fn mint_public_renderer_grant(&self, ttl: Duration) -> anyhow::Result<RendererGrant> {
             anyhow::ensure!(
                 self.protocol_version >= PUBLIC_RENDERER_GRANT_PROTOCOL_VERSION,
                 "terminal host protocol v{} cannot authenticate public renderer grants; v{} or newer is required",
