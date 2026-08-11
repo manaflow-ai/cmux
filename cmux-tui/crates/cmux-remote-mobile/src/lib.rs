@@ -130,8 +130,8 @@ async fn connect(
     device_name: &str,
     path_mode: IrohPathMode,
 ) -> Result<(Arc<ClientConnection>, Arc<WorkspaceClient>, mpsc::Receiver<Bytes>), String> {
-    let invitation =
-        EnrollmentInvitation::from_uri(invite).map_err(|error| format!("invalid invitation: {error}"))?;
+    let invitation = EnrollmentInvitation::from_uri(invite)
+        .map_err(|error| format!("invalid invitation: {error}"))?;
     let daemon_public_key = invitation
         .daemon_public_key_bytes()
         .map_err(|error| format!("invalid daemon key in the invitation: {error}"))?;
@@ -145,11 +145,9 @@ async fn connect(
         .ok_or_else(|| "the invitation carries no iroh:// route hint".to_string())?;
     let endpoint = url::Url::parse(endpoint).map_err(|error| format!("bad route hint: {error}"))?;
 
-    let provider = IrohProvider::new(IrohProviderConfig {
-        path_mode,
-        ..IrohProviderConfig::default()
-    })
-    .map_err(|error| format!("could not configure iroh: {error}"))?;
+    let provider =
+        IrohProvider::new(IrohProviderConfig { path_mode, ..IrohProviderConfig::default() })
+            .map_err(|error| format!("could not configure iroh: {error}"))?;
 
     // A fresh session per launch: resuming another device's session id would
     // collide with its replay state.
@@ -167,11 +165,10 @@ async fn connect(
         .await
         .map_err(|error| format!("could not reach the daemon: {error}"))?;
 
-    let secret = invitation
-        .secret_bytes()
-        .map_err(|error| format!("invalid invitation secret: {error}"))?;
-    let identity =
-        StaticIdentity::generate().map_err(|error| format!("could not create a device key: {error}"))?;
+    let secret =
+        invitation.secret_bytes().map_err(|error| format!("invalid invitation secret: {error}"))?;
+    let identity = StaticIdentity::generate()
+        .map_err(|error| format!("could not create a device key: {error}"))?;
     let connection = ClientConnection::connect(
         group,
         ClientConnectionConfig {
@@ -243,7 +240,11 @@ pub unsafe extern "C" fn cmux_mobile_open_terminal(
                 process,
                 WorkspaceRequest::SpawnProcess {
                     workspace: id,
-                    argv: vec!["/bin/sh".into(), "-lc".into(), "exec \"${SHELL:-/bin/sh}\" -l".into()],
+                    argv: vec![
+                        "/bin/sh".into(),
+                        "-lc".into(),
+                        "exec \"${SHELL:-/bin/sh}\" -l".into(),
+                    ],
                     cwd: None,
                     env: BTreeMap::new(),
                     io: ProcessIo::Pty {
@@ -379,6 +380,10 @@ pub unsafe extern "C" fn cmux_mobile_write(
 }
 
 /// Resize the remote PTY. Call this on rotation and on keyboard show/hide.
+///
+/// # Safety
+/// A non-null `client` must be a live handle returned by
+/// [`cmux_mobile_connect`] and must not be freed during this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_mobile_resize(
     client: *mut CmuxMobileClient,
@@ -414,6 +419,10 @@ pub unsafe extern "C" fn cmux_mobile_resize(
 /// A credential-free connection snapshot as JSON: generation, state, provider,
 /// route, and whether the selected Iroh path is direct or relayed. This is what
 /// a status line should show, and it is safe to log.
+///
+/// # Safety
+/// A non-null `client` must be a live handle returned by
+/// [`cmux_mobile_connect`] and must not be freed during this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_mobile_snapshot_json(client: *mut CmuxMobileClient) -> *mut c_char {
     let Some(client) = (unsafe { client.as_ref() }) else {
@@ -437,6 +446,10 @@ pub unsafe extern "C" fn cmux_mobile_snapshot_json(client: *mut CmuxMobileClient
 /// The daemon keeps the terminal model, so a phone renders styled runs instead
 /// of carrying a VT parser and reproducing scroll regions, wrapping, and
 /// character sets on the client. Returns null when no terminal is open.
+///
+/// # Safety
+/// A non-null `client` must be a live handle returned by
+/// [`cmux_mobile_connect`] and must not be freed during this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_mobile_terminal_json(client: *mut CmuxMobileClient) -> *mut c_char {
     let Some(client) = (unsafe { client.as_ref() }) else {
@@ -460,6 +473,10 @@ pub unsafe extern "C" fn cmux_mobile_terminal_json(client: *mut CmuxMobileClient
 }
 
 /// The message behind the last failing call on this handle, or null.
+///
+/// # Safety
+/// A non-null `client` must be a live handle returned by
+/// [`cmux_mobile_connect`] and must not be freed during this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_mobile_last_error(client: *mut CmuxMobileClient) -> *mut c_char {
     let Some(client) = (unsafe { client.as_ref() }) else {
