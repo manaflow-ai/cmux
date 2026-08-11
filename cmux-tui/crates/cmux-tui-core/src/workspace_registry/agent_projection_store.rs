@@ -814,9 +814,7 @@ fn agent_projection_journal_live_sequence(connection: &Connection) -> anyhow::Re
             |row| row.get::<_, String>(0),
         )
         .optional()?
-        .map(|value| {
-            value.parse::<u64>().context("agent projection live sequence is invalid")
-        })
+        .map(|value| value.parse::<u64>().context("agent projection live sequence is invalid"))
         .transpose()
 }
 
@@ -841,10 +839,8 @@ fn note_agent_projection_journal_live_sequence(
 fn clear_agent_projection_journal_live_sequence(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
-    transaction.execute(
-        "DELETE FROM meta WHERE key = ?1",
-        [AGENT_PROJECTION_JOURNAL_LIVE_SEQUENCE_KEY],
-    )?;
+    transaction
+        .execute("DELETE FROM meta WHERE key = ?1", [AGENT_PROJECTION_JOURNAL_LIVE_SEQUENCE_KEY])?;
     Ok(())
 }
 

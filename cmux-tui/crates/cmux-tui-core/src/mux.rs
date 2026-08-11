@@ -5088,9 +5088,8 @@ impl Mux {
         let mut registry = self.workspace_registry.lock().unwrap();
         let commit =
             registry.append_journal_ingress(ingress, &validated, origin, idempotency_key)?;
-        let projection_current = self
-            .sync_agent_records_from_journal_ingress(&registry, ingress)
-            .map(|current| {
+        let projection_current =
+            self.sync_agent_records_from_journal_ingress(&registry, ingress).map(|current| {
                 if current {
                     self.advance_agent_projection_cache_sequence(commit.sequence);
                 }
