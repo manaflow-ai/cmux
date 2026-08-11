@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -632,7 +633,7 @@ enum InitialAttemptDeadline {
 impl InitialAttemptDeadline {
     async fn timeout<F>(&mut self, future: F) -> Result<F::Output, ()>
     where
-        F: std::future::Future,
+        F: Future,
     {
         match self {
             Self::Realtime(deadline) => {
@@ -927,10 +928,10 @@ async fn bootstrap_initial_ssh_route(
 }
 
 async fn wait_for_ssh_bootstrap_or_shutdown(
-    bootstrap_work: impl std::future::Future<
+    bootstrap_work: impl Future<
         Output = Result<Result<(), BootstrapError>, tokio::time::error::Elapsed>,
     >,
-    cleanup: impl std::future::Future<Output = ()>,
+    cleanup: impl Future<Output = ()>,
     shutdown: Option<watch::Receiver<bool>>,
 ) -> anyhow::Result<()> {
     tokio::pin!(bootstrap_work);
