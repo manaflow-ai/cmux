@@ -1090,6 +1090,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    #if DEBUG
+    /// Drives the production notification handler without broadcasting synthetic
+    /// keyboard state to unrelated surfaces in a parallel test process.
+    func debugHandleKeyboardTransitionForTesting(_ notification: Notification) {
+        handleKeyboardWillChangeFrame(notification)
+    }
+    #endif
+
     /// Drives the iOS 27 compatibility constraint from UIKit's keyboard frame.
     /// This is the sole dock geometry authority on that OS, so the broken layout
     /// guide never competes with the notification-derived target.

@@ -138,7 +138,7 @@ import UIKit
         window.isHidden = true
     }
 
-    NotificationCenter.default.post(
+    surface.debugHandleKeyboardTransitionForTesting(Notification(
         name: UIResponder.keyboardWillChangeFrameNotification,
         object: nil,
         userInfo: [
@@ -146,7 +146,7 @@ import UIKit
             UIResponder.keyboardAnimationDurationUserInfoKey: TimeInterval(0),
             UIResponder.keyboardAnimationCurveUserInfoKey: UIView.AnimationCurve.easeInOut.rawValue,
         ]
-    )
+    ))
     #expect(surface.composerDockProbeValue.contains("keyboardDockSource=notification"))
     #expect(surface.composerDockProbeValue.contains("keyboardHeight=640.000"))
     #expect(!surface.hasLocalKeyboardFirstResponder)
