@@ -813,6 +813,38 @@ extension SSHForegroundAuthenticationRetryPolicy {
           while IFS= read -r cmux_ssh_auth_group; do
             cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) return 1 ;; esac
+            # The post-STOP snapshot can become stale before KILL. Refresh the
+            # whole group and require every live member to retain an owned,
+            # stopped identity before sending the destructive group signal.
+            cmux_ssh_auth_take_process_snapshot \
+              "$cmux_ssh_auth_individual_processes" || return 1
+            cmux_ssh_auth_group_proof_status=0
+            /usr/bin/awk -v cmux_group="$cmux_ssh_auth_group" '
+              FILENAME == ARGV[1] && NF >= 5 {
+                cmux_owned[$1 SUBSEP $3 SUBSEP $4] = 1
+                next
+              }
+              FILENAME == ARGV[2] && NF >= 5 && $3 == cmux_group && $4 !~ /Z/ {
+                cmux_started = $5
+                if (NF >= 9) cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+                cmux_seen += 1
+                if ($4 !~ /T/ ||
+                    !(($1 SUBSEP $3 SUBSEP cmux_started) in cmux_owned)) {
+                  cmux_invalid = 1
+                }
+              }
+              END {
+                if (cmux_invalid || cmux_seen > 1024) exit 1
+                if (cmux_seen == 0) exit 2
+              }
+            ' "$cmux_ssh_auth_owned_processes" \
+              "$cmux_ssh_auth_individual_processes" || \
+              cmux_ssh_auth_group_proof_status=$?
+            case "$cmux_ssh_auth_group_proof_status" in
+              0) ;;
+              2) continue ;;
+              *) return 1 ;;
+            esac
             kill -KILL -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || return 1
           done < "$cmux_ssh_auth_owned_groups"
           /bin/cp "$cmux_ssh_auth_next_owned_processes" \
@@ -823,6 +855,15 @@ extension SSHForegroundAuthenticationRetryPolicy {
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) return 1 ;;
             esac
+            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_group|$cmux_ssh_auth_started"
+            if cmux_ssh_auth_current_identity=$(cmux_ssh_auth_stable_identity \
+              "$cmux_ssh_auth_pid" "$cmux_ssh_auth_deadline_millis"); then
+              :
+            else
+              case "$?" in 124) return 1 ;; *) continue ;; esac
+            fi
+            if [ "$cmux_ssh_auth_current_identity" != \
+              "$cmux_ssh_auth_expected_identity" ]; then return 1; fi
             kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || return 1
           done < "$cmux_ssh_auth_individual_processes"
         }

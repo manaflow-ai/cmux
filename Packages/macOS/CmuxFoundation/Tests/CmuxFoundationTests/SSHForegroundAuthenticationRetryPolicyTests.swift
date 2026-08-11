@@ -612,6 +612,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           printf '%s\n' "$cmux_test_deadline_calls" > "$CMUX_TEST_DEADLINE_CALLS" || return 1
           [ "$cmux_test_deadline_calls" -le 1 ]
         }
+        cmux_ssh_auth_take_process_snapshot() {
+          /bin/cp "$CMUX_TEST_SNAPSHOT" "$1"
+        }
         kill() {
           printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"
           return 0
@@ -668,6 +671,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_deadline_calls=$((cmux_test_deadline_calls + 1))
           printf '%s\n' "$cmux_test_deadline_calls" > "$CMUX_TEST_DEADLINE_CALLS" || return 1
           [ "$cmux_test_deadline_calls" -le 1 ]
+        }
+        cmux_ssh_auth_stable_identity() {
+          case "$1" in
+            101) printf '11|Thu_Jan_1_00:00:00_1970\n' ;;
+            102) printf '12|Thu_Jan_1_00:00:00_1970\n' ;;
+            *) return 1 ;;
+          esac
         }
         kill() {
           printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"
