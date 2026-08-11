@@ -2191,7 +2191,7 @@ mod tests {
             let process = StableProcessHandle::capture(pid)?.ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotFound, "child exited before identity capture")
             })?;
-            Ok((process.matches_current()?, process.signal(0)?))
+            Ok((process.matches_current()?, process.signal(libc::SIGCONT)?))
         })();
         let _ = child.kill();
         let _ = child.wait();
