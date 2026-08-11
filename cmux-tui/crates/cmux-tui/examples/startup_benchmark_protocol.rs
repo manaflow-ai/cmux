@@ -516,7 +516,7 @@ pub fn parse_product_started_line(
     let evidence: BootstrapLaunchEvidence = serde_json::from_str(payload)?;
     let expected_bootstrap_sha256 = expected_bootstrap_sha256.unwrap_or(&evidence.bootstrap_sha256);
     evidence.validate(nonce, expected_bootstrap_sha256)?;
-    if product_started_line(nonce, &evidence)?.trim_end() != line {
+    if product_started_line(nonce, &evidence)? != line {
         bail!("supervisor product-started line was not canonical");
     }
     Ok(evidence)
@@ -1005,6 +1005,10 @@ mod tests {
         );
         assert!(
             parse_product_started_line(&line, &"ef".repeat(NONCE_BYTES), Some(&bootstrap_sha256))
+                .is_err()
+        );
+        assert!(
+            parse_product_started_line(&format!("{line}\n"), &nonce, Some(&bootstrap_sha256))
                 .is_err()
         );
         assert!(
