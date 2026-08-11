@@ -2054,6 +2054,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_local_carrier_completes_authenticated_handshake() {
+        use wait_timeout::ChildExt as _;
+
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
@@ -2063,16 +2065,7 @@ mod tests {
             .env("CMUX_TEST_WINDOWS_LOCAL_HANDSHAKE", "1")
             .spawn()
             .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let status = loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                break Some(status);
-            }
-            if Instant::now() >= deadline {
-                break None;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        };
+        let status = child.wait_timeout(Duration::from_secs(10)).unwrap();
         let Some(status) = status else {
             let _ = child.kill();
             let _ = child.wait();

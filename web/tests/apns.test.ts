@@ -37,6 +37,23 @@ import {
   readBoundedJsonObject,
 } from "../services/apns/routePolicy";
 
+/**
+ * Test request timeouts are explicit failure signals. They never schedule
+ * elapsed-time work, so the transport fixtures advance only from APNs events.
+ */
+class SignalDrivenFakeApnsRequest extends EventEmitter {
+  private timeoutSignal: (() => void) | undefined;
+
+  setTimeout(_milliseconds: number, signal?: () => void) {
+    this.timeoutSignal = signal;
+    return this;
+  }
+
+  signalTimeout() {
+    this.timeoutSignal?.();
+  }
+}
+
 describe("apns payload", () => {
   test("builds a time-sensitive alert with deep-link keys", () => {
     const payload = buildApnsPayload({
@@ -762,10 +779,7 @@ describe("apns sender transport", () => {
   test("provider JWT cache identity includes the team and signing key", async () => {
     const authorizations: string[] = [];
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       close() {
         return this;
       }
@@ -879,10 +893,7 @@ describe("apns sender transport", () => {
     for (const status of [429, 503]) {
       let requests = 0;
       let inProcessDelays = 0;
-      class FakeRequest extends EventEmitter {
-        setTimeout() {
-          return this;
-        }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
         close() {
           return this;
         }
@@ -950,10 +961,7 @@ describe("apns sender transport", () => {
   test("429 without Retry-After gets a bounded deferred retry", async () => {
     let requests = 0;
     let inProcessDelays = 0;
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       close() {
         return this;
       }
@@ -1018,10 +1026,7 @@ describe("apns sender transport", () => {
   test("5xx without Retry-After waits fifteen minutes beyond event freshness", async () => {
     let requests = 0;
     let inProcessDelays = 0;
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       close() {
         return this;
       }
@@ -1087,12 +1092,9 @@ describe("apns sender transport", () => {
     const attemptsByToken = new Map<string, number>();
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
 
-    class FakeRequest extends EventEmitter {
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       constructor(private readonly status: number) {
         super();
-      }
-      setTimeout() {
-        return this;
       }
       close() {
         return this;
@@ -1177,10 +1179,7 @@ describe("apns sender transport", () => {
     ] as const) {
       const authorizations: string[] = [];
       let requests = 0;
-      class FakeRequest extends EventEmitter {
-        setTimeout() {
-          return this;
-        }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
         close() {
           return this;
         }
@@ -1259,15 +1258,12 @@ describe("apns sender transport", () => {
 
     for (const deferredStatus of [429, 503]) {
       const attempts = new Map<string, number>();
-      class FakeRequest extends EventEmitter {
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
         constructor(
           private readonly deviceToken: string,
           private readonly attempt: number,
         ) {
           super();
-        }
-        setTimeout() {
-          return this;
         }
         close() {
           return this;
@@ -1376,10 +1372,7 @@ describe("apns sender transport", () => {
   test("leaves sent zero as a failure after the retry TTL is exhausted", async () => {
     let requests = 0;
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       close() {
         return this;
       }
@@ -1437,14 +1430,11 @@ describe("apns sender transport", () => {
       releaseSandbox = resolve;
     });
 
-    class FakeRequest extends EventEmitter {
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       constructor(private readonly host: string) {
         super();
       }
 
-      setTimeout() {
-        return this;
-      }
 
       close() {
         return this;
@@ -1518,14 +1508,11 @@ describe("apns sender transport", () => {
     let bootstrapComplete = false;
     let requestsBeforeBootstrap = 0;
 
-    class FakeRequest extends EventEmitter {
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       constructor(private readonly ordinal: number) {
         super();
       }
 
-      setTimeout() {
-        return this;
-      }
 
       close() {
         return this;
@@ -1536,11 +1523,11 @@ describe("apns sender transport", () => {
         maximumActive = Math.max(maximumActive, active);
         if (!bootstrapComplete) requestsBeforeBootstrap += 1;
         this.emit("response", { ":status": 200 });
-        setTimeout(() => {
+        queueMicrotask(() => {
           active -= 1;
           if (this.ordinal === 1) bootstrapComplete = true;
           this.emit("end");
-        }, 1);
+        });
         return this;
       }
     }
@@ -1595,10 +1582,7 @@ describe("apns sender transport", () => {
     let closes = 0;
     let requests = 0;
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
 
       close() {
         return this;
@@ -1734,10 +1718,7 @@ describe("apns sender transport", () => {
     const sessions: FakeSession[] = [];
     let requests = 0;
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
 
       close() {
         return this;
@@ -1816,10 +1797,7 @@ describe("apns sender transport", () => {
   test("rejects 4097-byte Unicode payloads locally but sends 4096 bytes", async () => {
     let requests = 0;
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
 
       close() {
         return this;
@@ -1908,14 +1886,11 @@ describe("apns sender transport", () => {
     const productionHost = apnsHostForEnvironment("production")!;
     const closed: string[] = [];
 
-    class FakeRequest extends EventEmitter {
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       constructor(private readonly host: string) {
         super();
       }
 
-      setTimeout() {
-        return this;
-      }
 
       close() {
         return this;
@@ -1976,10 +1951,7 @@ describe("apns sender transport", () => {
     const productionHost = apnsHostForEnvironment("production")!;
     const closed: string[] = [];
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
 
       close() {
         return this;
@@ -2039,10 +2011,7 @@ describe("apns sender transport", () => {
   test("stamps apns-collapse-id from the notification id so the banner is dismiss-syncable", async () => {
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       close() {
         return this;
       }
@@ -2083,10 +2052,7 @@ describe("apns sender transport", () => {
   test("omits apns-collapse-id when there is no notification id", async () => {
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       close() {
         return this;
       }
@@ -2127,10 +2093,7 @@ describe("apns sender transport", () => {
   test("dismiss push: never collapses onto the banner and downgrades to priority 5", async () => {
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       close() {
         return this;
       }
@@ -2181,10 +2144,7 @@ describe("apns sender transport", () => {
   test("notify push explicitly requests immediate priority", async () => {
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
 
-    class FakeRequest extends EventEmitter {
-      setTimeout() {
-        return this;
-      }
+    class FakeRequest extends SignalDrivenFakeApnsRequest {
       close() {
         return this;
       }

@@ -642,15 +642,24 @@ import Testing
     }
 
     @Test func retryWaitUsesInjectedClockInsteadOfRuntimeSleeping() async throws {
+        let (durations, continuation) = AsyncStream.makeStream(
+            of: Duration.self
+        )
         let clock = PhonePushClock(
             now: { Date(timeIntervalSince1970: 1_750_000_000) },
             sleep: { duration in
-                #expect(duration == .seconds(7))
+                continuation.yield(duration)
             }
         )
 
         #expect(clock.nowEpochSeconds == 1_750_000_000)
-        try await clock.sleep(for: .seconds(7))
+        let wait = Task {
+            try await clock.sleep(for: .seconds(7))
+        }
+        var iterator = durations.makeAsyncIterator()
+        #expect(await iterator.next() == .seconds(7))
+        continuation.finish()
+        try await wait.value
     }
 
     @Test func successfulHTTPStatusWithNoRegisteredDevicesIsNotDeliverySuccess() throws {

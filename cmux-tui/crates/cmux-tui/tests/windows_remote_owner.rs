@@ -19,20 +19,10 @@ use cmux_remote::provider::{
 use cmux_remote::session::SessionLimits;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde_json::Value;
-
-fn wait_until(timeout: Duration, mut predicate: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if predicate() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    predicate()
-}
+use wait_timeout::ChildExt as _;
 
 fn wait_for_exit(child: &mut Child, timeout: Duration) -> bool {
-    wait_until(timeout, || child.try_wait().is_ok_and(|status| status.is_some()))
+    child.wait_timeout(timeout).is_ok_and(|status| status.is_some())
 }
 
 fn socket_accepts(path: &Path) -> bool {
@@ -57,7 +47,12 @@ fn wait_for_mux_owner(owner: &mut Child, socket: &Path) {
             owner.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
             panic!("remote owner did not publish its mux socket within 15s: {stderr}");
         }
-        std::thread::sleep(Duration::from_millis(20));
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if let Some(status) = owner.wait_timeout(remaining.min(Duration::from_millis(20))).unwrap() {
+            let mut stderr = String::new();
+            owner.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+            panic!("remote owner exited before publishing its mux socket ({status}): {stderr}");
+        }
     }
 }
 
@@ -154,14 +149,10 @@ impl LinkGroup for WindowsStdioLinkGroup {
 }
 
 fn assert_process_stays_running(child: &mut Child, duration: Duration, label: &str) {
-    let deadline = Instant::now() + duration;
-    while Instant::now() < deadline {
-        if let Some(status) = child.try_wait().unwrap() {
-            let mut stderr = String::new();
-            child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
-            panic!("{label} exited unexpectedly ({status}): {stderr}");
-        }
-        std::thread::sleep(Duration::from_millis(20));
+    if let Some(status) = child.wait_timeout(duration).unwrap() {
+        let mut stderr = String::new();
+        child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+        panic!("{label} exited unexpectedly ({status}): {stderr}");
     }
 }
 

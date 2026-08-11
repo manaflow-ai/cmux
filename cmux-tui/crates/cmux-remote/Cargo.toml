@@ -65,6 +65,7 @@ windows-sys = { version = "0.61", features = [
 cmux-tui-source-watch = { path = "../.." }
 
 [dev-dependencies]
+wait-timeout.workspace = true
 cmux-relay = { path = "../cmux-relay" }
 rcgen = "0.14"
 tempfile = "3"
