@@ -582,9 +582,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "$cmux_ssh_auth_orphan_identity" ]; then return 1; fi
           : > "$cmux_ssh_auth_orphan_group_dir/cancel" 2>/dev/null || return 1
           cmux_ssh_auth_owned_group=0
-          cmux_ssh_auth_caller_group=$(/usr/bin/env LC_ALL=C LANG=C \
-            /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
-          case "$cmux_ssh_auth_caller_group" in ''|0|*[!0-9]*) return 1 ;; esac
+          # A detached POSIX subshell can retain the launcher's $$ after that
+          # process exits. Do not make orphan recovery depend on that stale PID.
+          # Group selection still requires every live member to match a stable
+          # owned identity, so zero safely disables only the caller exclusion.
+          cmux_ssh_auth_caller_group=0
           if [ ! -e "$cmux_ssh_auth_owned_processes" ]; then
             : > "$cmux_ssh_auth_owned_processes" || return 1
           fi
