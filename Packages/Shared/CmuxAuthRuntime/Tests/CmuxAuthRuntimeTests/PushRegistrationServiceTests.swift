@@ -218,16 +218,21 @@ actor RetryDelayRecorder {
     private func wait(
         for state: PushRegistrationBackendState,
         from service: PushRegistrationService,
-        timeout: Duration = .seconds(1)
+        timeout: Duration = .seconds(30)
     ) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
+        let snapshots = await service.snapshots()
+        return await withTaskGroup(of: Bool.self) { group in
             group.addTask {
-                let snapshots = await service.snapshots()
                 for await snapshot in snapshots {
-                    if snapshot.backendState == state { return true }
+                    guard !Task.isCancelled else { return false }
+                    if snapshot.backendState == state {
+                        return true
+                    }
                 }
                 return false
             }
+            // The stream event decides success. This deadline only bounds a
+            // broken test and cancels the observation task when it expires.
             group.addTask {
                 try? await Task.sleep(for: timeout)
                 return false
@@ -236,6 +241,74 @@ actor RetryDelayRecorder {
             group.cancelAll()
             return result
         }
+    }
+
+    @Test func stateWaitObservesStatePublishedBeforeSubscription() async {
+        let (service, _) = makeScriptedService()
+        await service.setEnabled(true)
+        await service.deviceTokenRegistrationFailed()
+
+        #expect(await wait(
+            for: .deviceTokenRegistrationFailed,
+            from: service
+        ))
+    }
+
+    @Test func requestCountWaitObservesRequestCapturedBeforeSubscription() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let request = URLRequest(url: URL(string: "https://example.test/register")!)
+        _ = PushRegistrationURLProtocol.script.take(request, body: nil)
+
+        #expect(await PushRegistrationURLProtocol.script.waitForRequestCount(1))
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
+    }
+
+    @Test func stateWaitHasABoundedFailureDeadline() async {
+        let (service, _) = makeScriptedService()
+
+        #expect(await wait(
+            for: .registered,
+            from: service,
+            timeout: .zero
+        ) == false)
+    }
+
+    @Test func requestCountWaitTimeoutCancelsItsObservation() async {
+        await PushRegistrationURLProtocol.script.reset([])
+
+        #expect(await PushRegistrationURLProtocol.script.waitForRequestCount(
+            1,
+            timeout: .zero
+        ) == false)
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
+    }
+
+    @Test func cancellingRequestCountObservationRemovesItsContinuation() async {
+        await PushRegistrationURLProtocol.script.reset([])
+        let updates = PushRegistrationURLProtocol.script.requestCountUpdates()
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 1)
+
+        let observation = Task {
+            for await _ in updates {
+                guard !Task.isCancelled else { return }
+            }
+        }
+        observation.cancel()
+        await observation.value
+
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
+    }
+
+    @Test func resetFinishesRequestCountObservations() async {
+        await PushRegistrationURLProtocol.script.reset([])
+        let updates = PushRegistrationURLProtocol.script.requestCountUpdates()
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 1)
+
+        await PushRegistrationURLProtocol.script.reset([])
+
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
+        var iterator = updates.makeAsyncIterator()
+        #expect(await iterator.next() == nil)
     }
 
     @Test func disabledByDefault() async {
