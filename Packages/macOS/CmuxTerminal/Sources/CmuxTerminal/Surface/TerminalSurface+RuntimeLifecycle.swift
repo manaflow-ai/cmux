@@ -762,10 +762,18 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func runtimeSurfaceOwnershipRecoveryFailure()
+    private func runtimeSurfaceOwnershipRecoveryFailure(
+        generation: UInt64
+    )
         -> TerminalSurfaceRuntimeOwnershipRecoveryFailure {
         { [weak self] in
-            self?.failRuntimeSurfaceCreationForTeardownCapacity()
+            guard let self,
+                  self.runtimeSurfaceAdmissionCreationGeneration == generation,
+                  self.surface == nil,
+                  self.runtimeSurfaceAdmissionDeferredCreationSource != nil else {
+                return
+            }
+            self.failRuntimeSurfaceCreationForTeardownCapacity()
         }
     }
 
@@ -774,6 +782,9 @@ extension TerminalSurface {
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
     ) -> TerminalSurfaceRuntimeOwnershipReservation? {
+        precondition(runtimeSurfaceAdmissionCreationGeneration < UInt64.max)
+        runtimeSurfaceAdmissionCreationGeneration += 1
+        let creationGeneration = runtimeSurfaceAdmissionCreationGeneration
         runtimeSurfaceAdmissionDeferredCreationSource =
             (
                 runtimeSurfaceAdmissionDeferredCreationSource
@@ -787,7 +798,9 @@ extension TerminalSurface {
                 onRecovery: runtimeSurfaceOwnershipRecovery(
                     teardownCoordinator: teardownCoordinator
                 ),
-                onFailure: runtimeSurfaceOwnershipRecoveryFailure()
+                onFailure: runtimeSurfaceOwnershipRecoveryFailure(
+                    generation: creationGeneration
+                )
             )
         switch admissionResult {
         case .reserved(let reservation):
@@ -849,7 +862,9 @@ extension TerminalSurface {
                 onRecovery: runtimeSurfaceOwnershipRecovery(
                     teardownCoordinator: teardownCoordinator
                 ),
-                onFailure: runtimeSurfaceOwnershipRecoveryFailure(),
+                onFailure: runtimeSurfaceOwnershipRecoveryFailure(
+                    generation: runtimeSurfaceAdmissionCreationGeneration
+                ),
                 capacityReservation: capacityReservation
             )
         switch admissionResult {
@@ -904,6 +919,8 @@ extension TerminalSurface {
         runtimeTeardown.cancelRuntimeSurfaceOwnershipRecovery(id)
         runtimeTeardown
             .cancelRuntimeSurfaceOwnershipRecoveryOverflow(surfaceID: id)
+        precondition(runtimeSurfaceAdmissionCreationGeneration < UInt64.max)
+        runtimeSurfaceAdmissionCreationGeneration += 1
         runtimeSurfaceAdmissionOverflowSequence = nil
         runtimeSurfaceAdmissionDeferredCreationSource = nil
         runtimeSurfaceAdmissionDeferredCreationView = nil

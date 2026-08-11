@@ -284,9 +284,16 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
                 completedCount <= state.pendingRecoveryFailureCount,
                 "completed stalled recovery failures must be owned"
             )
+            let capacityWasOpen = recoveryCapacityIsOpen(in: state)
             state.pendingRecoveryFailureCount -= completedCount
+            let recoveryCapacityOpened =
+                !capacityWasOpen && recoveryCapacityIsOpen(in: state)
             let grant = takeNextRecoveryGrant(from: &state)
-            return (grant, takeRecoveryRescanRequest(from: &state))
+            return (
+                grant,
+                takeRecoveryRescanRequest(from: &state)
+                    || recoveryCapacityOpened
+            )
         }
         schedule(output.0)
         if output.1 {
