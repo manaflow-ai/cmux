@@ -194,6 +194,81 @@ struct VaultRestoreRelaunchPersistenceTests {
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
         #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
+        #expect(restoredPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
+        #expect(!restoredPanel.surface.hasLiveSurface)
+    }
+
+    @Test("Binding-only Dock restore cannot persist its own queued intent")
+    func bindingOnlyDockRestoreDoesNotSelfAuthorize() throws {
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let savedPanelID = UUID()
+        let sessionID = "vault-binding-only-dock"
+        let directory = "/tmp/vault-binding-only-dock"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            cwd: directory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_800_000_200
+        )
+        let panelSnapshot = SessionPanelSnapshot(
+            id: savedPanelID,
+            type: .terminal,
+            title: "Binding-only restore",
+            customTitle: nil,
+            directory: directory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                resumeBinding: binding,
+                wasAgentRunning: true
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults.store
+        )
+        defer { store.closeAllPanels() }
+        let restoredIDs = store.restoreSessionSnapshot(SessionSplitContainerSnapshot(
+            focusedPanelId: savedPanelID,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [savedPanelID],
+                selectedPanelId: savedPanelID
+            )),
+            panels: [panelSnapshot]
+        ))
+        let restoredPanelID = try #require(restoredIDs[savedPanelID])
+        #expect(
+            store.restoredAgentLifecycle.resumeStatesByPanelId[restoredPanelID]
+                == .awaitingAutoResumeCommand
+        )
+
+        let persisted = store.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:]),
+            currentAgentProcessIdentity: { _ in nil },
+            agentProcessPresence: { _ in .absent }
+        )
+        let persistedTerminal = try #require(
+            persisted.panels.first { $0.id == restoredPanelID }?.terminal
+        )
+        #expect(persistedTerminal.agent == nil)
+        #expect(persistedTerminal.wasAgentRunning == false)
     }
 
     private func makeLaunch(sessionID: String) throws -> SessionEntryResumeLaunch {
