@@ -8,7 +8,7 @@ import {
 } from "@stackframe/stack";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocale, useTranslations } from "next-intl";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { Link, useRouter } from "@/i18n/navigation";
@@ -126,7 +126,6 @@ function DashboardOrganizationSwitcher() {
   const teams = user.useTeams();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const t = useTranslations("dashboard.accountMenu");
   const [switchError, setSwitchError] = useState(false);
@@ -134,19 +133,13 @@ function DashboardOrganizationSwitcher() {
   type SwitchRequest = {
     readonly team: (typeof teams)[number] | null;
     readonly organizationId: string;
-    readonly originLocation: string;
   };
   const activeSwitchRef = useRef<Promise<void> | null>(null);
   const activeSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const queuedSwitchRef = useRef<SwitchRequest | null>(null);
-  const currentLocation = `${pathname}?${searchParams.toString()}`;
-  const currentLocationRef = useRef(currentLocation);
   const mountedRef = useRef(true);
-  useEffect(() => {
-    currentLocationRef.current = currentLocation;
-  }, [currentLocation]);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -221,8 +214,14 @@ function DashboardOrganizationSwitcher() {
     const request = {
       team,
       organizationId,
-      originLocation: currentLocationRef.current,
     };
+    // The URL is the dashboard's authoritative organization scope, so reflect
+    // the user's choice immediately. Stack selection is serialized below only
+    // to persist the default for later visits without an explicit team.
+    router.push(
+      `/dashboard/coderouter?team=${encodeURIComponent(organizationId)}`,
+    );
+    router.refresh();
     if (activeSwitchRef.current) {
       queuedSwitchRef.current = request;
       return;
@@ -230,7 +229,7 @@ function DashboardOrganizationSwitcher() {
     runSwitch(request);
   };
   function recordSuccessfulSwitch(request: SwitchRequest) {
-    const { team, organizationId } = request;
+    const { team } = request;
     queryClient.setQueryData<OrganizationCatalog>(
       organizationQueryKey,
       (current) =>
@@ -242,27 +241,8 @@ function DashboardOrganizationSwitcher() {
       queryKey: organizationQueryKey,
       exact: true,
     });
-    return organizationId;
   }
-  function applySuccessfulSwitch(request: SwitchRequest) {
-    const organizationId = recordSuccessfulSwitch(request);
-    if (
-      !shouldNavigateAfterSwitch(
-        request.originLocation,
-        currentLocationRef.current,
-      )
-    ) return;
-    router.push(
-      `/dashboard/coderouter?team=${
-        encodeURIComponent(organizationId)
-      }`,
-    );
-    router.refresh();
-  }
-  function runSwitch(
-    request: SwitchRequest,
-    fallback: SwitchRequest | null = null,
-  ) {
+  function runSwitch(request: SwitchRequest) {
     setSwitchPending(true);
     setSwitchError(false);
     let timedOut = false;
@@ -272,6 +252,7 @@ function DashboardOrganizationSwitcher() {
       if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
       timedOut = true;
+      setSwitchPending(false);
       setSwitchError(true);
     }, ORGANIZATION_SWITCH_TIMEOUT_MS);
     activeSwitchTimerRef.current = timeout;
@@ -282,42 +263,28 @@ function DashboardOrganizationSwitcher() {
       clearTimeout(timeout);
       activeSwitchTimerRef.current = null;
       activeSwitchRef.current = null;
-      if (timedOut) {
-        queuedSwitchRef.current = null;
-        applySuccessfulSwitch(request);
-        setSwitchPending(false);
-        return;
-      }
+      recordSuccessfulSwitch(request);
       const queued = queuedSwitchRef.current;
       queuedSwitchRef.current = null;
       if (queued) {
-        recordSuccessfulSwitch(request);
-        runSwitch(queued, request);
+        runSwitch(queued);
         return;
       }
-      applySuccessfulSwitch(request);
-      setSwitchPending(false);
+      if (!timedOut) setSwitchPending(false);
     }, () => {
       if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
       clearTimeout(timeout);
       activeSwitchTimerRef.current = null;
       activeSwitchRef.current = null;
-      if (timedOut) {
-        queuedSwitchRef.current = null;
-        setSwitchPending(false);
-        setSwitchError(true);
-        return;
-      }
       const queued = queuedSwitchRef.current;
       queuedSwitchRef.current = null;
       if (queued) {
-        runSwitch(queued, fallback);
+        runSwitch(queued);
         return;
       }
       setSwitchPending(false);
       setSwitchError(true);
-      if (fallback) applySuccessfulSwitch(fallback);
     });
   }
   const shared = {
@@ -431,14 +398,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function shouldNavigateAfterSwitch(
-  originLocation: string,
-  currentLocation: string,
-): boolean {
-  return originLocation === currentLocation;
-}
-
-export const __test = { parseOrganizationCatalog, shouldNavigateAfterSwitch };
+export const __test = { parseOrganizationCatalog };
 
 function ChevronsUpDown() {
   return (

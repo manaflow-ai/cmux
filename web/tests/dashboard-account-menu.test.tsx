@@ -377,7 +377,7 @@ describe("dashboard account menu", () => {
     })).toMatchObject({ selectedTeamId: "missing" });
   });
 
-  test("does not navigate when Stack rejects an organization switch", async () => {
+  test("keeps the explicit organization route when Stack persistence fails", async () => {
     searchTeam = "team-2";
     organizationQuery = {
       data: {
@@ -410,7 +410,9 @@ describe("dashboard account menu", () => {
       id: "team-2",
       displayName: "Team",
     });
-    expect(routerPush).not.toHaveBeenCalled();
+    expect(routerPush).toHaveBeenCalledWith(
+      "/dashboard/coderouter?team=team-2",
+    );
   });
 
   test("serializes organization switches and applies the latest request", async () => {
@@ -473,12 +475,12 @@ describe("dashboard account menu", () => {
     expect(routerPush).toHaveBeenCalledWith(
       "/dashboard/coderouter?team=team-3",
     );
-    expect(routerPush).not.toHaveBeenCalledWith(
+    expect(routerPush).toHaveBeenCalledWith(
       "/dashboard/coderouter?team=team-2",
     );
   });
 
-  test("reconciles the last successful switch when the queued switch fails", async () => {
+  test("keeps the latest explicit route when queued persistence fails", async () => {
     searchTeam = "team-1";
     organizationQuery = {
       data: {
@@ -540,25 +542,10 @@ describe("dashboard account menu", () => {
 
     expect(serialSetSelectedTeam).toHaveBeenCalledTimes(2);
     expect(routerPush).toHaveBeenCalledWith(
-      "/dashboard/coderouter?team=team-2",
-    );
-    expect(routerPush).not.toHaveBeenCalledWith(
       "/dashboard/coderouter?team=team-3",
     );
-  });
-
-  test("does not replace navigation that happened after a switch started", () => {
-    expect(
-      __test.shouldNavigateAfterSwitch(
-        "/dashboard/coderouter?team=team-1",
-        "/dashboard/billing?",
-      ),
-    ).toBe(false);
-    expect(
-      __test.shouldNavigateAfterSwitch(
-        "/dashboard/coderouter?team=team-1",
-        "/dashboard/coderouter?team=team-1",
-      ),
-    ).toBe(true);
+    expect(routerPush).toHaveBeenCalledWith(
+      "/dashboard/coderouter?team=team-2",
+    );
   });
 });
