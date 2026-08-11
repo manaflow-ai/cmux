@@ -22331,12 +22331,15 @@ mod tests {
         while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
-        let (stopped, survivor_blocked, closed_retired) = {
+        let (stopped, survivor_owns_quota, closed_cleanup_retained) = {
             let budget = mux.kitty_image_budget.lock().unwrap();
             (
                 !budget.worker_running,
-                budget.blocked_surfaces.contains(&first.id),
-                !budget.entries.contains_key(&second.id),
+                budget.entries.get(&first.id).is_some_and(|entry| {
+                    entry.owns_quota && !budget.blocked_surfaces.contains(&first.id)
+                }),
+                budget.entries.get(&second.id).is_some_and(|entry| entry.removing)
+                    && budget.blocked_surfaces.contains(&second.id),
             )
         };
 
@@ -22350,19 +22353,15 @@ mod tests {
             state.admitted_jobs = 0;
             mux.deadline_fanout_pool.inner.changed.notify_all();
         }
-        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
-        while mux.kitty_image_budget.lock().unwrap().worker_running
-            && Instant::now() < cleanup_deadline
-        {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-
         assert!(stopped, "Kitty quota worker retried pool admission forever");
         assert!(
-            survivor_blocked,
-            "pool admission exhaustion did not fail closed for the live surface"
+            survivor_owns_quota,
+            "a closing surface's failed cleanup disabled an unaffected live surface"
         );
-        assert!(closed_retired, "a closed surface remained in the Kitty quota registry");
+        assert!(
+            closed_cleanup_retained,
+            "pool admission exhaustion discarded the closing surface's cleanup owner"
+        );
     }
 
     #[test]
