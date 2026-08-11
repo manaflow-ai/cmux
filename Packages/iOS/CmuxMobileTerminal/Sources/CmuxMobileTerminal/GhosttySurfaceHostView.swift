@@ -1,7 +1,7 @@
 #if canImport(UIKit)
 import UIKit
 
-/// Plain UIKit root that owns the terminal's keyboard guide and bottom dock.
+/// Plain UIKit root that owns the terminal's bottom dock and keyboard geometry.
 ///
 /// `GhosttySurfaceView` is an aggressively relaid-out `CAMetalLayer` renderer. Keeping
 /// the keyboard constraint on this separate, layout-passive root prevents renderer
