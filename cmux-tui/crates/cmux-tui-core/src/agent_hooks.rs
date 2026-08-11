@@ -1146,6 +1146,32 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_session_identity_uses_one_trimmed_value() {
+        let terminal = "term_00000000000000000000000000000001";
+        let ingress = agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal),
+            json!({
+                "session_id":" shared-session ",
+                "event":{"thread":{"id":"shared-session"}},
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "shared-session");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["agent_session_id"],
+            "shared-session"
+        );
+        assert!(ingress.subjects.contains(&agent_session_subject(
+            terminal,
+            "pi",
+            "shared-session"
+        )));
+    }
+
+    #[test]
     fn dedicated_question_and_plan_tools_are_semantic_events() {
         let question = agent_hook_journal_ingress(
             "claude-code",

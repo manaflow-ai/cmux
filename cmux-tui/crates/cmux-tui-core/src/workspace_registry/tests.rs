@@ -5863,6 +5863,73 @@ fn journal_agent_startup_hides_partial_projection_checkpoint() {
 }
 
 #[test]
+fn journal_agent_cache_restore_excludes_tombstoned_terminal_projection() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-cache-live-terminal").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-cache-live-terminal-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let ingress = crate::agent_hook_journal_ingress(
+        "pi",
+        "AgentStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"cache-live-terminal-session"}),
+    )
+    .unwrap();
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    registry
+        .append_journal_ingress(
+            &ingress,
+            &validated,
+            "client_cache_live_terminal",
+            "journal_agent_cache_live_terminal_start",
+        )
+        .unwrap();
+    assert_eq!(registry.public_projections_for_cache_restore().unwrap().agents.len(), 1);
+
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("journal-agent-cache-terminal-close", "test").unwrap(),
+            "terminal.close",
+            &json!({"terminal_id":terminal_id.clone()}),
+            None,
+            None,
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: true },
+                    ResourceChange::TombstoneTerminal {
+                        public_id: terminal_id,
+                        expected_incarnation: None,
+                    },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"closed":true}),
+            &json!([]),
+        )
+        .unwrap();
+
+    assert_eq!(
+        registry.public_projections().unwrap().agents.len(),
+        1,
+        "the durable historical projection was removed"
+    );
+    assert!(
+        registry.public_projections_for_cache_restore().unwrap().agents.is_empty(),
+        "cache restore included an agent for a tombstoned terminal"
+    );
+}
+
+#[test]
 fn journal_agent_legacy_upgrade_without_candidate_replays_hook_events() {
     let root = temp_root("journal-agent-upgrade-without-candidate");
     let session = "journal-agent-upgrade-without-candidate";
