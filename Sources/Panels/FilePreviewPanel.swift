@@ -369,7 +369,6 @@ private struct FileExternalOpenHeaderMenuButton: View {
             PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
         }
         .buttonStyle(.plain)
-        .foregroundColor(.secondary)
         .disabled(isDisabled)
         .help(helpText)
         .accessibilityLabel(helpText)

@@ -45,7 +45,6 @@ struct MarkdownTypographyControl: View {
             PanelHeaderIconGlyph(systemName: "textformat.size")
         }
         .buttonStyle(.plain)
-        .foregroundColor(.secondary)
         .help(buttonLabel)
         .accessibilityLabel(buttonLabel)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
