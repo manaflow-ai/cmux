@@ -776,7 +776,6 @@ fn rpc_error_needs_codec(error: &RpcError) -> bool {
     bytes >= RPC_ERROR_CODEC_OFFLOAD_BYTES
 }
 
-
 async fn send_opened(stream: &ServiceStream, lane: Lane) -> Result<(), ServicesError> {
     let payload = if stream.service() == Service::MuxControl {
         serde_json::to_vec(&serde_json::json!({
