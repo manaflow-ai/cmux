@@ -376,6 +376,55 @@ struct SessionIndexViewTests {
         #expect(outcome.entries.map(\.sessionId) == ["codex-transcript-match"])
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/7453.
+    @Test
+    func cursorTranscriptIsSearchableResumableAndPreviewable() async throws {
+        let sessionId = "cmux-cursor-vault-\(UUID().uuidString)"
+        let projectRoot = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".cursor/projects", isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+        let transcriptURL = projectRoot
+            .appendingPathComponent("agent-transcripts", isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+
+        let transcript = """
+        {"role":"user","message":{"content":[{"type":"text","text":"Index Cursor sessions in Vault"}]}}
+        {"role":"assistant","message":{"content":[{"type":"text","text":"The cobalt regression needle is searchable."}]}}
+        """
+        try transcript.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let cursorAgent = try #require(SessionAgent(rawValue: "cursor"))
+        let store = SessionIndexStore()
+        let outcome = await store.searchSessions(
+            query: "cobalt regression needle",
+            scope: .agent(cursorAgent),
+            offset: 0,
+            limit: 10
+        )
+
+        #expect(outcome.errors == [])
+        let entry = try #require(outcome.entries.first)
+        #expect(outcome.entries.count == 1)
+        #expect(entry.agent.rawValue == "cursor")
+        #expect(entry.sessionId == sessionId)
+        #expect(entry.title == "Index Cursor sessions in Vault")
+        #expect(entry.fileURL == transcriptURL)
+        #expect(entry.resumeCommand == "'cursor-agent' '--resume' '\(sessionId)'")
+
+        let turns = try await SessionTranscriptLoader.load(entry: entry)
+        #expect(turns.map(\.role) == [.user, .assistant])
+        #expect(turns.map(\.text) == [
+            "Index Cursor sessions in Vault",
+            "The cobalt regression needle is searchable.",
+        ])
+    }
+
     // Regression for https://github.com/manaflow-ai/cmux/issues/6302.
     // The always-visible sidebar list is built from `scanAll()`, which loads
     // only each agent's 30 most-recent sessions across ALL folders and then
@@ -654,6 +703,8 @@ private extension SessionAgent {
             )
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .cursor:
+            return .cursor
         case .grok:
             return .grok(model: nil, permissionMode: nil, sandboxMode: nil, grokHome: nil)
         case .opencode:
