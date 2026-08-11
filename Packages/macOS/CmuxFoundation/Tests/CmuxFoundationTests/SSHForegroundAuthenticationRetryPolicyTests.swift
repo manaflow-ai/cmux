@@ -2196,6 +2196,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
         cmux_ssh_terminate_owned_auth_group() { return 1; }
         cmux_test_launch_and_exit() (
           cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
@@ -2205,7 +2206,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           printf '%s\n' "$cmux_test_reaper_pid" > "$CMUX_TEST_REAPER_PID" || exit 97
           printf '%s\n' "${cmux_test_reaper_identity%%|*}" > "$CMUX_TEST_REAPER_PARENT" || exit 96
         )
-        cmux_test_launch_and_exit || exit 95
+        cmux_test_launch_and_exit &
+        cmux_test_launcher_pid=$!
+        cmux_test_wait_path nonempty "$CMUX_TEST_REAPER_PID" 5000 || exit 95
+        cmux_test_wait_pid_exit "$cmux_test_launcher_pid" 5000 || exit 95
+        wait "$cmux_test_launcher_pid" || exit 95
         cmux_test_reaper_pid=$(/bin/cat "$CMUX_TEST_REAPER_PID") || exit 94
         cmux_test_initial_parent=$(/bin/cat "$CMUX_TEST_REAPER_PARENT") || exit 93
         trap '/bin/kill -KILL "$cmux_test_reaper_pid" >/dev/null 2>&1 || true' EXIT
@@ -2461,8 +2466,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(lifecycleEventShellFunctions)
         "$CMUX_TEST_SHELL" "$CMUX_TEST_FIRST_LAUNCHER" &
         cmux_test_first_launcher=$!
-        cmux_test_wait_path nonempty "$CMUX_TEST_FIRST_REAPER_PID" 5000 || exit 99
+        cmux_test_wait_path exists "$CMUX_TEST_FIRST_PUBLISHER_READY" 5000 || exit 99
         test -s "$CMUX_TEST_FIRST_REAPER_PID" || exit 99
+        test -s "$CMUX_TEST_FIRST_IDENTITY_CALLER_PID" || exit 99
         /bin/kill -KILL "$cmux_test_first_launcher" 2>/dev/null || exit 98
         wait "$cmux_test_first_launcher" 2>/dev/null || true
         cmux_ssh_auth_reclaim_stale_reaper_lock \\
@@ -2478,6 +2484,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_replacement_reaper=$!
         cmux_test_wait_path exists "$CMUX_TEST_REPLACEMENT_READY" 5000 || exit 95
         test -e "$CMUX_TEST_REPLACEMENT_READY" || exit 95
+        cmux_test_first_reaper=$(/bin/cat "$CMUX_TEST_FIRST_REAPER_PID") || exit 93
+        cmux_test_first_identity_caller=$(/bin/cat "$CMUX_TEST_FIRST_IDENTITY_CALLER_PID") || exit 93
+        /bin/kill -KILL "$cmux_test_first_reaper" "$cmux_test_first_identity_caller" \
+          2>/dev/null || true
+        cmux_test_wait_pid_exit "$cmux_test_first_reaper" 5000 || exit 93
+        cmux_test_wait_pid_exit "$cmux_test_first_identity_caller" 5000 || exit 93
         test ! -e "$CMUX_TEST_FIRST_REAPER_RAN" || exit 93
         : > "$CMUX_TEST_REPLACEMENT_RELEASE"
         wait "$cmux_test_replacement_reaper" || exit 94
@@ -2858,14 +2870,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         \(lifecycleEventShellFunctions)
-        /bin/sleep 30 &
-        cmux_test_suspended_publisher=$!
-        /bin/sleep 30 &
-        cmux_test_abandoned_publisher=$!
-        /bin/sleep 30 &
-        cmux_test_active_publisher=$!
-        /bin/sleep 30 &
-        cmux_test_ownerless_publisher=$!
+        set -- $(cmux_test_launch_stopped_processes 4) || exit 101
+        test "$#" -eq 4 || exit 101
+        cmux_test_suspended_publisher=$1
+        cmux_test_abandoned_publisher=$2
+        cmux_test_active_publisher=$3
+        cmux_test_ownerless_publisher=$4
         trap '/bin/kill -KILL "$cmux_test_suspended_publisher" "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" "$cmux_test_ownerless_publisher" >/dev/null 2>&1 || true; wait "$cmux_test_suspended_publisher" "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" "$cmux_test_ownerless_publisher" 2>/dev/null || true' EXIT
         cmux_test_suspended_identity=$(cmux_ssh_auth_identity "$cmux_test_suspended_publisher") || exit 100
         cmux_test_abandoned_identity=$(cmux_ssh_auth_identity "$cmux_test_abandoned_publisher") || exit 99
@@ -2887,9 +2897,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           > "$CMUX_TEST_ACTIVE_GROUP/cleanup.owner" || exit 92
         : > "$CMUX_TEST_ACTIVE_GROUP/cancel" || exit 91
         : > "$CMUX_TEST_OWNERLESS_GROUP/cancel" || exit 90
-        cmux_test_stop_pids 1000 "$cmux_test_suspended_publisher" \
-          "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" \
-          "$cmux_test_ownerless_publisher" || exit 89
         [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_suspended_publisher")" = \
           "$cmux_test_suspended_identity" ] || exit 89
         [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_abandoned_publisher")" = \
@@ -4116,10 +4123,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         \(lifecycleEventShellFunctions)
-        ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
-        cmux_test_victim_pid=$!
+        cmux_test_victim_pid=$(cmux_test_launch_stopped_processes 1) || exit 98
+        test -n "$cmux_test_victim_pid" || exit 98
         trap '/bin/kill -KILL "$cmux_test_victim_pid" >/dev/null 2>&1 || true; wait "$cmux_test_victim_pid" 2>/dev/null || true' EXIT
-        cmux_test_stop_pids 1000 "$cmux_test_victim_pid" || exit 97
         /usr/bin/env LC_ALL=C LANG=C /bin/ps \
           -o pid=,ppid=,pgid=,state=,lstart= -p "$cmux_test_victim_pid" \
           > "$CMUX_TEST_SNAPSHOT" || exit 96
@@ -4658,11 +4664,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 return not glob.glob(path)
             raise ValueError(f"unsupported lifecycle condition: {mode}")
 
-        desired_watch_path = os.path.dirname(path) or "."
+        def desired_watch_path():
+            if mode in ("lines", "nonempty") and os.path.exists(path):
+                return path
+            return os.path.dirname(path) or "."
 
-        def nearest_existing_directory():
-            candidate = desired_watch_path
-            while not os.path.isdir(candidate):
+        def nearest_existing_watch_path():
+            candidate = desired_watch_path()
+            while not os.path.exists(candidate):
                 parent = os.path.dirname(candidate) or "."
                 if parent == candidate:
                     return "."
@@ -4677,7 +4686,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             if condition():
                 raise SystemExit(0)
 
-            watch_path = nearest_existing_directory()
+            watch_path = nearest_existing_watch_path()
             descriptor = os.open(watch_path, os.O_RDONLY)
             queue = select.kqueue()
             event = select.kevent(
@@ -4690,7 +4699,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 queue.control([event], 0, 0)
                 if condition():
                     raise SystemExit(0)
-                if nearest_existing_directory() != watch_path:
+                if nearest_existing_watch_path() != watch_path:
                     continue
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -4804,41 +4813,41 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         CMUX_TEST_GROUP_WAIT_PY
         }
 
-        cmux_test_stop_pids() {
-          cmux_test_stop_timeout_millis="$1"
-          shift
-          /usr/bin/python3 - "$cmux_test_stop_timeout_millis" "$@" <<'CMUX_TEST_STOP_PY'
+        cmux_test_launch_stopped_processes() {
+          /usr/bin/python3 - "$1" <<'CMUX_TEST_STOP_PY'
         import os
-        import select
         import signal
         import sys
-        import time
 
-        timeout_millis, *pid_arguments = sys.argv[1:]
-        pending = {int(argument) for argument in pid_arguments}
-        queue = select.kqueue()
-        events = [
-            select.kevent(
-                pid,
-                filter=select.KQ_FILTER_PROC,
-                flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_CLEAR,
-                fflags=select.KQ_NOTE_SIGNAL,
-            )
-            for pid in pending
-        ]
+        count = int(sys.argv[1])
+        children = []
         try:
-            queue.control(events, 0, 0)
-            for pid in pending:
+            for _ in range(count):
+                pid = os.fork()
+                if pid == 0:
+                    null = os.open(os.devnull, os.O_RDWR)
+                    for descriptor in (0, 1, 2):
+                        os.dup2(null, descriptor)
+                    if null > 2:
+                        os.close(null)
+                    for caught in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+                        signal.signal(caught, signal.SIG_IGN)
+                    os.execl("/bin/sleep", "sleep", "30")
+                children.append(pid)
+            for pid in children:
                 os.kill(pid, signal.SIGSTOP)
-            deadline = time.monotonic() + int(timeout_millis) / 1000
-            while pending:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise SystemExit(1)
-                for event in queue.control(None, len(pending), remaining):
-                    pending.discard(event.ident)
-        finally:
-            queue.close()
+            for pid in children:
+                waited_pid, status = os.waitpid(pid, os.WUNTRACED)
+                if waited_pid != pid or not os.WIFSTOPPED(status):
+                    raise RuntimeError(f"process {pid} did not stop")
+            print(" ".join(str(pid) for pid in children))
+        except BaseException:
+            for pid in children:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            raise
         CMUX_TEST_STOP_PY
         }
         """#
