@@ -1166,8 +1166,36 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_recovery_append_group="$1"
           cmux_ssh_auth_recovery_group_path_is_valid \
             "$cmux_ssh_auth_recovery_append_group" || return 1
+          cmux_ssh_auth_recovery_read_index_value=$(cmux_ssh_auth_recovery_read_index \
+            "$cmux_ssh_auth_recovery_root/read.index")
           cmux_ssh_auth_recovery_write_index=$(cmux_ssh_auth_recovery_read_index \
             "$cmux_ssh_auth_recovery_root/write.index")
+          if [ "$cmux_ssh_auth_recovery_write_index" -lt \
+            "$cmux_ssh_auth_recovery_read_index_value" ]; then return 1; fi
+          cmux_ssh_auth_recovery_segment_span=$((
+            cmux_ssh_auth_recovery_write_index - cmux_ssh_auth_recovery_read_index_value
+          ))
+          # Eight segments of eight records put a fixed 64-group limit on
+          # pending recovery work. Check only that bounded window for duplicates.
+          if [ "$cmux_ssh_auth_recovery_segment_span" -ge 8 ]; then return 1; fi
+          cmux_ssh_auth_recovery_check_index="$cmux_ssh_auth_recovery_read_index_value"
+          while [ "$cmux_ssh_auth_recovery_check_index" -le \
+            "$cmux_ssh_auth_recovery_write_index" ]; do
+            cmux_ssh_auth_recovery_check_segment="$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_check_index"
+            if [ -L "$cmux_ssh_auth_recovery_check_segment" ]; then return 1; fi
+            if [ "$cmux_ssh_auth_recovery_check_segment" != \
+                "${CMUX_SSH_AUTH_RECOVERY_SEGMENT:-}" ] && \
+              [ -f "$cmux_ssh_auth_recovery_check_segment" ]; then
+              if /usr/bin/grep -Fqx -- "$cmux_ssh_auth_recovery_append_group" \
+                "$cmux_ssh_auth_recovery_check_segment" 2>/dev/null; then
+                return 0
+              else
+                cmux_ssh_auth_recovery_duplicate_status=$?
+                if [ "$cmux_ssh_auth_recovery_duplicate_status" -ne 1 ]; then return 1; fi
+              fi
+            fi
+            cmux_ssh_auth_recovery_check_index=$((cmux_ssh_auth_recovery_check_index + 1))
+          done
           cmux_ssh_auth_recovery_write_segment="$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_write_index"
           if [ -L "$cmux_ssh_auth_recovery_write_segment" ]; then return 1; fi
           cmux_ssh_auth_recovery_segment_count=0
@@ -1181,6 +1209,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             ''|*[!0-9]*) return 1 ;;
           esac
           if [ "$cmux_ssh_auth_recovery_segment_count" -ge 8 ]; then
+            if [ "$cmux_ssh_auth_recovery_segment_span" -ge 7 ]; then return 1; fi
             cmux_ssh_auth_recovery_write_index=$((cmux_ssh_auth_recovery_write_index + 1))
             cmux_ssh_auth_recovery_write_segment="$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_write_index"
             if [ -L "$cmux_ssh_auth_recovery_write_segment" ]; then return 1; fi

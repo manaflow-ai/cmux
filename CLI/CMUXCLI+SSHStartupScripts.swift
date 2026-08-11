@@ -30,19 +30,50 @@ extension CMUXCLI {
             .appendingPathComponent("cmux-ssh-auth-recovery.\(getuid())", isDirectory: true)
         guard FileManager.default.fileExists(atPath: recoveryRoot.path) else { return false }
 
-        do {
-            let entries = try FileManager.default.contentsOfDirectory(
-                at: recoveryRoot,
-                includingPropertiesForKeys: [.fileSizeKey]
+        guard
+            let readIndex = sshAuthenticationRecoveryQueueIndex(
+                at: recoveryRoot.appendingPathComponent("read.index")
+            ),
+            let writeIndex = sshAuthenticationRecoveryQueueIndex(
+                at: recoveryRoot.appendingPathComponent("write.index")
             )
-            return entries.contains { entry in
-                guard entry.lastPathComponent.hasPrefix("queue.") else { return false }
-                guard let values = try? entry.resourceValues(forKeys: [.fileSizeKey]) else { return true }
-                return (values.fileSize ?? 1) > 0
-            }
+        else {
+            return true
+        }
+        guard readIndex <= writeIndex else { return true }
+        if readIndex < writeIndex { return true }
+
+        let currentSegment = recoveryRoot.appendingPathComponent("queue.\(readIndex)")
+        guard FileManager.default.fileExists(atPath: currentSegment.path) else { return false }
+        do {
+            let values = try currentSegment.resourceValues(forKeys: [.fileSizeKey])
+            return (values.fileSize ?? 1) > 0
         } catch {
             // Fail open so the shell helper can apply its secure-path checks.
             return true
+        }
+    }
+
+    private func sshAuthenticationRecoveryQueueIndex(at url: URL) -> UInt64? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return 0 }
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            let data = try handle.read(upToCount: 14) ?? Data()
+            guard data.count < 14 else { return 0 }
+            let rawValue = String(decoding: data, as: UTF8.self)
+            let value = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
+            guard
+                !value.isEmpty,
+                value.count <= 12,
+                value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
+                let index = UInt64(value)
+            else {
+                return 0
+            }
+            return index
+        } catch {
+            return FileManager.default.fileExists(atPath: url.path) ? nil : 0
         }
     }
 
