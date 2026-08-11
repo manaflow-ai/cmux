@@ -10,7 +10,8 @@ import UIKit
 
 extension TranscriptRenderingRegressionTests {
     @Test func densitySwitchPreservesAnchorAtBottomMiddleAndTopInBothDirections() throws {
-        for requestedPosition in [0.0, 0.05, 0.33, 0.5, 0.67, 1.0, -1.0] {
+        let requestedPositions: [CGFloat] = [0.0, 0.05, 0.33, 0.5, 0.67, 1.0, -1.0]
+        for requestedPosition in requestedPositions {
             let mounted = try Self.makeMountedDemo(tallFixture: true)
             defer { mounted.window.isHidden = true }
             let controller = mounted.container.transcript
