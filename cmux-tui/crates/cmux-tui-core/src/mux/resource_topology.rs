@@ -13,7 +13,8 @@ use crate::resource::{
 use crate::resource_mutation::ResourceMutationPlan;
 use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
-    RegistryPane, RegistryScreen, RegistryViewportColumn, RegistryWorkspace,
+    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryViewport, RegistryViewportColumn,
+    RegistryWorkspace,
     ResourceCreationPreparation, ResourceCreationRecovery, ResourcePatchCommit,
     ResourceWorkspaceClose, TerminalLifecycle, TerminalResourceCloseCommit,
 };
@@ -504,6 +505,16 @@ impl Mux {
             .filter(|pane| !projected.resource_indexes.pane_ids.contains_key(pane))
             .copied()
             .collect::<HashSet<_>>();
+        let removed_public_panes = removed_panes
+            .iter()
+            .filter_map(|pane| live.resource_indexes.pane_ids.get(pane).cloned())
+            .collect::<HashSet<_>>();
+        let durable_screens = registry
+            .resource_topology_snapshot()?
+            .screens
+            .into_iter()
+            .map(|screen| (screen.public_id.clone(), screen))
+            .collect::<HashMap<_, _>>();
         let mut affected_screens = affected_panes
             .iter()
             .filter_map(|pane| live.resource_indexes.pane_screen.get(pane).copied())
@@ -522,11 +533,29 @@ impl Mux {
             .iter()
             .flat_map(|workspace| workspace.screens.iter().map(|screen| screen.id))
             .collect::<HashSet<_>>();
-        let removed_screens = changed_screens
+        let mut removed_screens = changed_screens
             .iter()
             .filter(|screen| !projected_screen_ids.contains(screen))
             .copied()
             .collect::<HashSet<_>>();
+        for screen_slot in changed_screens
+            .iter()
+            .filter(|screen| projected_screen_ids.contains(screen))
+        {
+            let screen_id = live
+                .resource_indexes
+                .screen_ids
+                .get(screen_slot)
+                .with_context(|| format!("terminal scope screen {screen_slot} has no identity"))?;
+            let durable = durable_screens
+                .get(screen_id)
+                .with_context(|| format!("terminal scope screen {screen_id} is not durable"))?;
+            if remove_public_panes_from_registry_screen(durable.clone(), &removed_public_panes)
+                .is_none()
+            {
+                removed_screens.insert(*screen_slot);
+            }
+        }
         let mut published_screens = changed_screens.clone();
         if selection_before.screen != selection_after.screen
             && let Some(screen) = selection_after.screen
@@ -578,6 +607,13 @@ impl Mux {
                 active_screen: workspace
                     .screens
                     .get(workspace.active_screen)
+                    .filter(|screen| !removed_screens.contains(&screen.id))
+                    .or_else(|| {
+                        workspace
+                            .screens
+                            .iter()
+                            .find(|screen| !removed_screens.contains(&screen.id))
+                    })
                     .map(|screen| screen.public_id.clone()),
             });
             patch.push(ResourceChange::SetScreenOrder {
@@ -604,7 +640,9 @@ impl Mux {
 
         let mut screen_context = HashMap::new();
         for screen_slot in &affected_screens {
-            if !projected_screen_ids.contains(screen_slot) {
+            if !projected_screen_ids.contains(screen_slot)
+                || removed_screens.contains(screen_slot)
+            {
                 continue;
             }
             let Some(workspace_id) =
@@ -634,12 +672,37 @@ impl Mux {
                 .with_context(|| format!("terminal scope lost workspace {workspace_id}"))?;
             let screen = &workspace.screens[screen_index];
             live_screens.insert(screen.public_id.clone());
-            let durable = resource_content::registry_screen_from_live(
-                projected,
-                &workspace.public_id,
-                screen_index,
-                screen,
-            )?;
+            let mut durable = durable_screens
+                .get(&screen.public_id)
+                .cloned()
+                .with_context(|| {
+                    format!("terminal scope screen {} is not durable", screen.public_id)
+                })?;
+            if changed_screen_set.contains(screen_slot) {
+                durable =
+                    remove_public_panes_from_registry_screen(durable, &removed_public_panes)
+                        .with_context(|| {
+                            format!(
+                                "terminal scope screen {} lost its public layout",
+                                screen.public_id
+                            )
+                        })?;
+                durable.position = screen_index;
+                durable.name = screen.name.clone();
+                if let Some(active_pane) = projected
+                    .resource_indexes
+                    .pane_ids
+                    .get(&screen.active_pane)
+                    .filter(|pane| registry_layout_contains_pane(&durable.layout, pane))
+                {
+                    durable.active_pane = active_pane.clone();
+                }
+                durable.zoomed_pane = screen
+                    .zoomed_pane
+                    .and_then(|pane| projected.resource_indexes.pane_ids.get(&pane))
+                    .filter(|pane| registry_layout_contains_pane(&durable.layout, pane))
+                    .cloned();
+            }
             let layout = resource_content::public_layout_from_registry(&durable, projected)?;
             if changed_screen_set.contains(screen_slot) {
                 patch.push(ResourceChange::UpsertScreen(durable));
@@ -6785,6 +6848,128 @@ pub(super) fn structural_tab_move_plan(
 
 fn target_location_screen(state: &State, location: (usize, usize)) -> ScreenId {
     state.workspaces[location.0].screens[location.1].id
+}
+
+fn remove_public_panes_from_registry_screen(
+    mut screen: RegistryScreen,
+    removed: &HashSet<PanePublicId>,
+) -> Option<RegistryScreen> {
+    if screen.viewport.columns.is_empty() {
+        screen.layout = remove_public_panes_from_registry_layout(screen.layout, removed)?;
+        if let Some(auto_layout) = &mut screen.auto_layout {
+            auto_layout.retain(|pane| !removed.contains(pane));
+        }
+    } else {
+        let mut columns = std::mem::take(&mut screen.viewport.columns)
+            .into_iter()
+            .filter_map(|mut column| {
+                column.layout =
+                    remove_public_panes_from_registry_layout(column.layout, removed)?;
+                if let Some(auto_layout) = &mut column.auto_layout {
+                    auto_layout.retain(|pane| !removed.contains(pane));
+                }
+                Some(column)
+            })
+            .collect::<Vec<_>>();
+        match columns.len() {
+            0 => return None,
+            1 => {
+                let column = columns.pop().expect("one viewport column remains");
+                screen.layout = column.layout;
+                screen.auto_layout = column.auto_layout;
+                screen.viewport = RegistryViewport::default();
+            }
+            _ => {
+                screen.auto_layout = None;
+                screen.viewport.base_width = columns.first().map(|column| column.width);
+                let mut root = columns.first().expect("viewport columns remain").layout.clone();
+                let mut width_before = columns.first().expect("viewport columns remain").width;
+                for column in columns.iter().skip(1) {
+                    root = RegistryLayoutNode::Split {
+                        split: column.id.clone(),
+                        direction: "right".into(),
+                        ratio: width_before / (width_before + column.width),
+                        first: Box::new(root),
+                        second: Box::new(column.layout.clone()),
+                    };
+                    width_before += column.width;
+                }
+                screen.layout = root;
+                screen.viewport.columns = columns;
+            }
+        }
+    }
+    if removed.contains(&screen.active_pane) {
+        screen.active_pane = registry_layout_active_pane(&screen.layout).clone();
+    }
+    if screen
+        .zoomed_pane
+        .as_ref()
+        .is_some_and(|pane| removed.contains(pane))
+    {
+        screen.zoomed_pane = None;
+    }
+    Some(screen)
+}
+
+fn remove_public_panes_from_registry_layout(
+    layout: RegistryLayoutNode,
+    removed: &HashSet<PanePublicId>,
+) -> Option<RegistryLayoutNode> {
+    match layout {
+        RegistryLayoutNode::Leaf { pane } if removed.contains(&pane) => None,
+        leaf @ RegistryLayoutNode::Leaf { .. } => Some(leaf),
+        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+            match (
+                remove_public_panes_from_registry_layout(*first, removed),
+                remove_public_panes_from_registry_layout(*second, removed),
+            ) {
+                (Some(first), Some(second)) => Some(RegistryLayoutNode::Split {
+                    split,
+                    direction,
+                    ratio,
+                    first: Box::new(first),
+                    second: Box::new(second),
+                }),
+                (Some(layout), None) | (None, Some(layout)) => Some(layout),
+                (None, None) => None,
+            }
+        }
+        RegistryLayoutNode::Stack { mut panes, expanded } => {
+            panes.retain(|pane| !removed.contains(pane));
+            match panes.as_slice() {
+                [] => None,
+                [pane] => Some(RegistryLayoutNode::Leaf { pane: pane.clone() }),
+                _ => {
+                    let expanded = if removed.contains(&expanded) {
+                        panes.last().expect("retained stack is non-empty").clone()
+                    } else {
+                        expanded
+                    };
+                    Some(RegistryLayoutNode::Stack { panes, expanded })
+                }
+            }
+        }
+    }
+}
+
+fn registry_layout_active_pane(layout: &RegistryLayoutNode) -> &PanePublicId {
+    match layout {
+        RegistryLayoutNode::Leaf { pane } => pane,
+        RegistryLayoutNode::Split { first, .. } => registry_layout_active_pane(first),
+        RegistryLayoutNode::Stack { expanded, .. } => expanded,
+    }
+}
+
+fn registry_layout_contains_pane(layout: &RegistryLayoutNode, target: &PanePublicId) -> bool {
+    match layout {
+        RegistryLayoutNode::Leaf { pane } => pane == target,
+        RegistryLayoutNode::Split { first, second, .. } => {
+            registry_layout_contains_pane(first, target)
+                || registry_layout_contains_pane(second, target)
+        }
+        RegistryLayoutNode::Stack { panes, .. } => panes.contains(target),
+    }
 }
 
 fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> bool {
