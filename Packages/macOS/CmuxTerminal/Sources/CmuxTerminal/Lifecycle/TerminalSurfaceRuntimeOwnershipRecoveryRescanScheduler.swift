@@ -57,6 +57,17 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     self.maximumEntryCount = maximumEntryCount
   }
 
+  /// Hold the overflow index stable while admission decides where a new
+  /// request belongs. The scheduler lock is always outside the admission
+  /// lock, and scheduler callbacks enter admission only after releasing it.
+  internal func withOverflowQueueFence<Result>(
+    _ body: (Bool) -> Result
+  ) -> Result {
+    state.withLockUnchecked { state in
+      body(state.headID != nil)
+    }
+  }
+
   #if DEBUG
     internal var debugSnapshot:
       (
