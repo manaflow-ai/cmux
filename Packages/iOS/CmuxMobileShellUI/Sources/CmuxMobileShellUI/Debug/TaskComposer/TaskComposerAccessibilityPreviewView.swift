@@ -253,6 +253,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                                         : .classic
                             } label: {
                                 Image(systemName: "rectangle.2.swap")
+                                    .font(.system(size: 17))
                                     .frame(width: 44, height: 44)
                             }
                             .buttonStyle(.plain)
