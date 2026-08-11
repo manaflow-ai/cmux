@@ -1192,7 +1192,13 @@ async fn bootstrap_initial_ssh_route(
                 let resolved = bootstrap.install_verified_target().await?;
                 resolved.target
             } else {
-                bootstrap.ensure_installed_target().await?.target
+                bootstrap
+                    .ensure_installed_target_for_session(
+                        &ssh.remote_session,
+                        ssh.remote_state_dir.as_deref(),
+                    )
+                    .await?
+                    .target
             };
             Ok::<_, BootstrapError>(target)
         }) => {
