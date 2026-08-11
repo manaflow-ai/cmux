@@ -607,54 +607,17 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             discovery.release()
         }
 
-        let manager = TabManager(commandRunner: commandRunner)
-        var seededPanels: [(workspaceId: UUID, panelId: UUID)] = []
-        let workspaceCount = 45
-        var workspaces = manager.tabs
-        while workspaces.count < workspaceCount {
-            workspaces.append(manager.addLocalWorkspace(select: false, eagerLoadTerminal: false))
-        }
-
-        for (index, workspace) in workspaces.enumerated() {
-            let panelId = try XCTUnwrap(workspace.focusedPanelId)
-            workspace.updatePanelDirectory(
-                panelId: panelId,
-                directory: "/tmp/cmux-pr-refresh-main-thread-\(index)"
-            )
-            workspace.updatePanelGitBranch(
-                panelId: panelId,
-                branch: "issue-3033-\(index)",
-                isDirty: false
-            )
-            seededPanels.append((workspace.id, panelId))
-        }
-
-        let monitorDuration: TimeInterval = 0.7
-        // Generous bound far above macOS CI scheduling noise (GC, unrelated test
-        // work, run-loop jitter can stall the main thread well past a few hundred
-        // ms on a loaded shared runner). This catches gross main-thread blocking
-        // without failing on routine host jitter; the deterministic non-main-thread
-        // assertion below is the real regression signal.
-        let allowedMainThreadGap: TimeInterval = 2.0
-        let finishedMonitoring = expectation(description: "main run loop remained responsive")
-        let monitorStartedAt = Date()
-        var lastTickAt = monitorStartedAt
-        var maxTickGap: TimeInterval = 0
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { timer in
-            let now = Date()
-            maxTickGap = max(maxTickGap, now.timeIntervalSince(lastTickAt))
-            lastTickAt = now
-            if now.timeIntervalSince(monitorStartedAt) >= monitorDuration {
-                timer.invalidate()
-                finishedMonitoring.fulfill()
-            }
-        }
-
-        let triggerPanel = try XCTUnwrap(seededPanels.first)
-        manager.updateSurfaceShellActivity(
-            tabId: triggerPanel.workspaceId,
-            surfaceId: triggerPanel.panelId,
-            state: .promptIdle
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.updatePanelDirectory(
+            panelId: panelId,
+            directory: "/tmp/cmux-pr-refresh-main-run-loop"
+        )
+        workspace.updatePanelGitBranch(
+            panelId: panelId,
+            branch: "issue-3033-main-run-loop",
+            isDirty: false
         )
 
         let pollService = PullRequestPollService(

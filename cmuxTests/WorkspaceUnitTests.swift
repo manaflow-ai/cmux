@@ -3150,7 +3150,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
 
-            let inserted = try XCTUnwrap(manager.addLocalWorkspace(
+            let inserted = try XCTUnwrap(manager.addWorkspace(
                 fromDetachedSurface: detached,
                 select: false
             ))
@@ -3171,7 +3171,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
 
-            let inserted = try XCTUnwrap(manager.addLocalWorkspace(
+            let inserted = try XCTUnwrap(manager.addWorkspace(
                 fromDetachedSurface: detached,
                 select: false
             ))
@@ -3195,7 +3195,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 directory: transferCwd
             )
 
-            let inserted = try XCTUnwrap(manager.addLocalWorkspace(
+            let inserted = try XCTUnwrap(manager.addWorkspace(
                 fromDetachedSurface: detached,
                 select: false
             ))
@@ -3225,7 +3225,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             resumeBinding: binding
         )
 
-        let inserted = try XCTUnwrap(manager.addLocalWorkspace(
+        let inserted = try XCTUnwrap(manager.addWorkspace(
             fromDetachedSurface: detached,
             select: false
         ))
@@ -4494,7 +4494,7 @@ final class WorkspaceReorderTests: XCTestCase {
 
         guard let panelId = source.focusedPanelId,
               let detached = source.detachSurface(panelId: panelId),
-              let inserted = manager.addLocalWorkspace(
+              let inserted = manager.addWorkspace(
                 fromDetachedSurface: detached,
                 insertionIndexOverride: 0
               ) else {

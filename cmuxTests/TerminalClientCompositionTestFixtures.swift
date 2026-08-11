@@ -30,6 +30,14 @@ extension TabManager {
         focusHistoryNow: @escaping @MainActor @Sendable () -> Date = { Date() },
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
+            GhosttyWorkingDirectoryResolver(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+                processWorkingDirectory: FileManager.default.currentDirectoryPath
+            ).resolve(configuredValue: GhosttyConfig.load().workingDirectory)
+        },
+        workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.init(
@@ -47,6 +55,9 @@ extension TabManager {
             focusHistoryNow: focusHistoryNow,
             panelTitleUpdateCoalescer: panelTitleUpdateCoalescer,
             settings: settings,
+            defaultWorkspaceWorkingDirectoryProvider: defaultWorkspaceWorkingDirectoryProvider,
+            workspaceCustomizationStore: workspaceCustomizationStore,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker,
             closeTabWarningDefaults: closeTabWarningDefaults
         )
     }
@@ -77,7 +88,8 @@ extension Workspace {
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         initialTerminalSurfaceID: UUID? = nil,
         initialTerminalPaneID: UUID? = nil,
-        isCanonicalTopologyProjection: Bool = false
+        isCanonicalTopologyProjection: Bool = false,
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.init(
             id: id,
@@ -103,7 +115,8 @@ extension Workspace {
             terminalClientComposition: .embedded(),
             initialTerminalSurfaceID: initialTerminalSurfaceID,
             initialTerminalPaneID: initialTerminalPaneID,
-            isCanonicalTopologyProjection: isCanonicalTopologyProjection
+            isCanonicalTopologyProjection: isCanonicalTopologyProjection,
+            nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
 }
