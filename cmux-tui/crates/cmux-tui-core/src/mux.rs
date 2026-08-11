@@ -26433,15 +26433,11 @@ mod tests {
     #[test]
     fn cleanup_scheduled_during_the_final_retry_gets_a_fresh_retry_budget() {
         let mux = test_mux();
-        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
-        let first = mux.surface(first.id).unwrap();
+        let options = mux.surface_options.lock().unwrap().clone();
+        let first =
+            Surface::spawn_for_test(mux.next_id(), options.clone(), Arc::downgrade(&mux)).unwrap();
         let (first_failing, _) = first.set_recovering_server_shutdown_for_test();
-        let second = Surface::spawn_for_test(
-            mux.next_id(),
-            mux.surface_options.lock().unwrap().clone(),
-            Arc::downgrade(&mux),
-        )
-        .unwrap();
+        let second = Surface::spawn_for_test(mux.next_id(), options, Arc::downgrade(&mux)).unwrap();
         let (second_failing, _) = second.set_recovering_server_shutdown_for_test();
         let injected = Arc::new(AtomicBool::new(false));
         let (injected_tx, injected_rx) = std::sync::mpsc::sync_channel(1);
@@ -26472,7 +26468,7 @@ mod tests {
         }));
 
         let deadline = Instant::now() + Duration::from_secs(2);
-        assert!(mux.close_surface(first.id).unwrap());
+        mux.retire_surface_runtime(first);
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .expect("final cleanup attempt exceeded its failure deadline");
