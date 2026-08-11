@@ -149,7 +149,8 @@ import Testing
             subtitle: "Completed",
             body: "May follow its live surface",
             createdAt: Self.now,
-            isRead: false
+            isRead: false,
+            replyShape: .text
         )
 
         let confinedPayload = PhonePushPayload(
@@ -168,9 +169,11 @@ import Testing
         #expect(confinedPayload.workspaceId == workspaceId.uuidString)
         #expect(confinedPayload.surfaceId == surfaceId.uuidString)
         #expect(!confinedPayload.retargetsToLiveSurfaceOwner)
+        #expect(confinedPayload.replyShape == "none")
         #expect(trustedPayload.workspaceId == workspaceId.uuidString)
         #expect(trustedPayload.surfaceId == surfaceId.uuidString)
         #expect(trustedPayload.retargetsToLiveSurfaceOwner)
+        #expect(trustedPayload.replyShape == "text")
     }
 
     // MARK: - Heuristic details
@@ -414,6 +417,7 @@ import Testing
             title: "secret title",
             subtitle: "secret subtitle",
             body: "secret terminal output",
+            replyShape: "",
             workspaceId: UUID().uuidString,
             surfaceId: UUID().uuidString,
             retargetsToLiveSurfaceOwner: true,
@@ -462,6 +466,7 @@ import Testing
             title: "  \(String(repeating: longCharacter, count: 100))  ",
             subtitle: String(repeating: longCharacter, count: 100),
             body: String(repeating: longCharacter, count: 300),
+            replyShape: "",
             workspaceId: UUID().uuidString,
             surfaceId: UUID().uuidString,
             retargetsToLiveSurfaceOwner: true,
@@ -499,6 +504,7 @@ import Testing
             title: "agent",
             subtitle: "",
             body: "done",
+            replyShape: "",
             workspaceId: String(repeating: "a", count: 201),
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
@@ -524,6 +530,7 @@ import Testing
             title: "",
             subtitle: "",
             body: "",
+            replyShape: "",
             workspaceId: nil,
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
@@ -635,15 +642,18 @@ import Testing
     }
 
     @Test func retryWaitUsesInjectedClockInsteadOfRuntimeSleeping() async throws {
-        let clock = PhonePushClock(
-            now: { Date(timeIntervalSince1970: 1_750_000_000) },
-            sleep: { duration in
-                #expect(duration == .seconds(7))
-            }
-        )
+        try await confirmation("injected clock sleep invoked") { confirm in
+            let clock = PhonePushClock(
+                now: { Date(timeIntervalSince1970: 1_750_000_000) },
+                sleep: { duration in
+                    #expect(duration == .seconds(7))
+                    confirm()
+                }
+            )
 
-        #expect(clock.nowEpochSeconds == 1_750_000_000)
-        try await clock.sleep(for: .seconds(7))
+            #expect(clock.nowEpochSeconds == 1_750_000_000)
+            try await clock.sleep(for: .seconds(7))
+        }
     }
 
     @Test func successfulHTTPStatusWithNoRegisteredDevicesIsNotDeliverySuccess() throws {

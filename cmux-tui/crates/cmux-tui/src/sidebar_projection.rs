@@ -1,6 +1,6 @@
 //! Pure projection of mux resources into configurable native sidebar trees.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use cmux_tui_core::{PaneId, SurfaceId, WorkspaceId};
 
@@ -87,13 +87,15 @@ pub(crate) fn rows(
     collapsed: &HashSet<ProjectionBranch>,
 ) -> Vec<ProjectionRow> {
     let mut rows = Vec::new();
+    let agents_by_surface: HashMap<SurfaceId, &AgentInfo> =
+        agents.iter().map(|agent| (agent.surface, agent)).collect();
     append_level(
         &mut rows,
         &spec.levels,
         0,
         None,
         tree,
-        agents,
+        &agents_by_surface,
         selected_workspace.min(tree.workspaces.len().saturating_sub(1)),
         collapsed,
     );
@@ -107,7 +109,7 @@ fn append_level(
     depth: usize,
     context: Option<ProjectionContext>,
     tree: &TreeView,
-    agents: &[AgentInfo],
+    agents: &HashMap<SurfaceId, &AgentInfo>,
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) {
@@ -220,7 +222,7 @@ fn append_level(
                         continue;
                     }
                     for (tab_index, tab) in pane.tabs.iter().enumerate() {
-                        let agent = agents.iter().find(|agent| agent.surface == tab.surface);
+                        let agent = agents.get(&tab.surface).copied();
                         if agent_only && agent.is_none() {
                             continue;
                         }
@@ -282,11 +284,13 @@ mod tests {
         TreeView {
             workspaces: vec![WorkspaceView {
                 id: 1,
+                resource_id: None,
                 key: "workspace-1".into(),
                 short_id: "w1".into(),
                 name: "project".into(),
                 screens: vec![ScreenView {
                     id: 2,
+                    resource_id: None,
                     short_id: "s2".into(),
                     name: None,
                     layout: Node::Leaf(3),
@@ -296,6 +300,7 @@ mod tests {
                     viewport_splits: Default::default(),
                     panes: vec![PaneView {
                         id: 3,
+                        resource_id: None,
                         short_id: "p3".into(),
                         name: Some("editor".into()),
                         tabs: vec![tab(4, "shell"), tab(5, "codex")],
@@ -314,6 +319,8 @@ mod tests {
     fn tab(surface: SurfaceId, title: &str) -> TabView {
         TabView {
             surface,
+            public_id: None,
+            content_id: None,
             terminal_id: None,
             short_id: format!("t{surface}"),
             name: None,

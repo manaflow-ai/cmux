@@ -35,7 +35,7 @@ pub use relay::{
     RelayProvider, register_relay_daemon, register_relay_daemon_with_credentials,
 };
 pub use ssh::{
-    SshProvider, SshProviderConfig, SshRemoteShell, SshRemoteTarget, register_resolved_ssh_target,
+    SshProvider, SshProviderConfig, SshRemoteShell, SshRemoteTarget, SshResolvedTargets,
 };
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]

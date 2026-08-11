@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
@@ -37,8 +37,7 @@ use cmux_remote::provider::{
     IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
     RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
     SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
-    register_relay_daemon_with_credentials, register_resolved_ssh_target, sanitized_route,
-    sanitized_route_text,
+    register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
@@ -128,12 +127,15 @@ impl DaemonCleanupPauseHandle {
 
     fn wait_until_reached(&self) {
         self.reached
-            .recv_timeout(Duration::from_secs(3))
+            // The daemon performs real filesystem and socket setup before it
+            // reaches this deterministic test hook. Keep the observation
+            // bounded without coupling it to parallel CI runner load.
+            .recv_timeout(Duration::from_secs(10))
             .expect("daemon shutdown did not reach the lifecycle cleanup pause");
     }
 
     fn assert_not_reached_before(&self, other_shutdown: &thread::JoinHandle<anyhow::Result<()>>) {
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(3);
         loop {
             match self.reached.try_recv() {
                 Ok(()) => panic!("an unrelated daemon entered the lifecycle cleanup pause"),
@@ -145,10 +147,7 @@ impl DaemonCleanupPauseHandle {
             if other_shutdown.is_finished() {
                 return;
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "unrelated daemon shutdown did not finish"
-            );
+            assert!(Instant::now() < deadline, "unrelated daemon shutdown did not finish");
             thread::sleep(Duration::from_millis(1));
         }
     }
@@ -589,6 +588,20 @@ impl Drop for ClientRuntimeHandle {
 }
 
 pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime_inner(options, None)
+}
+
+pub(crate) fn start_client_runtime_cancelable(
+    options: ClientRuntimeOptions,
+    cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
+) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime_inner(options, Some(cancellation))
+}
+
+fn start_client_runtime_inner(
+    options: ClientRuntimeOptions,
+    cancellation: Option<Arc<crate::machine_runtime::MachineConnectCancellation>>,
+) -> anyhow::Result<ClientRuntimeHandle> {
     if options.routes.is_empty() {
         return Err(anyhow!("remote connection has no route candidates"));
     }
@@ -611,20 +624,62 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             result
         })
         .context("could not start remote client thread")?;
-    let ready = match ready_rx.recv_timeout(startup_timeout) {
-        Ok(Ok(ready)) => ready,
-        Ok(Err(error)) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(error));
+    let ready = if cancellation.is_none() {
+        match ready_rx.recv_timeout(startup_timeout) {
+            Ok(Ok(ready)) => ready,
+            Ok(Err(error)) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(error));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s",
+                    startup_timeout.as_secs()
+                ));
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!("remote connection startup worker stopped before readiness"));
+            }
         }
-        Err(error) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(
-                "remote connection did not become ready within {}s: {error}",
-                startup_timeout.as_secs()
-            ));
+    } else {
+        let startup_deadline = Instant::now() + startup_timeout;
+        loop {
+            if cancellation.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(crate::machine_runtime::machine_connection_canceled_message()));
+            }
+            let remaining = startup_deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s",
+                    startup_timeout.as_secs()
+                ));
+            }
+            let wait = remaining.min(Duration::from_millis(25));
+            match ready_rx.recv_timeout(wait) {
+                Ok(Ok(ready)) => break ready,
+                Ok(Err(error)) => {
+                    let _ = shutdown_tx.send(true);
+                    reap_failed_startup(thread, "cmux-remote-client");
+                    return Err(anyhow!(error));
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    let _ = shutdown_tx.send(true);
+                    reap_failed_startup(thread, "cmux-remote-client");
+                    return Err(anyhow!(
+                        "remote connection startup worker stopped before readiness"
+                    ));
+                }
+            }
         }
     };
     Ok(ClientRuntimeHandle {
@@ -1115,9 +1170,25 @@ async fn bootstrap_initial_ssh_route(
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
             let target = if upgrade {
-                bootstrap
-                    .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
-                    .await?;
+                match bootstrap.probe_target().await {
+                    Ok((target, Some(_))) => {
+                        bootstrap
+                            .stop_daemon_target(
+                                &target,
+                                &ssh.remote_session,
+                                ssh.remote_state_dir.as_deref(),
+                            )
+                            .await?;
+                    }
+                    Ok((_, None)) => {}
+                    Err(BootstrapError::ProbeJson(_))
+                    | Err(BootstrapError::Remote { status: 0..=254, .. }) => {
+                        bootstrap
+                            .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
+                            .await?;
+                    }
+                    Err(error) => return Err(error),
+                }
                 let resolved = bootstrap.install_verified_target().await?;
                 resolved.target
             } else {
@@ -1126,7 +1197,7 @@ async fn bootstrap_initial_ssh_route(
             Ok::<_, BootstrapError>(target)
         }) => {
             let target = result.map_err(|_| BootstrapError::Timeout)??;
-            register_resolved_ssh_target(&destination, port, target)?;
+            ssh.register_resolved_target(&destination, port, target)?;
             Ok(())
         }
         () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),
@@ -2791,6 +2862,15 @@ mod tests {
 
     use super::*;
 
+    fn instrumented_test_timeout(timeout: Duration) -> Duration {
+        let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|scale| *scale > 0)
+            .unwrap_or(1);
+        timeout.saturating_mul(scale)
+    }
+
     fn resolved_test_route(
         route: &str,
         supported_auth: SupportedClientAuthModes,
@@ -4247,8 +4327,8 @@ mod tests {
                 .unwrap_err();
         }
         caller.join().unwrap();
-        let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while link_socket.exists() && std::time::Instant::now() < cleanup_deadline {
+        let cleanup_deadline = Instant::now() + Duration::from_secs(3);
+        while link_socket.exists() && Instant::now() < cleanup_deadline {
             thread::sleep(Duration::from_millis(10));
         }
 
@@ -4311,10 +4391,8 @@ mod tests {
 
         let runtime_path = state_dir.join("runtime.json");
         let outcome_path = state_dir.join("shutdown.json");
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while (runtime_path.exists() || !outcome_path.exists())
-            && std::time::Instant::now() < deadline
-        {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while (runtime_path.exists() || !outcome_path.exists()) && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
 
@@ -4922,13 +5000,16 @@ mod tests {
             reconnect: ReconnectPolicy {
                 initial_delay: Duration::from_millis(10),
                 maximum_delay: Duration::from_millis(10),
-                attempt_timeout: Duration::from_millis(50),
+                // This fixture injects carrier EOF directly and asserts prompt
+                // shutdown during SSH bootstrap. Give setup handshakes their
+                // own budget and keep heartbeat timing out of that invariant.
+                attempt_timeout: instrumented_test_timeout(Duration::from_secs(1)),
                 full_jitter: false,
-                heartbeat_interval: Some(Duration::from_millis(10)),
-                heartbeat_timeout: Duration::from_millis(10),
+                heartbeat_interval: None,
+                heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
             },
-            startup_timeout: Duration::from_secs(5),
+            startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
             state_dir: directory.path().join("client"),
             local_socket: Some(directory.path().join("client.sock")),
             ssh,
@@ -4942,17 +5023,14 @@ mod tests {
 
         cut_tx.send(()).unwrap();
         proxy.join().unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + instrumented_test_timeout(Duration::from_secs(3));
         let pid = loop {
             if let Ok(value) = fs::read_to_string(&pid_file)
                 && let Ok(pid) = value.parse::<libc::pid_t>()
             {
                 break pid;
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "client did not enter reconnect SSH bootstrap"
-            );
+            assert!(Instant::now() < deadline, "client did not enter reconnect SSH bootstrap");
             thread::sleep(Duration::from_millis(10));
         };
 
@@ -4960,29 +5038,30 @@ mod tests {
         thread::spawn(move || {
             let _ = done_tx.send(client.shutdown());
         });
-        let completed_promptly = match done_rx.recv_timeout(Duration::from_millis(500)) {
-            Ok(result) => {
-                result.unwrap();
-                true
-            }
-            Err(_) => {
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
+        let completed_promptly =
+            match done_rx.recv_timeout(instrumented_test_timeout(Duration::from_millis(500))) {
+                Ok(result) => {
+                    result.unwrap();
+                    true
                 }
-                done_rx
-                    .recv_timeout(Duration::from_secs(3))
-                    .expect("client shutdown stayed blocked after SSH cleanup")
-                    .unwrap();
-                false
-            }
-        };
+                Err(_) => {
+                    unsafe {
+                        libc::kill(pid, libc::SIGKILL);
+                    }
+                    done_rx
+                        .recv_timeout(instrumented_test_timeout(Duration::from_secs(3)))
+                        .expect("client shutdown stayed blocked after SSH cleanup")
+                        .unwrap();
+                    false
+                }
+            };
         assert!(
             completed_promptly,
             "client shutdown waited for the reconnect SSH bootstrap timeout"
         );
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
+        let deadline = Instant::now() + instrumented_test_timeout(Duration::from_secs(2));
+        while unsafe { libc::kill(pid, 0) } == 0 && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "cancelled SSH child is still alive");
@@ -5216,12 +5295,12 @@ mod tests {
         options.providers = providers;
         options.auth = ClientAuthMode::Carrier;
         options.reconnect.maximum_attempts = Some(1);
-        options.reconnect.attempt_timeout = Duration::from_millis(20);
+        options.reconnect.attempt_timeout = instrumented_test_timeout(Duration::from_millis(20));
         options.reconnect.full_jitter = false;
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let (connection, selected) = tokio::time::timeout(
-            Duration::from_millis(500),
+            instrumented_test_timeout(Duration::from_millis(500)),
             connect_first_available(&options, shutdown_rx),
         )
         .await
@@ -5262,12 +5341,12 @@ mod tests {
         options.providers = providers;
         options.auth = ClientAuthMode::Carrier;
         options.reconnect.maximum_attempts = Some(1);
-        options.reconnect.attempt_timeout = Duration::from_millis(20);
+        options.reconnect.attempt_timeout = instrumented_test_timeout(Duration::from_millis(20));
         options.reconnect.full_jitter = false;
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let (connection, selected) = tokio::time::timeout(
-            Duration::from_millis(500),
+            instrumented_test_timeout(Duration::from_millis(500)),
             connect_first_available(&options, shutdown_rx),
         )
         .await

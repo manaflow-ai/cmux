@@ -156,6 +156,7 @@ final class PushRegistrationURLScript: @unchecked Sendable {
     private var stubs: [PushRegistrationURLProtocol.Stub] = []
     private var capturedRequests: [URLRequest] = []
     private var capturedBodies: [Data?] = []
+    private var requestCountContinuations: [UUID: AsyncStream<Int>.Continuation] = [:]
 
     var requests: [URLRequest] {
         get async {
@@ -173,13 +174,22 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         _ expectedCount: Int,
         timeout: Duration = .seconds(1)
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while lock.withLock({ capturedRequests.count }) < expectedCount {
-            guard clock.now < deadline else { return false }
-            try? await clock.sleep(for: .milliseconds(1))
+        let counts = requestCounts()
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await count in counts {
+                    if count >= expectedCount { return true }
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
-        return true
     }
 
     func reset(
@@ -197,15 +207,43 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         body: Data?
     ) -> PushRegistrationURLProtocol.Stub {
         lock.lock()
-        defer { lock.unlock() }
         capturedRequests.append(request)
         capturedBodies.append(body)
-        guard !stubs.isEmpty else {
-            return .response(
+        let requestCount = capturedRequests.count
+        let continuations = Array(requestCountContinuations.values)
+        let stub: PushRegistrationURLProtocol.Stub
+        if stubs.isEmpty {
+            stub = .response(
                 500,
                 json: #"{"error":"unscripted_request"}"#
             )
+        } else {
+            stub = stubs.removeFirst()
         }
-        return stubs.removeFirst()
+        lock.unlock()
+        for continuation in continuations {
+            continuation.yield(requestCount)
+        }
+        return stub
+    }
+
+    private func requestCounts() -> AsyncStream<Int> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            continuation.onTermination = { [weak self] _ in
+                self?.removeRequestCountContinuation(id)
+            }
+            let count = lock.withLock {
+                requestCountContinuations[id] = continuation
+                return capturedRequests.count
+            }
+            continuation.yield(count)
+        }
+    }
+
+    private func removeRequestCountContinuation(_ id: UUID) {
+        lock.withLock {
+            requestCountContinuations.removeValue(forKey: id)
+        }
     }
 }

@@ -2371,21 +2371,23 @@ mod tests {
         assert!(tasks.active.is_empty());
     }
 
+    #[cfg(unix)]
     #[tokio::test]
-    async fn file_and_callback_sources_refresh_without_caching() {
-        #[cfg(unix)]
+    async fn file_source_refreshes_without_caching() {
         use std::os::unix::fs::PermissionsExt as _;
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("relay-ticket");
         tokio::fs::write(&path, "file-ticket-one\n").await.unwrap();
-        #[cfg(unix)]
         tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await.unwrap();
         let file = RelayCredentialSource::file(&path);
         assert_eq!(file.fetch().await.unwrap().expose(), "file-ticket-one");
         tokio::fs::write(&path, "file-ticket-two\n").await.unwrap();
         assert_eq!(file.fetch().await.unwrap().expose(), "file-ticket-two");
+    }
 
+    #[tokio::test]
+    async fn callback_source_refreshes_without_caching() {
         let calls = Arc::new(AtomicUsize::new(0));
         let callback = RelayCredentialSource::callback({
             let calls = calls.clone();

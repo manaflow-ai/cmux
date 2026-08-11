@@ -78,6 +78,15 @@ public struct AgentResumeArgv: Sendable, Equatable {
     public static let codexWrapperShellExecutableToken =
         "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
 
+    /// The shell token that resolves cmux's Hermes wrapper at restore time.
+    ///
+    /// Restored Hermes sessions must pass through the per-surface wrapper so its
+    /// native hooks are reinstalled for every later turn. The executable guard
+    /// preserves the same graceful fallback used by Claude and Codex when a
+    /// temporary shim has disappeared.
+    public static let hermesWrapperShellExecutableToken =
+        "\"$([ -x \"${CMUX_HERMES_AGENT_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_HERMES_AGENT_WRAPPER_SHIM\" || printf hermes)\""
+
     /// Per-invocation config override appended to every cmux-generated codex resume argv.
     ///
     /// codex's TUI shows a blocking "Update available!" picker at startup whenever no
@@ -193,6 +202,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// identically while `sh` still inherits `CMUX_CODEX_WRAPPER_SHIM` from the
     /// managed terminal environment (and falls back to bare `codex` when unset).
     public static func portableCodexResumeShellCommand(posixCommand: String) -> String {
+        "/bin/sh -c " + posixSingleQuoted(posixCommand)
+    }
+
+    /// Wraps a rendered Hermes restore command so it parses in any login shell.
+    public static func portableHermesResumeShellCommand(posixCommand: String) -> String {
         "/bin/sh -c " + posixSingleQuoted(posixCommand)
     }
 

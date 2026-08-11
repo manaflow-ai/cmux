@@ -1,7 +1,7 @@
 {
   "$schema": "./inventory.schema.json",
   "schema_version": 1,
-  "mux_protocol": 10,
+  "mux_protocol": 11,
   "resource_operations": [
     "agent.list",
     "agent.report",
@@ -61,6 +61,17 @@
     "session.creation.resolve",
     "session.events",
     "session.get",
+    "session.journal.append",
+    "session.journal.checkpoint.create",
+    "session.journal.checkpoint.list",
+    "session.journal.hook.list",
+    "session.journal.hook.put",
+    "session.journal.producer.list",
+    "session.journal.producer.put",
+    "session.journal.restore.preview",
+    "session.journal.segment.list",
+    "session.journal.segment.seal",
+    "session.journal.subscribe",
     "session.list",
     "session.open",
     "session.ping",
@@ -98,6 +109,7 @@
     "terminal.list",
     "terminal.move",
     "terminal.process.get",
+    "terminal.project",
     "terminal.renderer_grant.create",
     "terminal.screen.read",
     "terminal.state.read",
@@ -125,6 +137,7 @@
   "commands": {
     "control": [
       "identify",
+      "journal-frontend-event",
       "ping",
       "set-client-info",
       "list-clients",
@@ -146,6 +159,7 @@
       "read-scrollback",
       "wait-for",
       "run",
+      "create-surface-with-receipt",
       "send-key",
       "copy",
       "ids",
@@ -197,6 +211,7 @@
       "sidebar-plugin",
       "mint-terminal-renderer",
       "get-cell-pixels",
+      "mint-terminal-renderer-by-terminal",
       "set-cell-pixels",
       "browser-frame-presented",
       "browser-mouse",
@@ -212,9 +227,15 @@
       "browser-reload",
       "browser-activate",
       "subscribe",
-      "attach-surface"
+      "attach-surface",
+      "resize-attached-view",
+      "release-attached-view-size",
+      "detach-attached-view"
     ],
     "local-admin": [
+      "register-browser-provider",
+      "get-browser-provider",
+      "unregister-browser-provider",
       "shutdown-daemon",
       "pairing-response"
     ],
@@ -225,6 +246,7 @@
     ]
   },
   "events": [
+    {"name": "agent-changed", "streams": ["subscribe"]},
     {"name": "bell", "streams": ["subscribe"]},
     {"name": "browser-state", "streams": ["attach-browser"]},
     {"name": "client-attached", "streams": ["subscribe"]},
@@ -414,7 +436,7 @@
     {"id": "configuration", "wire_status": "partial", "programmability": "partial", "route": "local config and reload-config; proposed schema, get, validate, patch, and change event"},
     {"id": "plugins", "wire_status": "partial", "programmability": "partial", "route": "sidebar-plugin-v0; proposed manifest, permissions, contributions, and transactional management"},
     {"id": "file-sidebar", "wire_status": "presentation-only", "programmability": "partial", "route": "local host filesystem; proposed separately permissioned remote filesystem capability"},
-    {"id": "machines-scopes-lifecycle", "wire_status": "external-protocol", "programmability": "partial", "route": "machine-provider-v0-v1; generated SDK and full conformance remain incomplete"},
+    {"id": "machines-scopes-lifecycle", "wire_status": "external-protocol", "programmability": "partial", "route": "machine-provider-v0-v1 plus static Unix and native Windows OpenSSH connectors; generated SDK and full conformance remain incomplete"},
     {"id": "provider-authority-management", "wire_status": "external-protocol", "programmability": "partial", "route": "provider-management-v1; typed administration client remains incomplete"},
     {"id": "session-discovery-start-relay", "wire_status": "partial", "programmability": "partial", "route": "CLI and transport contract; proposed typed lifecycle helpers"},
     {"id": "frontend-presentation-actions", "wire_status": "presentation-only", "programmability": "partial", "route": "local frontend state; proposed frontend action adapter"},
@@ -450,6 +472,8 @@
         "CellPixelSizeAck": 18,
         "KittyGraphicsLimitsAck": 19,
         "LaunchFailed": 20,
+        "TerminateAck": 21,
+        "DetachAck": 22,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -459,7 +483,9 @@
         "SetDefaults": 106,
         "ClearHistory": 107,
         "SetCellPixelSize": 108,
-        "SetKittyGraphicsLimits": 109
+        "SetKittyGraphicsLimits": 109,
+        "Activate": 110,
+        "Detach": 111
       }
     },
     "machine_provider_v1": {

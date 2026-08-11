@@ -183,9 +183,7 @@ actor RetryDelayRecorder {
         suite: String = "push-scripted-\(UUID().uuidString)",
         accountID: String? = "push-user-1",
         seedDefaults: (UserDefaults) -> Void = { _ in },
-        retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
-            try await ContinuousClock().sleep(for: $0)
-        }
+        retrySleep: @escaping @Sendable (Duration) async throws -> Void = { _ in }
     ) -> (PushRegistrationService, UserDefaults) {
         let defaults = UserDefaults(suiteName: suite)!
         seedDefaults(defaults)
@@ -222,13 +220,22 @@ actor RetryDelayRecorder {
         from service: PushRegistrationService,
         timeout: Duration = .seconds(1)
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while await service.snapshot.backendState != state {
-            guard clock.now < deadline else { return false }
-            try? await clock.sleep(for: .milliseconds(1))
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                let snapshots = await service.snapshots()
+                for await snapshot in snapshots {
+                    if snapshot.backendState == state { return true }
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
-        return true
     }
 
     @Test func disabledByDefault() async {

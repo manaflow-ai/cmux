@@ -1,7 +1,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
@@ -19,6 +19,8 @@ const LEGACY_WINDOWS_REMOTE_STOP_UNSUPPORTED: &str =
 // Older helpers expose this Winsock result only through their bounded stderr.
 // The recovery predicate also requires the named local mux socket.
 const WINDOWS_STALE_MUX_SOCKET_OS_ERROR: &str = "(os error 10050)";
+const WINDOWS_SHELL_MARKER: &str = "CMUX_WINDOWS_CMD_V1";
+const WINDOWS_BINARY_MISSING_MARKER: &str = "CMUX_WINDOWS_BINARY_MISSING_V1";
 pub const WINDOWS_REMOTE_BINARY: &str = r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe";
 pub const WINDOWS_COMPANION_FILENAME: &str = "cmux-tui-x86_64-pc-windows-gnu.exe";
 
@@ -155,27 +157,30 @@ impl SshBootstrapper {
     pub async fn probe_target(
         &self,
     ) -> Result<(SshRemoteTarget, Option<RemoteProbe>), BootstrapError> {
+        if self.windows_command_shell().await? {
+            let windows_target = SshRemoteTarget {
+                binary: WINDOWS_REMOTE_BINARY.into(),
+                shell: SshRemoteShell::WindowsCmd,
+            };
+            let probe = self.probe_remote_target(&windows_target).await?;
+            return Ok((windows_target, probe));
+        }
         let posix_target = SshRemoteTarget {
             binary: self.config.remote_binary.clone(),
             shell: SshRemoteShell::Posix,
         };
-        match self.probe_remote_target(&posix_target).await {
-            Ok(probe) => Ok((posix_target, probe)),
-            Err(BootstrapError::WindowsShellDetected) => {
-                let windows_target = SshRemoteTarget {
-                    binary: WINDOWS_REMOTE_BINARY.into(),
-                    shell: SshRemoteShell::WindowsCmd,
-                };
-                let probe = self.probe_remote_target(&windows_target).await?;
-                Ok((windows_target, probe))
-            }
-            Err(error) => Err(error),
-        }
+        self.probe_remote_target(&posix_target).await.map(|probe| (posix_target, probe))
     }
 
     /// Resolve the host shell for an explicit replacement without requiring
     /// the installed binary to understand the current probe protocol.
     async fn explicit_install_target(&self) -> Result<SshRemoteTarget, BootstrapError> {
+        if self.windows_command_shell().await? {
+            return Ok(SshRemoteTarget {
+                binary: WINDOWS_REMOTE_BINARY.into(),
+                shell: SshRemoteShell::WindowsCmd,
+            });
+        }
         let posix_target = SshRemoteTarget {
             binary: self.config.remote_binary.clone(),
             shell: SshRemoteShell::Posix,
@@ -185,12 +190,23 @@ impl SshBootstrapper {
             Ok(_) | Err(BootstrapError::ProbeJson(_)) | Err(BootstrapError::Remote { .. }) => {
                 Ok(posix_target)
             }
-            Err(BootstrapError::WindowsShellDetected) => Ok(SshRemoteTarget {
-                binary: WINDOWS_REMOTE_BINARY.into(),
-                shell: SshRemoteShell::WindowsCmd,
-            }),
             Err(error) => Err(error),
         }
+    }
+
+    async fn windows_command_shell(&self) -> Result<bool, BootstrapError> {
+        let command = format!("cmd.exe /D /S /C \"echo {WINDOWS_SHELL_MARKER}\"");
+        let output = self.run_remote([command.as_str()]).await?;
+        if output.status == 255 {
+            return Err(BootstrapError::Remote {
+                status: output.status,
+                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
+            });
+        }
+        Ok(output.status == 0
+            && String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| line.trim() == WINDOWS_SHELL_MARKER))
     }
 
     async fn probe_remote_target(
@@ -202,24 +218,25 @@ impl SshBootstrapper {
                 self.run_remote([target.binary.as_str(), "remote-probe", "--json"]).await?
             }
             SshRemoteShell::WindowsCmd => {
-                let command = format!("\"{}\" remote-probe --json", target.binary);
+                let command = format!(
+                    "cmd.exe /D /S /C \"if exist \\\"{}\\\" (\\\"{}\\\" remote-probe --json) else (echo {WINDOWS_BINARY_MISSING_MARKER})\"",
+                    target.binary, target.binary
+                );
                 self.run_remote([command.as_str()]).await?
             }
         };
+        if matches!(target.shell, SshRemoteShell::WindowsCmd)
+            && String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| line.trim() == WINDOWS_BINARY_MISSING_MARKER)
+        {
+            return Ok(None);
+        }
         if output.status == 127 || output.status == 126 {
             return Ok(None);
         }
         if output.status != 0 {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            if matches!(target.shell, SshRemoteShell::Posix) && windows_command_shell_error(&stderr)
-            {
-                return Err(BootstrapError::WindowsShellDetected);
-            }
-            if matches!(target.shell, SshRemoteShell::WindowsCmd)
-                && windows_missing_binary_error(&stderr)
-            {
-                return Ok(None);
-            }
             if stderr.contains("not found") || stderr.contains("No such file") {
                 return Ok(None);
             }
@@ -231,6 +248,14 @@ impl SshBootstrapper {
         let probe = serde_json::from_slice::<RemoteProbe>(&output.stdout)
             .map_err(BootstrapError::ProbeJson)?;
         Ok(Some(probe))
+    }
+
+    async fn probe_binary(&self, binary: &str) -> Result<Option<RemoteProbe>, BootstrapError> {
+        self.probe_remote_target(&SshRemoteTarget {
+            binary: binary.to_owned(),
+            shell: SshRemoteShell::Posix,
+        })
+        .await
     }
 
     pub async fn ensure_installed(&self) -> Result<BootstrapOutcome, BootstrapError> {
@@ -324,17 +349,24 @@ impl SshBootstrapper {
         })?;
         let expected_size = std::fs::metadata(source).map_err(BootstrapError::Io)?.len();
         let upload_name = format!(".cmux-upload-{}.exe", uuid::Uuid::new_v4().simple());
-        let upload = self.run_scp(source, &upload_name).await?;
+        let upload = match self.run_scp(source, &upload_name).await {
+            Ok(upload) => upload,
+            Err(error) => {
+                self.cleanup_windows_upload(&upload_name).await;
+                return Err(error);
+            }
+        };
         if upload.status != 0 {
+            self.cleanup_windows_upload(&upload_name).await;
             return Err(BootstrapError::Install {
                 status: upload.status,
                 stderr: sanitize(&String::from_utf8_lossy(&upload.stderr)),
             });
         }
         let destination = powershell_single_quoted(&target.binary);
-        let upload_name = powershell_single_quoted(&upload_name);
+        let upload_name_quoted = powershell_single_quoted(&upload_name);
         let script = format!(
-            "$source=[IO.Path]::Combine($HOME,'{upload_name}');\
+            "$source=[IO.Path]::Combine($HOME,'{upload_name_quoted}');\
              $destination=[Environment]::ExpandEnvironmentVariables('{destination}');\
              $parent=[IO.Path]::GetDirectoryName($destination);\
              [IO.Directory]::CreateDirectory($parent)|Out-Null;\
@@ -348,8 +380,15 @@ impl SshBootstrapper {
         let encoded = powershell_encoded_command(&script);
         let command =
             format!("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}");
-        let output = self.run_remote([command.as_str()]).await?;
+        let output = match self.run_remote([command.as_str()]).await {
+            Ok(output) => output,
+            Err(error) => {
+                self.cleanup_windows_upload(&upload_name).await;
+                return Err(error);
+            }
+        };
         if output.status != 0 {
+            self.cleanup_windows_upload(&upload_name).await;
             return Err(BootstrapError::Install {
                 status: output.status,
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
@@ -368,6 +407,18 @@ impl SshBootstrapper {
         Ok(ResolvedBootstrap { outcome: BootstrapOutcome::Installed, target })
     }
 
+    async fn cleanup_windows_upload(&self, upload_name: &str) {
+        let upload_name = powershell_single_quoted(upload_name);
+        let script = format!(
+            "$path=[IO.Path]::Combine($HOME,'{upload_name}');\
+             if(Test-Path -LiteralPath $path){{Remove-Item -LiteralPath $path -Force}}"
+        );
+        let encoded = powershell_encoded_command(&script);
+        let command =
+            format!("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}");
+        let _ = self.run_remote([command.as_str()]).await;
+    }
+
     async fn run_scp(
         &self,
         source: &Path,
@@ -378,7 +429,7 @@ impl SshBootstrapper {
         if let Some(port) = self.config.port {
             command.arg("-P").arg(port.to_string());
         }
-        let remote = format!("{}:{remote_filename}", self.config.destination);
+        let remote = scp_remote_path(&self.config.destination, remote_filename);
         command
             .args(&self.config.extra_args)
             .arg(source)
@@ -427,18 +478,61 @@ impl SshBootstrapper {
                 remote: remote.display(),
             });
         }
+        let temporary = self.temporary_upload_path();
         let parent = self
             .config
             .remote_binary
             .rsplit_once('/')
             .map_or(".", |(parent, _)| if parent.is_empty() { "/" } else { parent });
-        let temporary = format!("{}.cmux-upload-$$", self.config.remote_binary);
-        let command = format!(
-            "umask 077; mkdir -p {parent} && trap 'rm -f {temporary}' EXIT HUP INT TERM && cat > {temporary} && chmod 755 {temporary} && mv -f {temporary} {} && trap - EXIT",
-            self.config.remote_binary
-        );
-        let output = self.run_remote_with_input(&command, source).await?;
+        let command =
+            format!("umask 077; mkdir -p {parent} && cat > {temporary} && chmod 755 {temporary}");
+        let output = match self.run_remote_with_input(&command, source).await {
+            Ok(output) => output,
+            Err(error) => {
+                self.cleanup_remote_file(&temporary).await;
+                return Err(error);
+            }
+        };
         if output.status != 0 {
+            self.cleanup_remote_file(&temporary).await;
+            return Err(BootstrapError::Install {
+                status: output.status,
+                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
+            });
+        }
+        let probe = match self.probe_binary(&temporary).await {
+            Ok(Some(probe)) => probe,
+            Ok(None) => {
+                self.cleanup_remote_file(&temporary).await;
+                return Err(BootstrapError::Install {
+                    status: 126,
+                    stderr: "uploaded binary could not run remote-probe".into(),
+                });
+            }
+            Err(error) => {
+                self.cleanup_remote_file(&temporary).await;
+                return Err(error);
+            }
+        };
+        if !self.compatible(&probe) {
+            self.cleanup_remote_file(&temporary).await;
+            return Err(BootstrapError::Incompatible {
+                version: probe.version,
+                protocol: probe.remote_protocol,
+            });
+        }
+        let output = match self
+            .run_remote(["mv", "-f", temporary.as_str(), self.config.remote_binary.as_str()])
+            .await
+        {
+            Ok(output) => output,
+            Err(error) => {
+                self.cleanup_remote_file(&temporary).await;
+                return Err(error);
+            }
+        };
+        if output.status != 0 {
+            self.cleanup_remote_file(&temporary).await;
             return Err(BootstrapError::Install {
                 status: output.status,
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
@@ -457,16 +551,22 @@ impl SshBootstrapper {
         Ok(BootstrapOutcome::Installed)
     }
 
+    fn temporary_upload_path(&self) -> String {
+        let now =
+            SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |duration| duration.as_nanos());
+        format!("{}.cmux-upload-{}-{now}", self.config.remote_binary, std::process::id())
+    }
+
+    async fn cleanup_remote_file(&self, path: &str) {
+        let _ = self.run_remote(["rm", "-f", path]).await;
+    }
+
     async fn remote_platform(&self) -> Result<Platform, BootstrapError> {
         let output = self.run_remote(["uname", "-s", "-m"]).await?;
         if output.status != 0 {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if windows_command_shell_error(&stderr) {
-                return Err(BootstrapError::WindowsRequiresWsl);
-            }
             return Err(BootstrapError::Remote {
                 status: output.status,
-                stderr: sanitize(&stderr),
+                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
             });
         }
         Platform::from_uname(&String::from_utf8_lossy(&output.stdout))
@@ -738,17 +838,6 @@ fn normalize_arch(value: &str) -> String {
     }
 }
 
-fn windows_command_shell_error(stderr: &str) -> bool {
-    stderr.to_ascii_lowercase().contains("is not recognized as an internal or external command")
-}
-
-fn windows_missing_binary_error(stderr: &str) -> bool {
-    let stderr = stderr.to_ascii_lowercase();
-    windows_command_shell_error(&stderr)
-        || stderr.contains("the system cannot find the path specified")
-        || stderr.contains("the system cannot find the file specified")
-}
-
 fn powershell_single_quoted(value: &str) -> String {
     value.replace('\'', "''")
 }
@@ -768,6 +857,18 @@ fn scp_binary_for(ssh_binary: &str) -> PathBuf {
         Some("ssh.exe") => ssh.with_file_name("scp.exe"),
         _ => PathBuf::from("scp"),
     }
+}
+
+fn scp_remote_path(destination: &str, remote_filename: &str) -> String {
+    let (prefix, host) =
+        destination.rsplit_once('@').map_or(("", destination), |(user, host)| (user, host));
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    let destination = if prefix.is_empty() { host } else { format!("{prefix}@{host}") };
+    format!("{destination}:{remote_filename}")
 }
 
 async fn read_bounded(
@@ -799,7 +900,7 @@ struct RemoteOutput {
     stderr: Vec<u8>,
 }
 
-fn sanitize(value: &str) -> String {
+pub(crate) fn sanitize(value: &str) -> String {
     let value = value.trim().replace(['\r', '\0'], "");
     if value.len() <= 4_096 {
         return value;
@@ -818,33 +919,15 @@ pub enum BootstrapError {
     Io(std::io::Error),
     ProbeJson(serde_json::Error),
     Timeout,
-    OutputLimit {
-        stream: &'static str,
-        limit: usize,
-    },
+    OutputLimit { stream: &'static str, limit: usize },
     Missing,
-    Remote {
-        status: i32,
-        stderr: String,
-    },
-    Install {
-        status: i32,
-        stderr: String,
-    },
+    Remote { status: i32, stderr: String },
+    Install { status: i32, stderr: String },
     PackageUnavailable(String),
     PlatformProbe(String),
-    LocalBinaryIncompatible {
-        local: String,
-        remote: String,
-    },
+    LocalBinaryIncompatible { local: String, remote: String },
     WindowsBinaryUnavailable(String),
-    #[doc(hidden)]
-    WindowsShellDetected,
-    WindowsRequiresWsl,
-    Incompatible {
-        version: String,
-        protocol: u8,
-    },
+    Incompatible { version: String, protocol: u8 },
 }
 
 impl fmt::Display for BootstrapError {
@@ -868,7 +951,9 @@ impl fmt::Display for BootstrapError {
                 formatter,
                 "this cmux-tui build is not backed by a published npm package ({version}); preinstall the matching remote binary or use an npm release build"
             ),
-            Self::PlatformProbe(message) => write!(formatter, "remote platform probe failed: {message}"),
+            Self::PlatformProbe(message) => {
+                write!(formatter, "remote platform probe failed: {message}")
+            }
             Self::LocalBinaryIncompatible { local, remote } => write!(
                 formatter,
                 "this unpublished cmux-tui build cannot be uploaded from {local} to {remote}; use a published build or preinstall a matching remote binary"
@@ -876,12 +961,6 @@ impl fmt::Display for BootstrapError {
             Self::WindowsBinaryUnavailable(version) => write!(
                 formatter,
                 "this cmux-tui build does not include a native Windows companion ({version}); set CMUX_TUI_WINDOWS_REMOTE_BINARY to the matching cmux-tui.exe"
-            ),
-            Self::WindowsShellDetected => {
-                formatter.write_str("the SSH host uses the native Windows command shell")
-            }
-            Self::WindowsRequiresWsl => formatter.write_str(
-                "native Windows cannot host the cmux-tui remote daemon yet; install a WSL 2 Linux distro with `wsl --install -d Ubuntu`, then connect through that Linux environment"
             ),
             Self::Incompatible { version, protocol } => write!(
                 formatter,
@@ -913,9 +992,7 @@ impl BootstrapError {
             ),
             Self::PlatformProbe(_)
             | Self::LocalBinaryIncompatible { .. }
-            | Self::WindowsBinaryUnavailable(_)
-            | Self::WindowsShellDetected
-            | Self::WindowsRequiresWsl => false,
+            | Self::WindowsBinaryUnavailable(_) => false,
             _ => false,
         }
     }
@@ -966,15 +1043,6 @@ mod tests {
     }
 
     #[test]
-    fn native_windows_shell_failure_is_detectable_without_requiring_wsl() {
-        assert!(windows_command_shell_error(
-            "'~' is not recognized as an internal or external command, operable program or batch file."
-        ));
-        assert!(windows_missing_binary_error("The system cannot find the path specified."));
-        assert!(!BootstrapError::WindowsShellDetected.is_retryable_carrier_failure());
-    }
-
-    #[test]
     fn packaged_binary_discovers_its_windows_companion() {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("cmux-tui");
@@ -994,6 +1062,18 @@ mod tests {
         assert_eq!(scp_binary_for("ssh-wrapper"), PathBuf::from("scp"));
     }
 
+    #[test]
+    fn scp_remote_path_brackets_ipv6_hosts() {
+        assert_eq!(
+            scp_remote_path("alice@2001:db8::1", "cmux-tui.exe"),
+            "alice@[2001:db8::1]:cmux-tui.exe"
+        );
+        assert_eq!(
+            scp_remote_path("alice@[2001:db8::1]", "cmux-tui.exe"),
+            "alice@[2001:db8::1]:cmux-tui.exe"
+        );
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn probe_resolves_native_windows_binary_after_cmd_shell_detection() {
@@ -1006,7 +1086,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"%LOCALAPPDATA%\\\\cmux\\\\bin\\\\cmux-tui.exe\"*) printf '%s' '{{\"app\":\"cmux-tui\",\"version\":\"{DISTRIBUTION_VERSION}\",\"distribution_version\":\"{DISTRIBUTION_VERSION}\",\"build_identity\":\"{BUILD_IDENTITY}\",\"remote_protocol\":{remote_protocol_version},\"os\":\"windows\",\"arch\":\"x86_64\"}}' ;;\n  *) printf \"'~' is not recognized as an internal or external command\" >&2; exit 1 ;;\nesac\n"
+                "#!/bin/sh\ncase \"$*\" in\n  *\"cmd.exe /D /S /C\"*\"{WINDOWS_SHELL_MARKER}\"*) printf '%s\\n' '{WINDOWS_SHELL_MARKER}' ;;\n  *\"%LOCALAPPDATA%\\\\cmux\\\\bin\\\\cmux-tui.exe\"*\"remote-probe --json\"*) printf '%s' '{{\"app\":\"cmux-tui\",\"version\":\"{DISTRIBUTION_VERSION}\",\"distribution_version\":\"{DISTRIBUTION_VERSION}\",\"build_identity\":\"{BUILD_IDENTITY}\",\"remote_protocol\":{remote_protocol_version},\"os\":\"windows\",\"arch\":\"x86_64\"}}' ;;\n  *) printf '%s' 'La commande est introuvable.' >&2; exit 1 ;;\nesac\n"
             ),
         )
         .unwrap();
@@ -1021,6 +1101,28 @@ mod tests {
         assert_eq!(resolved.outcome, BootstrapOutcome::AlreadyInstalled);
         assert_eq!(resolved.target.shell, SshRemoteShell::WindowsCmd);
         assert_eq!(resolved.target.binary, WINDOWS_REMOTE_BINARY);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn missing_windows_binary_uses_a_stable_marker_with_non_english_stderr() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"echo {WINDOWS_SHELL_MARKER}\"*) printf '%s\\n' '{WINDOWS_SHELL_MARKER}' ;;\n  *\"remote-probe --json\"*) printf '%s\\n' '{WINDOWS_BINARY_MISSING_MARKER}'; printf '%s' 'Die Datei wurde nicht gefunden.' >&2 ;;\nesac\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("windows-host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+
+        assert!(SshBootstrapper::new(config).unwrap().probe().await.unwrap().is_none());
     }
 
     #[cfg(unix)]
@@ -1150,7 +1252,9 @@ mod tests {
         let script = directory.path().join("ssh");
         fs::write(
             &script,
-            "#!/bin/sh\ncase \"$*\" in\n  *\"~/.local/bin/cmux-tui remote-probe --json\"*) printf \"'~' is not recognized as an internal or external command\" >&2; exit 1 ;;\n  *\"remote-probe --json\"*) printf '%s' 'legacy Windows probe' >&2; exit 2 ;;\n  *\"remote-stop --session main\"*) printf '%s' 'cmux-tui: remote-stop is not implemented on Windows yet' >&2; exit 1 ;;\nesac\nexit 2\n",
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"cmd.exe /D /S /C\"*\"{WINDOWS_SHELL_MARKER}\"*) printf '%s\\n' '{WINDOWS_SHELL_MARKER}'; exit 0 ;;\n  *\"remote-probe --json\"*) printf '%s' 'Sonde Windows héritée' >&2; exit 2 ;;\n  *\"remote-stop --session main\"*) printf '%s' 'cmux-tui: remote-stop is not implemented on Windows yet' >&2; exit 1 ;;\nesac\nexit 2\n"
+            ),
         )
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
@@ -1251,6 +1355,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let script = directory.path().join("ssh");
         let installed = directory.path().join("installed");
+        let staged = directory.path().join("staged");
         let source = directory.path().join("cmux-tui");
         fs::write(&source, b"exact unpublished build").unwrap();
         let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
@@ -1268,8 +1373,9 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"cmux-upload\"*) cat >'{installed}' ;;\n  *) exit 2 ;;\nesac\n",
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
                 installed = installed.display(),
+                staged = staged.display(),
             ),
         )
         .unwrap();
@@ -1286,6 +1392,147 @@ mod tests {
             BootstrapOutcome::Installed
         );
         assert_eq!(fs::read(installed).unwrap(), b"exact unpublished build");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_build_keeps_existing_remote_binary_when_staged_probe_is_incompatible() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let installed = directory.path().join("installed");
+        let staged = directory.path().join("staged");
+        let moved = directory.path().join("moved");
+        let source = directory.path().join("cmux-tui");
+        fs::write(&installed, b"existing remote binary").unwrap();
+        fs::write(&source, b"incompatible unpublished build").unwrap();
+        let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
+        let uname_arch =
+            if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
+        let installed_probe = serde_json::json!({
+            "app": "cmux-tui",
+            "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION,
+            "build_identity": "older-build",
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        });
+        let staged_probe = serde_json::json!({
+            "app": "cmux-tui",
+            "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION,
+            "build_identity": "wrong-upload",
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        });
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{staged_probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{installed_probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) touch '{moved}'; mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                installed = installed.display(),
+                staged = staged.display(),
+                moved = moved.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(source);
+        config.remote_binary = "~/.local/bin/cmux-upload".into();
+
+        let error = SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap_err();
+        assert!(matches!(error, BootstrapError::Incompatible { .. }));
+        assert_eq!(fs::read(installed).unwrap(), b"existing remote binary");
+        assert!(!staged.exists());
+        assert!(!moved.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_build_removes_staged_upload_after_upload_stream_failure() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let staged = directory.path().join("staged");
+        let source = directory.path().join("cmux-tui");
+        fs::write(&source, b"exact unpublished build").unwrap();
+        let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
+        let uname_arch =
+            if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}'; head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                staged = staged.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(source);
+        config.remote_binary = "~/.local/bin/cmux-upload".into();
+
+        let error = SshBootstrapper::new(config).unwrap().install_verified().await.unwrap_err();
+
+        assert!(matches!(error, BootstrapError::OutputLimit { stream: "stdout", .. }));
+        assert!(!staged.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_build_removes_staged_upload_after_move_transport_failure() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let staged = directory.path().join("staged");
+        let source = directory.path().join("cmux-tui");
+        fs::write(&source, b"exact unpublished build").unwrap();
+        let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
+        let uname_arch =
+            if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
+        let probe = serde_json::json!({
+            "app": "cmux-tui",
+            "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION,
+            "build_identity": BUILD_IDENTITY,
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        });
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*) printf '%s' '{probe}' ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                staged = staged.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(source);
+        config.remote_binary = "~/.local/bin/cmux-upload".into();
+
+        let error = SshBootstrapper::new(config).unwrap().install_verified().await.unwrap_err();
+
+        assert!(matches!(error, BootstrapError::OutputLimit { stream: "stdout", .. }));
+        assert!(!staged.exists());
     }
 
     #[cfg(unix)]

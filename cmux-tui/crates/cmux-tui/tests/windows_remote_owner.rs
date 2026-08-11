@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -21,24 +21,25 @@ use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde_json::Value;
 use wait_timeout::ChildExt as _;
 
-fn wait_for_external_state(timeout: Duration, mut predicate: impl FnMut() -> bool) -> bool {
+fn wait_for_exit(child: &mut Child, timeout: Duration) -> bool {
+    child.wait_timeout(timeout).is_ok_and(|status| status.is_some())
+}
+
+fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
     let deadline = Instant::now() + timeout;
-    let mut probe_delay = Duration::from_millis(1);
+    let wait = Condvar::new();
+    let state = Mutex::new(());
+    let mut guard = state.lock().unwrap();
     loop {
-        if predicate() {
+        if condition() {
             return true;
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return predicate();
+            return condition();
         }
-        std::thread::sleep(probe_delay.min(remaining));
-        probe_delay = (probe_delay * 2).min(Duration::from_millis(20));
+        (guard, _) = wait.wait_timeout(guard, remaining.min(Duration::from_millis(20))).unwrap();
     }
-}
-
-fn wait_for_exit(child: &mut Child, timeout: Duration) -> bool {
-    child.wait_timeout(timeout).is_ok_and(|status| status.is_some())
 }
 
 fn socket_accepts(path: &Path) -> bool {
@@ -46,23 +47,30 @@ fn socket_accepts(path: &Path) -> bool {
 }
 
 fn wait_for_mux_owner(owner: &mut Child, socket: &Path) {
-    let ready = wait_for_external_state(Duration::from_secs(15), || {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
         if socket_accepts(socket) {
-            return true;
+            return;
         }
         if let Some(status) = owner.try_wait().unwrap() {
             let mut stderr = String::new();
             owner.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
             panic!("remote owner exited before publishing its mux socket ({status}): {stderr}");
         }
-        false
-    });
-    if !ready {
-        let _ = owner.kill();
-        let _ = owner.wait();
-        let mut stderr = String::new();
-        owner.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
-        panic!("remote owner did not publish its mux socket within 15s: {stderr}");
+        if Instant::now() >= deadline {
+            let _ = owner.kill();
+            let _ = owner.wait();
+            let mut stderr = String::new();
+            owner.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+            panic!("remote owner did not publish its mux socket within 15s: {stderr}");
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if let Some(status) = owner.wait_timeout(remaining.min(Duration::from_millis(20))).unwrap()
+        {
+            let mut stderr = String::new();
+            owner.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+            panic!("remote owner exited before publishing its mux socket ({status}): {stderr}");
+        }
     }
 }
 
@@ -251,8 +259,7 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
     let mut stderr = String::new();
     carrier.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
 
-    let owner_survived =
-        wait_for_external_state(Duration::from_secs(2), || socket_accepts(&mux_socket));
+    let owner_survived = wait_until(Duration::from_secs(2), || socket_accepts(&mux_socket));
     if !owner_survived {
         panic!("mux owner died with the SSH carrier: {stderr}");
     }
@@ -286,7 +293,7 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
         .unwrap();
     assert!(stop.status.success(), "remote-stop failed: {}", String::from_utf8_lossy(&stop.stderr));
     assert!(
-        wait_for_external_state(Duration::from_secs(5), || !socket_accepts(&mux_socket)),
+        wait_until(Duration::from_secs(5), || !socket_accepts(&mux_socket)),
         "remote-stop left the resident mux owner running"
     );
     assert!(wait_for_exit(&mut owner, Duration::from_secs(5)), "remote owner did not exit");
@@ -333,7 +340,7 @@ async fn windows_remote_stdio_completes_authenticated_handshake() {
     let mut owner = spawn_owner(executable.to_str().unwrap(), &session, state_root.path());
     wait_for_mux_owner(&mut owner, &mux_socket);
     assert!(
-        wait_for_external_state(Duration::from_secs(5), || link_socket.exists()),
+        wait_until(Duration::from_secs(5), || link_socket.exists()),
         "remote owner did not publish its carrier socket"
     );
 

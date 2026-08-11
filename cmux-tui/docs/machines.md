@@ -24,11 +24,13 @@ Unix targets connect directly to another local cmux control socket. Use an absol
 
 SSH targets use the same managed lifecycle as `cmux-tui ssh`. The client resolves the destination through OpenSSH, probes the configured remote binary, and then opens the remote link. The link starts the named remote session runtime when it does not exist, so the session does not need a separately installed supervisor just to connect.
 
+On a native Windows client, `cmux-tui ssh` and the machine rail use the installed `ssh.exe` client and publish a private local AF_UNIX bridge. Each local mux connection gets one noninteractive OpenSSH process. A Windows target starts or reuses its detached session owner through the private `remote-relay` command. A cmux-tui client running on Windows requires an exact, already installed remote binary; it does not perform the Unix bootstrap or package installation path. Closing the machine hub cancels the bridge and terminates all active SSH processes.
+
 ```text
 ssh -T [-p PORT] -o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes [-i IDENTITY_FILE] [USER@]HOST BINARY remote-probe --json
 ```
 
-On macOS and Linux, the remote `binary` defaults to `~/.local/bin/cmux-tui` and must be a shell-safe path. Packaged releases can install their pinned npm build there when the probe reports a missing or recognized incompatible binary. Native x86_64 Windows OpenSSH hosts are detected from their `cmd.exe` shell and use `%LOCALAPPDATA%\cmux\bin\cmux-tui.exe`; packaged releases upload their matching Windows companion automatically. For an unpublished build, set `CMUX_TUI_WINDOWS_REMOTE_BINARY` to the exact matching Windows executable. A legacy Unix binary that cannot answer `remote-probe` requires an explicit `cmux-tui ssh HOST --upgrade`.
+On macOS and Linux, the remote `binary` defaults to `~/.local/bin/cmux-tui` and must be a shell-safe path. Packaged releases can install their pinned npm build there when the probe reports a missing or recognized incompatible binary. Native x86_64 Windows OpenSSH hosts are detected from their `cmd.exe` shell and use `%LOCALAPPDATA%\cmux\bin\cmux-tui.exe`; packaged releases upload their matching companion to a Windows SSH target automatically. For an unpublished build, set `CMUX_TUI_WINDOWS_REMOTE_BINARY` to the exact matching Windows executable. A legacy Unix binary that cannot answer `remote-probe` requires an explicit `cmux-tui ssh HOST --upgrade`.
 
 The client never prompts for a password or new host key inside the TUI. The target must already be trusted in local `known_hosts`, and a key or SSH agent must authenticate it. Agent forwarding, X11 forwarding, and all port forwarding are disabled. The connection hub warms configured machines with a bounded worker pool, gives each attempt a 95-second UI deadline, and retains each successful lease until that machine is removed or cmux-tui exits. Switching focus therefore reuses the live session. Native Windows runs a detached, owner-only session process, so SSH carrier replacement preserves its ConPTY terminals. A session-owner crash or Windows reboot closes those unrecoverable terminal tabs during recovery instead of showing frozen panes. `cmux-tui relay` remains a low-level direct protocol diagnostic and is not the rail connection path.
 
@@ -75,7 +77,7 @@ Put the absolute path printed by `command -v cmux` in the target's `binary` fiel
 npx cmux
 ```
 
-The local `npx cmux` process renders both rails and opens SSH only when that machine is selected. It verifies that the remote package and protocol match, then starts or reuses the remote session. Run `npx cmux ssh dev@buildbox --session agents --upgrade` once when a legacy remote executable is too old to answer the compatibility probe.
+The local `npx cmux` process renders both rails and opens `ssh -T` only when that machine is selected. It verifies that the remote package and protocol match, then starts or reuses the remote protocol-v11 session. Run `npx cmux ssh dev@buildbox --session agents --upgrade` once when a legacy remote executable is too old to answer the compatibility probe.
 
 For a direct transport check, the equivalent relay is:
 
@@ -112,6 +114,6 @@ The agent fails closed without a controlling terminal, including on reconnects w
 
 The agent runs the exact remote command `cmux machine register`. The first successful registration prints a short one-time pairing code. In the TUI reached by `ssh cmux.cloud`, choose `+ Connect machine` and enter that code.
 
-The connection is outbound only. The agent opens no listener and changes no shell or SSH files. It multiplexes Cloud streams onto the selected local protocol-v10 session, reconnects with bounded backoff, and preserves active streams during a server-requested software generation migration.
+The connection is outbound only. The agent opens no listener and changes no shell or SSH files. It multiplexes Cloud streams onto the selected local protocol-v11 session, reconnects with bounded backoff, and preserves active streams during a server-requested software generation migration.
 
 The stable random machine id and secret live in a private mode-0600 identity file under the cmux config directory. The containing directory is mode 0700. Pairing codes are never persisted. Use `--state`, `--cloud-host`, `--cloud-user`, `--cloud-port`, or `--cloud-identity` when the defaults do not match the local setup. See [Machine Agent Contract](../spec/machine-agent.md) for bounds and migration rules.

@@ -1581,9 +1581,42 @@ pub async fn serve_unix_with_shutdown(
 pub struct WindowsLocalServer {
     path: PathBuf,
     shutdown: Arc<AtomicBool>,
-    finished: std::sync::mpsc::Receiver<Result<(), String>>,
+    finished: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
     completion: watch::Receiver<Option<Result<(), String>>>,
     thread: Option<thread::JoinHandle<()>>,
+}
+
+#[cfg(windows)]
+struct WindowsAcceptBackoff {
+    next_delay: Duration,
+}
+
+#[cfg(windows)]
+impl WindowsAcceptBackoff {
+    fn new() -> Self {
+        Self { next_delay: Duration::from_millis(10) }
+    }
+
+    fn retry_delay(&mut self, error: &io::Error) -> Option<Duration> {
+        if !matches!(
+            error.kind(),
+            io::ErrorKind::Interrupted
+                | io::ErrorKind::WouldBlock
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::TimedOut
+        ) && !matches!(error.raw_os_error(), Some(8 | 10024 | 10055))
+        {
+            return None;
+        }
+        let delay = self.next_delay;
+        self.next_delay = self.next_delay.saturating_mul(2).min(Duration::from_millis(250));
+        Some(delay)
+    }
+
+    fn reset(&mut self) {
+        self.next_delay = Duration::from_millis(10);
+    }
 }
 
 #[cfg(windows)]
@@ -1598,24 +1631,42 @@ impl WindowsLocalServer {
         self.completion.clone()
     }
 
-    pub fn shutdown(mut self) -> Result<(), DaemonError> {
-        self.request_shutdown();
-        let result = self
-            .finished
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|error| {
-                DaemonError::Protocol(format!("Windows local listener did not stop: {error}"))
-            })?
-            .map_err(DaemonError::Protocol);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-        result
+    pub async fn shutdown(mut self) -> Result<(), DaemonError> {
+        self.shutdown.store(true, Ordering::Release);
+        let path = self.path.clone();
+        let finished = self.finished.take().ok_or_else(|| {
+            DaemonError::Protocol("Windows local listener is already stopped".into())
+        })?;
+        let thread = self.thread.take();
+        tokio::task::spawn_blocking(move || {
+            let _ = uds_windows::UnixStream::connect(path);
+            let result = finished
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(|error| {
+                    DaemonError::Protocol(format!("Windows local listener did not stop: {error}"))
+                })?
+                .map_err(DaemonError::Protocol);
+            if let Some(thread) = thread {
+                let _ = thread.join();
+            }
+            result
+        })
+        .await
+        .map_err(|error| {
+            DaemonError::Protocol(format!("Windows local listener shutdown task failed: {error}"))
+        })?
     }
 
     fn request_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
-        let _ = uds_windows::UnixStream::connect(&self.path);
+        if self.thread.is_some() {
+            let path = self.path.clone();
+            let _ = thread::Builder::new().name("windows-daemon-listener-wake".into()).spawn(
+                move || {
+                    let _ = uds_windows::UnixStream::connect(path);
+                },
+            );
+        }
     }
 }
 
@@ -1679,6 +1730,7 @@ pub async fn serve_windows_local(
         .name("windows-daemon-listener".into())
         .spawn(move || {
             let _path_lock = path_lock;
+            let mut accept_backoff = WindowsAcceptBackoff::new();
             let result = loop {
                 match listener.accept() {
                     Ok((stream, _)) if thread_shutdown.load(Ordering::Acquire) => {
@@ -1686,6 +1738,7 @@ pub async fn serve_windows_local(
                         break Ok(());
                     }
                     Ok((stream, _)) => {
+                        accept_backoff.reset();
                         let daemon = daemon.clone();
                         runtime.spawn(async move {
                             let inbound = match windows_local_inbound(stream, maximum_frame_bytes) {
@@ -1704,7 +1757,10 @@ pub async fn serve_windows_local(
                     }
                     Err(_) if thread_shutdown.load(Ordering::Acquire) => break Ok(()),
                     Err(error) => {
-                        break Err(format!("Windows local listener accept failed: {error}"));
+                        let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            break Err(format!("Windows local listener accept failed: {error}"));
+                        };
+                        thread::sleep(delay);
                     }
                 }
             };
@@ -1715,7 +1771,13 @@ pub async fn serve_windows_local(
         .map_err(|error| {
             DaemonError::Protocol(format!("could not start Windows listener thread: {error}"))
         })?;
-    Ok(WindowsLocalServer { path, shutdown, finished, completion, thread: Some(thread) })
+    Ok(WindowsLocalServer {
+        path,
+        shutdown,
+        finished: Some(finished),
+        completion,
+        thread: Some(thread),
+    })
 }
 
 #[cfg(windows)]
@@ -1822,6 +1884,26 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use crate::unix_socket::TestFileDescriptorExhaustion;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_accept_backoff_retries_transient_errors_and_resets() {
+        let mut backoff = WindowsAcceptBackoff::new();
+        assert_eq!(
+            backoff.retry_delay(&io::Error::from(io::ErrorKind::ConnectionAborted)),
+            Some(Duration::from_millis(10))
+        );
+        assert_eq!(
+            backoff.retry_delay(&io::Error::from_raw_os_error(10024)),
+            Some(Duration::from_millis(20))
+        );
+        backoff.reset();
+        assert_eq!(
+            backoff.retry_delay(&io::Error::from(io::ErrorKind::TimedOut)),
+            Some(Duration::from_millis(10))
+        );
+        assert_eq!(backoff.retry_delay(&io::Error::from(io::ErrorKind::PermissionDenied)), None);
+    }
 
     #[cfg(unix)]
     #[test]
@@ -2109,11 +2191,11 @@ mod tests {
         let client = match connected {
             Ok(Ok(client)) => client,
             Ok(Err(error)) => {
-                server.shutdown().unwrap();
+                server.shutdown().await.unwrap();
                 panic!("Windows local carrier handshake failed: {error}");
             }
             Err(_) => {
-                server.shutdown().unwrap();
+                server.shutdown().await.unwrap();
                 panic!("Windows local carrier handshake timed out after 3s");
             }
         };
@@ -2124,7 +2206,7 @@ mod tests {
 
         client.close().await.unwrap();
         drop(server_connection);
-        server.shutdown().unwrap();
+        server.shutdown().await.unwrap();
     }
 
     struct PreludeProbeLink {

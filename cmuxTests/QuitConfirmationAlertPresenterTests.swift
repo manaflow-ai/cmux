@@ -11,6 +11,28 @@ import Testing
 @Suite
 struct QuitConfirmationAlertPresenterTests {
     @Test
+    func freshSnapshotDeadlineTerminatesWithCachedIndexesAfterOwnedCleanup() {
+        #expect(
+            AppDelegate.terminateCleanupDeadlineDisposition(
+                phase: .freshSnapshot,
+                hasOwnedRuntimeCleanup: true
+            ) == .persistCachedSnapshotAndTerminate
+        )
+        #expect(
+            AppDelegate.terminateCleanupDeadlineDisposition(
+                phase: .ownedRuntimeCleanup,
+                hasOwnedRuntimeCleanup: true
+            ) == .cancelTerminationAfterRuntimeCleanupFailure
+        )
+        #expect(
+            AppDelegate.terminateCleanupDeadlineDisposition(
+                phase: .ownedRuntimeCleanup,
+                hasOwnedRuntimeCleanup: false
+            ) == .persistCachedSnapshotAndTerminate
+        )
+    }
+
+    @Test
     func pendingTerminateReplyWaitsForOwnedCleanupOrTerminateOwnedConfirmation() {
         #expect(
             AppDelegate.pendingTerminateReply(

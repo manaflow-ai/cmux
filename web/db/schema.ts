@@ -460,9 +460,9 @@ export const subrouterTenants = pgTable(
 );
 
 /**
- * Non-secret routing metadata for CodeRouter accounts. Provider credentials
- * live only in the Stack team server-metadata vault; Postgres coordinates
- * selection and rotating refresh-token leases.
+ * Non-secret routing metadata for coderouter accounts. Provider credentials
+ * live in the envelope-encrypted coderouterCredentials table; this table
+ * coordinates selection and rotating refresh-token leases.
  */
 export const coderouterAccounts = pgTable(
   "coderouter_accounts",
@@ -509,6 +509,7 @@ export const coderouterRouteTokens = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
     tokenHash: text("token_hash").notNull(),
     label: text("label").notNull().default("cli"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -519,6 +520,46 @@ export const coderouterRouteTokens = pgTable(
   (table) => [
     uniqueIndex("coderouter_route_tokens_hash_unique").on(table.tokenHash),
     index("coderouter_route_tokens_team_expiry_idx").on(table.teamId, table.expiresAt),
+    index("coderouter_route_tokens_user_expiry_idx").on(
+      table.stackUserId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+/**
+ * Envelope-encrypted provider credentials. Every secret-bearing field is
+ * ciphertext; the plaintext data key exists only briefly in Vercel memory.
+ */
+export const coderouterCredentials = pgTable(
+  "coderouter_credentials",
+  {
+    accountId: uuid("account_id")
+      .primaryKey()
+      .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    credentialRevision: bigint("credential_revision", { mode: "number" })
+      .notNull(),
+    algorithm: text("algorithm").notNull().default("aes-256-gcm"),
+    ciphertext: text("ciphertext").notNull(),
+    nonce: text("nonce").notNull(),
+    authTag: text("auth_tag").notNull(),
+    encryptedDataKey: text("encrypted_data_key").notNull(),
+    kmsKeyId: text("kms_key_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "coderouter_credentials_revision_positive",
+      sql`${table.credentialRevision} > 0`,
+    ),
+    check(
+      "coderouter_credentials_algorithm_check",
+      sql`${table.algorithm} = 'aes-256-gcm'`,
+    ),
+    index("coderouter_credentials_team_idx").on(table.teamId),
   ],
 );
 
@@ -575,11 +616,16 @@ export const stripeSubscriptions = pgTable(
     raw: jsonb("raw").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
   },
   (table) => [
     index("stripe_subscriptions_customer_id_idx").on(table.customerId),
     index("stripe_subscriptions_stack_user_id_idx").on(table.stackUserId),
     index("stripe_subscriptions_stack_team_id_idx").on(table.stackTeamId),
+    index("stripe_subscriptions_reconcile_cursor_idx").on(
+      table.lastReconciledAt.asc().nullsFirst(),
+      table.id.asc(),
+    ),
   ],
 );
 
@@ -932,6 +978,12 @@ export const irohEndpointBindings = pgTable(
     index("iroh_endpoint_bindings_user_active_page_idx")
       .on(table.userId, table.id)
       .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_active_pairable_mac_scope_idx")
+      .on(table.userId, sql`lower(${table.tag})`, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'mac' and ${table.pairingEnabled} = true`),
+    index("iroh_endpoint_bindings_active_ios_scope_idx")
+      .on(table.userId, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'ios'`),
     index("iroh_endpoint_bindings_user_idx")
       .on(table.userId),
     index("iroh_endpoint_bindings_user_revoked_idx")

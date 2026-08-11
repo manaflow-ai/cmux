@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev1"
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev2"
 )
 
 func params(extra map[string]any) map[string]any {
@@ -34,7 +34,7 @@ func putOptionalString(target map[string]any, key string, value *string) {
 func readValue[T any](
 	ctx context.Context,
 	client *Client,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	input map[string]any,
 	label string,
 ) (T, error) {
@@ -49,7 +49,7 @@ func readValue[T any](
 func mutationValue[T any](
 	ctx context.Context,
 	client *Client,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	input map[string]any,
 	options MutationOptions,
 	label string,
@@ -72,7 +72,7 @@ func mutationValue[T any](
 func mutationHandle[Snapshot any, Handle any](
 	ctx context.Context,
 	client *Client,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	input map[string]any,
 	options MutationOptions,
 	label string,
@@ -99,6 +99,27 @@ func mutationHandle[Snapshot any, Handle any](
 	}, nil
 }
 
+func mutationNewHandle[Snapshot any, Handle any](
+	ctx context.Context,
+	client *Client,
+	operation wirev2.Operation,
+	input map[string]any,
+	options MutationOptions,
+	label string,
+	build func(Snapshot) Handle,
+) (MutationResult[Handle], error) {
+	result, err := mutationValue[Snapshot](ctx, client, operation, input, options, label)
+	if err != nil {
+		return MutationResult[Handle]{}, err
+	}
+	return MutationResult[Handle]{
+		Value:      build(result.Value),
+		Generation: result.Generation,
+		Revision:   result.Revision,
+		Replayed:   result.Replayed,
+	}, nil
+}
+
 type mutationWireResult struct {
 	value      json.RawMessage
 	generation string
@@ -108,7 +129,7 @@ type mutationWireResult struct {
 
 func (c *Client) mutationRaw(
 	ctx context.Context,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	input map[string]any,
 	idempotencyKey string,
 ) (mutationWireResult, error) {
@@ -118,7 +139,7 @@ func (c *Client) mutationRaw(
 	}
 	for key := range fields {
 		switch key {
-		case "value", wirev1.FieldGeneration, wirev1.FieldRevision, "replayed":
+		case "value", wirev2.FieldGeneration, wirev2.FieldRevision, "replayed":
 		default:
 			return mutationWireResult{}, &ProtocolError{
 				Message: operation.Name + " mutation result has unknown field " + key,
@@ -131,7 +152,7 @@ func (c *Client) mutationRaw(
 			Message: operation.Name + " mutation result omitted value",
 		}
 	}
-	generationRaw, ok := fields[wirev1.FieldGeneration]
+	generationRaw, ok := fields[wirev2.FieldGeneration]
 	if !ok {
 		return mutationWireResult{}, &ProtocolError{
 			Message: operation.Name + " mutation result omitted generation",
@@ -143,7 +164,7 @@ func (c *Client) mutationRaw(
 			Message: operation.Name + " mutation generation must be a non-empty string",
 		}
 	}
-	revisionRaw, ok := fields[wirev1.FieldRevision]
+	revisionRaw, ok := fields[wirev2.FieldRevision]
 	if !ok {
 		return mutationWireResult{}, &ProtocolError{
 			Message: operation.Name + " mutation result omitted revision",
@@ -174,7 +195,7 @@ func (c *Client) mutationRaw(
 
 func (c *Client) created(
 	ctx context.Context,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	input map[string]any,
 	options MutationOptions,
 ) (MutationResult[CreatedPath], error) {
@@ -212,7 +233,7 @@ func putExpectedRevision(input map[string]any, options MutationOptions) {
 
 func (c *Client) ListMachines(ctx context.Context, options MachineListOptions) ([]*Machine, error) {
 	var raw json.RawMessage
-	if err := c.do(ctx, wirev1.MachineList, params(options.Extra), "", &raw); err != nil {
+	if err := c.do(ctx, wirev2.MachineList, params(options.Extra), "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[MachineSnapshot](raw, "machines")
@@ -254,7 +275,7 @@ func (m *Machine) ListSessions(ctx context.Context, options SessionListOptions) 
 	input := m.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := m.client.do(ctx, wirev1.SessionList, input, "", &raw); err != nil {
+	if err := m.client.do(ctx, wirev2.SessionList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[SessionSnapshot](raw, "sessions")
@@ -291,7 +312,7 @@ func (m *Machine) OpenSession(ctx context.Context, options SessionOpenOptions) (
 	input := m.route.withSession(options.Session).params()
 	merge(input, options.Extra)
 	putExpectedRevision(input, options.MutationOptions)
-	raw, err := m.client.mutationRaw(ctx, wirev1.SessionOpen, input, options.IdempotencyKey)
+	raw, err := m.client.mutationRaw(ctx, wirev2.SessionOpen, input, options.IdempotencyKey)
 	if err != nil {
 		return MutationResult[*Session]{}, err
 	}
@@ -314,7 +335,7 @@ func (s *Session) Snapshot(ctx context.Context, options SessionSnapshotOptions) 
 	input := s.route.params()
 	merge(input, options.Extra)
 	return readValue[ResourceSnapshot](
-		ctx, s.client, wirev1.SessionSnapshot, input, "resource snapshot",
+		ctx, s.client, wirev2.SessionSnapshot, input, "resource snapshot",
 	)
 }
 func (s *Session) ResolveCreation(
@@ -332,7 +353,7 @@ func (s *Session) ResolveCreation(
 	input["correlation_key"] = correlationKey
 	merge(input, options.Extra)
 	result, err := readValue[CreationResolution](
-		ctx, s.client, wirev1.SessionCreationResolve, input,
+		ctx, s.client, wirev2.SessionCreationResolve, input,
 		"creation resolution",
 	)
 	if err != nil {
@@ -352,24 +373,61 @@ func (s *Session) ResolveCreation(
 func (s *Session) Events(ctx context.Context, options SessionEventsOptions) (*Stream[SessionEvent], error) {
 	input := s.route.params()
 	if options.Cursor != nil {
-		input[wirev1.FieldCursor] = options.Cursor
+		input[wirev2.FieldCursor] = options.Cursor
 	}
 	merge(input, options.Extra)
-	return openStream(ctx, s.client, wirev1.SessionEvents, input, decodeSessionEvent)
+	return openStream(ctx, s.client, wirev2.SessionEvents, input, decodeSessionEvent)
+}
+func (s *Session) Journal(ctx context.Context, options SessionJournalOptions) (*Stream[SessionJournalRecord], error) {
+	if err := options.validate(); err != nil {
+		return nil, err
+	}
+	input := s.route.params()
+	if options.Cursor != nil {
+		input[wirev2.FieldCursor] = options.Cursor
+	}
+	if options.Start != nil {
+		input[wirev2.FieldStart] = *options.Start
+	}
+	if options.Follow != nil {
+		input["follow"] = *options.Follow
+	}
+	if options.Filter != nil {
+		input["filter"] = options.Filter
+	}
+	merge(input, options.Extra)
+	return openDecodedStream(
+		ctx,
+		s.client,
+		wirev2.SessionJournalSubscribe,
+		input,
+		func(raw json.RawMessage, cursor *Cursor) (SessionJournalRecord, error) {
+			record, err := decodeSessionJournalRecord(raw)
+			if err != nil {
+				return SessionJournalRecord{}, err
+			}
+			if cursor == nil || cursor.Revision != record.Sequence {
+				return SessionJournalRecord{}, &ProtocolError{
+					Message: "journal sequence must match its stream cursor",
+				}
+			}
+			return record, nil
+		},
+	)
 }
 func (s *Session) Ping(ctx context.Context, options SessionPingOptions) (PingResult, error) {
 	input := s.route.params()
 	merge(input, options.Extra)
-	return readValue[PingResult](ctx, s.client, wirev1.SessionPing, input, "ping result")
+	return readValue[PingResult](ctx, s.client, wirev2.SessionPing, input, "ping result")
 }
 func (s *Session) Shutdown(ctx context.Context, options SessionShutdownOptions) (MutationResult[ShutdownResult], error) {
 	input := s.route.params()
 	if options.Force != nil {
-		input[wirev1.FieldForce] = *options.Force
+		input[wirev2.FieldForce] = *options.Force
 	}
 	merge(input, options.Extra)
 	return mutationValue[ShutdownResult](
-		ctx, s.client, wirev1.SessionShutdown, input, options.MutationOptions,
+		ctx, s.client, wirev2.SessionShutdown, input, options.MutationOptions,
 		"shutdown result",
 	)
 }
@@ -377,7 +435,7 @@ func (s *Session) ReloadConfig(ctx context.Context, options SessionReloadConfigO
 	input := s.route.params()
 	merge(input, options.Extra)
 	return mutationValue[ReloadConfigResult](
-		ctx, s.client, wirev1.SessionReloadConfig, input, options.MutationOptions,
+		ctx, s.client, wirev2.SessionReloadConfig, input, options.MutationOptions,
 		"reload config result",
 	)
 }
@@ -406,16 +464,16 @@ func (s *Session) UpdateTerminalDefaults(ctx context.Context, options SessionTer
 		input["complete"] = true
 	}
 	return mutationValue[TerminalDefaultsSnapshot](
-		ctx, s.client, wirev1.SessionTerminalDefaultsUpdate, input,
+		ctx, s.client, wirev2.SessionTerminalDefaultsUpdate, input,
 		options.MutationOptions, "terminal defaults snapshot",
 	)
 }
 func (s *Session) SetWindowTitle(ctx context.Context, options SessionWindowTitleSetOptions) (MutationResult[EmptyResult], error) {
 	input := s.route.params()
-	input[wirev1.FieldTitle] = options.Title
+	input[wirev2.FieldTitle] = options.Title
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, s.client, wirev1.SessionWindowTitleSet, input, options.MutationOptions,
+		ctx, s.client, wirev2.SessionWindowTitleSet, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -423,7 +481,7 @@ func (s *Session) ClearWindowTitle(ctx context.Context, options SessionWindowTit
 	input := s.route.params()
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, s.client, wirev1.SessionWindowTitleClear, input, options.MutationOptions,
+		ctx, s.client, wirev2.SessionWindowTitleClear, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -432,7 +490,7 @@ func (s *Session) ListConnectedClients(ctx context.Context, options ConnectedCli
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := s.client.do(ctx, wirev1.ClientList, input, "", &raw); err != nil {
+	if err := s.client.do(ctx, wirev2.ClientList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	return decodeList[ConnectedClientSnapshot](raw, "clients")
@@ -440,7 +498,7 @@ func (s *Session) ListConnectedClients(ctx context.Context, options ConnectedCli
 func (c *ConnectedClient) Refresh(ctx context.Context) (ConnectedClientSnapshot, error) {
 	input := c.route.params()
 	var snapshot ConnectedClientSnapshot
-	if err := c.client.readResource(ctx, wirev1.ClientGet, input, &snapshot); err != nil {
+	if err := c.client.readResource(ctx, wirev2.ClientGet, input, &snapshot); err != nil {
 		return ConnectedClientSnapshot{}, err
 	}
 	return snapshot, nil
@@ -448,32 +506,32 @@ func (c *ConnectedClient) Refresh(ctx context.Context) (ConnectedClientSnapshot,
 func (c *ConnectedClient) UpdateMetadata(ctx context.Context, options ConnectedClientMetadataUpdateOptions) (ClientSnapshot, error) {
 	input := c.route.params()
 	if options.Name.Present {
-		input[wirev1.FieldName] = options.Name.Value
+		input[wirev2.FieldName] = options.Name.Value
 	}
 	if options.Kind.Present {
-		input[wirev1.FieldKind] = options.Kind.Value
+		input[wirev2.FieldKind] = options.Kind.Value
 	}
 	merge(input, options.Extra)
 	return readValue[ClientSnapshot](
-		ctx, c.client, wirev1.ClientMetadataUpdate, input, "client snapshot",
+		ctx, c.client, wirev2.ClientMetadataUpdate, input, "client snapshot",
 	)
 }
 func (c *ConnectedClient) SetSizing(ctx context.Context, options ConnectedClientSizingSetOptions) (ClientSnapshot, error) {
 	input := c.route.params()
-	input[wirev1.FieldEnabled] = options.Enabled
+	input[wirev2.FieldEnabled] = options.Enabled
 	if options.Exclusive != nil {
 		input["exclusive"] = *options.Exclusive
 	}
 	merge(input, options.Extra)
 	return readValue[ClientSnapshot](
-		ctx, c.client, wirev1.ClientSizingSet, input, "client snapshot",
+		ctx, c.client, wirev2.ClientSizingSet, input, "client snapshot",
 	)
 }
 func (c *ConnectedClient) ReleaseSizing(ctx context.Context, options ConnectedClientSizingReleaseOptions) (ClientSnapshot, error) {
 	input := c.route.params()
 	merge(input, options.Extra)
 	return readValue[ClientSnapshot](
-		ctx, c.client, wirev1.ClientSizingRelease, input, "client snapshot",
+		ctx, c.client, wirev2.ClientSizingRelease, input, "client snapshot",
 	)
 }
 func (c *ConnectedClient) SetCellPixels(ctx context.Context, options ConnectedClientCellPixelsSetOptions) (CellPixelsResult, error) {
@@ -482,14 +540,14 @@ func (c *ConnectedClient) SetCellPixels(ctx context.Context, options ConnectedCl
 	input["height_px"] = options.HeightPX
 	merge(input, options.Extra)
 	return readValue[CellPixelsResult](
-		ctx, c.client, wirev1.ClientCellPixelsSet, input, "cell pixels result",
+		ctx, c.client, wirev2.ClientCellPixelsSet, input, "cell pixels result",
 	)
 }
 func (c *ConnectedClient) Detach(ctx context.Context, options ConnectedClientDetachOptions) (EmptyResult, error) {
 	input := c.route.params()
 	merge(input, options.Extra)
 	return readValue[EmptyResult](
-		ctx, c.client, wirev1.ClientDetach, input, "empty result",
+		ctx, c.client, wirev2.ClientDetach, input, "empty result",
 	)
 }
 
@@ -497,7 +555,7 @@ func (s *Session) ListPairingRequests(ctx context.Context, options PairingReques
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := s.client.do(ctx, wirev1.PairingRequestList, input, "", &raw); err != nil {
+	if err := s.client.do(ctx, wirev2.PairingRequestList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[PairingRequestSnapshot](raw, "pairing_requests")
@@ -519,7 +577,7 @@ func (p *PairingRequest) Resolve(ctx context.Context, options PairingRequestReso
 	input["decision"] = options.Decision
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, p.client, wirev1.PairingRequestResolve, input, options.MutationOptions,
+		ctx, p.client, wirev2.PairingRequestResolve, input, options.MutationOptions,
 		"pairing resolution result", p.cache, p,
 	)
 }
@@ -527,7 +585,7 @@ func (s *Session) Projection(ctx context.Context, options FrontendProjectionGetO
 	input := s.route.withProjection(options.Projection).params()
 	merge(input, options.Extra)
 	var snapshot FrontendProjectionSnapshot
-	if err := s.client.readResource(ctx, wirev1.ProjectionGet, input, &snapshot); err != nil {
+	if err := s.client.readResource(ctx, wirev2.ProjectionGet, input, &snapshot); err != nil {
 		return nil, err
 	}
 	selector := SelectID(snapshot.ID)
@@ -538,10 +596,16 @@ func (s *Session) Projection(ctx context.Context, options FrontendProjectionGetO
 }
 func (p *FrontendProjection) Put(ctx context.Context, options FrontendProjectionPutOptions) (MutationResult[*FrontendProjection], error) {
 	input := p.route.params()
+	input["frontend_id"] = options.FrontendID
+	input["window_id"] = options.WindowID
+	input["generation"] = options.Generation
 	input["projection"] = options.Projection
+	if options.ExpectedProjectionRevision != nil {
+		input["expected_projection_revision"] = *options.ExpectedProjectionRevision
+	}
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, p.client, wirev1.ProjectionPut, input, options.MutationOptions,
+		ctx, p.client, wirev2.ProjectionPut, input, options.MutationOptions,
 		"frontend projection snapshot", p.cache, p,
 	)
 }
@@ -550,7 +614,7 @@ func (s *Session) ListWorkspaces(ctx context.Context, options WorkspaceListOptio
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := s.client.do(ctx, wirev1.WorkspaceList, input, "", &raw); err != nil {
+	if err := s.client.do(ctx, wirev2.WorkspaceList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[WorkspaceSnapshot](raw, "workspaces")
@@ -583,17 +647,17 @@ func (s *Session) FindWorkspacesByName(ctx context.Context, name string) ([]*Wor
 }
 func (s *Session) CreateWorkspace(ctx context.Context, options WorkspaceCreateOptions) (MutationResult[CreatedPath], error) {
 	input := s.route.params()
-	putOptionalString(input, wirev1.FieldName, options.Name)
-	input[wirev1.FieldInitialContent] = options.InitialContent
+	putOptionalString(input, wirev2.FieldName, options.Name)
+	input[wirev2.FieldInitialContent] = options.InitialContent
 	merge(input, options.Extra)
-	return s.client.created(ctx, wirev1.WorkspaceCreate, input, options.MutationOptions)
+	return s.client.created(ctx, wirev2.WorkspaceCreate, input, options.MutationOptions)
 }
 func (w *Workspace) Rename(ctx context.Context, options WorkspaceRenameOptions) (MutationResult[*Workspace], error) {
 	input := w.route.params()
-	input[wirev1.FieldName] = options.Name
+	input[wirev2.FieldName] = options.Name
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, w.client, wirev1.WorkspaceRename, input, options.MutationOptions,
+		ctx, w.client, wirev2.WorkspaceRename, input, options.MutationOptions,
 		"workspace snapshot", w.cache, w,
 	)
 }
@@ -602,7 +666,7 @@ func (w *Workspace) Move(ctx context.Context, options WorkspaceMoveOptions) (Mut
 	input["index"] = options.Index
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, w.client, wirev1.WorkspaceMove, input, options.MutationOptions,
+		ctx, w.client, wirev2.WorkspaceMove, input, options.MutationOptions,
 		"workspace snapshot", w.cache, w,
 	)
 }
@@ -610,7 +674,7 @@ func (w *Workspace) Focus(ctx context.Context, options WorkspaceFocusOptions) (M
 	input := w.route.params()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, w.client, wirev1.WorkspaceFocus, input, options.MutationOptions,
+		ctx, w.client, wirev2.WorkspaceFocus, input, options.MutationOptions,
 		"workspace snapshot", w.cache, w,
 	)
 }
@@ -618,7 +682,7 @@ func (w *Workspace) Close(ctx context.Context, options WorkspaceCloseOptions) (M
 	input := w.route.params()
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, w.client, wirev1.WorkspaceClose, input, options.MutationOptions,
+		ctx, w.client, wirev2.WorkspaceClose, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -631,23 +695,23 @@ func (w *Workspace) Run(ctx context.Context, options WorkspaceRunOptions) (Mutat
 	}
 	input := w.route.params()
 	putCommand(input, options.Command)
-	putOptionalString(input, wirev1.FieldCWD, options.CWD)
-	putOptionalString(input, wirev1.FieldName, options.Name)
+	putOptionalString(input, wirev2.FieldCWD, options.CWD)
+	putOptionalString(input, wirev2.FieldName, options.Name)
 	if options.Cols != nil {
-		input[wirev1.FieldCols] = *options.Cols
+		input[wirev2.FieldCols] = *options.Cols
 	}
 	if options.Rows != nil {
-		input[wirev1.FieldRows] = *options.Rows
+		input[wirev2.FieldRows] = *options.Rows
 	}
 	merge(input, options.Extra)
-	return w.client.created(ctx, wirev1.WorkspaceRun, input, options.MutationOptions)
+	return w.client.created(ctx, wirev2.WorkspaceRun, input, options.MutationOptions)
 }
 func (w *Workspace) ApplyLayout(ctx context.Context, options WorkspaceLayoutApplyOptions) (MutationResult[*Workspace], error) {
 	input := w.route.params()
-	input[wirev1.FieldLayout] = options.Layout
+	input[wirev2.FieldLayout] = options.Layout
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, w.client, wirev1.WorkspaceLayoutApply, input, options.MutationOptions,
+		ctx, w.client, wirev2.WorkspaceLayoutApply, input, options.MutationOptions,
 		"workspace snapshot", w.cache, w,
 	)
 }
@@ -667,9 +731,9 @@ func optionalNameMatches(value *string, expected string) bool {
 func putCommand(target map[string]any, command Command) {
 	switch value := command.(type) {
 	case ExactCommand:
-		target[wirev1.FieldArgv] = append([]string(nil), value.Argv...)
+		target[wirev2.FieldArgv] = append([]string(nil), value.Argv...)
 	case *ExactCommand:
-		target[wirev1.FieldArgv] = append([]string(nil), value.Argv...)
+		target[wirev2.FieldArgv] = append([]string(nil), value.Argv...)
 	case ShellCommand:
 		target["shell"] = value.Script
 	case *ShellCommand:
@@ -724,7 +788,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		}
 	case *TerminalSnapshot:
 		required = []string{
-			"id", "tab_id", "title", "cols", "rows", "running", "lifecycle",
+			"id", "title", "cols", "rows", "running", "lifecycle",
 		}
 	case *BrowserSnapshot:
 		required = []string{
@@ -751,7 +815,10 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			"id", "session_id", "peer", "code", "expires_in_seconds", "status",
 		}
 	case *FrontendProjectionSnapshot:
-		required = []string{"id", "session_id", "projection"}
+		required = []string{
+			"id", "session_id", "frontend_id", "window_id", "generation",
+			"projection", "projection_revision",
+		}
 	case *SidebarViewSnapshot:
 		required = []string{"id", "session_id", "cols", "rows", "running"}
 	case *PingResult:
@@ -781,7 +848,11 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			"width_px", "height_px", "resized_terminals", "failures",
 		}
 	case *ViewerResizeResult, *BrowserViewerResizeResult:
-		required = []string{"accepted", "size"}
+		required = []string{"accepted", "size", "outcome"}
+	case *ViewerReleaseResult:
+		required = []string{"outcome"}
+	case *ViewAttachmentStreamOpened:
+		required = []string{"stream_id", "attachment_lease"}
 	case *RenderCursor:
 		required = []string{"x", "y", "style", "blink", "visible", "color"}
 	case *RenderRun:
@@ -852,7 +923,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("tab snapshot ids must be present")
 		}
 	case *TerminalSnapshot:
-		if decoded.ID == "" || decoded.TabID == "" ||
+		if decoded.ID == "" || decoded.TabIDs == nil ||
 			decoded.Cols == 0 || decoded.Rows == 0 {
 			return fmt.Errorf("terminal snapshot ids and dimensions must be present")
 		}
@@ -959,7 +1030,8 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("invalid pairing request status %q", decoded.Status)
 		}
 	case *FrontendProjectionSnapshot:
-		if decoded.ID == "" || decoded.SessionID == "" {
+		if decoded.ID == "" || decoded.SessionID == "" || decoded.FrontendID == "" ||
+			decoded.WindowID == "" || decoded.Generation == "" {
 			return fmt.Errorf("frontend projection snapshot ids must be present")
 		}
 	case *SidebarViewSnapshot:
@@ -1023,10 +1095,14 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		if decoded.Size.Cols == 0 || decoded.Size.Rows == 0 {
 			return fmt.Errorf("viewer resize size must be non-zero")
 		}
+		return validateViewAttachmentOutcome(decoded.Outcome)
 	case *BrowserViewerResizeResult:
 		if decoded.Size.WidthPX == 0 || decoded.Size.HeightPX == 0 {
 			return fmt.Errorf("browser viewer resize size must be non-zero")
 		}
+		return validateViewAttachmentOutcome(decoded.Outcome)
+	case *ViewerReleaseResult:
+		return validateViewAttachmentOutcome(decoded.Outcome)
 	case *RenderCursor:
 		return validateRenderCursor(*decoded)
 	case *RenderRun:
@@ -1049,7 +1125,7 @@ func (w *Workspace) ListScreens(ctx context.Context, options ScreenListOptions) 
 	input := w.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := w.client.do(ctx, wirev1.ScreenList, input, "", &raw); err != nil {
+	if err := w.client.do(ctx, wirev2.ScreenList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[ScreenSnapshot](raw, "screens")
@@ -1082,16 +1158,16 @@ func (w *Workspace) FindScreensByName(ctx context.Context, name string) ([]*Scre
 }
 func (w *Workspace) CreateScreen(ctx context.Context, options ScreenCreateOptions) (MutationResult[CreatedPath], error) {
 	input := w.route.params()
-	putOptionalString(input, wirev1.FieldName, options.Name)
+	putOptionalString(input, wirev2.FieldName, options.Name)
 	merge(input, options.Extra)
-	return w.client.created(ctx, wirev1.ScreenCreate, input, options.MutationOptions)
+	return w.client.created(ctx, wirev2.ScreenCreate, input, options.MutationOptions)
 }
 func (s *Screen) Rename(ctx context.Context, options ScreenRenameOptions) (MutationResult[*Screen], error) {
 	input := s.route.params()
-	input[wirev1.FieldName] = options.Name
+	input[wirev2.FieldName] = options.Name
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, s.client, wirev1.ScreenRename, input, options.MutationOptions,
+		ctx, s.client, wirev2.ScreenRename, input, options.MutationOptions,
 		"screen snapshot", s.cache, s,
 	)
 }
@@ -1099,7 +1175,7 @@ func (s *Screen) Focus(ctx context.Context, options ScreenFocusOptions) (Mutatio
 	input := s.route.params()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, s.client, wirev1.ScreenFocus, input, options.MutationOptions,
+		ctx, s.client, wirev2.ScreenFocus, input, options.MutationOptions,
 		"screen snapshot", s.cache, s,
 	)
 }
@@ -1107,7 +1183,7 @@ func (s *Screen) Close(ctx context.Context, options ScreenCloseOptions) (Mutatio
 	input := s.route.params()
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, s.client, wirev1.ScreenClose, input, options.MutationOptions,
+		ctx, s.client, wirev2.ScreenClose, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -1115,7 +1191,7 @@ func (s *Screen) ExportLayout(ctx context.Context, options ScreenLayoutExportOpt
 	input := s.route.params()
 	merge(input, options.Extra)
 	return readValue[LayoutDocument](
-		ctx, s.client, wirev1.ScreenLayoutExport, input, "layout document",
+		ctx, s.client, wirev2.ScreenLayoutExport, input, "layout document",
 	)
 }
 func (s *Screen) UndoLayout(ctx context.Context, options ScreenLayoutUndoOptions) (MutationResult[*Screen], error) {
@@ -1139,7 +1215,7 @@ func (s *Screen) UndoLayout(ctx context.Context, options ScreenLayoutUndoOptions
 	putOptionalString(input, "confirmation_token", options.ConfirmationToken)
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, s.client, wirev1.ScreenLayoutUndo, input, options.MutationOptions,
+		ctx, s.client, wirev2.ScreenLayoutUndo, input, options.MutationOptions,
 		"screen snapshot", s.cache, s,
 	)
 }
@@ -1148,7 +1224,7 @@ func (s *Screen) ListPanes(ctx context.Context, options PaneListOptions) ([]*Pan
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := s.client.do(ctx, wirev1.PaneList, input, "", &raw); err != nil {
+	if err := s.client.do(ctx, wirev2.PaneList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[PaneSnapshot](raw, "panes")
@@ -1181,38 +1257,41 @@ func (s *Screen) FindPanesByName(ctx context.Context, name string) ([]*Pane, err
 }
 func (s *Screen) CreatePane(ctx context.Context, options PaneCreateOptions) (MutationResult[CreatedPath], error) {
 	input := s.route.params()
-	putOptionalString(input, wirev1.FieldCWD, options.CWD)
+	putOptionalString(input, wirev2.FieldCWD, options.CWD)
 	if options.Cols != nil {
-		input[wirev1.FieldCols] = *options.Cols
+		input[wirev2.FieldCols] = *options.Cols
 	}
 	if options.Rows != nil {
-		input[wirev1.FieldRows] = *options.Rows
+		input[wirev2.FieldRows] = *options.Rows
 	}
 	merge(input, options.Extra)
-	return s.client.created(ctx, wirev1.PaneCreate, input, options.MutationOptions)
+	return s.client.created(ctx, wirev2.PaneCreate, input, options.MutationOptions)
 }
 func (p *Pane) Split(ctx context.Context, options PaneSplitOptions) (MutationResult[CreatedPath], error) {
 	input := p.route.params()
-	input[wirev1.FieldDirection] = options.Direction
+	input[wirev2.FieldDirection] = options.Direction
 	if options.Ratio != nil {
-		input[wirev1.FieldRatio] = *options.Ratio
+		input[wirev2.FieldRatio] = *options.Ratio
 	}
-	putOptionalString(input, wirev1.FieldCWD, options.CWD)
+	if options.ViewportWidth != nil {
+		input[wirev2.FieldViewportWidth] = *options.ViewportWidth
+	}
+	putOptionalString(input, wirev2.FieldCWD, options.CWD)
 	if options.Cols != nil {
-		input[wirev1.FieldCols] = *options.Cols
+		input[wirev2.FieldCols] = *options.Cols
 	}
 	if options.Rows != nil {
-		input[wirev1.FieldRows] = *options.Rows
+		input[wirev2.FieldRows] = *options.Rows
 	}
 	merge(input, options.Extra)
-	return p.client.created(ctx, wirev1.PaneSplit, input, options.MutationOptions)
+	return p.client.created(ctx, wirev2.PaneSplit, input, options.MutationOptions)
 }
 func (p *Pane) Rename(ctx context.Context, options PaneRenameOptions) (MutationResult[*Pane], error) {
 	input := p.route.params()
-	input[wirev1.FieldName] = options.Name
+	input[wirev2.FieldName] = options.Name
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, p.client, wirev1.PaneRename, input, options.MutationOptions,
+		ctx, p.client, wirev2.PaneRename, input, options.MutationOptions,
 		"pane snapshot", p.cache, p,
 	)
 }
@@ -1220,27 +1299,27 @@ func (p *Pane) Focus(ctx context.Context, options PaneFocusOptions) (MutationRes
 	input := p.route.params()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, p.client, wirev1.PaneFocus, input, options.MutationOptions,
+		ctx, p.client, wirev2.PaneFocus, input, options.MutationOptions,
 		"pane snapshot", p.cache, p,
 	)
 }
 func (p *Pane) FocusDirection(ctx context.Context, options PaneFocusDirectionOptions) (MutationResult[*Pane], error) {
 	input := p.route.params()
-	input[wirev1.FieldDirection] = options.Direction
+	input[wirev2.FieldDirection] = options.Direction
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, p.client, wirev1.PaneFocusDirection, input, options.MutationOptions,
+		ctx, p.client, wirev2.PaneFocusDirection, input, options.MutationOptions,
 		"pane snapshot", p.cache, p,
 	)
 }
 func (p *Pane) Neighbor(ctx context.Context, options PaneNeighborGetOptions) (*Pane, error) {
 	input := p.route.params()
-	input[wirev1.FieldDirection] = options.Direction
+	input[wirev2.FieldDirection] = options.Direction
 	merge(input, options.Extra)
 	result, err := readValue[PaneNeighborResult](
 		ctx,
 		p.client,
-		wirev1.PaneNeighborGet,
+		wirev2.PaneNeighborGet,
 		input,
 		"pane neighbor result",
 	)
@@ -1264,28 +1343,28 @@ func (p *Pane) Swap(ctx context.Context, options PaneSwapOptions) (MutationResul
 	input["other_pane"] = options.OtherPane.String()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, p.client, wirev1.PaneSwap, input, options.MutationOptions,
+		ctx, p.client, wirev2.PaneSwap, input, options.MutationOptions,
 		"pane snapshot", p.cache, p,
 	)
 }
 func (p *Pane) Zoom(ctx context.Context, options PaneZoomOptions) (MutationResult[*Pane], error) {
 	input := p.route.params()
 	if options.Enabled != nil {
-		input[wirev1.FieldEnabled] = *options.Enabled
+		input[wirev2.FieldEnabled] = *options.Enabled
 	}
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, p.client, wirev1.PaneZoom, input, options.MutationOptions,
+		ctx, p.client, wirev2.PaneZoom, input, options.MutationOptions,
 		"pane snapshot", p.cache, p,
 	)
 }
 func (p *Pane) SetSplitRatio(ctx context.Context, options PaneSplitRatioSetOptions) (MutationResult[*Pane], error) {
 	input := p.route.params()
 	input["split_id"] = options.SplitID
-	input[wirev1.FieldRatio] = options.Ratio
+	input[wirev2.FieldRatio] = options.Ratio
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, p.client, wirev1.PaneSplitRatioSet, input, options.MutationOptions,
+		ctx, p.client, wirev2.PaneSplitRatioSet, input, options.MutationOptions,
 		"pane snapshot", p.cache, p,
 	)
 }
@@ -1294,7 +1373,7 @@ func (p *Pane) SetViewportWidth(ctx context.Context, options PaneViewportWidthSe
 	input["columns"] = options.Columns
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, p.client, wirev1.PaneViewportWidthSet, input, options.MutationOptions,
+		ctx, p.client, wirev2.PaneViewportWidthSet, input, options.MutationOptions,
 		"pane snapshot", p.cache, p,
 	)
 }
@@ -1302,7 +1381,7 @@ func (p *Pane) Close(ctx context.Context, options PaneCloseOptions) (MutationRes
 	input := p.route.params()
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, p.client, wirev1.PaneClose, input, options.MutationOptions,
+		ctx, p.client, wirev2.PaneClose, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -1315,23 +1394,23 @@ func (p *Pane) Run(ctx context.Context, options PaneRunOptions) (MutationResult[
 	}
 	input := p.route.params()
 	putCommand(input, options.Command)
-	putOptionalString(input, wirev1.FieldCWD, options.CWD)
-	putOptionalString(input, wirev1.FieldName, options.Name)
+	putOptionalString(input, wirev2.FieldCWD, options.CWD)
+	putOptionalString(input, wirev2.FieldName, options.Name)
 	if options.Cols != nil {
-		input[wirev1.FieldCols] = *options.Cols
+		input[wirev2.FieldCols] = *options.Cols
 	}
 	if options.Rows != nil {
-		input[wirev1.FieldRows] = *options.Rows
+		input[wirev2.FieldRows] = *options.Rows
 	}
 	merge(input, options.Extra)
-	return p.client.created(ctx, wirev1.PaneRun, input, options.MutationOptions)
+	return p.client.created(ctx, wirev2.PaneRun, input, options.MutationOptions)
 }
 
 func (p *Pane) ListTabs(ctx context.Context, options TabListOptions) ([]*Tab, error) {
 	input := p.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := p.client.do(ctx, wirev1.TabList, input, "", &raw); err != nil {
+	if err := p.client.do(ctx, wirev2.TabList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[TabSnapshot](raw, "tabs")
@@ -1364,21 +1443,21 @@ func (p *Pane) FindTabsByName(ctx context.Context, name string) ([]*Tab, error) 
 }
 func (p *Pane) CreateTerminalTab(ctx context.Context, options TabCreateTerminalOptions) (MutationResult[CreatedPath], error) {
 	input := p.route.params()
-	putOptionalString(input, wirev1.FieldName, options.Name)
-	putOptionalString(input, wirev1.FieldCWD, options.CWD)
+	putOptionalString(input, wirev2.FieldName, options.Name)
+	putOptionalString(input, wirev2.FieldCWD, options.CWD)
 	if options.Cols != nil {
-		input[wirev1.FieldCols] = *options.Cols
+		input[wirev2.FieldCols] = *options.Cols
 	}
 	if options.Rows != nil {
-		input[wirev1.FieldRows] = *options.Rows
+		input[wirev2.FieldRows] = *options.Rows
 	}
 	merge(input, options.Extra)
-	return p.client.created(ctx, wirev1.TabCreateTerminal, input, options.MutationOptions)
+	return p.client.created(ctx, wirev2.TabCreateTerminal, input, options.MutationOptions)
 }
 func (p *Pane) CreateBrowserTab(ctx context.Context, options TabCreateBrowserOptions) (MutationResult[CreatedPath], error) {
 	input := p.route.params()
-	putOptionalString(input, wirev1.FieldName, options.Name)
-	input[wirev1.FieldURL] = options.URL
+	putOptionalString(input, wirev2.FieldName, options.Name)
+	input[wirev2.FieldURL] = options.URL
 	if options.WidthPX != nil {
 		input["width_px"] = *options.WidthPX
 	}
@@ -1386,14 +1465,14 @@ func (p *Pane) CreateBrowserTab(ctx context.Context, options TabCreateBrowserOpt
 		input["height_px"] = *options.HeightPX
 	}
 	merge(input, options.Extra)
-	return p.client.created(ctx, wirev1.TabCreateBrowser, input, options.MutationOptions)
+	return p.client.created(ctx, wirev2.TabCreateBrowser, input, options.MutationOptions)
 }
 func (t *Tab) Rename(ctx context.Context, options TabRenameOptions) (MutationResult[*Tab], error) {
 	input := t.route.params()
-	input[wirev1.FieldName] = options.Name
+	input[wirev2.FieldName] = options.Name
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, t.client, wirev1.TabRename, input, options.MutationOptions,
+		ctx, t.client, wirev2.TabRename, input, options.MutationOptions,
 		"tab snapshot", t.cache, t,
 	)
 }
@@ -1405,7 +1484,7 @@ func (t *Tab) Move(ctx context.Context, options TabMoveOptions) (MutationResult[
 	input["index"] = options.Index
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, t.client, wirev1.TabMove, input, options.MutationOptions,
+		ctx, t.client, wirev2.TabMove, input, options.MutationOptions,
 		"tab snapshot", t.cache, t,
 	)
 }
@@ -1413,7 +1492,7 @@ func (t *Tab) Focus(ctx context.Context, options TabFocusOptions) (MutationResul
 	input := t.route.params()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, t.client, wirev1.TabFocus, input, options.MutationOptions,
+		ctx, t.client, wirev2.TabFocus, input, options.MutationOptions,
 		"tab snapshot", t.cache, t,
 	)
 }
@@ -1421,7 +1500,7 @@ func (t *Tab) Close(ctx context.Context, options TabCloseOptions) (MutationResul
 	input := t.route.params()
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, t.client, wirev1.TabClose, input, options.MutationOptions,
+		ctx, t.client, wirev2.TabClose, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -1430,7 +1509,7 @@ func (s *Session) ListTerminals(ctx context.Context, options TerminalListOptions
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := s.client.do(ctx, wirev1.TerminalList, input, "", &raw); err != nil {
+	if err := s.client.do(ctx, wirev2.TerminalList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[TerminalSnapshot](raw, "terminals")
@@ -1469,28 +1548,28 @@ func (t *Terminal) Write(ctx context.Context, options TerminalInputWriteOptions)
 		)
 	}
 	if options.Text != nil {
-		input[wirev1.FieldText] = *options.Text
+		input[wirev2.FieldText] = *options.Text
 	} else {
 		input["bytes_base64"] = base64.StdEncoding.EncodeToString(options.Bytes)
 	}
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, t.client, wirev1.TerminalInputWrite, input, options.MutationOptions,
+		ctx, t.client, wirev2.TerminalInputWrite, input, options.MutationOptions,
 		"empty result",
 	)
 }
 func (t *Terminal) Keys(ctx context.Context, options TerminalInputKeysOptions) (MutationResult[EmptyResult], error) {
 	input := t.route.params()
-	input[wirev1.FieldKeys] = options.Keys
+	input[wirev2.FieldKeys] = options.Keys
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, t.client, wirev1.TerminalInputKeys, input, options.MutationOptions,
+		ctx, t.client, wirev2.TerminalInputKeys, input, options.MutationOptions,
 		"empty result",
 	)
 }
 func (t *Terminal) Mouse(ctx context.Context, options TerminalInputMouseOptions) (MutationResult[EmptyResult], error) {
 	input := t.route.params()
-	input[wirev1.FieldKind] = options.Kind
+	input[wirev2.FieldKind] = options.Kind
 	input["row"] = options.Row
 	input["column"] = options.Column
 	if options.Button != nil {
@@ -1504,16 +1583,16 @@ func (t *Terminal) Mouse(ctx context.Context, options TerminalInputMouseOptions)
 	}
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, t.client, wirev1.TerminalInputMouse, input, options.MutationOptions,
+		ctx, t.client, wirev2.TerminalInputMouse, input, options.MutationOptions,
 		"empty result",
 	)
 }
 func (t *Terminal) FocusInput(ctx context.Context, options TerminalInputFocusOptions) (MutationResult[EmptyResult], error) {
 	input := t.route.params()
-	input[wirev1.FieldFocused] = options.Focused
+	input[wirev2.FieldFocused] = options.Focused
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, t.client, wirev1.TerminalInputFocus, input, options.MutationOptions,
+		ctx, t.client, wirev2.TerminalInputFocus, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -1521,14 +1600,14 @@ func (t *Terminal) ReadScreen(ctx context.Context, options TerminalScreenReadOpt
 	input := t.route.params()
 	merge(input, options.Extra)
 	return readValue[TerminalScreenResult](
-		ctx, t.client, wirev1.TerminalScreenRead, input, "terminal screen result",
+		ctx, t.client, wirev2.TerminalScreenRead, input, "terminal screen result",
 	)
 }
 func (t *Terminal) ReadState(ctx context.Context, options TerminalStateReadOptions) (TerminalStateResult, error) {
 	input := t.route.params()
 	merge(input, options.Extra)
 	return readValue[TerminalStateResult](
-		ctx, t.client, wirev1.TerminalStateRead, input, "terminal state result",
+		ctx, t.client, wirev2.TerminalStateRead, input, "terminal state result",
 	)
 }
 func (t *Terminal) ReadHistory(ctx context.Context, options TerminalHistoryReadOptions) (TerminalHistoryResult, error) {
@@ -1544,14 +1623,14 @@ func (t *Terminal) ReadHistory(ctx context.Context, options TerminalHistoryReadO
 	}
 	merge(input, options.Extra)
 	return readValue[TerminalHistoryResult](
-		ctx, t.client, wirev1.TerminalHistoryRead, input, "terminal history result",
+		ctx, t.client, wirev2.TerminalHistoryRead, input, "terminal history result",
 	)
 }
 func (t *Terminal) ClearHistory(ctx context.Context, options TerminalHistoryClearOptions) (MutationResult[EmptyResult], error) {
 	input := t.route.params()
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, t.client, wirev1.TerminalHistoryClear, input, options.MutationOptions,
+		ctx, t.client, wirev2.TerminalHistoryClear, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -1559,11 +1638,11 @@ func (t *Terminal) Wait(ctx context.Context, options TerminalWaitOptions) (Termi
 	input := t.route.params()
 	input["pattern"] = options.Pattern
 	if options.TimeoutMS != nil {
-		input[wirev1.FieldTimeoutMS] = *options.TimeoutMS
+		input[wirev2.FieldTimeoutMS] = *options.TimeoutMS
 	}
 	merge(input, options.Extra)
 	return readValue[TerminalWaitResult](
-		ctx, t.client, wirev1.TerminalWait, input, "terminal wait result",
+		ctx, t.client, wirev2.TerminalWait, input, "terminal wait result",
 	)
 }
 func (t *Terminal) WaitExit(
@@ -1572,13 +1651,13 @@ func (t *Terminal) WaitExit(
 ) (TerminalWaitExitResult, error) {
 	input := t.route.params()
 	if options.TimeoutMS != nil {
-		input[wirev1.FieldTimeoutMS] = *options.TimeoutMS
+		input[wirev2.FieldTimeoutMS] = *options.TimeoutMS
 	}
 	merge(input, options.Extra)
 	var raw json.RawMessage
 	if err := t.client.do(
 		ctx,
-		wirev1.TerminalWaitExit,
+		wirev2.TerminalWaitExit,
 		input,
 		"",
 		&raw,
@@ -1626,18 +1705,18 @@ func (t *Terminal) WaitExit(
 func (t *Terminal) Copy(ctx context.Context, options TerminalCopyOptions) (TerminalCopyResult, error) {
 	input := t.route.params()
 	if options.Mode != nil {
-		input[wirev1.FieldMode] = *options.Mode
+		input[wirev2.FieldMode] = *options.Mode
 	}
 	merge(input, options.Extra)
 	return readValue[TerminalCopyResult](
-		ctx, t.client, wirev1.TerminalCopy, input, "terminal copy result",
+		ctx, t.client, wirev2.TerminalCopy, input, "terminal copy result",
 	)
 }
 func (t *Terminal) Process(ctx context.Context, options TerminalProcessGetOptions) (ProcessInfoResult, error) {
 	input := t.route.params()
 	merge(input, options.Extra)
 	return readValue[ProcessInfoResult](
-		ctx, t.client, wirev1.TerminalProcessGet, input, "process info result",
+		ctx, t.client, wirev2.TerminalProcessGet, input, "process info result",
 	)
 }
 func (t *Terminal) CreateRendererGrant(ctx context.Context, options TerminalRendererGrantCreateOptions) (RendererGrant, error) {
@@ -1647,25 +1726,27 @@ func (t *Terminal) CreateRendererGrant(ctx context.Context, options TerminalRend
 	}
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := t.client.do(ctx, wirev1.TerminalRendererGrantCreate, input, "", &raw); err != nil {
+	if err := t.client.do(ctx, wirev2.TerminalRendererGrantCreate, input, "", &raw); err != nil {
 		return RendererGrant{}, err
 	}
 	return decodeRendererGrant(raw)
 }
 func (t *Terminal) ResizeViewer(ctx context.Context, options TerminalViewerResizeOptions) (ViewerResizeResult, error) {
 	input := t.route.params()
-	input[wirev1.FieldCols] = options.Cols
-	input[wirev1.FieldRows] = options.Rows
+	input["attachment_lease"] = options.AttachmentLease
+	input[wirev2.FieldCols] = options.Cols
+	input[wirev2.FieldRows] = options.Rows
 	merge(input, options.Extra)
 	return readValue[ViewerResizeResult](
-		ctx, t.client, wirev1.TerminalViewerResize, input, "viewer resize result",
+		ctx, t.client, wirev2.TerminalViewerResize, input, "viewer resize result",
 	)
 }
-func (t *Terminal) ReleaseViewer(ctx context.Context, options TerminalViewerReleaseOptions) (EmptyResult, error) {
+func (t *Terminal) ReleaseViewer(ctx context.Context, options TerminalViewerReleaseOptions) (ViewerReleaseResult, error) {
 	input := t.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	merge(input, options.Extra)
-	return readValue[EmptyResult](
-		ctx, t.client, wirev1.TerminalViewerRelease, input, "empty result",
+	return readValue[ViewerReleaseResult](
+		ctx, t.client, wirev2.TerminalViewerRelease, input, "viewer release result",
 	)
 }
 func (t *Terminal) ScrollViewport(ctx context.Context, options TerminalViewportScrollOptions) (MutationResult[EmptyResult], error) {
@@ -1673,7 +1754,7 @@ func (t *Terminal) ScrollViewport(ctx context.Context, options TerminalViewportS
 	input["delta_rows"] = options.DeltaRows
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, t.client, wirev1.TerminalViewportScroll, input, options.MutationOptions,
+		ctx, t.client, wirev2.TerminalViewportScroll, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -1685,29 +1766,56 @@ func (t *Terminal) Move(ctx context.Context, options TerminalMoveOptions) (Mutat
 	input["index"] = options.Index
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, t.client, wirev1.TerminalMove, input, options.MutationOptions,
+		ctx, t.client, wirev2.TerminalMove, input, options.MutationOptions,
 		"terminal snapshot", t.cache, t,
+	)
+}
+func (t *Terminal) Project(ctx context.Context, options TerminalProjectOptions) (MutationResult[*Tab], error) {
+	input := t.route.params()
+	input["destination_workspace"] = options.DestinationWorkspace.String()
+	input["destination_screen"] = options.DestinationScreen.String()
+	input["destination_pane"] = options.DestinationPane.String()
+	input["index"] = options.Index
+	if options.Name != nil {
+		input["name"] = *options.Name
+	}
+	merge(input, options.Extra)
+	return mutationNewHandle(
+		ctx, t.client, wirev2.TerminalProject, input, options.MutationOptions,
+		"tab snapshot", func(snapshot TabSnapshot) *Tab {
+			selector := SelectID(snapshot.ID)
+			route := t.route
+			route.workspace = options.DestinationWorkspace
+			route.screen = options.DestinationScreen
+			route.pane = options.DestinationPane
+			route.tab = selector
+			route.terminal = Selector[TerminalID]{}
+			return &Tab{
+				client: t.client, pane: options.DestinationPane, selector: selector,
+				route: route, snapshot: &snapshot,
+			}
+		},
 	)
 }
 func (t *Terminal) Attach(ctx context.Context, options TerminalAttachOptions) (*Stream[TerminalAttachmentItem], error) {
 	input := t.route.params()
 	if options.Cols != nil {
-		input[wirev1.FieldCols] = *options.Cols
+		input[wirev2.FieldCols] = *options.Cols
 	}
 	if options.Rows != nil {
-		input[wirev1.FieldRows] = *options.Rows
+		input[wirev2.FieldRows] = *options.Rows
 	}
 	if options.ReadOnly != nil {
 		input["read_only"] = *options.ReadOnly
 	}
 	merge(input, options.Extra)
-	return openStream(ctx, t.client, wirev1.TerminalAttach, input, decodeTerminalAttachment)
+	return openStream(ctx, t.client, wirev2.TerminalAttach, input, decodeTerminalAttachment)
 }
 func (t *Terminal) Close(ctx context.Context, options TerminalCloseOptions) (MutationResult[EmptyResult], error) {
 	input := t.route.params()
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, t.client, wirev1.TerminalClose, input, options.MutationOptions,
+		ctx, t.client, wirev2.TerminalClose, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -1716,7 +1824,7 @@ func (s *Session) ListBrowsers(ctx context.Context, options BrowserListOptions) 
 	input := s.route.params()
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := s.client.do(ctx, wirev1.BrowserList, input, "", &raw); err != nil {
+	if err := s.client.do(ctx, wirev2.BrowserList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[BrowserSnapshot](raw, "browsers")
@@ -1749,10 +1857,10 @@ func (s *Session) FindBrowsersByName(ctx context.Context, name string) ([]*Brows
 }
 func (b *Browser) Navigate(ctx context.Context, options BrowserNavigateOptions) (MutationResult[*Browser], error) {
 	input := b.route.params()
-	input[wirev1.FieldURL] = options.URL
+	input[wirev2.FieldURL] = options.URL
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, b.client, wirev1.BrowserNavigate, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserNavigate, input, options.MutationOptions,
 		"browser snapshot", b.cache, b,
 	)
 }
@@ -1760,7 +1868,7 @@ func (b *Browser) Back(ctx context.Context, options BrowserBackOptions) (Mutatio
 	input := b.route.params()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, b.client, wirev1.BrowserBack, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserBack, input, options.MutationOptions,
 		"browser snapshot", b.cache, b,
 	)
 }
@@ -1768,7 +1876,7 @@ func (b *Browser) Forward(ctx context.Context, options BrowserForwardOptions) (M
 	input := b.route.params()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, b.client, wirev1.BrowserForward, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserForward, input, options.MutationOptions,
 		"browser snapshot", b.cache, b,
 	)
 }
@@ -1776,7 +1884,7 @@ func (b *Browser) Reload(ctx context.Context, options BrowserReloadOptions) (Mut
 	input := b.route.params()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, b.client, wirev1.BrowserReload, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserReload, input, options.MutationOptions,
 		"browser snapshot", b.cache, b,
 	)
 }
@@ -1784,7 +1892,7 @@ func (b *Browser) Activate(ctx context.Context, options BrowserActivateOptions) 
 	input := b.route.params()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, b.client, wirev1.BrowserActivate, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserActivate, input, options.MutationOptions,
 		"browser snapshot", b.cache, b,
 	)
 }
@@ -1792,29 +1900,29 @@ func (b *Browser) Key(ctx context.Context, options BrowserInputKeyOptions) (Muta
 	input := b.route.params()
 	input["key"] = options.Key
 	if options.Kind != nil {
-		input[wirev1.FieldKind] = *options.Kind
+		input[wirev2.FieldKind] = *options.Kind
 	}
 	if options.Modifiers != nil {
 		input["modifiers"] = options.Modifiers
 	}
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, b.client, wirev1.BrowserInputKey, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserInputKey, input, options.MutationOptions,
 		"empty result",
 	)
 }
 func (b *Browser) Text(ctx context.Context, options BrowserInputTextOptions) (MutationResult[EmptyResult], error) {
 	input := b.route.params()
-	input[wirev1.FieldText] = options.Text
+	input[wirev2.FieldText] = options.Text
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, b.client, wirev1.BrowserInputText, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserInputText, input, options.MutationOptions,
 		"empty result",
 	)
 }
 func (b *Browser) Mouse(ctx context.Context, options BrowserInputMouseOptions) (MutationResult[EmptyResult], error) {
 	input := b.route.params()
-	input[wirev1.FieldKind] = options.Kind
+	input[wirev2.FieldKind] = options.Kind
 	input["x_px"] = options.XPX
 	input["y_px"] = options.YPX
 	if options.Button != nil {
@@ -1823,10 +1931,10 @@ func (b *Browser) Mouse(ctx context.Context, options BrowserInputMouseOptions) (
 	if options.ClickCount != nil {
 		input["click_count"] = *options.ClickCount
 	}
-	input[wirev1.FieldPointerFrameSeq] = options.PointerFrameSeq
+	input[wirev2.FieldPointerFrameSeq] = options.PointerFrameSeq
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, b.client, wirev1.BrowserInputMouse, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserInputMouse, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -1836,28 +1944,30 @@ func (b *Browser) Wheel(ctx context.Context, options BrowserInputWheelOptions) (
 	input["delta_y"] = options.DeltaY
 	input["x_px"] = options.XPX
 	input["y_px"] = options.YPX
-	input[wirev1.FieldPointerFrameSeq] = options.PointerFrameSeq
+	input[wirev2.FieldPointerFrameSeq] = options.PointerFrameSeq
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, b.client, wirev1.BrowserInputWheel, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserInputWheel, input, options.MutationOptions,
 		"empty result",
 	)
 }
 func (b *Browser) ResizeViewer(ctx context.Context, options BrowserViewerResizeOptions) (BrowserViewerResizeResult, error) {
 	input := b.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	input["width_px"] = options.WidthPX
 	input["height_px"] = options.HeightPX
 	merge(input, options.Extra)
 	return readValue[BrowserViewerResizeResult](
-		ctx, b.client, wirev1.BrowserViewerResize, input,
+		ctx, b.client, wirev2.BrowserViewerResize, input,
 		"browser viewer resize result",
 	)
 }
-func (b *Browser) ReleaseViewer(ctx context.Context, options BrowserViewerReleaseOptions) (EmptyResult, error) {
+func (b *Browser) ReleaseViewer(ctx context.Context, options BrowserViewerReleaseOptions) (ViewerReleaseResult, error) {
 	input := b.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	merge(input, options.Extra)
-	return readValue[EmptyResult](
-		ctx, b.client, wirev1.BrowserViewerRelease, input, "empty result",
+	return readValue[ViewerReleaseResult](
+		ctx, b.client, wirev2.BrowserViewerRelease, input, "viewer release result",
 	)
 }
 func (b *Browser) Attach(ctx context.Context, options BrowserAttachOptions) (*Stream[BrowserAttachmentItem], error) {
@@ -1869,13 +1979,13 @@ func (b *Browser) Attach(ctx context.Context, options BrowserAttachOptions) (*St
 		input["height_px"] = *options.HeightPX
 	}
 	merge(input, options.Extra)
-	return openStream(ctx, b.client, wirev1.BrowserAttach, input, decodeBrowserAttachment)
+	return openStream(ctx, b.client, wirev2.BrowserAttach, input, decodeBrowserAttachment)
 }
 func (b *Browser) Close(ctx context.Context, options BrowserCloseOptions) (MutationResult[EmptyResult], error) {
 	input := b.route.params()
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, b.client, wirev1.BrowserClose, input, options.MutationOptions,
+		ctx, b.client, wirev2.BrowserClose, input, options.MutationOptions,
 		"empty result",
 	)
 }
@@ -1887,7 +1997,7 @@ func (s *Session) ListNotifications(ctx context.Context, options NotificationLis
 	}
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := s.client.do(ctx, wirev1.NotificationList, input, "", &raw); err != nil {
+	if err := s.client.do(ctx, wirev2.NotificationList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[NotificationSnapshot](raw, "notifications")
@@ -1905,17 +2015,17 @@ func (s *Session) ListNotifications(ctx context.Context, options NotificationLis
 }
 func (s *Session) CreateNotification(ctx context.Context, options NotificationCreateOptions) (MutationResult[*Notification], error) {
 	input := s.route.params()
-	input[wirev1.FieldTitle] = options.Title
-	input[wirev1.FieldBody] = options.Body
+	input[wirev2.FieldTitle] = options.Title
+	input[wirev2.FieldBody] = options.Body
 	if options.Level != nil {
-		input[wirev1.FieldLevel] = *options.Level
+		input[wirev2.FieldLevel] = *options.Level
 	}
 	if options.TerminalID != nil {
 		input["terminal_id"] = *options.TerminalID
 	}
 	merge(input, options.Extra)
 	putExpectedRevision(input, options.MutationOptions)
-	raw, err := s.client.mutationRaw(ctx, wirev1.NotificationCreate, input, options.IdempotencyKey)
+	raw, err := s.client.mutationRaw(ctx, wirev2.NotificationCreate, input, options.IdempotencyKey)
 	if err != nil {
 		return MutationResult[*Notification]{}, err
 	}
@@ -1945,11 +2055,11 @@ func (s *Session) ListAgents(ctx context.Context, options AgentListOptions) ([]A
 		input["terminal_id"] = *options.TerminalID
 	}
 	if options.State != nil {
-		input[wirev1.FieldState] = *options.State
+		input[wirev2.FieldState] = *options.State
 	}
 	merge(input, options.Extra)
 	var raw json.RawMessage
-	if err := s.client.do(ctx, wirev1.AgentList, input, "", &raw); err != nil {
+	if err := s.client.do(ctx, wirev2.AgentList, input, "", &raw); err != nil {
 		return nil, err
 	}
 	snapshots, err := decodeList[AgentSnapshot](raw, "agents")
@@ -1989,7 +2099,7 @@ func (s *Session) ReportAgent(ctx context.Context, options AgentReportOptions) (
 	}
 	input := s.route.params()
 	input["terminal_id"] = options.TerminalID
-	input[wirev1.FieldState] = options.State
+	input[wirev2.FieldState] = options.State
 	input["source"] = options.Source
 	if options.SourceSession != nil {
 		input["source_session"] = *options.SourceSession
@@ -1998,7 +2108,7 @@ func (s *Session) ReportAgent(ctx context.Context, options AgentReportOptions) (
 	result, err := mutationValue[AgentSnapshot](
 		ctx,
 		s.client,
-		wirev1.AgentReport,
+		wirev2.AgentReport,
 		input,
 		options.MutationOptions,
 		"agent snapshot",
@@ -2033,7 +2143,7 @@ func (s *SidebarView) Refresh(ctx context.Context, options SidebarViewGetOptions
 	input := s.route.params()
 	merge(input, options.Extra)
 	var snapshot SidebarViewSnapshot
-	if err := s.client.readResource(ctx, wirev1.SidebarViewGet, input, &snapshot); err != nil {
+	if err := s.client.readResource(ctx, wirev2.SidebarViewGet, input, &snapshot); err != nil {
 		return SidebarViewSnapshot{}, err
 	}
 	if err := s.cache(snapshot); err != nil {
@@ -2043,14 +2153,14 @@ func (s *SidebarView) Refresh(ctx context.Context, options SidebarViewGetOptions
 }
 func (s *Session) EnsureSidebarView(ctx context.Context, options SidebarViewEnsureOptions) (MutationResult[*SidebarView], error) {
 	input := s.route.params()
-	input[wirev1.FieldCols] = options.Cols
-	input[wirev1.FieldRows] = options.Rows
+	input[wirev2.FieldCols] = options.Cols
+	input[wirev2.FieldRows] = options.Rows
 	if options.Relaunch != nil {
 		input["relaunch"] = *options.Relaunch
 	}
 	merge(input, options.Extra)
 	putExpectedRevision(input, options.MutationOptions)
-	raw, err := s.client.mutationRaw(ctx, wirev1.SidebarViewEnsure, input, options.IdempotencyKey)
+	raw, err := s.client.mutationRaw(ctx, wirev2.SidebarViewEnsure, input, options.IdempotencyKey)
 	if err != nil {
 		return MutationResult[*SidebarView]{}, err
 	}
@@ -2071,24 +2181,24 @@ func (s *Session) EnsureSidebarView(ctx context.Context, options SidebarViewEnsu
 func (s *SidebarView) Attach(ctx context.Context, options SidebarViewAttachOptions) (*Stream[SidebarViewItem], error) {
 	input := s.route.params()
 	merge(input, options.Extra)
-	return openStream(ctx, s.client, wirev1.SidebarViewAttach, input, decodeSidebarViewItem)
+	return openStream(ctx, s.client, wirev2.SidebarViewAttach, input, decodeSidebarViewItem)
 }
 func (s *SidebarView) Input(ctx context.Context, options SidebarViewInputOptions) (MutationResult[EmptyResult], error) {
 	input := s.route.params()
 	input["data_base64"] = base64.StdEncoding.EncodeToString(options.Data)
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
-		ctx, s.client, wirev1.SidebarViewInput, input, options.MutationOptions,
+		ctx, s.client, wirev2.SidebarViewInput, input, options.MutationOptions,
 		"empty result",
 	)
 }
 func (s *SidebarView) Resize(ctx context.Context, options SidebarViewResizeOptions) (MutationResult[*SidebarView], error) {
 	input := s.route.params()
-	input[wirev1.FieldCols] = options.Cols
-	input[wirev1.FieldRows] = options.Rows
+	input[wirev2.FieldCols] = options.Cols
+	input[wirev2.FieldRows] = options.Rows
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, s.client, wirev1.SidebarViewResize, input, options.MutationOptions,
+		ctx, s.client, wirev2.SidebarViewResize, input, options.MutationOptions,
 		"sidebar view snapshot", s.cache, s,
 	)
 }
@@ -2096,7 +2206,7 @@ func (s *SidebarView) Reload(ctx context.Context, options SidebarViewReloadOptio
 	input := s.route.params()
 	merge(input, options.Extra)
 	return mutationHandle(
-		ctx, s.client, wirev1.SidebarViewReload, input, options.MutationOptions,
+		ctx, s.client, wirev2.SidebarViewReload, input, options.MutationOptions,
 		"sidebar view snapshot", s.cache, s,
 	)
 }
@@ -2192,6 +2302,111 @@ func decodeSessionEvent(raw json.RawMessage) (SessionEvent, error) {
 	default:
 		return SessionEvent{Kind: kind, Raw: Document(fields)}, nil
 	}
+}
+
+func decodeSessionJournalRecord(raw json.RawMessage) (SessionJournalRecord, error) {
+	var present map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &present); err != nil || present == nil {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid session journal record"}
+	}
+	for _, field := range []string{
+		"sequence", "event_id", "schema_version", "kind", "class", "replay",
+		"occurred_at_ms", "committed_at_ms", "producer", "authority", "causation_id",
+		"correlation_id", "causation_depth", "subjects", "sensitivity", "payload",
+		"resource_revision", "previous_resource_revision",
+	} {
+		if _, ok := present[field]; !ok {
+			return SessionJournalRecord{}, &ProtocolError{
+				Message: "session journal record omitted required field " + field,
+			}
+		}
+	}
+	var wire struct {
+		Sequence                 *Decimal             `json:"sequence"`
+		EventID                  *string              `json:"event_id"`
+		SchemaVersion            *uint32              `json:"schema_version"`
+		Kind                     *string              `json:"kind"`
+		Class                    *JournalClass        `json:"class"`
+		Replay                   *JournalReplayPolicy `json:"replay"`
+		OccurredAtMS             *Decimal             `json:"occurred_at_ms"`
+		CommittedAtMS            *Decimal             `json:"committed_at_ms"`
+		Producer                 *JournalProducer     `json:"producer"`
+		Authority                *JournalAuthority    `json:"authority"`
+		CausationID              *string              `json:"causation_id"`
+		CorrelationID            *string              `json:"correlation_id"`
+		CausationDepth           *uint16              `json:"causation_depth"`
+		Subjects                 *[]JournalSubject    `json:"subjects"`
+		Sensitivity              *JournalSensitivity  `json:"sensitivity"`
+		Payload                  json.RawMessage      `json:"payload"`
+		ResourceRevision         *Decimal             `json:"resource_revision"`
+		PreviousResourceRevision *Decimal             `json:"previous_resource_revision"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
+		return SessionJournalRecord{}, &ProtocolError{
+			Message: "invalid session journal record: " + err.Error(),
+		}
+	}
+	if wire.Sequence == nil || wire.EventID == nil || *wire.EventID == "" ||
+		wire.SchemaVersion == nil || *wire.SchemaVersion == 0 || wire.Kind == nil ||
+		*wire.Kind == "" || wire.Class == nil || wire.Replay == nil ||
+		wire.OccurredAtMS == nil || wire.CommittedAtMS == nil || wire.Producer == nil ||
+		wire.CausationDepth == nil || wire.Subjects == nil || wire.Sensitivity == nil ||
+		len(wire.Payload) == 0 {
+		return SessionJournalRecord{}, &ProtocolError{
+			Message: "session journal record omitted a required field",
+		}
+	}
+	if wire.Producer.Kind == "" || wire.Producer.ID == "" {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal producer"}
+	}
+	if wire.Authority != nil &&
+		(wire.Authority.PrincipalID == "" || wire.Authority.LeaseID == "" ||
+			wire.Authority.Generation == "" || wire.Authority.Role == "") {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal authority"}
+	}
+	for _, subject := range *wire.Subjects {
+		if subject.Kind == "" || subject.ID == "" {
+			return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal subject"}
+		}
+	}
+	if *wire.Class != JournalClassState && *wire.Class != JournalClassObservation &&
+		*wire.Class != JournalClassEffect && *wire.Class != JournalClassCheckpoint {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal class"}
+	}
+	if *wire.Replay != JournalReplayRequired && *wire.Replay != JournalReplayAdvisory &&
+		*wire.Replay != JournalReplayNever {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal replay policy"}
+	}
+	if *wire.Sensitivity != JournalSensitivityPublic &&
+		*wire.Sensitivity != JournalSensitivityMetadata &&
+		*wire.Sensitivity != JournalSensitivitySensitive &&
+		*wire.Sensitivity != JournalSensitivitySecret {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal sensitivity"}
+	}
+	var payload JSONValue
+	if err := json.Unmarshal(wire.Payload, &payload); err != nil {
+		return SessionJournalRecord{}, &ProtocolError{Message: "invalid journal payload"}
+	}
+	return SessionJournalRecord{
+		Sequence:                 *wire.Sequence,
+		EventID:                  *wire.EventID,
+		SchemaVersion:            *wire.SchemaVersion,
+		Kind:                     *wire.Kind,
+		Class:                    *wire.Class,
+		Replay:                   *wire.Replay,
+		OccurredAtMS:             *wire.OccurredAtMS,
+		CommittedAtMS:            *wire.CommittedAtMS,
+		Producer:                 *wire.Producer,
+		Authority:                wire.Authority,
+		CausationID:              wire.CausationID,
+		CorrelationID:            wire.CorrelationID,
+		CausationDepth:           *wire.CausationDepth,
+		Subjects:                 *wire.Subjects,
+		Sensitivity:              *wire.Sensitivity,
+		Payload:                  payload,
+		ResourceRevision:         wire.ResourceRevision,
+		PreviousResourceRevision: wire.PreviousResourceRevision,
+	}, nil
 }
 
 func decodeTerminalAttachment(raw json.RawMessage) (TerminalAttachmentItem, error) {
@@ -2833,6 +3048,15 @@ func validColor(value string) bool {
 		}
 	}
 	return true
+}
+
+func validateViewAttachmentOutcome(outcome ViewAttachmentOutcome) error {
+	switch outcome {
+	case ViewAttachmentApplied, ViewAttachmentPassive, ViewAttachmentSuperseded:
+		return nil
+	default:
+		return fmt.Errorf("invalid view attachment outcome %q", outcome)
+	}
 }
 
 func decodeRendererGrant(raw json.RawMessage) (RendererGrant, error) {
