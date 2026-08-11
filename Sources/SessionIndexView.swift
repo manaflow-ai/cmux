@@ -10,9 +10,8 @@ import UniformTypeIdentifiers
 @MainActor
 enum SessionEntryResumeCoordinator {
     static func resume(_ entry: SessionEntry, tabManager: TabManager) {
-        guard let resumeCommand = entry.resumeCommandWithCwd else { return }
-        let inputWithReturn = resumeCommand + "\n"
-        let targetCwd = entry.resumeWorkingDirectory
+        guard let launch = entry.resumeLaunch else { return }
+        let targetCwd = launch.workingDirectory
 
         let selected = tabManager.selectedWorkspace
         let selectedTab = tabManager.selectedTabId.flatMap { id in
@@ -36,14 +35,16 @@ enum SessionEntryResumeCoordinator {
                 inPane: paneId,
                 focus: true,
                 workingDirectory: targetCwd,
-                initialInput: inputWithReturn
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent
             )
             return
         }
 
         tabManager.addWorkspace(
             workingDirectory: targetCwd,
-            initialTerminalInput: inputWithReturn
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
         )
     }
 }
@@ -689,7 +690,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
-    if let resumeCommand = entry.resumeCommand {
+    if let resumeCommand = entry.copyResumeCommand {
         Button {
             let pb = NSPasteboard.general
             pb.clearContents()

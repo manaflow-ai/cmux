@@ -79,7 +79,10 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var managedAgentResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     @ObservationIgnored var invalidatedCachedTransferAgentSessionPanelIds: Set<UUID> = []
     @ObservationIgnored var replacedCachedTransferAgentSessionPanelIds: Set<UUID> = []
-    @ObservationIgnored var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] {
+        get { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId }
+        set { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId = newValue }
+    }
     var hasLoadedConfiguration = false
     var configurationLoadTask: Task<Void, Never>?
     var configurationIdentityTask: Task<Void, Never>?
