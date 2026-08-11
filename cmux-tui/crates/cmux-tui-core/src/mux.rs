@@ -27506,7 +27506,7 @@ mod tests {
         let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
         let close_mux = mux.clone();
         let close = std::thread::spawn(move || {
-            result_tx.send(close_mux.close_all_surfaces_for_shutdown()).unwrap()
+            result_tx.send(close_mux.close_all_surfaces_for_shutdown()).unwrap();
         });
         assert!(
             shutdown_gate.wait_until_entered(
