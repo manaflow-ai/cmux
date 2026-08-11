@@ -100,6 +100,8 @@ final class FrontendModel {
     @ObservationIgnored private var machineID: String?
     @ObservationIgnored private var sessionID: String?
     @ObservationIgnored private var resourceRevision: String?
+    @ObservationIgnored private var resourceState: ResourceSnapshot?
+    @ObservationIgnored private let resourceDecoder = FrontendResourceDecoder()
     @ObservationIgnored private var focusMutations = FocusMutationTracker()
 
     init(configuration: DemoLaunchConfiguration = .processEnvironment()) {
@@ -205,6 +207,7 @@ final class FrontendModel {
         terminalRetirementTasks.removeAll()
         snapshot = nil
         resourceRevision = nil
+        resourceState = nil
         machineID = nil
         sessionID = nil
         focusMutations = FocusMutationTracker()
@@ -257,12 +260,11 @@ final class FrontendModel {
                     let batch = await service.drainResourceUpdates()
                     if batch.overflowed {
                         self.scheduleRefresh()
-                    } else if !batch.envelopes.isEmpty,
-                              batch.envelopes.contains(where: { self.applyResourceDelta($0) == false }) {
-                        // The projection accepts snapshots during bootstrap/resync.
-                        // Delta application is deliberately fail-closed until every
-                        // resource kind has a typed projection adapter.
-                        self.scheduleRefresh()
+                    } else if !batch.envelopes.isEmpty {
+                        let events = await self.resourceDecoder.decode(batch.envelopes)
+                        if events == nil || self.applyResourceEvents(events ?? []) == false {
+                            self.scheduleRefresh()
+                        }
                     }
                     if batch.ended {
                         endReason = batch.endReason
@@ -308,32 +310,58 @@ final class FrontendModel {
         }
     }
 
-    private func applyResourceDelta(_ data: Data) -> Bool {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let item = object["item"] as? [String: Any],
-              item["kind"] as? String == "delta",
-              let changes = item["changes"] as? [[String: Any]],
-              let revision = item["revision"] as? String,
-              let previous = item["previous_revision"] as? String,
-              revision != previous else { return false }
-        guard resourceRevision == previous else { return false }
-        var terminalUpdates: [TerminalSnapshot] = []
-        terminalUpdates.reserveCapacity(changes.count)
-        for change in changes {
-            guard let resource = change["resource"] as? String,
-                  let kind = change["kind"] as? String,
-                  let id = change["id"] as? String else { return false }
-            guard resource == "terminal", kind == "upsert", terminalTitles[id] != nil,
-                  let value = change["value"],
-                  JSONSerialization.isValidJSONObject(value),
-                  let encoded = try? JSONSerialization.data(withJSONObject: value),
-                  let terminal = try? JSONDecoder().decode(TerminalSnapshot.self, from: encoded),
-                  terminal.id == id else { return false }
-            terminalUpdates.append(terminal)
+    private func applyResourceEvents(_ events: [FrontendResourceEvent]) -> Bool {
+        guard !events.isEmpty else { return true }
+        var nextState = resourceState ?? snapshot
+        var nextRevision = resourceRevision
+        var impact: FrontendResourceImpact = []
+        var terminalTitlesByID: [String: String] = [:]
+
+        for event in events {
+            switch event {
+            case .snapshot(let next):
+                nextState = next
+                nextRevision = next.cursor.revision
+                impact.formUnion([
+                    .presentation, .selection, .terminalTitles, .terminalControllers,
+                ])
+                terminalTitlesByID.removeAll()
+
+            case .delta(let delta):
+                guard delta.revision != delta.previousRevision,
+                      nextRevision == delta.previousRevision,
+                      var next = nextState else { return false }
+                for change in delta.changes {
+                    guard let application = next.apply(change) else { return false }
+                    switch application {
+                    case .ignored:
+                        break
+                    case .changed(let changed):
+                        impact.formUnion(changed)
+                    case .terminalTitle(let id, let title):
+                        terminalTitlesByID[id] = title
+                    }
+                }
+                next.setRevision(delta.revision)
+                nextState = next
+                nextRevision = delta.revision
+            }
         }
-        resourceRevision = revision
-        for terminal in terminalUpdates {
-            terminalTitles[terminal.id]?.submit(terminal.title)
+
+        guard let nextState, let nextRevision else { return false }
+        resourceState = nextState
+        resourceRevision = nextRevision
+        if impact.contains(.presentation) {
+            snapshot = nextState
+            if impact.contains(.selection) { reconcileSelection(nextState) }
+            if impact.contains(.terminalTitles) { reconcileTerminalTitles(nextState) }
+            if impact.contains(.terminalControllers) { reconcileTerminalControllers(nextState) }
+        }
+        if !impact.contains(.terminalTitles) {
+            for (id, title) in terminalTitlesByID {
+                guard let owner = terminalTitles[id] else { return false }
+                owner.submit(title)
+            }
         }
         return true
     }
@@ -342,8 +370,8 @@ final class FrontendModel {
         refreshRequested = true
         guard refreshTask == nil else { return }
         refreshTask = Task { [weak self] in
+            defer { self?.refreshTask = nil }
             guard let self, !Task.isCancelled else { return }
-            defer { refreshTask = nil }
             while refreshRequested, !Task.isCancelled {
                 refreshRequested = false
                 do {
@@ -366,6 +394,7 @@ final class FrontendModel {
     }
 
     private func applySnapshot(_ next: ResourceSnapshot) {
+        resourceState = next
         snapshot = next
         resourceRevision = next.cursor.revision
         reconcileSelection(next)

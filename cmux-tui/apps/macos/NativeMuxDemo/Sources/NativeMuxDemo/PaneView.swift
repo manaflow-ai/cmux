@@ -140,7 +140,7 @@ struct PaneView: View {
 
     private var activeTabTitle: String {
         guard let activeTab else {
-            return L10n.format("pane.short_id", "Pane %@", String(paneID.suffix(5)))
+            return pane?.displayName ?? String(paneID.suffix(5))
         }
         if let name = activeTab.name, !name.isEmpty { return name }
         if let title = terminalTitle(activeTab.contentID), !title.isEmpty {

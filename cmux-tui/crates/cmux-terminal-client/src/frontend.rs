@@ -158,6 +158,11 @@ impl FrontendControlState {
         true
     }
 
+    fn discard_resource_updates(&self) {
+        self.resource_updates.lock().unwrap().clear();
+        self.resource_updates_overflowed.store(false, Ordering::Release);
+    }
+
     fn begin_resource_stream(&self) {
         self.resource_stream_end_reason.store(RESOURCE_STREAM_END_NONE, Ordering::Release);
         self.resource_stream_ended.store(false, Ordering::Release);
@@ -621,6 +626,15 @@ pub unsafe extern "C" fn cmux_frontend_client_copy_resource_update(
     let Some(client) = (unsafe { client.as_ref() }) else { return false };
     let Some(update) = (unsafe { update.as_mut() }) else { return false };
     unsafe { copy_resource_update_from_state(&client.control_state, update, buffer, capacity) }
+}
+
+/// Discards queued resource envelopes after the caller rejects an oversized payload.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_client_discard_resource_updates(
+    client: *const CmuxFrontendClient,
+) {
+    let Some(client) = (unsafe { client.as_ref() }) else { return };
+    client.control_state.discard_resource_updates();
 }
 
 /// Executes one public resource operation and returns allocated result JSON.
@@ -1166,6 +1180,20 @@ mod tests {
         queue.clear();
         assert_eq!(queue.bytes, 0);
         assert!(queue.updates.is_empty());
+    }
+
+    #[test]
+    fn explicit_resource_update_discard_clears_pending_state() {
+        let state = FrontendControlState::new(Arc::new(ClientUpdates::default()));
+        state.push_resource_update(&json!({"type":"stream_item","sequence":1}));
+        state.resource_updates_overflowed.store(true, Ordering::Release);
+
+        state.discard_resource_updates();
+
+        let queue = state.resource_updates.lock().unwrap();
+        assert!(queue.updates.is_empty());
+        assert_eq!(queue.bytes, 0);
+        assert!(!state.resource_updates_overflowed.load(Ordering::Acquire));
     }
 
     #[test]

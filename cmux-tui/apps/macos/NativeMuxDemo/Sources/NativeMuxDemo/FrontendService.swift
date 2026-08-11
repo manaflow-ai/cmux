@@ -310,9 +310,12 @@ actor FrontendService {
     }
     let batch = await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
-      return drainFrontendResourceUpdates { descriptor, buffer, capacity in
-        cmux_frontend_client_copy_resource_update(raw, &descriptor, buffer, capacity)
-      }
+      return drainFrontendResourceUpdates(
+        discard: { cmux_frontend_client_discard_resource_updates(raw) },
+        copy: { descriptor, buffer, capacity in
+          cmux_frontend_client_copy_resource_update(raw, &descriptor, buffer, capacity)
+        }
+      )
     }
     if batch.hasMore { updateSink?.continuation.yield() }
     return batch
