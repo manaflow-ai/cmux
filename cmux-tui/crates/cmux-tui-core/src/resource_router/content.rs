@@ -2334,7 +2334,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
+    fn terminal_viewport_scroll_uses_one_journal_receipt_without_resource_event_churn() {
         let (mux, surface, selectors) = terminal_fixture(None);
         let output = (0..20).map(|index| format!("line-{index}\r\n")).collect::<String>();
         surface.apply_stream_output_for_test(output.as_bytes()).unwrap();
@@ -2385,7 +2385,7 @@ mod tests {
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, terminal_revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
         assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
 
@@ -2400,7 +2400,7 @@ mod tests {
             "receipt replay must not apply the viewport delta twice"
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
 
         let closed = dispatch(

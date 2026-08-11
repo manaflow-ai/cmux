@@ -3072,8 +3072,8 @@ fn current_schema_normalizes_legacy_single_view_resource_tabs() {
 }
 
 #[test]
-fn schema_eight_rejects_multiple_live_views_for_one_browser() {
-    let root = temp_root("schema-eight-duplicate-browser-views");
+fn multiview_migration_rejects_multiple_live_views_for_one_browser() {
+    let root = temp_root("multiview-duplicate-browser-views");
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
     let browser = browser_id(1);
     {
@@ -3085,13 +3085,12 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
             RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
         );
     }
-    let legacy = Connection::open(&database).unwrap();
+    let mut legacy = Connection::open(&database).unwrap();
     legacy
         .execute_batch(
             "PRAGMA foreign_keys=OFF;
              DROP INDEX live_resource_browser_view;
-             CREATE INDEX live_resource_browser_view ON resource_tabs(content_id);
-             UPDATE meta SET value = '8' WHERE key = 'schema_version';",
+             CREATE INDEX live_resource_browser_view ON resource_tabs(content_id);",
         )
         .unwrap();
     let duplicate_tab = tab_id(3);
@@ -3121,15 +3120,16 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
         )
         .unwrap();
     assert_eq!(live_views, 2, "fixture must contain two live views of one valid browser");
-    drop(legacy);
-
-    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    let migration = legacy.unchecked_transaction().unwrap();
+    let error = resource_store::migrate_resource_tabs_to_multiview(&migration).unwrap_err();
     assert!(
         error
             .to_string()
             .contains("workspace registry contains multiple live views for one browser"),
-        "unexpected migration error: {error:#}"
+        "{error:#}"
     );
+    drop(migration);
+    drop(legacy);
     fs::remove_dir_all(root).unwrap();
 }
 
