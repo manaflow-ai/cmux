@@ -163,8 +163,14 @@ struct MobileIrohSettingsModelTests {
         model.testCustomRelay(id: "relay-1")
         await waitUntil { controller.pendingRelayTestRequestIDs == [0, 1] }
 
-        controller.resumeRelayTestRequest(0, returning: .reachable)
-        controller.resumeRelayTestRequest(1, returning: .reachable)
+        controller.resumeRelayTestRequest(
+            0,
+            returning: .reachable(latencyMilliseconds: nil)
+        )
+        controller.resumeRelayTestRequest(
+            1,
+            returning: .reachable(latencyMilliseconds: nil)
+        )
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(1))
         while await log.processedCount() < 4, clock.now < deadline {
