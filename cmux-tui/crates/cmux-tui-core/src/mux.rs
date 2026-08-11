@@ -1938,7 +1938,6 @@ pub struct Mux {
         Mutex<Option<TerminalSpawnAfterCellPixelSnapshotHook>>,
     #[cfg(test)]
     terminal_create_after_terminal_reservation: Mutex<Option<TerminalReservationHook>>,
-    #[cfg(unix)]
     pending_terminal_hosts: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     #[cfg(test)]
@@ -2292,7 +2291,6 @@ impl Mux {
             terminal_spawn_after_cell_pixel_snapshot: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_terminal_reservation: Mutex::new(None),
-            #[cfg(unix)]
             pending_terminal_hosts: Mutex::new(HashMap::new()),
             reserved_in_process_terminals: Mutex::new(HashMap::new()),
             #[cfg(test)]
