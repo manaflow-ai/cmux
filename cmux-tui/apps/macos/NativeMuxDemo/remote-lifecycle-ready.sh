@@ -97,6 +97,7 @@ sub begin_termination {
     my ($signal_name) = @_;
     return unless defined($child_pid);
     kill($signal_name, -$child_pid);
+    return if $phase eq "reap";
     $phase = "exit";
     $deadline = clock_gettime(CLOCK_MONOTONIC) + $exit_timeout;
 }
@@ -160,8 +161,12 @@ while (1) {
             begin_termination("TERM");
         } elsif ($phase eq "exit") {
             publish("exit-timeout");
-            begin_termination("KILL");
-            undef($deadline);
+            kill("KILL", -$child_pid) if defined($child_pid);
+            $phase = "reap";
+            $deadline = clock_gettime(CLOCK_MONOTONIC) + $exit_timeout;
+        } elsif ($phase eq "reap") {
+            publish("launcher-exited 124");
+            exit 124;
         }
         next;
     }
