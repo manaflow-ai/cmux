@@ -13,19 +13,36 @@ public final class MainActorTaskStore<Key: Hashable & Sendable> {
     /// Safety: every handle access is serialized by `taskState`, so cancellation
     /// from a nonisolated store deinitializer cannot race task completion.
     private final class TaskOwner: @unchecked Sendable {
-        private let taskState = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+        private struct State: Sendable {
+            var task: Task<Void, Never>?
+            var isCancelled = false
+            var isFinished = false
+        }
+
+        private let taskState = OSAllocatedUnfairLock(initialState: State())
 
         func install(_ newTask: Task<Void, Never>) {
-            taskState.withLock { $0 = newTask }
+            let shouldCancel = taskState.withLock { state in
+                guard !state.isFinished else { return false }
+                state.task = newTask
+                return state.isCancelled
+            }
+            if shouldCancel { newTask.cancel() }
         }
 
         func cancel() {
-            let currentTask = taskState.withLock { $0 }
+            let currentTask = taskState.withLock { state in
+                state.isCancelled = true
+                return state.task
+            }
             currentTask?.cancel()
         }
 
         func releaseTask() {
-            taskState.withLock { $0 = nil }
+            taskState.withLock { state in
+                state.isFinished = true
+                state.task = nil
+            }
         }
     }
 
