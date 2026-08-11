@@ -7446,8 +7446,31 @@ final class cmuxUITests: XCTestCase {
             if element.isHittable {
                 return true
             }
+            let previousMetrics = transcriptMetrics(from: table)
+            let previousFrame = usableFrameNow(of: element)
             table.swipeDown(velocity: .slow)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+            let progress = XCTNSPredicateExpectation(
+                predicate: NSPredicate { object, _ in
+                    guard let table = object as? XCUIElement else { return false }
+                    if element.isHittable {
+                        return true
+                    }
+                    if let previousMetrics,
+                       let currentMetrics = self.transcriptMetrics(from: table),
+                       abs(currentMetrics.offsetY - previousMetrics.offsetY) > 1 {
+                        return true
+                    }
+                    if let previousFrame,
+                       let currentFrame = self.usableFrameNow(of: element),
+                       abs(currentFrame.minY - previousFrame.minY) > 1 {
+                        return true
+                    }
+                    return false
+                },
+                object: table
+            )
+            let remaining = max(0, deadline.timeIntervalSinceNow)
+            _ = XCTWaiter.wait(for: [progress], timeout: min(1, remaining))
         }
         return element.isHittable
     }
