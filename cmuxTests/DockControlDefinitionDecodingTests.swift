@@ -344,6 +344,7 @@ struct DockControlDefinitionDecodingTests {
         let scheduler = ManualTitleCoalescerScheduler()
         let store = DockSplitStore(
             workspaceId: UUID(),
+            terminalClientComposition: .embedded(),
             baseDirectoryProvider: { "/tmp" },
             terminalTitleUpdateCoalescer: NotificationBurstCoalescer(
                 schedule: scheduler.schedule(delay:action:)
@@ -395,6 +396,7 @@ struct DockControlDefinitionDecodingTests {
         let scheduler = ManualTitleCoalescerScheduler()
         let store = DockSplitStore(
             workspaceId: UUID(),
+            terminalClientComposition: .embedded(),
             baseDirectoryProvider: { "/tmp" },
             terminalTitleUpdateCoalescer: NotificationBurstCoalescer(
                 schedule: scheduler.schedule(delay:action:)
