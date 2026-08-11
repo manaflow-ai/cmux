@@ -3114,15 +3114,10 @@ final class cmuxUITests: XCTestCase {
             "The presented UIKit menu must retain its backend snapshot after the live catalog changes"
         )
         tapMenuItem(snapshotB, in: app)
-        // SwiftUI defers repainting the covered pill until UIKit dismisses its
-        // menu. The post-dismiss value proves the host replacement was applied
-        // and this visible snapshot selection remained authoritative.
-        let selectedSnapshotRepainted = NSPredicate(
-            format: "value == %@",
-            snapshotBID
-        )
-        expectation(for: selectedSnapshotRepainted, evaluatedWith: modelPill)
-        waitForExpectations(timeout: 4)
+        // The pill keeps the human-readable title selected from the presented
+        // menu snapshot. The submitted request below proves the corresponding
+        // opaque identifier remains authoritative after the host replacement.
+        XCTAssertEqual(modelPill.value as? String, snapshotBName)
 
         let prompt = taskComposerPrompt(in: app)
         let promptText = "Use the visible snapshot selection"
