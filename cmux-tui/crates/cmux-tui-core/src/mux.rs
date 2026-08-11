@@ -18596,6 +18596,46 @@ mod tests {
     }
 
     #[test]
+    fn terminal_close_publishes_newly_focused_sibling_screen() {
+        let mux = test_mux();
+        let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&closing).unwrap();
+        let (workspace, closing_pane) = mux.with_state(|state| {
+            let pane = state.pane_of(closing.id).unwrap();
+            let (workspace, _) = state.screen_of(pane).unwrap();
+            (state.workspaces[workspace].id, pane)
+        });
+        let sibling = mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+        let sibling_screen_id = mux.with_state(|state| {
+            let pane = state.pane_of(sibling.id).unwrap();
+            let (workspace, screen) = state.screen_of(pane).unwrap();
+            state.workspaces[workspace].screens[screen].public_id.to_string()
+        });
+        assert!(mux.focus_pane(closing_pane));
+        let before_revision = mux.with_state(|state| state.resource_revision);
+
+        mux.close_terminal_with_mutation(
+            &host.terminal_id,
+            Some(&host.incarnation),
+            None,
+            None,
+            &WorkspaceMutation::new("close-focused-screen", "test").unwrap(),
+        )
+        .unwrap();
+
+        let batches = mux.resource_events_after(before_revision).unwrap().batches;
+        assert_eq!(batches.len(), 1);
+        let changes = batches[0].changes.as_array().unwrap();
+        assert!(changes.iter().any(|change| {
+            change["kind"] == "upsert"
+                && change["resource"] == "screen"
+                && change["id"] == sibling_screen_id
+                && change["value"]["focused"] == true
+        }));
+        mux.shutdown();
+    }
+
+    #[test]
     fn persistent_mux_restart_restores_auxiliary_resources_and_exact_replay() {
         let root = std::env::temp_dir().join(format!(
             "cmux-resource-auxiliary-restart-{}",
