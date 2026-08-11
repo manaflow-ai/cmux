@@ -44,7 +44,7 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(resolved.workingDirectory == "/request")
         #expect(resolved.command == "printf '%s' '$HOME'")
         #expect(resolved.arguments == nil)
-        #expect(resolved.initialInput == "runtime-input")
+        #expect(resolved.initialInput == "runtime-inputrequest-input")
         #expect(resolved.environment["TERM"] == "xterm-256color")
         #expect(resolved.environment["BASE"] == "additional")
         #expect(resolved.environment["OVERRIDE"] == "override")
