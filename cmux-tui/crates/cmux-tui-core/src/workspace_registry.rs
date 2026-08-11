@@ -2795,11 +2795,7 @@ fn create_reset_exclusive_rename_probe_entry(
             libc::openat(
                 parent_fd,
                 c_name.as_ptr(),
-                libc::O_WRONLY
-                    | libc::O_CREAT
-                    | libc::O_EXCL
-                    | libc::O_CLOEXEC
-                    | libc::O_NOFOLLOW,
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
                 0o600,
             )
         };
@@ -2809,8 +2805,9 @@ fn create_reset_exclusive_rename_probe_entry(
         }
         let error = std::io::Error::last_os_error();
         if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error)
-                .with_context(|| format!("create reset capability probe {}", display_path.display()));
+            return Err(error).with_context(|| {
+                format!("create reset capability probe {}", display_path.display())
+            });
         }
     };
     let metadata = match file.metadata() {
@@ -2831,18 +2828,13 @@ fn create_reset_exclusive_rename_probe_entry(
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-fn checked_reset_exclusive_rename_supported(
-    parent_fd: std::os::fd::RawFd,
-    root: &Path,
-) -> bool {
+fn checked_reset_exclusive_rename_supported(parent_fd: std::os::fd::RawFd, root: &Path) -> bool {
     let Ok(probe_id) = try_new_uuid_v4() else {
         return false;
     };
     let mut cleanup = ResetExclusiveRenameProbeCleanup { parent_fd, entries: Vec::new() };
     for suffix in ["source", "target"] {
-        let name = std::ffi::OsString::from(format!(
-            ".cmux-reset-capability-{probe_id}-{suffix}"
-        ));
+        let name = std::ffi::OsString::from(format!(".cmux-reset-capability-{probe_id}-{suffix}"));
         let Ok(entry) = create_reset_exclusive_rename_probe_entry(parent_fd, name, root) else {
             return false;
         };

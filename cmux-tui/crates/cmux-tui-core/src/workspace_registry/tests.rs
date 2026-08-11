@@ -489,9 +489,9 @@ fn reset_exclusive_rename_probe_rejects_blocked_syscalls() {
         libc::EEXIST
     )));
     for error_code in [libc::ENOSYS, libc::EPERM, libc::EINVAL, libc::ENOTSUP] {
-        assert!(!reset_exclusive_rename_probe_error_supported(
-            &std::io::Error::from_raw_os_error(error_code)
-        ));
+        assert!(!reset_exclusive_rename_probe_error_supported(&std::io::Error::from_raw_os_error(
+            error_code
+        )));
     }
 }
 
