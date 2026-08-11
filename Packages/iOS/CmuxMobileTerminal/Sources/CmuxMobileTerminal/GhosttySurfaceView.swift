@@ -1002,7 +1002,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
         guard let transition = MobileKeyboardTransition(notification: notification) else { return }
+        #if DEBUG
+        let willBeVisible = keyboardHeightOverrideForTesting.map { $0 > 0 }
+            ?? transition.isVisible(in: self)
+        #else
         let willBeVisible = transition.isVisible(in: self)
+        #endif
         let wasVisible = keyboardVisible
         #if DEBUG
         // The composer-up/keyboard-down desync can be reached WITHOUT the dismiss
@@ -1054,6 +1059,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         durationOverride: TimeInterval?
     ) {
         let owner = bottomDockHostView ?? self
+        #if DEBUG
+        if let keyboardHeightOverrideForTesting {
+            keyboardHeight = max(0, keyboardHeightOverrideForTesting)
+            bottomDockTransitionObserved = false
+            updateNotificationDrivenDockConstraint()
+            setNeedsGeometrySync()
+            setNeedsLayout()
+            return
+        }
+        #endif
         let targetOverlap = transition.overlap(in: owner)
         let animationDuration = durationOverride ?? transition.duration
 

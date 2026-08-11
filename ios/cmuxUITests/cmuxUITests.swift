@@ -7990,8 +7990,8 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// Verify the built app's two-part keyboard contract at steady state:
-    /// UIKit's keyboard guide resolves to the real software-keyboard edge, and the
-    /// visible composer/toolbar stack resolves to that same guide edge.
+    /// the OS-selected geometry source resolves to the real software-keyboard edge,
+    /// and the visible composer/toolbar stack resolves to that same target.
     @MainActor
     private func assertTerminalDockPinnedToSoftwareKeyboard(
         _ dock: [String: String],
@@ -8001,12 +8001,12 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init),
+        guard let source = dock["keyboardDockSource"],
               let composerMinY = dock["composerMinY"].flatMap(Double.init),
               let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
               let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
             XCTFail(
-                "Missing keyboard-guide dock geometry for \(context). dock=\(dock)",
+                "Missing keyboard dock geometry for \(context). dock=\(dock)",
                 file: file,
                 line: line
             )
@@ -8014,19 +8014,49 @@ final class cmuxUITests: XCTestCase {
         }
 
         let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
+        let targetTop: Double
+        switch source {
+        case "notification":
+            guard let notificationTop = dock["keyboardDockTargetTop"].flatMap(Double.init) else {
+                XCTFail(
+                    "Missing notification keyboard target for \(context). dock=\(dock)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
+            targetTop = notificationTop
+        case "layoutGuide":
+            guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init) else {
+                XCTFail(
+                    "Missing keyboard-guide target for \(context). dock=\(dock)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
+            targetTop = guideTop
+        default:
+            XCTFail(
+                "Unknown keyboard dock source for \(context). dock=\(dock)",
+                file: file,
+                line: line
+            )
+            return
+        }
         XCTAssertEqual(
             dockEdge,
-            guideTop,
+            targetTop,
             accuracy: 1,
-            "Dock must terminate at UIKeyboardLayoutGuide.topAnchor for \(context). dock=\(dock)",
+            "Dock must terminate at its selected keyboard target for \(context). dock=\(dock)",
             file: file,
             line: line
         )
         XCTAssertEqual(
-            Double(surface.frame.minY) + guideTop,
+            Double(surface.frame.minY) + targetTop,
             Double(keyboard.frame.minY),
             accuracy: 2,
-            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge for "
+            "Selected keyboard geometry must resolve to the visible keyboard edge for "
                 + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
