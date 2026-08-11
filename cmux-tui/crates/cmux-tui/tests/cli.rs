@@ -1183,7 +1183,8 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
         .expect("load sidebar terminal-host record");
     let used_durable_host = !records.is_empty();
-    let owned_pids = [plugin_pid];
+    let mut owned_pids = vec![plugin_pid];
+    owned_pids.extend(records.iter().map(|(_, record)| record.host_pid));
     let owned_process_exits = owned_pids
         .iter()
         .copied()
@@ -1202,18 +1203,16 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let process_exits_published = owned_process_exits.iter().all(|process_exit| {
         process_exit.wait_until(shutdown_deadline).expect("wait for server-owned process exit")
     });
-    // The configured plugin is one direct /bin/cat process. Its kernel exit
-    // event is therefore the complete owner-process lifecycle signal.
+    // The successful fixture has no durable host and one direct /bin/cat
+    // process. Unexpected durable hosts stay in this result and fail below.
     let owned_processes_stopped = process_exits_published
         && owned_pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid));
 
     // Keep lifecycle regressions leak-free. Every captured process group and
     // record belongs to this fixture's private state root.
     if !owned_processes_stopped || used_durable_host {
-        for pid in
-            owned_pids.iter().copied().chain(records.iter().map(|(_, record)| record.host_pid))
-        {
-            signal_test_process_group(pid, libc::SIGKILL);
+        for pid in &owned_pids {
+            signal_test_process_group(*pid, libc::SIGKILL);
         }
         for (record_path, record) in &records {
             let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(

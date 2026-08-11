@@ -1106,13 +1106,13 @@ mod tests {
             attempt: 0,
         };
         let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
-        let (exit_code, error) = std::thread::scope(|scope| {
+        let ((exit_code, error), delivery_timed_out) = std::thread::scope(|scope| {
             let (result_tx, result_rx) = mpsc::sync_channel(1);
             scope.spawn(move || {
                 let _ = result_tx.send(execute_delivery(&delivery, &attempt));
             });
             match result_rx.recv_timeout(Duration::from_secs(2)) {
-                Ok(result) => result,
+                Ok(result) => (result, false),
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     if let Ok(process_group) = std::fs::read_to_string(&hook_group_pid_path)
                         .and_then(|pid| {
@@ -1125,9 +1125,12 @@ mod tests {
                             libc::kill(-process_group, libc::SIGKILL);
                         }
                     }
-                    result_rx
-                        .recv_timeout(Duration::from_secs(1))
-                        .expect("hook delivery did not stop after failure cleanup")
+                    (
+                        result_rx
+                            .recv_timeout(Duration::from_secs(1))
+                            .expect("hook delivery did not stop after failure cleanup"),
+                        true,
+                    )
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
                     panic!("hook delivery worker stopped without a result")
@@ -1151,6 +1154,7 @@ mod tests {
 
         assert_eq!(exit_code, Some(0), "{error:?}");
         assert_eq!(error, None);
+        assert!(!delivery_timed_out, "hook delivery needed failure cleanup");
         assert!(child_stopped, "hook process-group cleanup left its stdin holder alive");
     }
 
