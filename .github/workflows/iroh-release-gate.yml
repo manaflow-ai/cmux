@@ -56,6 +56,13 @@ jobs:
 
   simulator-e2e:
     needs: tailscale-version-skew
+    env:
+      # The app gates compile optimized Swift for both endpoints. Xcode 26's
+      # AArch64 GlobalISel path is not reliable for that exact build shape, so
+      # use the same supported workaround as tagged cloud reloads and streamed
+      # validation instead of allowing a compiler failure to masquerade as a
+      # transport verdict.
+      CMUX_SWIFT_FRONTEND_WORKAROUND: "1"
     strategy:
       fail-fast: false
       matrix:
