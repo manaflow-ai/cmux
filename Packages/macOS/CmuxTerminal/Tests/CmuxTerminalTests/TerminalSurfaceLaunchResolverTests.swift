@@ -764,6 +764,53 @@ struct TerminalSurfaceLaunchResolverTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func stalledCommandShimRemovalKeepsTheProcessRemovalLaneOccupied() async throws {
+        let firstShims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/stalled-command-shims",
+            shims: []
+        )
+        let secondShims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/queued-command-shims",
+            shims: []
+        )
+        let clock = LaunchResolverManualClock()
+        let lane = TerminalSurfaceAgentCommandShimRemovalLane()
+        let remover = NoncooperativeCommandShimRemover()
+        let failures = CommandShimRemovalRecorder(failuresBeforeSuccess: 0)
+        let firstState = TerminalSurfaceAgentCommandShimLeaseState(
+            shims: firstShims,
+            removalAttemptLimit: 1,
+            removalAttemptTimeout: .seconds(5),
+            removalLane: lane,
+            remove: { shims in await remover.remove(shims) },
+            reportRemovalFailure: { shims, errorDescription in
+                failures.recordFailure(shims, errorDescription: errorDescription)
+            }
+        )
+        let secondState = TerminalSurfaceAgentCommandShimLeaseState(
+            shims: secondShims,
+            removalAttemptLimit: 3,
+            removalAttemptTimeout: .seconds(5),
+            removalLane: lane,
+            remove: { shims in await remover.remove(shims) },
+            reportRemovalFailure: { shims, errorDescription in
+                failures.recordFailure(shims, errorDescription: errorDescription)
+            }
+        )
+
+        let firstRelease = Task { await firstState.release(removalClock: clock) }
+        await remover.waitUntilBlocked()
+        try await clock.waitUntilSleepers()
+        clock.advance(by: .seconds(5))
+        #expect(!(await firstRelease.value))
+
+        #expect(!(await secondState.release(removalClock: clock)))
+        #expect(await remover.invocationCount == 1)
+
+        await remover.complete()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func lateCommandShimCleanupRetriesThroughInjectedClock() async throws {
         let shims = TerminalSurfaceAgentCommandShimSet(
             directoryPath: "/tmp/late-command-shims",
@@ -907,6 +954,35 @@ private actor BlockingCommandShimInstaller {
 
     func complete(with result: TerminalSurfaceAgentCommandShimSet? = nil) {
         completion?.resume(returning: result)
+        completion = nil
+    }
+}
+
+private actor NoncooperativeCommandShimRemover {
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var completion: CheckedContinuation<Void, Never>?
+    private(set) var invocationCount = 0
+
+    func remove(_ shims: TerminalSurfaceAgentCommandShimSet) async {
+        _ = shims
+        invocationCount += 1
+        await withCheckedContinuation { continuation in
+            completion = continuation
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+        }
+    }
+
+    func waitUntilBlocked() async {
+        guard completion == nil else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func complete() {
+        completion?.resume()
         completion = nil
     }
 }

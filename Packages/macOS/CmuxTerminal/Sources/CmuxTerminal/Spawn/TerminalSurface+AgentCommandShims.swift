@@ -1,79 +1,11 @@
 public import Foundation
 public import CmuxTerminalCore
-internal import Darwin
 internal import os
 
 private let terminalSurfacePartialShimRemovalAttemptLimit = 3
-private let terminalSurfaceStaleShimMinimumAge: TimeInterval = 60
-private let terminalSurfaceStaleShimMaximumEntryCount = 64
-private let terminalSurfaceStaleShimRescanInterval: TimeInterval = 60
-
-final class TerminalSurfaceAgentCommandShimStaleCleanupOwner: @unchecked Sendable {
-    private struct State {
-        var enumerators: [String: FileManager.DirectoryEnumerator] = [:]
-        var nextScanDates: [String: Date] = [:]
-    }
-
-    private let state = OSAllocatedUnfairLock(initialState: State())
-
-    func nextBatch(
-        in parentDirectory: URL,
-        maximumEntryCount: Int,
-        now: Date,
-        rescanInterval: TimeInterval,
-        isCancelled: () -> Bool,
-        fileManager: FileManager
-    ) -> [URL] {
-        guard maximumEntryCount > 0, !isCancelled() else { return [] }
-        let path = parentDirectory.standardizedFileURL.path
-        return state.withLock { state in
-            if let nextScanDate = state.nextScanDates[path], nextScanDate > now {
-                return []
-            }
-            state.nextScanDates[path] = nil
-            let enumerator: FileManager.DirectoryEnumerator
-            if let active = state.enumerators[path] {
-                enumerator = active
-            } else if let created = fileManager.enumerator(
-                at: parentDirectory,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
-                errorHandler: nil
-            ) {
-                enumerator = created
-                state.enumerators[path] = created
-            } else {
-                state.nextScanDates[path] = now.addingTimeInterval(rescanInterval)
-                return []
-            }
-
-            var entries: [URL] = []
-            var inspectedEntryCount = 0
-            while inspectedEntryCount < maximumEntryCount, !isCancelled() {
-                guard let entry = enumerator.nextObject() else {
-                    state.enumerators[path] = nil
-                    state.nextScanDates[path] = now.addingTimeInterval(rescanInterval)
-                    break
-                }
-                inspectedEntryCount += 1
-                if let entry = entry as? URL { entries.append(entry) }
-            }
-            return entries
-        }
-    }
-}
-
-private let terminalSurfaceAgentCommandShimStaleCleanupOwner =
-    TerminalSurfaceAgentCommandShimStaleCleanupOwner()
-
-private func terminalSurfaceProcessIsAlive(_ processID: pid_t) -> Bool {
-    guard processID > 0 else { return false }
-    if Darwin.kill(processID, 0) == 0 { return true }
-    return errno != ESRCH
-}
 
 extension TerminalSurface {
-    /// Writes every available bundled agent wrapper shim into one per-install directory.
+    /// Writes every available bundled agent wrapper shim into one per-surface directory.
     ///
     /// Adding an agent to ``TerminalSurfaceAgentCommandShimDefinition/bundled``
     /// automatically gives it the same lifecycle, permissions, `PATH`, bundle-
@@ -173,12 +105,8 @@ extension TerminalSurface {
         let shimParentDirectory = temporaryDirectory
             .appendingPathComponent("cmux-cli-shims", isDirectory: true)
             .standardizedFileURL
-        let ownerProcessID = ProcessInfo.processInfo.processIdentifier
         let shimDirectory = shimParentDirectory
-            .appendingPathComponent(
-                "v1-p\(ownerProcessID)-\(surfaceId.uuidString)-\(UUID().uuidString)",
-                isDirectory: true
-            )
+            .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
             .standardizedFileURL
         guard !isCancelled() else { return nil }
         var removeShimDirectoryOnExit = false
@@ -198,19 +126,6 @@ extension TerminalSurface {
             try fileManager.setAttributes(
                 [.posixPermissions: 0o700],
                 ofItemAtPath: shimParentDirectory.path
-            )
-            removeStaleAgentCommandShimDirectories(
-                in: shimParentDirectory,
-                ownerProcessID: ownerProcessID,
-                ownerUserID: geteuid(),
-                now: .now,
-                minimumAge: terminalSurfaceStaleShimMinimumAge,
-                maximumEntryCount: terminalSurfaceStaleShimMaximumEntryCount,
-                rescanInterval: terminalSurfaceStaleShimRescanInterval,
-                isCancelled: isCancelled,
-                isProcessAlive: terminalSurfaceProcessIsAlive,
-                cleanupOwner: terminalSurfaceAgentCommandShimStaleCleanupOwner,
-                fileManager: fileManager
             )
             var isDirectory: ObjCBool = false
             if fileManager.fileExists(
@@ -270,71 +185,6 @@ extension TerminalSurface {
         )
         removeShimDirectoryOnExit = false
         return shimSet
-    }
-
-    static func removeStaleAgentCommandShimDirectories(
-        in shimParentDirectory: URL,
-        ownerProcessID: pid_t,
-        ownerUserID: uid_t,
-        now: Date,
-        minimumAge: TimeInterval,
-        maximumEntryCount: Int,
-        rescanInterval: TimeInterval,
-        isCancelled: () -> Bool,
-        isProcessAlive: (pid_t) -> Bool,
-        cleanupOwner: TerminalSurfaceAgentCommandShimStaleCleanupOwner,
-        fileManager: FileManager
-    ) {
-        let parentDirectory = shimParentDirectory.standardizedFileURL
-        let entries = cleanupOwner.nextBatch(
-            in: parentDirectory,
-            maximumEntryCount: maximumEntryCount,
-            now: now,
-            rescanInterval: rescanInterval,
-            isCancelled: isCancelled,
-            fileManager: fileManager
-        )
-        for entry in entries {
-            guard !isCancelled() else { return }
-            let candidate = entry.standardizedFileURL
-            guard candidate.deletingLastPathComponent() == parentDirectory,
-                  let processID = agentCommandShimOwnerProcessID(
-                      fromDirectoryName: candidate.lastPathComponent
-                  ),
-                  processID != ownerProcessID,
-                  !isProcessAlive(processID),
-                  let attributes = try? fileManager.attributesOfItem(atPath: candidate.path),
-                  attributes[.type] as? FileAttributeType == .typeDirectory,
-                  let accountID = attributes[.ownerAccountID] as? NSNumber,
-                  accountID.uint32Value == ownerUserID,
-                  let modificationDate = attributes[.modificationDate] as? Date,
-                  now.timeIntervalSince(modificationDate) >= minimumAge
-            else { continue }
-
-            removeAgentCommandShimDirectory(candidate, fileManager: fileManager)
-        }
-    }
-
-    private static func agentCommandShimOwnerProcessID(
-        fromDirectoryName directoryName: String
-    ) -> pid_t? {
-        let prefix = "v1-p"
-        guard directoryName.hasPrefix(prefix) else { return nil }
-        let suffix = directoryName.dropFirst(prefix.count)
-        guard let processSeparator = suffix.firstIndex(of: "-") else { return nil }
-        let processIDText = suffix[..<processSeparator]
-        guard let processID = pid_t(processIDText), processID > 0 else { return nil }
-
-        let identityStart = suffix.index(after: processSeparator)
-        let identity = suffix[identityStart...]
-        guard identity.count == 73 else { return nil }
-        let surfaceEnd = identity.index(identity.startIndex, offsetBy: 36)
-        guard identity[surfaceEnd] == "-" else { return nil }
-        let generationStart = identity.index(after: surfaceEnd)
-        guard UUID(uuidString: String(identity[..<surfaceEnd])) != nil,
-              UUID(uuidString: String(identity[generationStart...])) != nil
-        else { return nil }
-        return processID
     }
 
     private static func removeAgentCommandShimDirectory(

@@ -13,6 +13,23 @@ private struct TerminalSurfaceShimRemovalError: Error, CustomStringConvertible {
     let isTimeout: Bool
 }
 
+actor TerminalSurfaceAgentCommandShimRemovalLane {
+    private var isOccupied = false
+
+    func claim() -> Bool {
+        guard !isOccupied else { return false }
+        isOccupied = true
+        return true
+    }
+
+    func release() {
+        isOccupied = false
+    }
+}
+
+let terminalSurfaceAgentCommandShimRemovalLane =
+    TerminalSurfaceAgentCommandShimRemovalLane()
+
 private actor TerminalSurfaceShimRemovalRace {
     private var outcome: TerminalSurfaceShimRemovalOutcome?
     private var waiter: CheckedContinuation<TerminalSurfaceShimRemovalOutcome, Never>?
@@ -36,6 +53,7 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
     private var removalTimedOut = false
     private let removalAttemptLimit: Int
     private let removalAttemptTimeout: Duration
+    private let removalLane: TerminalSurfaceAgentCommandShimRemovalLane
     private let remove: @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
     private let reportRemovalFailure:
         @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
@@ -46,6 +64,8 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
         shims: TerminalSurfaceAgentCommandShimSet,
         removalAttemptLimit: Int,
         removalAttemptTimeout: Duration = .seconds(5),
+        removalLane: TerminalSurfaceAgentCommandShimRemovalLane =
+            terminalSurfaceAgentCommandShimRemovalLane,
         remove: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void,
         reportRemovalFailure:
             @escaping @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
@@ -55,6 +75,7 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
         self.shims = shims
         self.removalAttemptLimit = removalAttemptLimit
         self.removalAttemptTimeout = removalAttemptTimeout
+        self.removalLane = removalLane
         self.remove = remove
         self.reportRemovalFailure = reportRemovalFailure
     }
@@ -70,6 +91,7 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
             let remove = remove
             let removalAttemptLimit = removalAttemptLimit
             let removalAttemptTimeout = removalAttemptTimeout
+            let removalLane = removalLane
             let task = Task.detached(priority: .utility) {
                 var lastError: (any Error)?
                 for _ in 0..<removalAttemptLimit {
@@ -78,6 +100,7 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
                             shims,
                             deadline: removalAttemptTimeout,
                             clock: removalClock,
+                            removalLane: removalLane,
                             operation: remove
                         )
                         return
@@ -118,14 +141,31 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
         _ shims: TerminalSurfaceAgentCommandShimSet,
         deadline: Duration,
         clock: any Clock<Duration>,
+        removalLane: TerminalSurfaceAgentCommandShimRemovalLane,
         operation: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
     ) async throws {
+        try Task.checkCancellation()
+        guard await removalLane.claim() else {
+            throw TerminalSurfaceShimRemovalError(
+                description: "command shim removal lane is occupied",
+                isTimeout: false
+            )
+        }
+        do {
+            try Task.checkCancellation()
+        } catch {
+            await removalLane.release()
+            throw error
+        }
+
         let race = TerminalSurfaceShimRemovalRace()
         let removalTask = Task.detached(priority: .utility) {
             do {
                 try await operation(shims)
+                await removalLane.release()
                 await race.resolve(.success)
             } catch {
+                await removalLane.release()
                 await race.resolve(.failure(String(reflecting: error)))
             }
         }
