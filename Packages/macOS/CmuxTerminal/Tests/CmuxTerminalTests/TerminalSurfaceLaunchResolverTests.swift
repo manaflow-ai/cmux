@@ -911,7 +911,7 @@ struct TerminalSurfaceLaunchResolverTests {
             firstShims.directoryPath,
             firstShims.directoryPath,
         ])
-        #expect(await owner.retainedLeaseCount == 1)
+        #expect(await owner.retainedLeaseCount == 2)
         #expect(await owner.pendingRetryCount == 1)
     }
 

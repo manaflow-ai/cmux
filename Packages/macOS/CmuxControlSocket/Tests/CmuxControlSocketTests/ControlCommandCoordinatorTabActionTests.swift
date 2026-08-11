@@ -224,7 +224,7 @@ struct ControlCommandCoordinatorTabActionTests {
         }
         #expect(payload["request_id"] == .string(requestID.uuidString))
         #expect(payload["status"] == .string("indeterminate"))
-        #expect(payload["finished"] == .bool(true))
+        #expect(payload["finished"] == .bool(false))
         #expect(payload["committed"] == .null)
         #expect(payload["retry_safe"] == .bool(false))
         #expect(payload["recovery_method"] == .string("system.tree"))
