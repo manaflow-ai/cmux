@@ -617,7 +617,7 @@ fn run_controller(values: &[String]) -> Result<()> {
             .context("preflight ARM deadline expired")?;
         supervisor_stream.set_write_timeout(Some(write_timeout))?;
         write_control_line(&mut supervisor_stream, &arm_line(&nonce))?;
-        supervisor_stream.shutdown(std::net::Shutdown::Both)?;
+        drop(supervisor_stream);
 
         let inbound_probe: InboundProbeEvidence =
             serde_json::from_slice(&events.product_line("inbound-network probe evidence")?)

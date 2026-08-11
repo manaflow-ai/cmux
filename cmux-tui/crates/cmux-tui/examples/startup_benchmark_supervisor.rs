@@ -85,7 +85,6 @@ fn run_inner(launch: Launch) -> Result<()> {
     if arm != arm_line(&launch.nonce).trim_end() {
         bail!("control ARM identity mismatch");
     }
-    control.shutdown(std::net::Shutdown::Both)?;
     drop(control);
 
     let mut command = Command::new(&launch.target);
@@ -1001,7 +1000,6 @@ mod platform {
             if arm != arm_line(&launch.nonce).trim_end() {
                 bail!("control ARM identity mismatch");
             }
-            control.shutdown(std::net::Shutdown::Both)?;
             drop(control);
             bootstrap.arm_and_wait(&launch.nonce, launch.prove_private_job)
         })();
