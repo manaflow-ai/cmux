@@ -3021,6 +3021,12 @@ impl Mux {
             terminal_id,
             Some(terminal_incarnation),
         );
+        let mut cleanup_public_ids = vec![terminal_public_id.clone()];
+        for catalog_public_id in catalog_public_ids.iter().cloned() {
+            if !cleanup_public_ids.contains(&catalog_public_id) {
+                cleanup_public_ids.push(catalog_public_id);
+            }
+        }
         let runtime = state.terminal_catalog.get(terminal_public_id).or_else(|| {
             catalog_public_ids.iter().find_map(|public_id| state.terminal_catalog.get(public_id))
         });
@@ -3034,22 +3040,31 @@ impl Mux {
             );
         }
         let has_runtime = runtime.is_some();
-        let targets = terminal_content_placements(
-            self,
-            state,
-            terminal_public_id,
-            Some((terminal_id, Some(terminal_incarnation))),
-        );
+        let mut targets = cleanup_public_ids
+            .iter()
+            .flat_map(|public_id| {
+                terminal_content_placements(
+                    self,
+                    state,
+                    public_id,
+                    Some((terminal_id, Some(terminal_incarnation))),
+                )
+            })
+            .collect::<Vec<_>>();
+        targets.sort_unstable();
+        targets.dedup();
         if targets.is_empty() && !has_runtime {
             return Ok(None);
         }
-        let durable_host = registry
-            .terminal_host_id(terminal_public_id)?
-            .with_context(|| format!("terminal {terminal_public_id} has no durable host"))?;
-        anyhow::ensure!(
-            durable_host == terminal_id,
-            "terminal exit identity changed before detach"
-        );
+        for public_id in &cleanup_public_ids {
+            let durable_host = registry
+                .terminal_host_id(public_id)?
+                .with_context(|| format!("terminal {public_id} has no durable host"))?;
+            anyhow::ensure!(
+                durable_host == terminal_id,
+                "terminal exit identity changed before detach"
+            );
+        }
         let tab_ids =
             targets
                 .iter()
@@ -3063,12 +3078,6 @@ impl Mux {
             targets.iter().filter_map(|target| surface_screen_id(state, *target)),
         );
         let selection_before = active_tree_selection(state);
-        let mut cleanup_public_ids = vec![terminal_public_id.clone()];
-        for catalog_public_id in catalog_public_ids {
-            if !cleanup_public_ids.contains(&catalog_public_id) {
-                cleanup_public_ids.push(catalog_public_id);
-            }
-        }
         let terminal_hosts = vec![(terminal_id.to_string(), Some(terminal_incarnation.to_owned()))];
         let terminal_indexes = TerminalIndexProjection::capture(
             self,
