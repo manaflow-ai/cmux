@@ -156,21 +156,21 @@ final class TerminalPasteboardTransactionLane: @unchecked Sendable {
             if !isIdle,
                coalescible,
                state.entries.last?.isCoalescibleMutation == true {
-                let replacedBytes = state.entries.last?.retainedBytes ?? 0
+                state.retainedMutationBytes -= state.entries.removeLast().retainedBytes
                 guard retainedBytes <= maximumQueuedWriteBytes,
-                      state.retainedMutationBytes - replacedBytes
+                      state.retainedMutationBytes
                         <= maximumQueuedWriteBytes - retainedBytes else {
                     return .rejected
                 }
-                state.entries[state.entries.count - 1] = .mutation(
+                state.entries.append(.mutation(
                     id: id,
                     mutation: mutation,
                     lease: nil,
                     retainedBytes: retainedBytes,
                     coalescible: true,
                     isRestoration: false
-                )
-                state.retainedMutationBytes += retainedBytes - replacedBytes
+                ))
+                state.retainedMutationBytes += retainedBytes
                 return .admitted(shouldDrain: false)
             }
 
