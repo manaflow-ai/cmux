@@ -1502,18 +1502,35 @@ fn parse_projection(
                 "frontend_projection",
                 "projection",
             )?;
-            let mut params = Map::new();
-            params.insert("projection".into(), parse_json_flag(flags, "projection")?);
+            let params = projection_put_fields(flags)?;
             request(ResourceOperation::FrontendProjectionPut, selectors, flags, params)
         }
         [selector, "put"] => {
             selectors.insert("frontend_projection", "projection", selector)?;
-            let mut params = Map::new();
-            params.insert("projection".into(), parse_json_flag(flags, "projection")?);
+            let params = projection_put_fields(flags)?;
             request(ResourceOperation::FrontendProjectionPut, selectors, flags, params)
         }
         _ => usage("projection action"),
     }
+}
+
+fn projection_put_fields(flags: &mut Flags) -> Result<Map<String, Value>, UsageError> {
+    let mut params = Map::new();
+    params.insert("projection".into(), parse_json_flag(flags, "projection")?);
+    for (flag, field) in
+        [("frontend-id", "frontend_id"), ("window-id", "window_id"), ("generation", "generation")]
+    {
+        let value = flags.required(flag)?;
+        if value.is_empty() || value.len() > 128 {
+            return Err(UsageError::new(format!("--{flag} must contain 1 to 128 UTF-8 bytes")));
+        }
+        params.insert(field.into(), Value::String(value));
+    }
+    if let Some(revision) = flags.take("expected-projection-revision") {
+        validate_decimal("--expected-projection-revision", &revision)?;
+        params.insert("expected_projection_revision".into(), Value::String(revision));
+    }
+    Ok(params)
 }
 
 fn parse_provider(
@@ -3371,7 +3388,7 @@ mod tests {
                     "session",
                     SESSION,
                     "journal",
-                    "subscribe",
+                    "read",
                     "--from",
                     "beginning",
                     "--kinds",
@@ -3518,7 +3535,21 @@ mod tests {
             (vec!["pairing", "request", PAIRING, "respond", "accept"], "pairing_request.resolve"),
             (vec!["projection", PROJECTION, "show"], "frontend_projection.get"),
             (
-                vec!["projection", PROJECTION, "put", "--projection", "{\"sidebar\":\"compact\"}"],
+                vec![
+                    "projection",
+                    PROJECTION,
+                    "put",
+                    "--projection",
+                    "{\"sidebar\":\"compact\"}",
+                    "--frontend-id",
+                    "cmux-cli",
+                    "--window-id",
+                    "window-1",
+                    "--generation",
+                    "launch-1",
+                    "--expected-projection-revision",
+                    "7",
+                ],
                 "frontend_projection.put",
             ),
             (vec!["workspace", "list"], "workspace.list"),
