@@ -456,6 +456,14 @@ struct TaskComposerSheet: View {
 
     private func restartModelRefresh() {
         modelRefreshTask?.cancel()
+#if DEBUG
+        print(
+            "CMUX_TASK_MODEL refresh.restart provider=\(modelRefreshID.provider?.rawValue ?? "nil") "
+                + "selected=\(selectedMacDeviceID)#\(selectedMacInstanceTag ?? "nil") "
+                + "connected=\(store.connectedMacDeviceID ?? "nil")#\(store.connectedMacInstanceTag ?? "nil") "
+                + "capable=\(modelRefreshID.supportsHostDiscovery)"
+        )
+#endif
         guard let provider = modelRefreshID.provider,
               !selectedMacDeviceID.isEmpty else {
             displayedModels = []

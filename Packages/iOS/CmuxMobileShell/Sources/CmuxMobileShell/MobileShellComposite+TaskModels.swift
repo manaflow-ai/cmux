@@ -87,25 +87,52 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async throws -> MobileTaskModelListResult {
+#if DEBUG
+        print(
+            "CMUX_TASK_MODEL fetch.begin provider=\(provider.rawValue) requested=\(macDeviceID)#\(instanceTag ?? "nil") "
+                + "foreground=\(foregroundMacDeviceID ?? "nil")#\(activeMacInstanceTag ?? "nil") "
+                + "state=\(String(describing: connectionState)) client=\(remoteClient != nil) "
+                + "matches=\(matchesForegroundPairing(macDeviceID: macDeviceID, instanceTag: instanceTag))"
+        )
+#endif
         if !matchesForegroundPairing(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ) || remoteClient == nil {
-            guard await switchToMac(
+            let switched = await switchToMac(
                 macDeviceID: macDeviceID,
                 instanceTag: instanceTag
-            ) else {
+            )
+#if DEBUG
+            print(
+                "CMUX_TASK_MODEL fetch.switch result=\(switched) requested=\(macDeviceID)#\(instanceTag ?? "nil") "
+                    + "foreground=\(foregroundMacDeviceID ?? "nil")#\(activeMacInstanceTag ?? "nil") "
+                    + "state=\(String(describing: connectionState)) client=\(remoteClient != nil)"
+            )
+#endif
+            guard switched else {
                 throw MobileShellConnectionError.connectionClosed
             }
         }
+        let context = captureWorkspaceCreateContext()
+#if DEBUG
+        print(
+            "CMUX_TASK_MODEL fetch.context cancelled=\(Task.isCancelled) "
+                + "context=\(context?.macDeviceID ?? "nil")#\(context?.instanceTag ?? "nil") "
+                + "requested=\(macDeviceID)#\(instanceTag ?? "nil")"
+        )
+#endif
         guard !Task.isCancelled,
-              let context = captureWorkspaceCreateContext(),
+              let context,
               context.macDeviceID == macDeviceID,
               instanceTag == nil || context.instanceTag == instanceTag else {
             throw MobileShellConnectionError.invalidResponse
         }
 
         do {
+#if DEBUG
+            print("CMUX_TASK_MODEL fetch.send provider=\(provider.rawValue)")
+#endif
             let response = try await context.client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "mobile.task.models.list",
