@@ -38,6 +38,8 @@ struct AuthConfig {
 #[serde(rename_all = "camelCase")]
 struct Endpoints {
     session_url: String,
+    #[serde(default)]
+    organizations_url: Option<String>,
     openai_base_url: String,
 }
 
@@ -71,6 +73,17 @@ struct TeamEnvelope {
 }
 
 #[derive(Deserialize)]
+struct AuthorizedTeamEnvelope {
+    teams: Vec<AuthorizedTeam>,
+}
+
+#[derive(Deserialize)]
+struct AuthorizedTeam {
+    id: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RouteSession {
     token: String,
@@ -97,6 +110,13 @@ pub struct RemoveAccountResult {
 pub struct OpenCodeConfig {
     pub content: String,
     pub models: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Organization {
+    pub id: String,
+    pub name: String,
+    pub current: bool,
 }
 
 pub fn login(no_browser: bool) -> Result<(), Error> {
@@ -306,6 +326,124 @@ pub fn refreshed_config() -> Result<Config, Error> {
     }
     config::save(&current)?;
     Ok(current)
+}
+
+pub fn organizations() -> Result<Vec<Organization>, Error> {
+    let current = refreshed_config()?;
+    let client = client(REQUEST_TIMEOUT)?;
+    let public = load_public_config(&client, &current.api_url)?;
+    let teams = authorized_organizations(&client, &public, &current)?;
+    Ok(teams
+        .into_iter()
+        .map(|team| Organization {
+            current: team.id == current.team_id,
+            id: team.id,
+            name: team.name,
+        })
+        .collect())
+}
+
+pub fn switch_organization(selector: &str) -> Result<Organization, Error> {
+    let selector = selector.trim();
+    if selector.is_empty() {
+        return Err(Error::Usage(
+            "usage: cr org switch <organization-name-or-id>".into(),
+        ));
+    }
+
+    let mut current = refreshed_config()?;
+    let client = client(REQUEST_TIMEOUT)?;
+    let public = load_public_config(&client, &current.api_url)?;
+    let mut organizations = authorized_organizations(&client, &public, &current)?;
+    let matching = if let Some(index) = organizations.iter().position(|team| team.id == selector) {
+        vec![organizations.swap_remove(index)]
+    } else {
+        organizations
+            .into_iter()
+            .filter(|team| team.name.eq_ignore_ascii_case(selector))
+            .collect::<Vec<_>>()
+    };
+    let team = match matching.as_slice() {
+        [] => {
+            return Err(Error::Usage(format!(
+                "organization `{selector}` was not found; run `cr org list`"
+            )));
+        }
+        [team] => team,
+        _ => {
+            return Err(Error::Usage(format!(
+                "organization name `{selector}` is ambiguous; use its ID from `cr org list`"
+            )));
+        }
+    };
+
+    if team.id == current.team_id {
+        return Ok(Organization {
+            id: current.team_id,
+            name: current.team_name,
+            current: true,
+        });
+    }
+
+    // Change the local scope only after the server authorizes the requested
+    // membership and returns a new team-scoped route token.
+    current.team_id.clone_from(&team.id);
+    current.team_name.clone_from(&team.name);
+    let route: RouteSession = response_json(
+        authenticated(client.post(&public.coderouter.session_url), &current)
+            .send()
+            .map_err(network_error("switch coderouter organization"))?,
+        "switch coderouter organization",
+    )?;
+    current.route_token = route.token;
+    current.route_token_expires_at = route.expires_at;
+    current.openai_base_url = if route.openai_base_url.is_empty() {
+        public.coderouter.openai_base_url
+    } else {
+        route.openai_base_url
+    };
+    config::save(&current)?;
+
+    Ok(Organization {
+        id: current.team_id,
+        name: current.team_name,
+        current: true,
+    })
+}
+
+fn authorized_organizations(
+    client: &Client,
+    public: &PublicConfig,
+    current: &Config,
+) -> Result<Vec<AuthorizedTeam>, Error> {
+    if let Some(url) = public.coderouter.organizations_url.as_deref() {
+        let response: AuthorizedTeamEnvelope = response_json(
+            authenticated(client.get(url), current)
+                .send()
+                .map_err(network_error("list coderouter organizations"))?,
+            "list coderouter organizations",
+        )?;
+        return Ok(response.teams);
+    }
+
+    // Version 3 self-hosts predate permission-filtered organization discovery.
+    // Their Stack team list remains the compatibility source.
+    let teams: TeamEnvelope = stack_json(
+        client,
+        &public.auth,
+        "GET",
+        "/teams?user_id=me",
+        Some(&current.stack_access_token),
+        None,
+    )?;
+    Ok(teams
+        .items
+        .into_iter()
+        .map(|team| AuthorizedTeam {
+            id: team.id,
+            name: team.display_name,
+        })
+        .collect())
 }
 
 pub fn ensure_route_config() -> Result<Config, Error> {

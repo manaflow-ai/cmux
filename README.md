@@ -28,7 +28,15 @@ cr usage                      show quota state
 cr doctor                     diagnose login and the Vercel data plane
 cr login / cr logout          manage this machine's coderouter session
 cr login --device-auth        copy a code into coderouter.dev/authorize
+cr org current                show the active organization
+cr org list                   list authorized coderouter organizations
+cr org switch <name-or-id>    switch organization and routing credentials
+cr upgrade                    open cmux Pro and Team pricing
 ```
+
+Organization switching is fail-closed. The server returns only organizations
+where the signed-in user can use or manage coderouter, and the CLI persists the
+new scope only after receiving a new organization-scoped route token.
 
 The Ratatui add flow supports direct Codex OAuth/PKCE and OpenCode Go device
 authorization. Direct Codex authentication has an explicit portable-PTY

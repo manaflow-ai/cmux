@@ -456,6 +456,137 @@ fn login_accepts_a_one_time_stack_code_without_a_browser() {
 }
 
 #[test]
+fn upgrade_is_a_supported_headless_command() {
+    Command::cargo_bin("cr")
+        .unwrap()
+        .args(["upgrade", "--no-browser"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("Upgrade cmux Pro or Team")
+                .and(predicate::str::contains("https://cmux.com/pricing"))
+                .and(predicate::str::contains("unknown coderouter command").not()),
+        );
+}
+
+#[test]
+fn org_current_reads_the_durable_local_scope() {
+    let root = TempDir::new().unwrap();
+    write_config(&root, "https://coderouter.dev");
+
+    Command::cargo_bin("cr")
+        .unwrap()
+        .args(["org", "current"])
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .assert()
+        .success()
+        .stdout(predicate::eq("coderouter (team-1)\n"));
+}
+
+#[test]
+fn org_switch_authorizes_the_membership_before_persisting_the_new_scope() {
+    let server = MockServer::start(4, |path| match path {
+        "/stack/auth/oauth/token" => json!({
+            "access_token": jwt_with_selected_team("team-1"),
+            "refresh_token": "fresh-refresh"
+        }),
+        "/api/cli/config" => json!({
+            "version": 3,
+            "auth": {
+                "apiUrl": "__BASE__/stack",
+                "projectId": "project",
+                "publishableClientKey": "publishable",
+                "confirmUrl": "__BASE__/confirm"
+            },
+            "coderouter": {
+                "sessionUrl": "__BASE__/api/coderouter/session",
+                "accountsUrl": "__BASE__/api/coderouter/accounts",
+                "openaiBaseUrl": "__BASE__/v1"
+            }
+        }),
+        "/stack/teams?user_id=me" => json!({
+            "items": [
+                { "id": "team-1", "display_name": "coderouter" },
+                { "id": "team-2", "display_name": "Acme" },
+                { "id": "team-3", "display_name": "team-2" }
+            ]
+        }),
+        "/api/coderouter/session" => json!({
+            "token": "route-team-2",
+            "expiresAt": "2026-10-01T00:00:00Z",
+            "openaiBaseUrl": "__BASE__/v1"
+        }),
+        _ => panic!("unexpected path {path}"),
+    });
+    let root = TempDir::new().unwrap();
+    write_config(&root, &server.base_url);
+
+    Command::cargo_bin("cr")
+        .unwrap()
+        .args(["org", "switch", "team-2"])
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .assert()
+        .success()
+        .stdout(predicate::eq("Switched coderouter to Acme (team-2).\n"));
+
+    let config: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.path().join("coderouter/config.json")).unwrap())
+            .unwrap();
+    assert_eq!(config["teamId"], "team-2");
+    assert_eq!(config["teamName"], "Acme");
+    assert_eq!(config["routeToken"], "route-team-2");
+    assert_eq!(config["stackRefreshToken"], "fresh-refresh");
+}
+
+#[test]
+fn org_list_uses_the_server_permission_filtered_organization_catalog() {
+    let server = MockServer::start(3, |path| match path {
+        "/stack/auth/oauth/token" => json!({
+            "access_token": jwt_with_selected_team("team-1"),
+            "refresh_token": "fresh-refresh"
+        }),
+        "/api/cli/config" => json!({
+            "version": 4,
+            "auth": {
+                "apiUrl": "__BASE__/stack",
+                "projectId": "project",
+                "publishableClientKey": "publishable",
+                "confirmUrl": "__BASE__/confirm"
+            },
+            "coderouter": {
+                "sessionUrl": "__BASE__/api/coderouter/session",
+                "accountsUrl": "__BASE__/api/coderouter/accounts",
+                "organizationsUrl": "__BASE__/api/coderouter/organizations",
+                "openaiBaseUrl": "__BASE__/v1"
+            }
+        }),
+        "/api/coderouter/organizations" => json!({
+            "selectedTeamId": "team-1",
+            "teams": [
+                {
+                    "id": "team-1",
+                    "name": "cmux",
+                    "personal": false,
+                    "permissions": { "use": true, "manageAccounts": true }
+                }
+            ]
+        }),
+        _ => panic!("unexpected path {path}"),
+    });
+    let root = TempDir::new().unwrap();
+    write_config(&root, &server.base_url);
+
+    Command::cargo_bin("cr")
+        .unwrap()
+        .args(["org", "list"])
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .assert()
+        .success()
+        .stdout(predicate::eq("*\tcmux\tteam-1\n"))
+        .stdout(predicate::str::contains("workspace").not());
+}
+
+#[test]
 fn idempotent_logout_is_local_and_fast() {
     let root = TempDir::new().unwrap();
     let started = Instant::now();

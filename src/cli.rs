@@ -27,8 +27,12 @@ Usage:
   cr login | logout             Manage this machine's coderouter login
   cr login --server <URL>        Sign in to a self-hosted coderouter server
   cr login --code [code|URL]    Sign in without opening a local browser
+  cr org current                Show the active organization
+  cr org list                   List available organizations
+  cr org switch <name-or-id>    Switch organization and renew routing access
   cr accounts                   List shared subscriptions and usage
   cr usage                      Show subscription usage
+  cr upgrade                    Open cmux pricing
   cr doctor                     Diagnose coderouter
 
 The long command name `coderouter` supports the same interface.
@@ -69,6 +73,8 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
         Some("remove" | "rm") => run_remove(&remaining[1..]),
         Some("login") => run_login(&remaining[1..]),
         Some("logout") => run_logout(&remaining[1..]),
+        Some("org" | "organization" | "team") => run_org(&remaining[1..]),
+        Some("upgrade") => run_upgrade(&remaining[1..]),
         Some("accounts" | "account" | "usage") => run_accounts(&remaining[1..]),
         Some("doctor") => run_doctor(&remaining[1..]),
         Some("codex") => run_routed_codex(&remaining[1..]),
@@ -500,6 +506,59 @@ fn run_logout(rest: &[OsString]) -> Result<i32, Error> {
         return Err(Error::Usage("usage: cr logout".into()));
     }
     control_plane::logout()?;
+    Ok(0)
+}
+
+fn run_org(rest: &[OsString]) -> Result<i32, Error> {
+    let command = rest.first().and_then(|value| value.to_str());
+    match command {
+        None | Some("current" | "status") if rest.len() <= 1 => {
+            let current = crate::config::load()?;
+            if !current.logged_in() {
+                return Err(Error::Usage("not signed in; run `cr login`".into()));
+            }
+            println!("{} ({})", current.team_name, current.team_id);
+            Ok(0)
+        }
+        Some("list" | "ls") if rest.len() == 1 => {
+            for organization in control_plane::organizations()? {
+                println!(
+                    "{}\t{}\t{}",
+                    if organization.current { "*" } else { " " },
+                    organization.name,
+                    organization.id,
+                );
+            }
+            Ok(0)
+        }
+        Some("switch" | "use") if rest.len() == 2 => {
+            let selector = rest[1]
+                .to_str()
+                .ok_or_else(|| Error::Usage("organization must be valid UTF-8".into()))?;
+            let organization = control_plane::switch_organization(selector)?;
+            println!(
+                "Switched coderouter to {} ({}).",
+                organization.name, organization.id
+            );
+            Ok(0)
+        }
+        _ => Err(Error::Usage(
+            "usage: cr org [current|list|switch <organization-name-or-id>]".into(),
+        )),
+    }
+}
+
+fn run_upgrade(rest: &[OsString]) -> Result<i32, Error> {
+    let no_browser = match rest {
+        [] => false,
+        [value] if value.to_str() == Some("--no-browser") => true,
+        _ => return Err(Error::Usage("usage: cr upgrade [--no-browser]".into())),
+    };
+    const PRICING_URL: &str = "https://cmux.com/pricing";
+    println!("Upgrade cmux Pro or Team:\n  {PRICING_URL}");
+    if !no_browser && std::env::var_os("CODEROUTER_NO_BROWSER").is_none() {
+        let _ = webbrowser::open(PRICING_URL);
+    }
     Ok(0)
 }
 
