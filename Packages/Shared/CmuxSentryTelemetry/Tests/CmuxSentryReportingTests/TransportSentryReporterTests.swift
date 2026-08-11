@@ -280,6 +280,7 @@ import os
         #expect(crumbs[0].data["operation"] == "workspaceOpenSucceeded")
 
         let logs = recorder.logs.withLock { $0 }
+        #expect(logs.count == 2)
         #expect(logs[0].attributes["app.event_code"] == "appFeatureAction")
         #expect(logs[0].attributes["app.operation"] == "workspaceOpenSucceeded")
         #expect(logs[1].attributes["app.failure"] == "Timed out")

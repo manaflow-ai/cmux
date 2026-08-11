@@ -46,10 +46,12 @@ import Testing
 
         store.method = .tailscale
 
-        for _ in 0..<100 {
-            if await log.processedCount() >= 1 { break }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 1, clock.now < deadline {
             await Task.yield()
         }
+        #expect(await log.processedCount() >= 1)
         let event = await log.snapshot().events.first
         #expect(event?.a == DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue)
         #expect(event?.c == 1)

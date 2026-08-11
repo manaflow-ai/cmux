@@ -21,10 +21,12 @@ import Testing
         settings.showAltScreenNotice = false
         settings.workspacePreviewLineCount = 1
 
-        for _ in 0..<100 {
-            if await log.processedCount() >= 2 { break }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 2, clock.now < deadline {
             await Task.yield()
         }
+        #expect(await log.processedCount() >= 2)
         let events = await log.snapshot().events
         #expect(events.map(\.a) == [
             DiagnosticAppEventKind.displayAltScreenNoticeChanged.rawValue,

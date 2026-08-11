@@ -53,10 +53,12 @@ import Testing
         composite.removePendingAttachment(id: id, forTerminalID: "term-a")
         composite.addPendingAttachment(Data(), format: "png", forTerminalID: "term-a")
 
-        for _ in 0..<100 {
-            if await log.processedCount() >= 3 { break }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 3, clock.now < deadline {
             await Task.yield()
         }
+        #expect(await log.processedCount() >= 3)
         let report = await log.snapshot()
         #expect(report.events.map(\.a) == [
             DiagnosticAppEventKind.terminalAttachmentStaged.rawValue,

@@ -16,10 +16,12 @@ struct ToastCenterTests {
         center.present(toast)
         center.dismissCurrent()
 
-        for _ in 0..<100 {
-            if await log.processedCount() >= 2 { break }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 2, clock.now < deadline {
             await Task.yield()
         }
+        #expect(await log.processedCount() >= 2)
         let report = await log.snapshot()
         #expect(DiagnosticAppEventKind.toastPresented.rawValue == 537)
         #expect(DiagnosticAppEventKind.toastDismissed.rawValue == 541)

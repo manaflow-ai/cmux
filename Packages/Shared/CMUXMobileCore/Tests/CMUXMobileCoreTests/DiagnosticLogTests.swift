@@ -327,6 +327,21 @@ import os
         #expect(!text.contains(opaqueIdentifier))
     }
 
+    @Test func typedAppEventDetailKeepsCategoricalValuesOutOfTheCountAPI() async {
+        let log = DiagnosticLog(capacity: 2)
+
+        log.recordAppEvent(
+            .terminalShortcutChanged,
+            detail: .toolbarConfigurationAction(.shortcutReordered)
+        )
+
+        await waitForProcessed(log, 1)
+        let report = await log.snapshot()
+        #expect(report.events.count == 1)
+        #expect(report.events[0].a == DiagnosticAppEventKind.terminalShortcutChanged.rawValue)
+        #expect(report.events[0].c == DiagnosticToolbarConfigurationAction.shortcutReordered.rawValue)
+    }
+
     @Test func closeAttributionAndPathEventsExposeTypedPayloads() {
         let close = DiagnosticEvent(
             code: .transportCloseAttribution,
@@ -364,11 +379,18 @@ import os
         #expect(DiagnosticFailureKind.routeGated.rawValue == 25)
         #expect(DiagnosticFailureKind.payloadTooLarge.rawValue == 26)
         #expect(DiagnosticFailureKind.resourceLimitReached.rawValue == 27)
+        #expect(DiagnosticFailureKind.attachmentCountLimitReached.rawValue == 28)
+        #expect(DiagnosticFailureKind.attachmentAggregateSizeLimitReached.rawValue == 29)
+        #expect(DiagnosticFailureKind.localStateUnavailable.rawValue == 30)
+        #expect(DiagnosticAppEventKind.onboardingStageViewed.rawValue == 41)
+        #expect(DiagnosticAppEventKind.fileDiffCacheHit.rawValue == 352)
+        #expect(DiagnosticAppEventKind.photoPickerDismissed.rawValue == 459)
         #expect(DiagnosticAppEventKind.toastPresented.rawValue == 537)
         #expect(DiagnosticAppEventKind.toastDismissed.rawValue == 541)
         #expect(DiagnosticAppEventKind.irohSettingsOpened.rawValue == 610)
         #expect(DiagnosticAppEventKind.verboseDiagnosticsShared.rawValue == 636)
         #expect(DiagnosticAppEventKind.dictationStopTimedOut.rawValue == 659)
+        #expect(DiagnosticAppEventKind.pairedMacStoreWriteStarted.rawValue == 660)
         #expect(DiagnosticSimulatorStreamLifecycle.stopFailed.rawValue == 12)
         #expect(
             Set(DiagnosticAppEventKind.allCases.map(\.rawValue)).count

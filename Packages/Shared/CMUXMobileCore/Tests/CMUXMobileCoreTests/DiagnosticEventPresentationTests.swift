@@ -409,6 +409,18 @@ import Testing
             .init(key: "operation", value: "customToolbarChanged"),
             .init(key: "change", value: "customActionUpdated"),
         ])
+        #expect(englishPresentation.summary(toolbarMutation).contains("Change: customActionUpdated"))
+
+        let unknownToolbarMutation = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.customToolbarChanged.rawValue,
+            c: 999
+        ))
+        #expect(unknownToolbarMutation.fields == [
+            .init(key: "operation", value: "customToolbarChanged"),
+            .init(key: "change", value: "Unknown value (999)"),
+        ])
 
         let searchSelection = englishPresentation.describe(DiagnosticEvent(
             code: .appFeatureAction,
