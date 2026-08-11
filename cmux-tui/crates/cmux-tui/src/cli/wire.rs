@@ -792,4 +792,48 @@ mod tests {
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
     }
+
+    #[test]
+    fn stopped_owner_reload_error_is_localized_for_human_output() {
+        const PROBE_LOCALE: &str = "CMUX_TEST_STOPPED_OWNER_RELOAD_LOCALE";
+        if let Ok(locale) = std::env::var(PROBE_LOCALE) {
+            let plan = RequestPlan {
+                operation: WireOperation::Typed(ResourceOperation::SessionReloadConfig),
+                params: json!({}),
+                idempotency_key: Some("reload-owner-stopped".into()),
+                stream: false,
+            };
+            let mut error = json!({
+                "code":"operation.failed",
+                "message":"owner_stopped",
+                "details":{"operation":"session.reload_config","reason":"owner_stopped"},
+                "retryable":false,
+            });
+
+            localize_operation_error(&plan, &mut error);
+
+            let expected = match locale.as_str() {
+                "en_US.UTF-8" => {
+                    "the local server stopped before it applied the configuration reload; start the session and retry"
+                }
+                "ja_JP.UTF-8" => {
+                    "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを起動して再試行してください"
+                }
+                _ => panic!("unexpected probe locale {locale}"),
+            };
+            assert_eq!(error["message"], expected);
+            return;
+        }
+
+        for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("stopped_owner_reload_error_is_localized_for_human_output")
+                .arg("--nocapture")
+                .env(PROBE_LOCALE, locale)
+                .env("LC_ALL", locale)
+                .status()
+                .unwrap();
+            assert!(status.success(), "{locale} localization probe failed");
+        }
+    }
 }

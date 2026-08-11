@@ -323,6 +323,9 @@ mod tests {
         let first = reload();
         let replay = reload();
         assert_eq!(first.code, "operation.failed");
+        assert_eq!(first.message, "owner_stopped");
+        assert_eq!(first.details["operation"], "session.reload_config");
+        assert_eq!(first.details["reason"], "owner_stopped");
         assert_eq!(replay, first);
     }
 
