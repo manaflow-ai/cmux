@@ -37,6 +37,13 @@ pub const MAX_BOOTSTRAP_HANG_REPORT_BYTES: u64 = 256 * 1024;
 pub const MAX_BOOTSTRAP_HANG_DUMP_BYTES: u64 = 16 * 1024 * 1024;
 pub const WINDOWS_DESKTOP_LIFECYCLE_SCHEMA_VERSION: u32 = 1;
 
+fn validate_hex(value: &str, length: usize, name: &str) -> Result<()> {
+    if value.len() != length || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("{name} must be {length} hexadecimal characters");
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WindowsDesktopLifecycleEvidence {
@@ -1005,6 +1012,30 @@ mod tests {
         let mut station_open = evidence;
         station_open.private_window_station_closed = false;
         assert!(station_open.validate(&station_open.nonce).is_err());
+    }
+
+    #[test]
+    fn windows_desktop_lifecycle_rejects_wrong_length_nonce() {
+        let evidence = valid_windows_desktop_lifecycle_evidence();
+        let nonce = "ab".repeat(NONCE_BYTES - 1);
+
+        let validation = evidence.validate(&nonce).unwrap_err().to_string();
+        assert!(validation.contains("must be 64 hexadecimal characters"));
+        assert!(
+            windows_desktop_lifecycle_evidence_path(std::path::Path::new("."), &nonce).is_err()
+        );
+    }
+
+    #[test]
+    fn windows_desktop_lifecycle_rejects_non_hex_nonce() {
+        let evidence = valid_windows_desktop_lifecycle_evidence();
+        let nonce = "zz".repeat(NONCE_BYTES);
+
+        let validation = evidence.validate(&nonce).unwrap_err().to_string();
+        assert!(validation.contains("must be 64 hexadecimal characters"));
+        assert!(
+            windows_desktop_lifecycle_evidence_path(std::path::Path::new("."), &nonce).is_err()
+        );
     }
 
     #[test]
