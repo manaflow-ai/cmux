@@ -344,7 +344,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          sudo apt-get install -y bubblewrap clang libclang-dev pkg-config
+          bwrap_binary="$(command -v bwrap)"
+          test -x "$bwrap_binary"
+          printf 'CMUX_BENCH_LINUX_BWRAP=%s\n' "$bwrap_binary" >> "$GITHUB_ENV"
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -384,6 +387,125 @@ jobs:
         if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Prepare startup containment fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_parent="/tmp/cbt-${GITHUB_RUN_ID: -8}-$GITHUB_RUN_ATTEMPT-${{ matrix.os }}"
+          mkdir -p "$fixture_parent" "$RUNNER_TEMP/startup-containment"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            backend="macos-seatbelt"
+          else
+            backend="linux-bwrap"
+          fi
+          {
+            printf 'CMUX_BENCH_TEST_FIXTURE_PARENT=%s\n' "$fixture_parent"
+            printf 'CMUX_BENCH_TEST_BACKEND=%s\n' "$backend"
+            printf 'CMUX_BENCH_TEST_TARGET=%s\n' "$RUNNER_TEMP/startup-containment"
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare macOS per-launch containment policy
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x /usr/bin/sandbox-exec
+          sudo -n true
+          tail="${GITHUB_RUN_ID: -6}${GITHUB_RUN_ATTEMPT: -2}"
+          prefix="cmxb$tail"
+          group="cmxg$tail"
+          if dscl . -list /Users | awk -v prefix="$prefix" 'index($1, prefix) == 1 { found = 1 } END { exit !found }'; then
+            echo "a current-run per-launch benchmark account already exists" >&2
+            exit 1
+          fi
+          if dscl . -read "/Groups/$group" >/dev/null 2>&1; then
+            echo "the current-run macOS benchmark group already exists" >&2
+            exit 1
+          fi
+          gid="$(dscl . -list /Groups PrimaryGroupID | awk 'BEGIN { max = 55000 } { if ($2 > max) max = $2 } END { print max + 1 }')"
+          sudo -n dscl . -create "/Groups/$group"
+          sudo -n dscl . -create "/Groups/$group" PrimaryGroupID "$gid"
+          profile="$RUNNER_TEMP/startup-containment/macos.sb"
+          {
+            echo '(version 1)'
+            echo '(deny default)'
+            echo '(allow process*)'
+            echo '(allow sysctl-read)'
+            echo '(allow mach-lookup)'
+            echo '(allow ipc-posix*)'
+            echo '(allow file-read*)'
+            echo '(allow file-map-executable)'
+            echo '(allow file-write* (regex #"^/dev/(null|tty.*|ttys.*)$"))'
+            echo '(allow file-write* (subpath (param "CMUX_FIXTURE_ROOT")))'
+            echo '(allow network* (local unix-socket (subpath (param "CMUX_FIXTURE_ROOT"))) (remote unix-socket (subpath (param "CMUX_FIXTURE_ROOT"))))'
+          } > "$profile"
+          {
+            printf 'CMUX_BENCH_MACOS_PROFILE=%s\n' "$profile"
+            printf 'CMUX_BENCH_MACOS_ACCOUNT_PREFIX=%s\n' "$prefix"
+            printf 'CMUX_BENCH_MACOS_UID_BASE=200000\n'
+            printf 'CMUX_BENCH_MACOS_GROUP=%s\n' "$group"
+            printf 'CMUX_BENCH_MACOS_GID=%s\n' "$gid"
+          } >> "$GITHUB_ENV"
+
+      - name: Build and prove trusted startup supervisor
+        shell: bash
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          supervisor="$CMUX_BENCH_TEST_TARGET/release/examples/startup_benchmark_supervisor"
+          preflight="$CMUX_BENCH_TEST_TARGET/release/examples/startup_benchmark_preflight"
+          evidence="$RUNNER_TEMP/startup-containment/preflight.json"
+          CARGO_TARGET_DIR="$CMUX_BENCH_TEST_TARGET" cargo build -p cmux-tui \
+            --example startup_benchmark_supervisor \
+            --example startup_benchmark_preflight \
+            --release --locked
+          run_preflight() {
+            local output
+            output="$1"
+            "$preflight" \
+              --supervisor "$supervisor" \
+              --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
+              --output "$output" \
+              --backend "$CMUX_BENCH_TEST_BACKEND"
+          }
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            unprivileged_evidence="$RUNNER_TEMP/startup-containment/preflight-unprivileged.json"
+            if run_preflight "$unprivileged_evidence"; then
+              mv "$unprivileged_evidence" "$evidence"
+            else
+              rm -f "$unprivileged_evidence" "$evidence"
+              tail="${GITHUB_RUN_ID: -8}${GITHUB_RUN_ATTEMPT}"
+              user="cmt$tail"
+              group="$user"
+              if getent passwd "$user" >/dev/null || getent group "$group" >/dev/null; then
+                echo "Linux containment identity already exists: $user" >&2
+                exit 1
+              fi
+              sudo -n groupadd --system "$group"
+              sudo -n useradd --system --gid "$group" --no-create-home \
+                --home-dir /nonexistent --shell /usr/sbin/nologin "$user"
+              sandbox_uid="$(id -u "$user")"
+              sandbox_gid="$(id -g "$user")"
+              sudo -n chgrp "$sandbox_gid" "$CMUX_BENCH_TEST_FIXTURE_PARENT"
+              sudo -n chmod 0710 "$CMUX_BENCH_TEST_FIXTURE_PARENT"
+              export CMUX_BENCH_LINUX_SUDO=1
+              export CMUX_BENCH_LINUX_UID="$sandbox_uid"
+              export CMUX_BENCH_LINUX_GID="$sandbox_gid"
+              {
+                printf 'CMUX_BENCH_LINUX_SUDO=1\n'
+                printf 'CMUX_BENCH_LINUX_UID=%s\n' "$sandbox_uid"
+                printf 'CMUX_BENCH_LINUX_GID=%s\n' "$sandbox_gid"
+                printf 'CMUX_BENCH_LINUX_USER=%s\n' "$user"
+                printf 'CMUX_BENCH_LINUX_GROUP=%s\n' "$group"
+              } >> "$GITHUB_ENV"
+              run_preflight "$evidence"
+            fi
+          else
+            run_preflight "$evidence"
+          fi
+          test -s "$evidence"
+          printf 'CMUX_BENCH_TEST_SUPERVISOR=%s\n' "$supervisor" >> "$GITHUB_ENV"
 
       - name: focused Linux journal process-fence test
         if: runner.os == 'Linux'
@@ -460,6 +582,266 @@ jobs:
         if: inputs.mode == 'full'
         working-directory: cmux-tui
         run: python3 scripts/smoke-attach.py
+
+      - name: Remove residual macOS startup containment accounts
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tail="${GITHUB_RUN_ID: -6}${GITHUB_RUN_ATTEMPT: -2}"
+          prefix="${CMUX_BENCH_MACOS_ACCOUNT_PREFIX:-cmxb$tail}"
+          group="${CMUX_BENCH_MACOS_GROUP:-cmxg$tail}"
+          accounts="$(dscl . -list /Users | awk -v prefix="$prefix" 'index($1, prefix) == 1 { print $1 }')"
+          for user in $accounts; do
+            python3 - "$user" <<'PY'
+          import select
+          import subprocess
+          import sys
+          import time
+
+          user = sys.argv[1]
+          listed = subprocess.run(["pgrep", "-u", user], capture_output=True, text=True)
+          pids = {int(value) for value in listed.stdout.split()}
+          queue = select.kqueue()
+          pending = set()
+          for pid in pids:
+              try:
+                  queue.control(
+                      [select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                                     flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                     fflags=select.KQ_NOTE_EXIT)],
+                      0,
+                      0,
+                  )
+                  pending.add(pid)
+              except ProcessLookupError:
+                  pass
+          subprocess.run(["sudo", "-n", "pkill", "-KILL", "-u", user], check=False)
+          deadline = time.monotonic() + 30
+          while pending:
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise SystemExit(f"process-exit deadline expired for {sorted(pending)}")
+              events = queue.control(None, len(pending), remaining)
+              if not events:
+                  raise SystemExit(f"process-exit deadline expired for {sorted(pending)}")
+              pending.difference_update(event.ident for event in events)
+          final = subprocess.run(["pgrep", "-u", user], capture_output=True, text=True)
+          if final.returncode == 0:
+              raise SystemExit(f"a process survived startup containment cleanup: {final.stdout.strip()}")
+          PY
+            sudo -n dscl . -delete "/Users/$user"
+          done
+          if dscl . -read "/Groups/$group" >/dev/null 2>&1; then
+            sudo -n dscl . -delete "/Groups/$group"
+          fi
+          if dscl . -list /Users | awk -v prefix="$prefix" 'index($1, prefix) == 1 { found = 1 } END { exit !found }'; then
+            echo "a current-run per-launch macOS containment account remains" >&2
+            exit 1
+          fi
+          if dscl . -read "/Groups/$group" >/dev/null 2>&1; then
+            echo "the current-run macOS containment group remains" >&2
+            exit 1
+          fi
+
+      - name: Remove Linux startup containment account
+        if: always() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tail="${GITHUB_RUN_ID: -8}${GITHUB_RUN_ATTEMPT}"
+          user="${CMUX_BENCH_LINUX_USER:-cmt$tail}"
+          group="${CMUX_BENCH_LINUX_GROUP:-$user}"
+          containment_failed=0
+          if getent passwd "$user" >/dev/null; then
+            mapfile -t remaining < <(pgrep -u "$user" || true)
+            if (( ${#remaining[@]} != 0 )); then
+              containment_failed=1
+              sudo -n kill -KILL "${remaining[@]}"
+              python3 - "${remaining[@]}" <<'PY'
+          import os
+          import select
+          import sys
+          import time
+
+          poller = select.poll()
+          descriptors = {}
+          for value in sys.argv[1:]:
+              pid = int(value)
+              try:
+                  descriptor = os.pidfd_open(pid)
+              except ProcessLookupError:
+                  continue
+              descriptors[descriptor] = pid
+              poller.register(descriptor, select.POLLIN)
+          deadline = time.monotonic() + 30
+          while descriptors:
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise SystemExit(f"process-exit deadline expired for {sorted(descriptors.values())}")
+              events = poller.poll(max(1, int(remaining * 1000)))
+              if not events:
+                  raise SystemExit(f"process-exit deadline expired for {sorted(descriptors.values())}")
+              for descriptor, _ in events:
+                  poller.unregister(descriptor)
+                  os.close(descriptor)
+                  descriptors.pop(descriptor)
+          PY
+              echo "Linux containment processes survived the sandbox: ${remaining[*]}" >&2
+            fi
+            if pgrep -u "$user" >/dev/null; then
+              echo "a Linux containment process survived cleanup" >&2
+              exit 1
+            fi
+            sudo -n userdel "$user"
+          fi
+          if getent group "$group" >/dev/null; then
+            sudo -n groupdel "$group"
+          fi
+          if getent passwd "$user" >/dev/null || getent group "$group" >/dev/null; then
+            echo "Linux containment identity removal was incomplete" >&2
+            exit 1
+          fi
+          if (( containment_failed != 0 )); then
+            exit 1
+          fi
+
+  startup-containment-windows:
+    name: startup containment (windows-gnu)
+    needs: validate-inputs
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Init ghostty submodule
+        shell: bash
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install zig
+        shell: bash
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install maintained GNU target
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain="$(cd cmux-tui && rustup show active-toolchain | awk '{print $1}')"
+          rustup target add --toolchain "$toolchain" x86_64-pc-windows-gnu
+          printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+          printf 'CMUX_BENCH_TEST_TARGET=%s\n' "$RUNNER_TEMP/startup-containment" >> "$GITHUB_ENV"
+          printf 'CMUX_BENCH_TEST_FIXTURE_PARENT=%s\n' "$RUNNER_TEMP/cbt" >> "$GITHUB_ENV"
+
+      - name: Prepare Windows containment account and firewall rule
+        id: windows-account
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tail = $env:GITHUB_RUN_ID.Substring([Math]::Max(0, $env:GITHUB_RUN_ID.Length - 8))
+          $user = "cmt$tail$env:GITHUB_RUN_ATTEMPT"
+          $rule = "cmux-test-$tail-$env:GITHUB_RUN_ATTEMPT"
+          if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) { throw "containment account exists" }
+          if (Get-NetFirewallRule -Name "$rule-*" -ErrorAction SilentlyContinue) { throw "containment firewall rule exists" }
+          $password = "$(New-Guid)Aa1!"
+          Write-Output "::add-mask::$password"
+          $secure = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name $user -Password $secure -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
+          $sid = (Get-LocalUser -Name $user).SID.Value
+          $localUser = "D:(A;;CC;;;$sid)"
+          New-NetFirewallRule -Name "$rule-out" -DisplayName "$rule outbound" -Direction Outbound -Action Block -Profile Any -LocalUser $localUser | Out-Null
+          New-NetFirewallRule -Name "$rule-in" -DisplayName "$rule inbound" -Direction Inbound -Action Block -Profile Any -LocalUser $localUser | Out-Null
+          "username=$user" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          "password=$password" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          "sid=$sid" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+          "rule=$rule" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
+
+      - name: Build and prove restricted-token startup supervisor
+        working-directory: cmux-tui
+        shell: bash
+        env:
+          CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
+          CMUX_BENCH_WINDOWS_PASSWORD: ${{ steps.windows-account.outputs.password }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$CMUX_BENCH_TEST_FIXTURE_PARENT" "$CMUX_BENCH_TEST_TARGET"
+          CARGO_TARGET_DIR="$CMUX_BENCH_TEST_TARGET" cargo build -p cmux-tui \
+            --example startup_benchmark_supervisor \
+            --example startup_benchmark_preflight \
+            --release --locked --target x86_64-pc-windows-gnu
+          release="$CMUX_BENCH_TEST_TARGET/x86_64-pc-windows-gnu/release/examples"
+          supervisor="$release/startup_benchmark_supervisor.exe"
+          preflight="$release/startup_benchmark_preflight.exe"
+          evidence="$RUNNER_TEMP/startup-containment/preflight.json"
+          "$preflight" \
+            --supervisor "$supervisor" \
+            --fixture-parent "$CMUX_BENCH_TEST_FIXTURE_PARENT" \
+            --output "$evidence" \
+            --backend windows-restricted-token-job
+          test -s "$evidence"
+          printf 'CMUX_BENCH_TEST_SUPERVISOR=%s\n' "$supervisor" >> "$GITHUB_ENV"
+
+      - name: Run release startup harness gate
+        working-directory: cmux-tui
+        shell: bash
+        env:
+          CMUX_BENCH_WINDOWS_USER: ${{ steps.windows-account.outputs.username }}
+          CMUX_BENCH_WINDOWS_PASSWORD: ${{ steps.windows-account.outputs.password }}
+        run: >-
+          CARGO_TARGET_DIR="$CMUX_BENCH_TEST_TARGET"
+          cargo test -p cmux-tui --example startup_benchmark
+          --release --locked --target x86_64-pc-windows-gnu
+
+      - name: Remove Windows containment account and firewall rule
+        if: always()
+        shell: pwsh
+        env:
+          WINDOWS_CONTAINMENT_USER: ${{ steps.windows-account.outputs.username }}
+          WINDOWS_CONTAINMENT_SID: ${{ steps.windows-account.outputs.sid }}
+          WINDOWS_CONTAINMENT_RULE: ${{ steps.windows-account.outputs.rule }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tail = $env:GITHUB_RUN_ID.Substring([Math]::Max(0, $env:GITHUB_RUN_ID.Length - 8))
+          $user = if ($env:WINDOWS_CONTAINMENT_USER) { $env:WINDOWS_CONTAINMENT_USER } else { "cmt$tail$env:GITHUB_RUN_ATTEMPT" }
+          $rule = if ($env:WINDOWS_CONTAINMENT_RULE) { $env:WINDOWS_CONTAINMENT_RULE } else { "cmux-test-$tail-$env:GITHUB_RUN_ATTEMPT" }
+          $sid = if ($env:WINDOWS_CONTAINMENT_SID) { $env:WINDOWS_CONTAINMENT_SID } elseif (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) { (Get-LocalUser -Name $user).SID.Value } else { "" }
+          function Get-OwnedProcess {
+            @(Get-CimInstance Win32_Process | ForEach-Object {
+              $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
+              if ($owner.ReturnValue -eq 0 -and $owner.User -eq $user -and $owner.Domain -eq $env:COMPUTERNAME) { $_ }
+            })
+          }
+          if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) {
+            $owned = @(Get-OwnedProcess)
+            if ($owned.Count -ne 0) {
+              $ids = @($owned.ProcessId)
+              Stop-Process -Id $ids -Force
+              Wait-Process -Id $ids -Timeout 30 -ErrorAction SilentlyContinue
+            }
+            if (@(Get-OwnedProcess).Count -ne 0) { throw "a process survived Windows containment cleanup" }
+          }
+          Get-NetFirewallRule -Name "$rule-*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+          if ($sid) {
+            $profiles = @(Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $sid })
+            if (@($profiles | Where-Object { $_.Loaded }).Count -ne 0) { throw "the Windows containment profile is still loaded" }
+            $profiles | Remove-CimInstance
+            if (@(Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $sid }).Count -ne 0) { throw "the Windows containment profile remains" }
+          }
+          if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $user }
+          if (Get-NetFirewallRule -Name "$rule-*" -ErrorAction SilentlyContinue) { throw "containment firewall rule remains" }
+          if (Get-LocalUser -Name $user -ErrorAction SilentlyContinue) { throw "containment account remains" }
 
   bindings-e2e:
     needs: validate-inputs
@@ -576,6 +958,7 @@ jobs:
       - web-frontend
       - valgrind-leak-check
       - test
+      - startup-containment-windows
       - bindings-e2e
       - build-artifacts
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -586,6 +969,7 @@ jobs:
       WEB_RESULT: ${{ needs.web-frontend.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
       TEST_RESULT: ${{ needs.test.result }}
+      WINDOWS_CONTAINMENT_RESULT: ${{ needs.startup-containment-windows.result }}
       BINDINGS_RESULT: ${{ needs.bindings-e2e.result }}
       ARTIFACT_RESULT: ${{ needs.build-artifacts.result }}
     steps:
@@ -603,6 +987,7 @@ jobs:
 
           require_success "input validation" "$VALIDATE_RESULT"
           require_success "Rust tests" "$TEST_RESULT"
+          require_success "Windows startup containment" "$WINDOWS_CONTAINMENT_RESULT"
           require_success "dogfood artifact build" "$ARTIFACT_RESULT"
           if [[ "$MODE" == "full" ]]; then
             require_success "web frontend" "$WEB_RESULT"

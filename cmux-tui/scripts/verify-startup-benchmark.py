@@ -13,6 +13,15 @@ expected_warmups = int(os.environ["WARMUPS"])
 expected_samples = int(os.environ["SAMPLES"])
 
 required = {
+    "infrastructure.trusted_sha": str,
+    "infrastructure.sandbox_backend": str,
+    "infrastructure.sandbox_policy": str,
+    "infrastructure.sandbox_handshake": str,
+    "infrastructure.sandbox_cleanup": str,
+    "infrastructure.expected_supervisor_sha256": str,
+    "infrastructure.supervisor_sha256": str,
+    "infrastructure.expected_preflight_sha256": str,
+    "infrastructure.preflight_sha256": str,
     "host.cpu": str,
     "host.logical_processors": int,
     "host.physical_cores": int,
@@ -60,6 +69,14 @@ for dotted, expected_type in required.items():
         raise SystemExit(f"benchmark evidence has sentinel {dotted}: {value!r}")
 
 expected = {
+    "infrastructure.trusted_sha": os.environ["TRUSTED_SHA"],
+    "infrastructure.sandbox_backend": os.environ["SANDBOX_BACKEND"],
+    "infrastructure.expected_supervisor_sha256": os.environ[
+        "SUPERVISOR_BINARY_SHA256"
+    ],
+    "infrastructure.expected_preflight_sha256": os.environ[
+        "SANDBOX_PREFLIGHT_SHA256"
+    ],
     "baseline.requested_sha": os.environ["BASELINE_SHA"],
     "baseline.observed_sha": os.environ["BASELINE_SHA"],
     "candidate.requested_sha": os.environ["CANDIDATE_SHA"],
@@ -80,6 +97,10 @@ for dotted, expected_value in expected.items():
             f"benchmark evidence {dotted} is {actual!r}, expected {expected_value!r}"
         )
 for dotted in (
+    "infrastructure.expected_supervisor_sha256",
+    "infrastructure.supervisor_sha256",
+    "infrastructure.expected_preflight_sha256",
+    "infrastructure.preflight_sha256",
     "baseline.expected_binary_sha256",
     "baseline.binary_sha256",
     "candidate.expected_binary_sha256",
@@ -91,12 +112,28 @@ for dotted in (
 for target in ("baseline", "candidate"):
     if get(f"{target}.binary_sha256") != get(f"{target}.expected_binary_sha256"):
         raise SystemExit(f"{target} binary changed after exact build attestation")
+if get("infrastructure.supervisor_sha256") != get(
+    "infrastructure.expected_supervisor_sha256"
+):
+    raise SystemExit("trusted supervisor changed after exact build attestation")
+if get("infrastructure.preflight_sha256") != get(
+    "infrastructure.expected_preflight_sha256"
+):
+    raise SystemExit("sandbox preflight evidence changed after attestation")
+expected_sandbox_contract = {
+    "infrastructure.sandbox_policy": "fixture-root-only-write",
+    "infrastructure.sandbox_handshake": "nonce-bound-ready-arm-with-pre-exec-t0",
+    "infrastructure.sandbox_cleanup": "descendant-channel-eof-after-process-tree-empty",
+}
+for dotted, expected_value in expected_sandbox_contract.items():
+    if get(dotted) != expected_value:
+        raise SystemExit(f"wrong sandbox contract for {dotted}: {get(dotted)!r}")
 if not isinstance(get("baseline.embedded_identity_verified"), bool):
     raise SystemExit("baseline embedded identity result is not a boolean")
 if get("candidate.embedded_identity_verified") is not True:
     raise SystemExit("candidate embedded source identity was not verified")
 
-if document.get("schema_version") != 2:
+if document.get("schema_version") != 3:
     raise SystemExit(f"unsupported benchmark schema: {document.get('schema_version')!r}")
 if document.get("platform_label") != os.environ["PLATFORM_LABEL"]:
     raise SystemExit(f"wrong platform label: {document.get('platform_label')!r}")
@@ -394,6 +431,16 @@ for scenario in scenarios:
             "restored": {"readiness_lines": total_runs, "socket_rpcs": 2 * total_runs, "restored_topologies": total_runs},
             "incompatible": {"schema_rejections": total_runs, "process_exits": total_runs},
         }[name]
+        for field in (
+            "supervisor_ready_events",
+            "supervisor_t0_records",
+            "containment_cleanups",
+        ):
+            if evidence.get(field) != total_runs:
+                raise SystemExit(
+                    f"{name} {target} has {evidence.get(field)!r} {field}, "
+                    f"expected exactly {total_runs}"
+                )
         for field, minimum in required_events.items():
             if evidence.get(field, 0) < minimum:
                 raise SystemExit(

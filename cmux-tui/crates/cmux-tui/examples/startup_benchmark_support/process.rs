@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use cmux_pty::{PtyCommand, PtySize};
+use cmux_tui_core::platform::transport;
 use rusqlite::Connection;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -21,11 +22,17 @@ use super::{
     Evidence, LifecycleRecorder, PhaseMetric, RunPhases, RunResult, Scenario, SuiteDeadline,
     TargetKind, duration_ns,
 };
+#[cfg(target_os = "macos")]
+use crate::startup_benchmark_protocol::macos_account_identity;
+use crate::startup_benchmark_protocol::{
+    TimingPage, arm_line, monotonic_ns, read_control_line, ready_line, write_control_line,
+};
 
 const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_CAPTURE_BYTES: usize = 2 * 1024 * 1024;
 const INCOMPATIBLE_SCHEMA: i64 = 2_147_483_647;
+static LAUNCH_SEQUENCE: AtomicUsize = AtomicUsize::new(1);
 
 #[derive(Debug, Clone)]
 pub struct Target {
@@ -41,6 +48,10 @@ pub struct Target {
     pub embedded_identity_verified: bool,
     version: String,
     pub launcher: Vec<String>,
+    pub supervisor_binary: PathBuf,
+    pub supervisor_binary_sha256: String,
+    pub trusted_source: PathBuf,
+    pub trusted_sha: String,
 }
 
 impl Target {
@@ -51,6 +62,10 @@ impl Target {
         sha: String,
         expected_binary_sha256: String,
         launcher: Vec<String>,
+        supervisor_binary: PathBuf,
+        supervisor_binary_sha256: String,
+        trusted_source: PathBuf,
+        trusted_sha: String,
     ) -> Result<Self> {
         let observed_sha = git_sha(&source)?;
         if observed_sha != sha {
@@ -69,10 +84,21 @@ impl Target {
         }
         let zig_version = source_zig_version(&source)?;
         let rust_toolchain = source_rust_toolchain(&source)?;
-        let version = binary_version(&binary)?;
-        let embedded_identity_verified =
-            validate_binary_identity(&version, &sha, &ghostty_sha, kind == TargetKind::Candidate)
-                .with_context(|| format!("validate {} binary identity", kind.as_str()))?;
+        let observed_supervisor_sha256 = binary_sha256(&supervisor_binary)?;
+        if observed_supervisor_sha256 != supervisor_binary_sha256 {
+            bail!(
+                "trusted supervisor SHA-256 mismatch: expected {supervisor_binary_sha256}, observed {observed_supervisor_sha256}"
+            );
+        }
+        let observed_trusted_sha = git_sha(&trusted_source)?;
+        if observed_trusted_sha != trusted_sha {
+            bail!(
+                "trusted source SHA mismatch: requested {trusted_sha}, observed {observed_trusted_sha}"
+            );
+        }
+        if kind == TargetKind::Baseline {
+            assert_git_ancestor(&trusted_source, &sha, &trusted_sha)?;
+        }
         Ok(Self {
             kind,
             binary,
@@ -83,10 +109,63 @@ impl Target {
             ghostty_sha,
             zig_version,
             rust_toolchain,
-            embedded_identity_verified,
-            version,
+            embedded_identity_verified: false,
+            version: String::new(),
             launcher,
+            supervisor_binary,
+            supervisor_binary_sha256,
+            trusted_source,
+            trusted_sha,
         })
+    }
+
+    pub fn verify_product_identity(mut self, fixture_parent: &Path) -> Result<Self> {
+        let mut common = Common::new(self.clone(), Scenario::Cold, false, fixture_parent)?;
+        let command = common.std_command(&["--version".into()], false)?;
+        let captured = run_captured(command, SuiteDeadline::unbounded())
+            .with_context(|| format!("read version from {}", self.binary.display()))?;
+        if !captured.status.success() {
+            bail!(
+                "{} --version failed: {}",
+                self.binary.display(),
+                String::from_utf8_lossy(&captured.stderr)
+            );
+        }
+        let output = String::from_utf8(captured.stdout)?;
+        let version =
+            output.trim().strip_prefix("cmux ").map(str::to_string).with_context(|| {
+                format!("unexpected {} --version output: {output:?}", self.binary.display())
+            })?;
+        self.embedded_identity_verified = validate_binary_identity(
+            &version,
+            &self.sha,
+            &self.ghostty_sha,
+            self.kind == TargetKind::Candidate,
+        )
+        .with_context(|| format!("validate {} binary identity", self.kind.as_str()))?;
+        self.version = version;
+        common.root.mark_quiescent();
+        Ok(self)
+    }
+
+    pub fn verify_integrity(&self) -> Result<()> {
+        let binary = binary_sha256(&self.binary)?;
+        if binary != self.expected_binary_sha256 {
+            bail!("{} product binary changed after execution", self.kind.as_str());
+        }
+        if git_sha(&self.source)? != self.sha {
+            bail!("{} product source changed after execution", self.kind.as_str());
+        }
+        if git_sha(&self.source.join("ghostty"))? != self.ghostty_sha {
+            bail!("{} Ghostty source changed after execution", self.kind.as_str());
+        }
+        if git_sha(&self.trusted_source)? != self.trusted_sha {
+            bail!("trusted benchmark source changed after execution");
+        }
+        if binary_sha256(&self.supervisor_binary)? != self.supervisor_binary_sha256 {
+            bail!("trusted supervisor changed after execution");
+        }
+        Ok(())
     }
 }
 
@@ -265,6 +344,380 @@ pub fn run_sample(fixture: &mut Fixture, deadline: SuiteDeadline) -> Result<RunR
     }
 }
 
+struct LaunchControl {
+    timing: TimingPage,
+    nonce: String,
+    control_path: PathBuf,
+    accept_receiver: mpsc::Receiver<io::Result<Box<dyn transport::Stream>>>,
+    accept_thread: Option<thread::JoinHandle<()>>,
+}
+
+impl LaunchControl {
+    fn new(root: &Path) -> Result<(Self, PathBuf)> {
+        let sequence = LAUNCH_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let stem = format!("c-{sequence:020}");
+        let control_path = root.join(format!("{stem}.sock"));
+        let timing = TimingPage::create(root.join(format!("{stem}.time")))?;
+        let nonce = timing.nonce_hex();
+        let listener = match transport::listen(&control_path) {
+            Ok(listener) => listener,
+            Err(error) => {
+                let _ = fs::remove_file(timing.path());
+                return Err(error).context("bind supervisor control socket");
+            }
+        };
+        let (sender, accept_receiver) = mpsc::channel();
+        let accept_thread = thread::Builder::new()
+            .name("startup-benchmark-supervisor-control".into())
+            .spawn(move || {
+                let _ = sender.send(listener.accept());
+            })?;
+        Ok((
+            Self {
+                timing,
+                nonce,
+                control_path: control_path.clone(),
+                accept_receiver,
+                accept_thread: Some(accept_thread),
+            },
+            control_path,
+        ))
+    }
+
+    fn arm(&mut self, deadline: SuiteDeadline) -> Result<()> {
+        let timeout = deadline.timeout(PROCESS_TIMEOUT, "accepting supervisor READY")?;
+        let mut stream = self
+            .accept_receiver
+            .recv_timeout(timeout)
+            .context("supervisor READY deadline expired")??;
+        if let Some(thread) = self.accept_thread.take() {
+            thread.join().map_err(|_| anyhow!("supervisor control thread panicked"))?;
+        }
+        let timeout = deadline.timeout(PROCESS_TIMEOUT, "reading supervisor READY")?;
+        stream.set_read_timeout(Some(timeout))?;
+        let ready = read_control_line(&mut stream)?;
+        if ready != ready_line(&self.nonce).trim_end() {
+            bail!("supervisor READY identity mismatch");
+        }
+        let timeout = deadline.timeout(PROCESS_TIMEOUT, "writing supervisor ARM")?;
+        stream.set_write_timeout(Some(timeout))?;
+        write_control_line(&mut stream, &arm_line(&self.nonce))?;
+        stream.shutdown(std::net::Shutdown::Both)?;
+        Ok(())
+    }
+
+    fn measured_duration(&self, event_ns: u64) -> Result<Duration> {
+        Ok(Duration::from_nanos(self.timing.measured_duration_ns(event_ns)?))
+    }
+}
+
+impl Drop for LaunchControl {
+    fn drop(&mut self) {
+        if self.accept_thread.is_some() {
+            if let Ok(stream) = transport::connect(&self.control_path) {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+            let _ = self.accept_receiver.recv_timeout(PROCESS_TIMEOUT);
+            if let Some(thread) = self.accept_thread.take() {
+                let _ = thread.join();
+            }
+        }
+        let _ = fs::remove_file(&self.control_path);
+        let _ = fs::remove_file(self.timing.path());
+    }
+}
+
+struct PreparedStdCommand {
+    command: Command,
+    control: LaunchControl,
+    cleanup: SupervisorCleanup,
+}
+
+struct PreparedPtyCommand {
+    command: PtyCommand,
+    control: LaunchControl,
+    cleanup: SupervisorCleanup,
+}
+
+struct SupervisorCleanup {
+    #[cfg(target_os = "macos")]
+    user: String,
+    #[cfg(target_os = "macos")]
+    group: String,
+    #[cfg(target_os = "macos")]
+    nonce: String,
+    complete: bool,
+}
+
+impl SupervisorCleanup {
+    fn new(fixture_root: &Path, nonce: &str) -> Result<Self> {
+        let _ = fixture_root;
+        #[cfg(not(target_os = "macos"))]
+        let _ = nonce;
+        #[cfg(target_os = "macos")]
+        let (user, _) = macos_account_identity(
+            nonce,
+            &env::var("CMUX_BENCH_MACOS_ACCOUNT_PREFIX")
+                .context("CMUX_BENCH_MACOS_ACCOUNT_PREFIX is required")?,
+            env::var("CMUX_BENCH_MACOS_UID_BASE")
+                .context("CMUX_BENCH_MACOS_UID_BASE is required")?
+                .parse()?,
+        )?;
+        Ok(Self {
+            #[cfg(target_os = "macos")]
+            user,
+            #[cfg(target_os = "macos")]
+            group: env::var("CMUX_BENCH_MACOS_GROUP")
+                .context("CMUX_BENCH_MACOS_GROUP is required")?,
+            #[cfg(target_os = "macos")]
+            nonce: nonce.to_string(),
+            complete: false,
+        })
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        if self.complete {
+            return Ok(());
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if !macos_account_exists(&self.user)? {
+                self.complete = true;
+                return Ok(());
+            }
+            let uid = macos_account_uid(&self.user)?;
+            match macos_account_nonce(&self.user)? {
+                Some(nonce) if nonce == self.nonce => {}
+                None if uid.is_none() => {}
+                Some(nonce) => bail!(
+                    "macOS benchmark account {} belongs to a different launch nonce {nonce}",
+                    self.user
+                ),
+                None => {
+                    bail!("macOS benchmark account {} has a UID but no launch nonce", self.user)
+                }
+            }
+            if let Some(uid) = uid {
+                let identity = uid.to_string();
+                let pids = macos_user_processes(&identity)?;
+                let exits = MacosExitWatch::new(&pids)?;
+                let mut kill = Command::new("sudo");
+                kill.args(["-n", "pkill", "-KILL", "-u", &identity]);
+                let killed = run_trusted_captured(
+                    kill,
+                    SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT),
+                )?;
+                if !killed.status.success() && killed.status.code() != Some(1) {
+                    bail!("macOS benchmark-user kill failed with {}", killed.status);
+                }
+                exits.wait(PROCESS_TIMEOUT)?;
+                let remaining = macos_user_processes(&identity)?;
+                if !remaining.is_empty() {
+                    bail!(
+                        "processes survived harness-owned cleanup for macOS benchmark user {}: {:?}",
+                        self.user,
+                        remaining
+                    );
+                }
+            }
+            let mut remove_group = Command::new("sudo");
+            remove_group.args([
+                "-n",
+                "dseditgroup",
+                "-o",
+                "edit",
+                "-d",
+                &self.user,
+                "-t",
+                "user",
+                &self.group,
+            ]);
+            let _ = run_trusted_captured(
+                remove_group,
+                SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT),
+            );
+            let mut remove_user = Command::new("sudo");
+            remove_user.args(["-n", "dscl", ".", "-delete", &format!("/Users/{}", self.user)]);
+            let removed = run_trusted_captured(
+                remove_user,
+                SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT),
+            )?;
+            if !removed.status.success() || macos_account_exists(&self.user)? {
+                bail!("macOS benchmark account cleanup failed for {}", self.user);
+            }
+        }
+        self.complete = true;
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_user_processes(user: &str) -> Result<Vec<u32>> {
+    let mut list = Command::new("pgrep");
+    list.args(["-u", user]);
+    let captured = run_trusted_captured(list, SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT))?;
+    if !captured.status.success() {
+        if captured.status.code() == Some(1) {
+            return Ok(Vec::new());
+        }
+        bail!("list macOS benchmark-user processes failed with {}", captured.status);
+    }
+    String::from_utf8(captured.stdout)?
+        .lines()
+        .map(|line| line.parse::<u32>().context("parse macOS benchmark-user PID"))
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_account_exists(user: &str) -> Result<bool> {
+    let mut command = Command::new("dscl");
+    command.args([".", "-read", &format!("/Users/{user}")]);
+    let captured =
+        run_trusted_captured(command, SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT))?;
+    Ok(captured.status.success())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_account_uid(user: &str) -> Result<Option<u32>> {
+    let mut command = Command::new("dscl");
+    command.args([".", "-read", &format!("/Users/{user}"), "UniqueID"]);
+    let captured =
+        run_trusted_captured(command, SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT))?;
+    if !captured.status.success() {
+        return Ok(None);
+    }
+    let output = String::from_utf8(captured.stdout)?;
+    output
+        .trim()
+        .strip_prefix("UniqueID: ")
+        .map(str::parse)
+        .transpose()
+        .context("parse macOS benchmark account UniqueID")
+}
+
+#[cfg(target_os = "macos")]
+fn macos_account_nonce(user: &str) -> Result<Option<String>> {
+    let mut command = Command::new("dscl");
+    command.args([".", "-read", &format!("/Users/{user}"), "dsAttrTypeNative:cmuxBenchmarkNonce"]);
+    let captured =
+        run_trusted_captured(command, SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT))?;
+    if !captured.status.success() {
+        return Ok(None);
+    }
+    let output = String::from_utf8(captured.stdout)?;
+    Ok(output.trim().split_once(": ").map(|(_, value)| value.to_string()))
+}
+
+#[cfg(target_os = "macos")]
+struct MacosExitWatch {
+    queue: std::os::fd::OwnedFd,
+    registrations: usize,
+}
+
+#[cfg(target_os = "macos")]
+impl MacosExitWatch {
+    fn new(pids: &[u32]) -> Result<Self> {
+        use std::os::fd::{FromRawFd, OwnedFd};
+
+        // SAFETY: kqueue returns a new owned descriptor or -1.
+        let raw = unsafe { libc::kqueue() };
+        if raw == -1 {
+            return Err(std::io::Error::last_os_error()).context("create process-exit kqueue");
+        }
+        // SAFETY: raw is a unique descriptor returned by kqueue above.
+        let queue = unsafe { OwnedFd::from_raw_fd(raw) };
+        let mut registrations = 0;
+        for pid in pids {
+            let change = libc::kevent {
+                ident: *pid as usize,
+                filter: libc::EVFILT_PROC,
+                flags: libc::EV_ADD | libc::EV_ONESHOT,
+                fflags: libc::NOTE_EXIT,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            };
+            // SAFETY: change is initialized, the queue is live, and no event output is requested.
+            let result = unsafe {
+                libc::kevent(
+                    std::os::fd::AsRawFd::as_raw_fd(&queue),
+                    &change,
+                    1,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null(),
+                )
+            };
+            if result == 0 {
+                registrations += 1;
+            } else if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                return Err(std::io::Error::last_os_error())
+                    .context(format!("register exit event for PID {pid}"));
+            }
+        }
+        Ok(Self { queue, registrations })
+    }
+
+    fn wait(self, timeout: Duration) -> Result<()> {
+        use std::os::fd::AsRawFd;
+
+        let deadline =
+            Instant::now().checked_add(timeout).context("macOS process-exit deadline overflow")?;
+        let mut remaining = self.registrations;
+        while remaining > 0 {
+            let duration = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|value| !value.is_zero())
+                .context("macOS benchmark-user process-exit deadline expired")?;
+            let timeout = libc::timespec {
+                tv_sec: duration.as_secs().try_into()?,
+                tv_nsec: i64::from(duration.subsec_nanos()),
+            };
+            let mut events = Vec::with_capacity(remaining);
+            for _ in 0..remaining {
+                events.push(libc::kevent {
+                    ident: 0,
+                    filter: 0,
+                    flags: 0,
+                    fflags: 0,
+                    data: 0,
+                    udata: std::ptr::null_mut(),
+                });
+            }
+            // SAFETY: the queue is live and events has writable capacity for remaining events.
+            let count = unsafe {
+                libc::kevent(
+                    self.queue.as_raw_fd(),
+                    std::ptr::null(),
+                    0,
+                    events.as_mut_ptr(),
+                    i32::try_from(events.len())?,
+                    &timeout,
+                )
+            };
+            if count == -1 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error).context("wait for macOS benchmark-user process exits");
+            }
+            if count == 0 {
+                bail!("macOS benchmark-user process-exit deadline expired");
+            }
+            remaining -= usize::try_from(count)?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for SupervisorCleanup {
+    fn drop(&mut self) {
+        if !self.complete {
+            let _ = self.finish();
+        }
+    }
+}
+
 struct Common {
     target: Target,
     root: FixtureRoot,
@@ -350,28 +803,63 @@ impl Common {
         ]
     }
 
-    fn std_command(&self, args: &[String], wrapped: bool) -> Result<Command> {
+    fn std_command(&self, args: &[String], wrapped: bool) -> Result<PreparedStdCommand> {
+        let (control, control_path) = LaunchControl::new(self.root.path())?;
+        let supervisor_args = self.supervisor_args(args, &control, &control_path);
         let mut command = if wrapped && !self.target.launcher.is_empty() {
             let mut command = Command::new(&self.target.launcher[0]);
             command.args(&self.target.launcher[1..]);
-            command.arg(&self.target.binary);
+            command.arg(&self.target.supervisor_binary);
             command
         } else {
-            Command::new(&self.target.binary)
+            Command::new(&self.target.supervisor_binary)
         };
-        command.args(args);
+        command.args(supervisor_args);
         self.apply_std_env(&mut command);
-        Ok(command)
+        Ok(PreparedStdCommand {
+            command,
+            control,
+            cleanup: SupervisorCleanup::new(self.root.path(), &control.nonce)?,
+        })
     }
 
-    fn pty_command(&self, args: &[String], wrapped: bool) -> Result<PtyCommand> {
-        let (program, prefix) =
-            pty_program_and_prefix(&self.target.binary, &self.target.launcher, wrapped);
+    fn pty_command(&self, args: &[String], wrapped: bool) -> Result<PreparedPtyCommand> {
+        let (control, control_path) = LaunchControl::new(self.root.path())?;
+        let supervisor_args = self.supervisor_args(args, &control, &control_path);
+        let (program, mut prefix) =
+            pty_program_and_prefix(&self.target.supervisor_binary, &self.target.launcher, wrapped);
+        prefix.extend(supervisor_args);
         let mut command = PtyCommand::new(program);
         command.args(prefix);
-        command.args(args.to_vec());
         self.apply_pty_env(&mut command);
-        Ok(command)
+        Ok(PreparedPtyCommand {
+            command,
+            control,
+            cleanup: SupervisorCleanup::new(self.root.path(), &control.nonce)?,
+        })
+    }
+
+    fn supervisor_args(
+        &self,
+        product_args: &[String],
+        control: &LaunchControl,
+        control_path: &Path,
+    ) -> Vec<String> {
+        let mut args = vec![
+            "--control".into(),
+            control_path.to_string_lossy().into_owned(),
+            "--timing".into(),
+            control.timing.path().to_string_lossy().into_owned(),
+            "--nonce".into(),
+            control.nonce.clone(),
+            "--fixture-root".into(),
+            self.root.path().to_string_lossy().into_owned(),
+            "--target".into(),
+            self.target.binary.to_string_lossy().into_owned(),
+            "--".into(),
+        ];
+        args.extend(product_args.iter().cloned());
+        args
     }
 }
 
@@ -391,11 +879,40 @@ fn pty_program_and_prefix(
 }
 
 fn copy_base_environment(mut set: impl FnMut(String, String)) {
-    for key in ["PATH", "SHELL", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "DEVELOPER_DIR"] {
-        if let Ok(value) = env::var(key) {
-            set(key.to_string(), value);
+    for (key, value) in collect_base_environment(|key| env::var(key).ok()) {
+        set(key, value);
+    }
+}
+
+fn collect_base_environment(
+    mut lookup: impl FnMut(&str) -> Option<String>,
+) -> Vec<(String, String)> {
+    let mut environment = Vec::new();
+    for key in [
+        "PATH",
+        "SHELL",
+        "SystemRoot",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "DEVELOPER_DIR",
+        "CMUX_BENCH_LINUX_BWRAP",
+        "CMUX_BENCH_LINUX_SUDO",
+        "CMUX_BENCH_LINUX_UID",
+        "CMUX_BENCH_LINUX_GID",
+        "CMUX_BENCH_MACOS_ACCOUNT_PREFIX",
+        "CMUX_BENCH_MACOS_GROUP",
+        "CMUX_BENCH_MACOS_GID",
+        "CMUX_BENCH_MACOS_UID_BASE",
+        "CMUX_BENCH_MACOS_PROFILE",
+        "CMUX_BENCH_WINDOWS_USER",
+        "CMUX_BENCH_WINDOWS_PASSWORD",
+    ] {
+        if let Some(value) = lookup(key) {
+            environment.push((key.to_string(), value));
         }
     }
+    environment
 }
 
 fn run_cold(common: &mut Common, deadline: SuiteDeadline) -> Result<RunResult> {
@@ -440,8 +957,8 @@ fn run_pty(
 ) -> Result<RunResult> {
     deadline.ensure("spawning an interactive startup process")?;
     let pair = cmux_pty::open(PtySize { rows: 24, cols: 80, pixel_width: 640, pixel_height: 384 })?;
-    let command = common.pty_command(&args, common.wrap_measured_process)?;
-    let started = Instant::now();
+    let prepared = common.pty_command(&args, common.wrap_measured_process)?;
+    let PreparedPtyCommand { command, mut control, cleanup } = prepared;
     let spawned = pair.spawn(command)?;
     let master = spawned.master;
     let mut child = spawned.child;
@@ -497,7 +1014,11 @@ fn run_pty(
         probe_queries,
         probe_responses,
         reader_cancelled,
+        cleanup,
     };
+    if let Err(error) = control.arm(deadline) {
+        return runtime.fail(error.context("arm interactive product supervisor"));
+    }
 
     let event_timeout = match deadline.timeout(EVENT_TIMEOUT, "waiting for the PTY render event") {
         Ok(timeout) => timeout,
@@ -567,13 +1088,16 @@ fn run_pty(
             reader.probe_responses
         );
     }
-    let measured_event = observed_at.duration_since(started);
+    let measured_event = control.measured_duration(observed_at)?;
     Ok(RunResult {
         duration_ns: duration_ns(measured_event)?,
         evidence: Evidence {
             render_markers: 1,
             frame_completions: 1,
             process_exits: 1,
+            supervisor_ready_events: 1,
+            supervisor_t0_records: 1,
+            containment_cleanups: 1,
             terminal_probe_responses: reader.probe_responses,
             terminal_cpr_responses: usize::from(reader.probe_kinds.cpr),
             terminal_foreground_color_responses: usize::from(reader.probe_kinds.foreground),
@@ -617,11 +1141,11 @@ fn run_headless(common: &mut Common, deadline: SuiteDeadline) -> Result<RunResul
     let args = headless_args(&session, &socket, None);
     let mut server =
         RunningHeadless::start(common, args, &socket, common.wrap_measured_process, deadline)?;
-    server.wait_ready(deadline)?;
+    let observed_at = server.wait_ready(deadline)?;
     let validation_started = Instant::now();
     assert_ping(common, &socket, deadline)?;
     let validation = validation_started.elapsed();
-    let duration = server.started.elapsed();
+    let duration = server.measured_duration(observed_at)?;
     let completion = server.shutdown_and_wait(common, deadline)?;
     Ok(RunResult {
         duration_ns: duration_ns(duration)?,
@@ -629,6 +1153,9 @@ fn run_headless(common: &mut Common, deadline: SuiteDeadline) -> Result<RunResul
             readiness_lines: 1,
             socket_rpcs: 2,
             process_exits: 1,
+            supervisor_ready_events: 1,
+            supervisor_t0_records: 1,
+            containment_cleanups: 1,
             ..Evidence::default()
         },
         phases: RunPhases {
@@ -653,14 +1180,14 @@ fn run_restored(
     let args = headless_args(&session, &socket, Some(state));
     let mut server =
         RunningHeadless::start(common, args, &socket, common.wrap_measured_process, deadline)?;
-    server.wait_ready(deadline)?;
+    let observed_at = server.wait_ready(deadline)?;
     let validation_started = Instant::now();
     let topology = json_cli(common, &socket, &["terminal", "list"], deadline)?;
     if !terminal_list_contains_id(&topology, terminal_id) {
         bail!("restored terminal list omitted saved terminal {terminal_id}");
     }
     let validation = validation_started.elapsed();
-    let duration = server.started.elapsed();
+    let duration = server.measured_duration(observed_at)?;
     let completion = server.shutdown_and_wait(common, deadline)?;
     Ok(RunResult {
         duration_ns: duration_ns(duration)?,
@@ -669,6 +1196,9 @@ fn run_restored(
             socket_rpcs: 2,
             restored_topologies: 1,
             process_exits: 1,
+            supervisor_ready_events: 1,
+            supervisor_t0_records: 1,
+            containment_cleanups: 1,
             ..Evidence::default()
         },
         phases: RunPhases {
@@ -712,7 +1242,14 @@ fn run_incompatible(
     let validation = validation_started.elapsed();
     Ok(RunResult {
         duration_ns: duration_ns(captured.duration)?,
-        evidence: Evidence { schema_rejections: 1, process_exits: 1, ..Evidence::default() },
+        evidence: Evidence {
+            schema_rejections: 1,
+            process_exits: 1,
+            supervisor_ready_events: 1,
+            supervisor_t0_records: 1,
+            containment_cleanups: 1,
+            ..Evidence::default()
+        },
         phases: RunPhases {
             measured_event: PhaseMetric::completed(captured.duration)?,
             validation: PhaseMetric::completed(validation)?,
@@ -753,11 +1290,12 @@ struct RunningHeadless {
     child: Option<Child>,
     process_tree: CapturedProcessTree,
     socket: PathBuf,
-    started: Instant,
+    launch_control: LaunchControl,
     events: mpsc::Receiver<StreamEvent>,
     reader_receiver: mpsc::Receiver<io::Result<Vec<u8>>>,
     reader: Option<thread::JoinHandle<()>>,
     reader_cancelled: Arc<AtomicBool>,
+    cleanup: SupervisorCleanup,
 }
 
 struct CompletionTimings {
@@ -774,14 +1312,14 @@ impl RunningHeadless {
         deadline: SuiteDeadline,
     ) -> Result<Self> {
         deadline.ensure("spawning a headless startup process")?;
-        let mut command = common.std_command(&args, wrapped)?;
+        let prepared = common.std_command(&args, wrapped)?;
+        let PreparedStdCommand { mut command, control, cleanup } = prepared;
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
         command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
-        let started = Instant::now();
         let mut child = command.spawn()?;
         let process_tree = CapturedProcessTree::new(child.id());
         let stderr = child.stderr.take().context("headless stderr pipe missing")?;
@@ -806,19 +1344,24 @@ impl RunningHeadless {
                     return Err(error).context("spawn headless stderr reader");
                 }
             };
-        Ok(Self {
+        let mut running = Self {
             child: Some(child),
             process_tree,
             socket: socket.to_path_buf(),
-            started,
+            launch_control: control,
             events,
             reader_receiver,
             reader: Some(reader),
             reader_cancelled,
-        })
+            cleanup,
+        };
+        if let Err(error) = running.launch_control.arm(deadline) {
+            return running.fail(error.context("arm headless product supervisor"));
+        }
+        Ok(running)
     }
 
-    fn wait_ready(&mut self, deadline: SuiteDeadline) -> Result<Instant> {
+    fn wait_ready(&mut self, deadline: SuiteDeadline) -> Result<u64> {
         let timeout = match deadline.timeout(EVENT_TIMEOUT, "waiting for headless readiness") {
             Ok(timeout) => timeout,
             Err(error) => return self.fail(error),
@@ -833,6 +1376,10 @@ impl RunningHeadless {
             }
             Err(error) => self.fail(anyhow!("headless readiness deadline expired: {error}")),
         }
+    }
+
+    fn measured_duration(&self, event_ns: u64) -> Result<Duration> {
+        self.launch_control.measured_duration(event_ns)
     }
 
     fn shutdown_and_wait(
@@ -854,6 +1401,7 @@ impl RunningHeadless {
         self.child = None;
         let join_started = Instant::now();
         let output = self.finish_reader(deadline)?;
+        self.cleanup.finish()?;
         let thread_join = join_started.elapsed();
         if !status.success() {
             bail!("headless process exited with {status}: {}", String::from_utf8_lossy(&output));
@@ -960,6 +1508,7 @@ impl RunningHeadless {
         self.child = None;
         self.cancel_reader()?;
         let output = self.finish_reader(SuiteDeadline::unbounded())?;
+        self.cleanup.finish()?;
         if let Some(error) = process_error {
             return Err(
                 error.context(format!("headless stderr: {}", String::from_utf8_lossy(&output)))
@@ -989,7 +1538,7 @@ impl Drop for RunningHeadless {
 }
 
 enum StreamEvent {
-    Found(Instant),
+    Found(u64),
     Ended,
     Failed(String),
 }
@@ -1021,7 +1570,16 @@ fn read_until_event(
                     pending.extend_from_slice(&buffer[..read]);
                     if contains(&pending, &needle) {
                         found = true;
-                        let _ = sender.send(StreamEvent::Found(Instant::now()));
+                        match monotonic_ns() {
+                            Ok(at) => {
+                                let _ = sender.send(StreamEvent::Found(at));
+                            }
+                            Err(error) => {
+                                let message = error.to_string();
+                                let _ = sender.send(StreamEvent::Failed(message));
+                                return Err(error);
+                            }
+                        }
                     } else {
                         retain_tail(&mut pending, needle.len().saturating_sub(1));
                     }
@@ -1039,7 +1597,7 @@ fn read_until_event(
 }
 
 enum PtyEvent {
-    Marker(Instant),
+    Marker(u64),
     Ended,
     Failed(String),
     Exited,
@@ -1065,6 +1623,7 @@ struct PtyRuntime {
     probe_queries: Arc<AtomicUsize>,
     probe_responses: Arc<AtomicUsize>,
     reader_cancelled: Arc<AtomicBool>,
+    cleanup: SupervisorCleanup,
 }
 
 impl PtyRuntime {
@@ -1115,6 +1674,23 @@ impl PtyRuntime {
     }
 
     fn finish(
+        &mut self,
+        terminate: bool,
+        deadline: SuiteDeadline,
+    ) -> Result<(cmux_pty::ExitStatus, PtyReadResult, CompletionTimings)> {
+        let result = self.finish_process(terminate, deadline);
+        let cleanup = self.cleanup.finish();
+        match (result, cleanup) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(cleanup)) => Err(cleanup),
+            (Err(error), Err(cleanup)) => {
+                Err(error.context(format!("supervisor cleanup also failed: {cleanup:#}")))
+            }
+        }
+    }
+
+    fn finish_process(
         &mut self,
         terminate: bool,
         deadline: SuiteDeadline,
@@ -1395,7 +1971,16 @@ fn read_pty(
                 }
                 if !frame_seen && frame_marker.observe(&buffer[..read]).is_some() {
                     frame_seen = true;
-                    let _ = sender.send(PtyEvent::Marker(Instant::now()));
+                    match monotonic_ns() {
+                        Ok(at) => {
+                            let _ = sender.send(PtyEvent::Marker(at));
+                        }
+                        Err(error) => {
+                            let message = error.to_string();
+                            let _ = sender.send(PtyEvent::Failed(message));
+                            return Err(error);
+                        }
+                    }
                 }
             }
             Err(error) => {
@@ -1584,7 +2169,37 @@ struct Captured {
     duration: Duration,
 }
 
-fn run_captured(mut command: Command, deadline: SuiteDeadline) -> Result<Captured> {
+fn run_captured(prepared: PreparedStdCommand, deadline: SuiteDeadline) -> Result<Captured> {
+    run_captured_inner(prepared.command, Some(prepared.control), Some(prepared.cleanup), deadline)
+}
+
+fn run_trusted_captured(command: Command, deadline: SuiteDeadline) -> Result<Captured> {
+    run_captured_inner(command, None, None, deadline)
+}
+
+fn run_captured_inner(
+    command: Command,
+    control: Option<LaunchControl>,
+    mut cleanup: Option<SupervisorCleanup>,
+    deadline: SuiteDeadline,
+) -> Result<Captured> {
+    let result = run_captured_process(command, control, deadline);
+    let cleanup = cleanup.as_mut().map(SupervisorCleanup::finish).transpose();
+    match (result, cleanup) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(cleanup)) => Err(cleanup),
+        (Err(error), Err(cleanup)) => {
+            Err(error.context(format!("supervisor cleanup also failed: {cleanup:#}")))
+        }
+    }
+}
+
+fn run_captured_process(
+    mut command: Command,
+    mut control: Option<LaunchControl>,
+    deadline: SuiteDeadline,
+) -> Result<Captured> {
     deadline.ensure("spawning a captured process")?;
     #[cfg(unix)]
     {
@@ -1592,7 +2207,7 @@ fn run_captured(mut command: Command, deadline: SuiteDeadline) -> Result<Capture
         command.process_group(0);
     }
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let started = Instant::now();
+    let trusted_started = Instant::now();
     let mut child = command.spawn()?;
     let process_tree = CapturedProcessTree::new(child.id());
     let (capture_sender, capture_receiver) = mpsc::channel();
@@ -1630,6 +2245,21 @@ fn run_captured(mut command: Command, deadline: SuiteDeadline) -> Result<Capture
             return Err(error).context("spawn captured stderr reader");
         }
     };
+    if let Some(control) = control.as_mut() {
+        if let Err(error) = control.arm(deadline) {
+            let _ = process_tree.terminate();
+            let _ = child.kill();
+            let _ = child.wait_timeout(PROCESS_TIMEOUT);
+            let _ = stdout.cancel();
+            let _ = stderr.cancel();
+            for _ in 0..2 {
+                let _ = capture_receiver.recv_timeout(PROCESS_TIMEOUT);
+            }
+            let _ = stdout.join();
+            let _ = stderr.join();
+            return Err(error).context("arm captured product supervisor");
+        }
+    }
     let mut lifecycle_error = None;
     let mut status = None;
     let process_timeout = match deadline.timeout(PROCESS_TIMEOUT, "waiting for captured process") {
@@ -1649,6 +2279,7 @@ fn run_captured(mut command: Command, deadline: SuiteDeadline) -> Result<Capture
             None
         }
     };
+    let event_ns = monotonic_ns()?;
     if let Some(completed) = initial_status {
         status = Some(completed);
     } else {
@@ -1684,7 +2315,10 @@ fn run_captured(mut command: Command, deadline: SuiteDeadline) -> Result<Capture
         }
         lifecycle_error = Some(error);
     }
-    let duration = started.elapsed();
+    let duration = match &control {
+        Some(control) => control.measured_duration(event_ns)?,
+        None => trusted_started.elapsed(),
+    };
     let mut stdout_result = None;
     let mut stderr_result = None;
     let capture_deadline =
@@ -1920,7 +2554,7 @@ fn assert_ping(common: &Common, socket: &Path, deadline: SuiteDeadline) -> Resul
 fn git_sha(path: &Path) -> Result<String> {
     let mut command = Command::new("git");
     command.arg("-C").arg(path).args(["rev-parse", "HEAD"]);
-    let captured = run_captured(command, SuiteDeadline::unbounded())
+    let captured = run_trusted_captured(command, SuiteDeadline::unbounded())
         .with_context(|| format!("run git in {}", path.display()))?;
     if !captured.status.success() {
         bail!(
@@ -1932,24 +2566,16 @@ fn git_sha(path: &Path) -> Result<String> {
     Ok(String::from_utf8(captured.stdout)?.trim().to_string())
 }
 
-fn binary_version(binary: &Path) -> Result<String> {
-    let mut command = Command::new(binary);
-    command.arg("--version");
-    let captured = run_captured(command, SuiteDeadline::unbounded())
-        .with_context(|| format!("read version from {}", binary.display()))?;
+fn assert_git_ancestor(repository: &Path, ancestor: &str, descendant: &str) -> Result<()> {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(repository).args(["merge-base", "--is-ancestor", ancestor, descendant]);
+    let captured = run_trusted_captured(command, SuiteDeadline::unbounded())?;
     if !captured.status.success() {
         bail!(
-            "{} --version failed: {}",
-            binary.display(),
-            String::from_utf8_lossy(&captured.stderr)
+            "measured baseline {ancestor} is not an ancestor of trusted infrastructure {descendant}"
         );
     }
-    let output = String::from_utf8(captured.stdout)?;
-    output
-        .trim()
-        .strip_prefix("cmux ")
-        .map(str::to_string)
-        .with_context(|| format!("unexpected {} --version output: {output:?}", binary.display()))
+    Ok(())
 }
 
 fn binary_sha256(binary: &Path) -> Result<String> {
@@ -2024,7 +2650,7 @@ fn source_rust_toolchain(source: &Path) -> Result<String> {
     let cmux_tui = source.join("cmux-tui");
     let mut command = Command::new("rustup");
     command.args(["show", "active-toolchain"]).current_dir(&cmux_tui);
-    let captured = run_captured(command, SuiteDeadline::unbounded())
+    let captured = run_trusted_captured(command, SuiteDeadline::unbounded())
         .with_context(|| format!("resolve Rust toolchain in {}", cmux_tui.display()))?;
     if !captured.status.success() {
         bail!(
@@ -2049,10 +2675,10 @@ fn json_cli(
 ) -> Result<Value> {
     // These noun-first requests use cmux_tui_core::platform::transport. Windows provides the
     // local transport through uds_windows; the Unix-only remote-daemon command family is separate.
-    let mut command = common.std_command(&[], false)?;
-    command.args(["--json", "--socket"]);
-    command.arg(socket);
-    command.args(args);
+    let mut product_args =
+        vec!["--json".into(), "--socket".into(), socket.to_string_lossy().into_owned()];
+    product_args.extend(args.iter().map(|value| (*value).to_string()));
+    let command = common.std_command(&product_args, false)?;
     let captured = run_captured(command, deadline)?;
     if captured.status.success() {
         let value: Value = serde_json::from_slice(&captured.stdout).with_context(|| {
@@ -2134,8 +2760,16 @@ mod tests {
 
     const SENTINEL_PATH_ENV: &str = "CMUX_STARTUP_TEST_SENTINEL_PATH";
     const START_MARKER_PATH_ENV: &str = "CMUX_STARTUP_TEST_START_MARKER_PATH";
+    const SUPERVISOR_PATH_ENV: &str = "CMUX_BENCH_TEST_SUPERVISOR";
+    const FIXTURE_PARENT_ENV: &str = "CMUX_BENCH_TEST_FIXTURE_PARENT";
 
     fn current_test_target() -> Target {
+        let supervisor_binary = PathBuf::from(
+            env::var_os(SUPERVISOR_PATH_ENV)
+                .expect("CMUX_BENCH_TEST_SUPERVISOR must name the built trusted supervisor"),
+        );
+        let supervisor_binary_sha256 =
+            binary_sha256(&supervisor_binary).expect("hash trusted test supervisor");
         Target {
             kind: TargetKind::Candidate,
             binary: env::current_exe().unwrap(),
@@ -2149,6 +2783,10 @@ mod tests {
             embedded_identity_verified: true,
             version: "test".into(),
             launcher: Vec::new(),
+            supervisor_binary,
+            supervisor_binary_sha256,
+            trusted_source: env::current_dir().unwrap(),
+            trusted_sha: "0".repeat(40),
         }
     }
 
@@ -2159,23 +2797,32 @@ mod tests {
         };
         let start_marker_path = env::var(START_MARKER_PATH_ENV).unwrap();
         fs::write(start_marker_path, b"started").unwrap();
-        fs::write(sentinel_path, b"changed").unwrap();
+        let _ = fs::write(sentinel_path, b"changed");
     }
 
     #[test]
     fn direct_product_launch_cannot_change_an_adjacent_sentinel() {
-        let fixture_parent = tempfile::tempdir().unwrap();
+        let parent = PathBuf::from(
+            env::var_os(FIXTURE_PARENT_ENV)
+                .expect("CMUX_BENCH_TEST_FIXTURE_PARENT must name the sandbox fixture parent"),
+        );
+        let fixture_parent = tempfile::tempdir_in(parent).unwrap();
         let mut common =
             Common::new(current_test_target(), Scenario::Cold, false, fixture_parent.path())
                 .unwrap();
         let start_marker = common.root.path().join("helper-started");
         let sentinel = fixture_parent.path().join("protected-sentinel");
         fs::write(&sentinel, b"protected").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&sentinel, fs::Permissions::from_mode(0o666)).unwrap();
+        }
 
         let helper = "direct_launcher_sibling_write_helper".to_string();
         let mut command = common.std_command(&[helper, "--nocapture".into()], false).unwrap();
-        command.env(START_MARKER_PATH_ENV, &start_marker);
-        command.env(SENTINEL_PATH_ENV, &sentinel);
+        command.command.env(START_MARKER_PATH_ENV, &start_marker);
+        command.command.env(SENTINEL_PATH_ENV, &sentinel);
         let captured =
             run_captured(command, SuiteDeadline::at(Instant::now() + PROCESS_TIMEOUT)).unwrap();
         assert!(captured.status.success(), "helper test failed with status {:?}", captured.status);
@@ -2187,6 +2834,20 @@ mod tests {
             b"protected",
             "the product launcher allowed a child to change a sibling of its fixture root"
         );
+    }
+
+    #[test]
+    fn supervisor_environment_omits_forbidden_runner_secrets() {
+        let environment = collect_base_environment(|key| {
+            Some(if key == "PATH" { "trusted-path" } else { "trusted-value" }.into())
+        });
+
+        assert_eq!(
+            environment.iter().find(|(key, _)| key == "PATH").map(|(_, value)| value.as_str()),
+            Some("trusted-path")
+        );
+        assert!(environment.iter().all(|(key, _)| key != "CMUX_BENCH_FORBIDDEN_TEST_SECRET"));
+        assert!(environment.iter().all(|(key, _)| key != "GITHUB_TOKEN"));
     }
 
     #[test]

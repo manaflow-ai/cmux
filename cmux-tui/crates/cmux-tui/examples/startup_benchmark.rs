@@ -1,3 +1,4 @@
+mod startup_benchmark_protocol;
 mod startup_benchmark_support;
 
 use std::fs::{self, OpenOptions};
@@ -7,9 +8,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use startup_benchmark_support::{
-    Args, ComparisonReport, Evidence, Fixture, HostMetadata, LifecycleRecorder, Pair, PhaseMetric,
-    ProfileReport, RunPhases, SampleKind, SampleSet, Scenario, ScenarioReport, SignedSummary,
-    SuiteDeadline, Target, TargetKind, TargetMetadata, now_unix_ms, run_sample,
+    Args, ComparisonReport, Evidence, Fixture, HostMetadata, InfrastructureMetadata,
+    LifecycleRecorder, Pair, PhaseMetric, ProfileReport, RunPhases, SampleKind, SampleSet,
+    Scenario, ScenarioReport, SignedSummary, SuiteDeadline, Target, TargetKind, TargetMetadata,
+    now_unix_ms, run_sample,
 };
 
 fn main() {
@@ -23,6 +25,8 @@ fn run() -> Result<()> {
     let args = Args::parse()?;
     fs::create_dir_all(&args.output_dir)
         .with_context(|| format!("create {}", args.output_dir.display()))?;
+    InfrastructureMetadata::collect(&args)
+        .context("validate trusted sandbox infrastructure before product execution")?;
 
     if let Some(scenario) = args.profile_only {
         let kind = args.profile_target.context("profile target missing")?;
@@ -58,11 +62,16 @@ fn target_from_args(args: &Args, kind: TargetKind) -> Result<Target> {
         sha.clone(),
         binary_sha256.clone(),
         launcher.clone(),
-    )
+        args.supervisor_binary.clone(),
+        args.supervisor_binary_sha256.clone(),
+        args.trusted_source.clone(),
+        args.trusted_sha.clone(),
+    )?
+    .verify_product_identity(&args.fixture_parent)
 }
 
 fn run_profile(args: &Args, target: Target, scenario: Scenario) -> Result<()> {
-    let metadata = TargetMetadata::collect(&target)?;
+    let initial_infrastructure = InfrastructureMetadata::collect(args)?;
     let mut lifecycle =
         LifecycleRecorder::new(args.fixture_parent.clone(), args.output_dir.clone())?;
     let prepare_started = std::time::Instant::now();
@@ -83,14 +92,21 @@ fn run_profile(args: &Args, target: Target, scenario: Scenario) -> Result<()> {
     result.phases.prepare = prepare;
     result.phases.fixture_cleanup = fixture_cleanup;
     result.phases.root_deferral = root_deferral;
+    target.verify_integrity()?;
+    let metadata = TargetMetadata::collect(&target)?;
+    let infrastructure = InfrastructureMetadata::collect(args)?;
+    if infrastructure != initial_infrastructure {
+        bail!("trusted benchmark infrastructure changed during profile execution");
+    }
     let report = ProfileReport {
-        schema_version: 2,
+        schema_version: 3,
         generated_at_unix_ms: now_unix_ms(),
         platform_label: args.platform_label.clone(),
         target: target.kind,
         scenario,
         duration_ns: result.duration_ns,
         evidence,
+        infrastructure,
         host: HostMetadata::collect(),
         binary: metadata,
     };
@@ -105,8 +121,7 @@ fn run_profile(args: &Args, target: Target, scenario: Scenario) -> Result<()> {
 }
 
 fn run_comparison(args: Args, baseline: Target, candidate: Target) -> Result<()> {
-    let baseline_metadata = TargetMetadata::collect(&baseline)?;
-    let candidate_metadata = TargetMetadata::collect(&candidate)?;
+    let initial_infrastructure = InfrastructureMetadata::collect(&args)?;
     let mut lifecycle =
         LifecycleRecorder::new(args.fixture_parent.clone(), args.output_dir.clone())?;
     let suite_deadline = SuiteDeadline::at(
@@ -128,13 +143,22 @@ fn run_comparison(args: Args, baseline: Target, candidate: Target) -> Result<()>
             .with_context(|| format!("compare {} startup", scenario.as_str()))?,
         );
     }
+    baseline.verify_integrity()?;
+    candidate.verify_integrity()?;
+    let baseline_metadata = TargetMetadata::collect(&baseline)?;
+    let candidate_metadata = TargetMetadata::collect(&candidate)?;
+    let infrastructure = InfrastructureMetadata::collect(&args)?;
+    if infrastructure != initial_infrastructure {
+        bail!("trusted benchmark infrastructure changed during paired execution");
+    }
     let report = ComparisonReport {
-        schema_version: 2,
+        schema_version: 3,
         generated_at_unix_ms: now_unix_ms(),
         platform_label: args.platform_label,
         warmups: args.warmups,
         paired_samples: args.samples,
         order: "alternating baseline-first and candidate-first pairs",
+        infrastructure,
         host: HostMetadata::collect(),
         baseline: baseline_metadata,
         candidate: candidate_metadata,
@@ -398,6 +422,18 @@ fn validate_evidence(scenario: Scenario, args: &Args, evidence: &Evidence) -> Re
         );
     }
     let total = args.warmups + args.samples;
+    if evidence.supervisor_ready_events != total
+        || evidence.supervisor_t0_records != total
+        || evidence.containment_cleanups != total
+    {
+        bail!(
+            "{} supervisor evidence was incomplete: ready={}, t0={}, cleanup={}, expected={total}",
+            scenario.as_str(),
+            evidence.supervisor_ready_events,
+            evidence.supervisor_t0_records,
+            evidence.containment_cleanups,
+        );
+    }
     let terminal_probe_minimum = total * if cfg!(windows) { 2 } else { 4 };
     match scenario {
         Scenario::Cold | Scenario::Warm if evidence.frame_completions < total => {
@@ -453,10 +489,12 @@ fn write_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn render_markdown(report: &ComparisonReport) -> String {
     let mut output = format!(
-        "# cmux-tui startup benchmark\n\nPlatform: {}  \nBaseline: {}  \nCandidate: {}  \nWarmups: {}  \nPaired samples: {}\n\n| Scenario | Baseline p50 | Candidate p50 | Paired mean delta | Baseline p95 | Candidate p95 |\n| --- | ---: | ---: | ---: | ---: | ---: |\n",
+        "# cmux-tui startup benchmark\n\nPlatform: {}  \nTrusted infrastructure: {}  \nBaseline product: {}  \nCandidate product: {}  \nSandbox: {}  \nWarmups: {}  \nPaired samples: {}\n\n| Scenario | Baseline p50 | Candidate p50 | Paired mean delta | Baseline p95 | Candidate p95 |\n| --- | ---: | ---: | ---: | ---: | ---: |\n",
         report.platform_label,
+        report.infrastructure.trusted_sha,
         report.baseline.observed_sha,
         report.candidate.observed_sha,
+        report.infrastructure.sandbox_backend,
         report.warmups,
         report.paired_samples,
     );

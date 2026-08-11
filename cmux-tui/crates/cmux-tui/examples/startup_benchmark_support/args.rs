@@ -12,6 +12,13 @@ const MAX_SAMPLES: usize = 500;
 
 #[derive(Debug)]
 pub struct Args {
+    pub trusted_sha: String,
+    pub trusted_source: PathBuf,
+    pub supervisor_binary: PathBuf,
+    pub supervisor_binary_sha256: String,
+    pub sandbox_backend: String,
+    pub sandbox_preflight: PathBuf,
+    pub sandbox_preflight_sha256: String,
     pub baseline_binary: PathBuf,
     pub candidate_binary: PathBuf,
     pub baseline_source: PathBuf,
@@ -36,6 +43,13 @@ impl Args {
     pub fn parse() -> Result<Self> {
         let mut parser = Parser::new(env::args().skip(1));
         let mut args = Self {
+            trusted_sha: String::new(),
+            trusted_source: PathBuf::new(),
+            supervisor_binary: PathBuf::new(),
+            supervisor_binary_sha256: String::new(),
+            sandbox_backend: String::new(),
+            sandbox_preflight: PathBuf::new(),
+            sandbox_preflight_sha256: String::new(),
             baseline_binary: PathBuf::new(),
             candidate_binary: PathBuf::new(),
             baseline_source: PathBuf::new(),
@@ -58,6 +72,17 @@ impl Args {
 
         while let Some((key, inline)) = parser.next_key()? {
             match key.as_str() {
+                "--trusted-sha" => args.trusted_sha = parser.value(&key, inline)?,
+                "--trusted-source" => args.trusted_source = parser.path(&key, inline)?,
+                "--supervisor-binary" => args.supervisor_binary = parser.path(&key, inline)?,
+                "--supervisor-binary-sha256" => {
+                    args.supervisor_binary_sha256 = parser.value(&key, inline)?
+                }
+                "--sandbox-backend" => args.sandbox_backend = parser.value(&key, inline)?,
+                "--sandbox-preflight" => args.sandbox_preflight = parser.path(&key, inline)?,
+                "--sandbox-preflight-sha256" => {
+                    args.sandbox_preflight_sha256 = parser.value(&key, inline)?
+                }
                 "--baseline-binary" => args.baseline_binary = parser.path(&key, inline)?,
                 "--candidate-binary" => args.candidate_binary = parser.path(&key, inline)?,
                 "--baseline-source" => args.baseline_source = parser.path(&key, inline)?,
@@ -96,6 +121,9 @@ impl Args {
     }
 
     fn validate(&mut self) -> Result<()> {
+        self.trusted_source = canonical_directory(&self.trusted_source, "--trusted-source")?;
+        self.supervisor_binary = canonical_file(&self.supervisor_binary, "--supervisor-binary")?;
+        self.sandbox_preflight = canonical_file(&self.sandbox_preflight, "--sandbox-preflight")?;
         self.baseline_binary = canonical_file(&self.baseline_binary, "--baseline-binary")?;
         self.candidate_binary = canonical_file(&self.candidate_binary, "--candidate-binary")?;
         self.baseline_source = canonical_directory(&self.baseline_source, "--baseline-source")?;
@@ -106,8 +134,14 @@ impl Args {
         if self.baseline_source == self.candidate_source {
             bail!("baseline and candidate source directories must differ");
         }
+        validate_sha(&self.trusted_sha, "--trusted-sha")?;
         validate_sha(&self.baseline_sha, "--baseline-sha")?;
         validate_sha(&self.candidate_sha, "--candidate-sha")?;
+        validate_sha256(&self.supervisor_binary_sha256, "--supervisor-binary-sha256")?;
+        validate_sha256(&self.sandbox_preflight_sha256, "--sandbox-preflight-sha256")?;
+        if self.sandbox_backend != expected_sandbox_backend() {
+            bail!("--sandbox-backend must be {} on this platform", expected_sandbox_backend());
+        }
         validate_sha256(&self.baseline_binary_sha256, "--baseline-binary-sha256")?;
         validate_sha256(&self.candidate_binary_sha256, "--candidate-binary-sha256")?;
         if self.baseline_sha == self.candidate_sha {
@@ -136,6 +170,25 @@ impl Args {
             (Some(_), Some(_)) => {}
         }
         Ok(())
+    }
+}
+
+fn expected_sandbox_backend() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "linux-bwrap"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "macos-seatbelt"
+    }
+    #[cfg(windows)]
+    {
+        "windows-restricted-token-job"
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        "unsupported"
     }
 }
 

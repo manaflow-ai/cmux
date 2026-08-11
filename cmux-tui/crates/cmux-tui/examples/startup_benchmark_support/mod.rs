@@ -13,8 +13,8 @@ pub use args::Args;
 pub use lifecycle::{LifecycleRecorder, PhaseMetric, RunPhases, SampleKind};
 pub use process::{Fixture, Target, run_sample};
 pub use report::{
-    ComparisonReport, HostMetadata, Pair, ProfileReport, SampleSet, ScenarioReport, SignedSummary,
-    TargetMetadata, now_unix_ms,
+    ComparisonReport, HostMetadata, InfrastructureMetadata, Pair, ProfileReport, SampleSet,
+    ScenarioReport, SignedSummary, TargetMetadata, now_unix_ms,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -159,6 +159,9 @@ pub struct Evidence {
     pub restored_topologies: usize,
     pub schema_rejections: usize,
     pub process_exits: usize,
+    pub supervisor_ready_events: usize,
+    pub supervisor_t0_records: usize,
+    pub containment_cleanups: usize,
     pub terminal_probe_responses: usize,
     pub terminal_cpr_responses: usize,
     pub terminal_foreground_color_responses: usize,
@@ -184,6 +187,9 @@ impl Evidence {
             restored_topologies,
             schema_rejections,
             process_exits,
+            supervisor_ready_events,
+            supervisor_t0_records,
+            containment_cleanups,
             terminal_probe_responses,
             terminal_cpr_responses,
             terminal_foreground_color_responses,
@@ -205,6 +211,9 @@ impl Evidence {
         self.restored_topologies += *restored_topologies;
         self.schema_rejections += *schema_rejections;
         self.process_exits += *process_exits;
+        self.supervisor_ready_events += *supervisor_ready_events;
+        self.supervisor_t0_records += *supervisor_t0_records;
+        self.containment_cleanups += *containment_cleanups;
         self.terminal_probe_responses += *terminal_probe_responses;
         self.terminal_cpr_responses += *terminal_cpr_responses;
         self.terminal_foreground_color_responses += *terminal_foreground_color_responses;

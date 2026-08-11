@@ -8,11 +8,11 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use wait_timeout::ChildExt;
 
-use super::{Evidence, Scenario, Target, TargetKind};
+use super::{Args, Evidence, Scenario, Target, TargetKind};
 
 const METADATA_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -24,6 +24,7 @@ pub struct ComparisonReport {
     pub warmups: usize,
     pub paired_samples: usize,
     pub order: &'static str,
+    pub infrastructure: InfrastructureMetadata,
     pub host: HostMetadata,
     pub baseline: TargetMetadata,
     pub candidate: TargetMetadata,
@@ -39,6 +40,7 @@ pub struct ProfileReport {
     pub scenario: Scenario,
     pub duration_ns: u64,
     pub evidence: Evidence,
+    pub infrastructure: InfrastructureMetadata,
     pub host: HostMetadata,
     pub binary: TargetMetadata,
 }
@@ -213,6 +215,160 @@ pub struct TargetMetadata {
     pub binary_sha256: String,
     pub binary_bytes: u64,
     pub embedded_identity_verified: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct InfrastructureMetadata {
+    pub trusted_sha: String,
+    pub trusted_source: String,
+    pub sandbox_backend: String,
+    pub sandbox_policy: String,
+    pub sandbox_handshake: String,
+    pub sandbox_cleanup: String,
+    pub supervisor_binary: String,
+    pub expected_supervisor_sha256: String,
+    pub supervisor_sha256: String,
+    pub supervisor_bytes: u64,
+    pub preflight_evidence: String,
+    pub expected_preflight_sha256: String,
+    pub preflight_sha256: String,
+    pub preflight_bytes: u64,
+}
+
+impl InfrastructureMetadata {
+    pub fn collect(args: &Args) -> Result<Self> {
+        let supervisor = fs::read(&args.supervisor_binary)?;
+        let preflight = fs::read(&args.sandbox_preflight)?;
+        let supervisor_sha256 = format!("{:x}", Sha256::digest(&supervisor));
+        if supervisor_sha256 != args.supervisor_binary_sha256 {
+            bail!("supervisor changed after argument validation");
+        }
+        let preflight_sha256 = format!("{:x}", Sha256::digest(&preflight));
+        if preflight_sha256 != args.sandbox_preflight_sha256 {
+            bail!("sandbox preflight evidence changed after argument validation");
+        }
+        let evidence: SandboxPreflightEvidence = serde_json::from_slice(&preflight)
+            .context("sandbox preflight evidence was not valid JSON")?;
+        evidence.validate(&args.sandbox_backend, &supervisor_sha256)?;
+        Ok(Self {
+            trusted_sha: args.trusted_sha.clone(),
+            trusted_source: args.trusted_source.display().to_string(),
+            sandbox_backend: args.sandbox_backend.clone(),
+            sandbox_policy: evidence.policy,
+            sandbox_handshake: evidence.handshake,
+            sandbox_cleanup: evidence.cleanup,
+            supervisor_binary: args.supervisor_binary.display().to_string(),
+            expected_supervisor_sha256: args.supervisor_binary_sha256.clone(),
+            supervisor_sha256,
+            supervisor_bytes: supervisor.len() as u64,
+            preflight_evidence: args.sandbox_preflight.display().to_string(),
+            expected_preflight_sha256: args.sandbox_preflight_sha256.clone(),
+            preflight_sha256,
+            preflight_bytes: preflight.len() as u64,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SandboxPreflightEvidence {
+    schema_version: u32,
+    backend: String,
+    policy: String,
+    handshake: String,
+    cleanup: String,
+    inside_write: bool,
+    adjacent_write_denied: bool,
+    descendant_adjacent_write_denied: bool,
+    descendant_contained: bool,
+    network_denied: bool,
+    inbound_network_denied: bool,
+    linux_no_new_privs: Option<bool>,
+    linux_effective_capabilities_zero: Option<bool>,
+    linux_sudo_bwrap: Option<bool>,
+    linux_bwrap_version: Option<String>,
+    linux_unprivileged_userns_clone: Option<i64>,
+    linux_max_user_namespaces: Option<i64>,
+    windows_low_integrity: Option<bool>,
+    windows_no_enabled_privileges: Option<bool>,
+    windows_registry_write_denied: Option<bool>,
+    windows_grandchild_in_job: Option<bool>,
+    windows_breakaway_denied: Option<bool>,
+    windows_active_process_zero: Option<bool>,
+    supervisor_ready: bool,
+    timing_records: u64,
+    supervisor_sha256: String,
+}
+
+impl SandboxPreflightEvidence {
+    fn validate(&self, backend: &str, supervisor_sha256: &str) -> Result<()> {
+        if self.schema_version != 2
+            || self.backend != backend
+            || self.policy != "fixture-root-only-write"
+            || self.handshake != "nonce-bound-ready-arm-with-pre-exec-t0"
+            || self.cleanup != "descendant-channel-eof-after-process-tree-empty"
+            || !self.inside_write
+            || !self.adjacent_write_denied
+            || !self.descendant_adjacent_write_denied
+            || !self.descendant_contained
+            || !self.network_denied
+            || !self.inbound_network_denied
+            || !self.supervisor_ready
+            || self.timing_records != 1
+            || self.supervisor_sha256 != supervisor_sha256
+        {
+            bail!("sandbox preflight evidence did not prove the required containment policy");
+        }
+        let platform_proof = match backend {
+            "linux-bwrap" => {
+                self.linux_no_new_privs == Some(true)
+                    && self.linux_effective_capabilities_zero == Some(true)
+                    && self.linux_sudo_bwrap.is_some()
+                    && self.linux_bwrap_version.as_ref().is_some_and(|value| !value.is_empty())
+                    && self.linux_unprivileged_userns_clone.is_some()
+                    && self.linux_max_user_namespaces.is_some()
+                    && self.windows_proofs_absent()
+            }
+            "macos-seatbelt" => {
+                self.linux_no_new_privs.is_none()
+                    && self.linux_effective_capabilities_zero.is_none()
+                    && self.linux_provenance_absent()
+                    && self.windows_proofs_absent()
+            }
+            "windows-restricted-token-job" => {
+                self.linux_no_new_privs.is_none()
+                    && self.linux_effective_capabilities_zero.is_none()
+                    && self.linux_provenance_absent()
+                    && self.windows_low_integrity == Some(true)
+                    && self.windows_no_enabled_privileges == Some(true)
+                    && self.windows_registry_write_denied == Some(true)
+                    && self.windows_grandchild_in_job == Some(true)
+                    && self.windows_breakaway_denied == Some(true)
+                    && self.windows_active_process_zero == Some(true)
+            }
+            _ => false,
+        };
+        if !platform_proof {
+            bail!("sandbox preflight evidence omitted a required platform security proof");
+        }
+        Ok(())
+    }
+
+    fn windows_proofs_absent(&self) -> bool {
+        self.windows_low_integrity.is_none()
+            && self.windows_no_enabled_privileges.is_none()
+            && self.windows_registry_write_denied.is_none()
+            && self.windows_grandchild_in_job.is_none()
+            && self.windows_breakaway_denied.is_none()
+            && self.windows_active_process_zero.is_none()
+    }
+
+    fn linux_provenance_absent(&self) -> bool {
+        self.linux_bwrap_version.is_none()
+            && self.linux_sudo_bwrap.is_none()
+            && self.linux_unprivileged_userns_clone.is_none()
+            && self.linux_max_user_namespaces.is_none()
+    }
 }
 
 impl TargetMetadata {
