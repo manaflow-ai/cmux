@@ -9204,7 +9204,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedTerminalID = "terminal-build"
     private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
     private var requestCountsByMethod: [String: Int] = [:]
-    private var eventSubscriptionStreamIDs: Set<String> = []
+    private var eventSubscriptionStreamIDsByConnection:
+        [ObjectIdentifier: Set<String>] = [:]
     private var replayCounts: [String: Int] = [:]
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
@@ -9554,7 +9555,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
-            let responseFrame = try makeResponseFrame(for: payload)
+            let responseFrame = try makeResponseFrame(
+                for: payload,
+                connectionID: ObjectIdentifier(connection)
+            )
             if Self.requestMethod(in: payload) == "terminal.paste",
                holdsTerminalPasteResponse {
                 terminalPasteRequestReached = true
@@ -9631,7 +9635,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         return request?["method"] as? String
     }
 
-    private func makeResponseFrame(for payload: Data) throws -> Data {
+    private func makeResponseFrame(
+        for payload: Data,
+        connectionID: ObjectIdentifier
+    ) throws -> Data {
         guard let request = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let method = request["method"] as? String else {
             throw serverError("Invalid request.")
@@ -9677,8 +9684,14 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
             let streamID = params["stream_id"] as? String ?? "events"
-            let alreadySubscribed = eventSubscriptionStreamIDs.contains(streamID)
-            eventSubscriptionStreamIDs.insert(streamID)
+            let alreadySubscribed = eventSubscriptionStreamIDsByConnection[
+                connectionID,
+                default: []
+            ].contains(streamID)
+            eventSubscriptionStreamIDsByConnection[
+                connectionID,
+                default: []
+            ].insert(streamID)
             result = [
                 "stream_id": streamID,
                 "topics": params["topics"] as? [String] ?? [],
@@ -9686,13 +9699,19 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.events.unsubscribe":
             let streamID = params["stream_id"] as? String ?? "events"
-            eventSubscriptionStreamIDs.remove(streamID)
+            eventSubscriptionStreamIDsByConnection[
+                connectionID,
+                default: []
+            ].remove(streamID)
             result = ["stream_id": streamID]
         case "mobile.events.probe":
             let streamID = params["stream_id"] as? String ?? ""
             result = [
                 "stream_id": streamID,
-                "subscribed": eventSubscriptionStreamIDs.contains(streamID),
+                "subscribed": eventSubscriptionStreamIDsByConnection[
+                    connectionID,
+                    default: []
+                ].contains(streamID),
                 "event_transport": "control_v1",
             ]
         case "mobile.host.status":
