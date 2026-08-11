@@ -1199,7 +1199,7 @@ final class PersistentTerminalExternalRuntime: TerminalExternalRuntime {
                         launchRequest,
                         self.commandShimLease
                     )
-                    if let lease = ownedLaunch.commandShimLease,
+                    if let lease = ownedLaunch.takeCommandShimLease(),
                        lease !== self.commandShimLease {
                         unadoptedCommandShimLease = lease
                     }

@@ -181,9 +181,23 @@ public final class TerminalSurfaceLaunchResolver {
                 defaultShellArguments: resolvedDefaultShellArguments
             )
         }
+        if commandShimLease == nil, let ownedCommandShimLease {
+            let cleanupFilesystem = runtimeFilesystem
+            let cleanupClock = agentCommandShimInstallDeadlineClock
+            return TerminalSurfaceOwnedLaunch(
+                resolvedLaunch: resolution.resolvedLaunch,
+                provisionalCommandShimLease: ownedCommandShimLease,
+                cleanupUnacceptedLease: { lease in
+                    await cleanupFilesystem.cleanupUnownedAgentCommandShims(
+                        lease.shims,
+                        retryClock: cleanupClock
+                    )
+                }
+            )
+        }
         return TerminalSurfaceOwnedLaunch(
             resolvedLaunch: resolution.resolvedLaunch,
-            commandShimLease: ownedCommandShimLease
+            borrowingCommandShimLease: ownedCommandShimLease
         )
     }
 

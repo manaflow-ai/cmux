@@ -637,7 +637,7 @@ struct TerminalSurfaceLaunchResolverTests {
         resolution.cancel()
         let canceled = await resolution.value
 
-        #expect(canceled.commandShimLease == nil)
+        #expect(canceled.takeCommandShimLease() == nil)
         #expect(canceled.resolvedLaunch.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
         #expect(await cleanupRecorder.next() == shims)
     }
@@ -676,11 +676,55 @@ struct TerminalSurfaceLaunchResolverTests {
         )
 
         let ownedLaunch = await resolver.resolveInstallingCommandShim(request)
-        let lease = try #require(ownedLaunch.commandShimLease)
+        let lease = try #require(ownedLaunch.takeCommandShimLease())
 
         #expect(lease.shims == shims)
         #expect(ownedLaunch.resolvedLaunch.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == shims.directoryPath)
         #expect(await lease.release())
+        #expect(await cleanupRecorder.next() == shims)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func lateCancellationReleasesAnUnacceptedCommandShimLease() async throws {
+        let cleanupRecorder = CommandShimCleanupRecorder()
+        let shims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/unaccepted-command-shims",
+            shims: []
+        )
+        let filesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+            installAgentCommandShims: { _, _, _ in shims },
+            removeAgentCommandShims: { shims in
+                await cleanupRecorder.record(shims)
+            },
+            isExecutableFile: { _ in false },
+            directoryExists: { _ in false }
+        )
+        let resolver = makeResolver(
+            defaultArguments: ["/bin/zsh", "-l"],
+            runtimeFilesystem: filesystem,
+            resourceURL: URL(fileURLWithPath: "/tmp/cmux-test-resources")
+        )
+        let request = TerminalSurfaceLaunchRequest(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            configTemplate: nil,
+            workingDirectory: nil,
+            portOrdinal: 0,
+            initialCommand: nil,
+            initialInput: nil,
+            initialEnvironmentOverrides: [:],
+            additionalEnvironment: [:]
+        )
+
+        let resolution = Task {
+            let ownedLaunch = await resolver.resolveInstallingCommandShim(request)
+            withUnsafeCurrentTask { $0?.cancel() }
+            return ownedLaunch.resolvedLaunch
+        }
+        let resolved = await resolution.value
+
+        #expect(resolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == shims.directoryPath)
         #expect(await cleanupRecorder.next() == shims)
     }
 
