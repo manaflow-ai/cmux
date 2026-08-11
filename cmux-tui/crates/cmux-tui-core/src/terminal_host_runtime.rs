@@ -37,7 +37,8 @@ use crate::terminal_host_protocol::{
     encode_terminal_exit, read_frame, wait_for_native_child_status, write_frame,
 };
 
-const HOST_RECORD_VERSION: u32 = 4;
+const HOST_RECORD_VERSION: u32 = 5;
+const JOURNAL_DETACH_FENCE_RECORD_VERSION: u32 = 4;
 const LEGACY_PROTOCOL_VERSION: u16 = 1;
 const SMART_RENDERER_PROTOCOL_VERSION: u16 = 3;
 const HOST_EXIT_RECORD_VERSION: u32 = 1;
@@ -1448,14 +1449,14 @@ mod unix {
 
         /// Remove this daemon from host publication only after the reader has
         /// consumed every source frame admitted before the request. Record-v4
-        /// hosts implement the source fence; older hosts cannot make this
+        /// or newer hosts implement the source fence; older hosts cannot make this
         /// shutdown guarantee.
         pub(crate) fn detach_for_daemon_shutdown_until(
             &self,
             deadline: Instant,
         ) -> anyhow::Result<()> {
             anyhow::ensure!(
-                self.record.record_version >= HOST_RECORD_VERSION,
+                self.record.record_version >= JOURNAL_DETACH_FENCE_RECORD_VERSION,
                 "terminal host does not support a source-ordered detach fence"
             );
             let response = self
@@ -1471,7 +1472,7 @@ mod unix {
         }
 
         pub(crate) fn supports_journal_detach_fence(&self) -> bool {
-            self.record.record_version >= HOST_RECORD_VERSION
+            self.record.record_version >= JOURNAL_DETACH_FENCE_RECORD_VERSION
         }
 
         /// Commit the launch ownership handoff after every fallible Surface
@@ -1938,7 +1939,7 @@ mod unix {
         record_path: &Path,
         record: &TerminalHostRecord,
     ) -> anyhow::Result<TerminalHostIdentity> {
-        if !matches!(record.record_version, 1 | 2 | 3 | HOST_RECORD_VERSION) {
+        if !matches!(record.record_version, 1 | 2 | 3 | 4 | HOST_RECORD_VERSION) {
             anyhow::bail!("unsupported terminal-host record version {}", record.record_version);
         }
         let terminal_id = TerminalId::from_hex(&record.terminal_id)
@@ -2370,7 +2371,7 @@ mod unix {
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
         if record.record_version >= HOST_RECORD_VERSION {
-            // Fence-capable records are emitted only by the current smart
+            // Current-version records are emitted only by the current smart
             // protocol. After an existing owner connection fails, probing
             // every legacy version can outlive the control request while the
             // already-terminating host removes its socket. One current
@@ -7438,6 +7439,7 @@ mod unix {
             .expect("protocol-v4 discovery record did not fall back to its live host");
             assert_eq!(attachment.protocol_version(), 4);
             assert_eq!(attachment.snapshot.replay, b"protocol-four-live-state");
+            assert!(attachment.supports_journal_detach_fence());
             drop(attachment);
             assert!(fake_host.join().unwrap().unwrap());
 

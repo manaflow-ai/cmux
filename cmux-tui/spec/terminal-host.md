@@ -399,11 +399,12 @@ rights, malformed control payload, unknown flags, invalid sequence, or queue
 overflow closes or rejects the connection. A client reconnects, authenticates
 again, and consumes a fresh `Snapshot` plus same-boundary `Colors`.
 
-Discovery records use JSON `record_version:4`. Terminal and incarnation are
+Discovery records use JSON `record_version:5`. Terminal and incarnation are
 32-character lowercase UUIDv4 hex, owner token and process nonce are
 64-character lowercase hex, the Unix-socket path is canonical, and the host
-PID is nonzero. Record directories are mode `0700`; records and sockets are
-mode `0600`.
+PID is nonzero. Record v4 remains valid and retains the journal detach fence,
+but a v5 daemon probes it as an older protocol host. Record directories are
+mode `0700`; records and sockets are mode `0600`.
 
 ## Durability boundary
 
@@ -423,6 +424,7 @@ across an unplanned no-tap interval until a durable host spool exists.
 Protocol v1 carries the base snapshot and legacy replay stream. Protocol v2
 adds Kitty image aliases and cell-pixel metrics. Protocol v3 adds Kitty replay
 state, Kitty quota controls, and the smart raw-byte stream. Protocol v4 adds
-the launch activation barrier. A v4 client may negotiate v1 or v2 only in
-legacy mode; smart renderers require v3 and restart their handshake on any gap
-or `ResyncRequired` frame.
+the launch activation barrier. Protocol v5 adds the unspecified terminal id
+for public one-use renderer grants. A v5 daemon probes discovery-record v4
+hosts at older protocol versions. Smart renderers require v3 and restart their
+handshake on any gap or `ResyncRequired` frame.
