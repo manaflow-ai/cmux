@@ -327,7 +327,8 @@ enum AgentResumeCommandBuilder {
         workingDirectory: String?,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
         includeWorkingDirectoryPrefix: Bool = true,
-        observedPermissionMode: String? = nil
+        observedPermissionMode: String? = nil,
+        allowCapturedWorkingDirectoryFallback: Bool = true
     ) -> String? {
         let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -349,7 +350,8 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            allowCapturedWorkingDirectoryFallback: allowCapturedWorkingDirectoryFallback
         )
     }
 
@@ -392,7 +394,8 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?,
-        includeWorkingDirectoryPrefix: Bool
+        includeWorkingDirectoryPrefix: Bool,
+        allowCapturedWorkingDirectoryFallback: Bool = true
     ) -> String {
         var commandParts: [String] = []
         let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
@@ -404,7 +407,10 @@ enum AgentResumeCommandBuilder {
 
         let cwd = customRegistration?.cwd == .ignore
             ? nil
-            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+            : normalized(
+                workingDirectory
+                    ?? (allowCapturedWorkingDirectoryFallback ? launchCommand?.workingDirectory : nil)
+            )
         let workingDirectoriesToRemove = [
             cwd,
             normalized(launchCommand?.workingDirectory),
@@ -801,7 +807,8 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func resumeStartupInput(
         useLocalRestoreVerb: Bool = true,
-        restoringWorkingDirectory: String? = nil
+        restoringWorkingDirectory: String? = nil,
+        allowCapturedWorkingDirectoryFallback: Bool = true
     ) -> String? {
         if useLocalRestoreVerb {
             let executable = AgentRestoreLaunch.cliStartupExecutableToken
@@ -812,11 +819,13 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
         }
         let effectiveWorkingDirectory = resumeWorkingDirectory(
-            preferred: restoringWorkingDirectory
+            preferred: restoringWorkingDirectory,
+            allowCapturedWorkingDirectoryFallback: allowCapturedWorkingDirectoryFallback
         )
         let restoreCommand = resumeCommand(
             includeWorkingDirectoryPrefix: true,
-            restoringWorkingDirectory: effectiveWorkingDirectory
+            restoringWorkingDirectory: effectiveWorkingDirectory,
+            allowCapturedWorkingDirectoryFallback: allowCapturedWorkingDirectoryFallback
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(toStoredCommand: command) ?? command
@@ -863,9 +872,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         return scriptInput.utf8.count <= Self.maxInlineForkInputBytes ? scriptInput : nil
     }
 
-    private func resumeWorkingDirectory(preferred: String?) -> String? {
+    private func resumeWorkingDirectory(
+        preferred: String?,
+        allowCapturedWorkingDirectoryFallback: Bool
+    ) -> String? {
         guard registration?.cwd != .ignore else { return nil }
-        for candidate in [preferred, workingDirectory, launchCommand?.workingDirectory] {
+        let candidates = allowCapturedWorkingDirectoryFallback
+            ? [preferred, workingDirectory, launchCommand?.workingDirectory]
+            : [preferred]
+        for candidate in candidates {
             guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !trimmed.isEmpty else {
                 continue

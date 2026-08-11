@@ -207,9 +207,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
 
-            let source = Workspace()
+            let localWorkingDirectory = "/Users/cmux-local-runner"
+            let source = Workspace(workingDirectory: localWorkingDirectory)
             let remoteCommand = "ssh cmux-macmini"
-            let expectedRestoredRemoteCommand = "ssh -tt cmux-macmini"
             source.configureRemoteConnection(
                 WorkspaceRemoteConfiguration(
                     destination: "cmux-macmini",
@@ -226,8 +226,37 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 autoConnect: false
             )
             let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceWithoutRemoteDirectoryIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-remote-no-cwd-session"
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            let snapshotWithoutRemoteDirectory = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceWithoutRemoteDirectoryIndex
+            )
+
+            let restoredWithoutRemoteDirectory = Workspace()
+            restoredWithoutRemoteDirectory.restoreSessionSnapshot(snapshotWithoutRemoteDirectory)
+            let restoredWithoutRemoteDirectoryPanelId = try XCTUnwrap(
+                restoredWithoutRemoteDirectory.focusedPanelId
+            )
+            let restoredWithoutRemoteDirectoryPanel = try XCTUnwrap(
+                restoredWithoutRemoteDirectory.terminalPanel(
+                    for: restoredWithoutRemoteDirectoryPanelId
+                )
+            )
+            let inputWithoutRemoteDirectory = try XCTUnwrap(
+                restoredWithoutRemoteDirectoryPanel.surface.initialInput
+            )
+
+            XCTAssertNil(restoredWithoutRemoteDirectoryPanel.requestedWorkingDirectory)
+            XCTAssertFalse(inputWithoutRemoteDirectory.contains(localWorkingDirectory))
+            XCTAssertFalse(inputWithoutRemoteDirectory.contains("/tmp/repo"))
+
             let remoteWorkingDirectory = "/home/dev/cmux-remote-running"
-            source.updatePanelDirectory(
+            source.updateRemotePanelDirectory(
                 panelId: sourcePanelId,
                 directory: remoteWorkingDirectory
             )
@@ -236,7 +265,6 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 panelId: sourcePanelId,
                 sessionId: "codex-remote-running-session"
             )
-            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
             let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
 
             let restored = Workspace()
@@ -246,8 +274,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
             let restoredRemoteCommand = try XCTUnwrap(restored.remoteConfiguration?.terminalStartupCommand)
 
-            XCTAssertEqual(restoredRemoteCommand, expectedRestoredRemoteCommand)
-            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), expectedRestoredRemoteCommand)
+            XCTAssertTrue(restoredRemoteCommand.hasSuffix("ssh -tt cmux-macmini"), restoredRemoteCommand)
+            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), restoredRemoteCommand)
             XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertGreaterThan(restoredInput.byteCount, 0)
             let input = try XCTUnwrap(restoredPanel.surface.initialInput)
