@@ -162,45 +162,74 @@ fi
 run_url="https://github.com/$REPO/actions/runs/$run_id"
 echo "Run: $run_url"
 echo "Waiting for hosted verification"
-verification_started="$(date +%s)"
-run_status=""
-run_conclusion=""
-while true; do
-  run_state=""
-  if run_state="$(
-    gh run view \
-      --repo "$REPO" \
-      "$run_id" \
-      --json status,conclusion \
-      --jq '[.status, .conclusion] | @tsv'
-  )"; then
-    IFS=$'\t' read -r run_status run_conclusion <<< "$run_state"
-    if [[ "$run_status" == "completed" ]]; then
-      break
-    fi
-  else
-    echo "warning: hosted run status query failed; retrying" >&2
-  fi
 
-  verification_now="$(date +%s)"
-  if (( verification_now - verification_started >= timeout_seconds )); then
-    echo "error: hosted verification did not complete within ${timeout_seconds}s: $run_url" >&2
-    exit 1
-  fi
-  sleep 10
-done
+temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-hosted.XXXXXX")"
+watch_result_fifo="$temp_dir/run-watch-result"
+mkfifo "$watch_result_fifo"
+cleanup() {
+  rm -rf -- "$temp_dir"
+}
+trap cleanup EXIT
+
+# Keep both ends open so the timed read starts before the watcher publishes its
+# result. The watcher owns the GitHub CLI child and reaps it on every exit path.
+exec 3<> "$watch_result_fifo"
+(
+  watcher_pid=""
+  stop_watcher() {
+    if [[ -n "$watcher_pid" ]]; then
+      kill "$watcher_pid" 2>/dev/null || true
+      wait "$watcher_pid" 2>/dev/null || true
+    fi
+  }
+  trap stop_watcher TERM INT EXIT
+
+  set +e
+  gh run watch \
+    --repo "$REPO" \
+    "$run_id" \
+    --exit-status \
+    --interval 10 >&2 &
+  watcher_pid=$!
+  wait "$watcher_pid"
+  watch_status=$?
+  watcher_pid=""
+  set -e
+
+  trap - TERM INT EXIT
+  printf '%s\n' "$watch_status" >&3
+) &
+watch_owner_pid=$!
+
+if IFS= read -r -t "$timeout_seconds" watch_status <&3; then
+  wait "$watch_owner_pid"
+else
+  kill "$watch_owner_pid" 2>/dev/null || true
+  wait "$watch_owner_pid" 2>/dev/null || true
+  gh run cancel --repo "$REPO" "$run_id" >/dev/null 2>&1 || true
+  echo "error: hosted verification did not complete within ${timeout_seconds}s: $run_url" >&2
+  exit 1
+fi
+exec 3>&-
+
+run_state="$(
+  gh run view \
+    --repo "$REPO" \
+    "$run_id" \
+    --json status,conclusion \
+    --jq '[.status, .conclusion] | @tsv'
+)"
+IFS=$'\t' read -r run_status run_conclusion <<< "$run_state"
+if [[ "$run_status" != "completed" ]]; then
+  echo "error: hosted run watcher exited before completion: $run_url" >&2
+  exit 1
+fi
 
 if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2
   gh run view --repo "$REPO" "$run_id" --log-failed || true
   exit 1
 fi
-
-temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-hosted.XXXXXX")"
-cleanup() {
-  rm -rf -- "$temp_dir"
-}
-trap cleanup EXIT
 
 gh run download \
   --repo "$REPO" \
