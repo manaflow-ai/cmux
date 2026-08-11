@@ -1936,6 +1936,68 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func unpublishedStateCreationFailureStillKillsDescendants(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-unpublished-state-failure-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let leafPIDFile = root.appendingPathComponent("leaf.pid")
+        let leafStateFile = root.appendingPathComponent("leaf.state")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_create_group_dir() { return 1; }
+        cmux_ssh_terminate_owned_auth_group() { :; }
+        (
+          trap '' HUP INT TERM
+          ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
+          printf '%s\n' "$!" > "$CMUX_TEST_LEAF_PID"
+          while :; do /bin/sleep 30; done
+        ) &
+        cmux_test_root_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_root_pid" >/dev/null 2>&1 || true; if [ -s "$CMUX_TEST_LEAF_PID" ]; then /bin/kill -KILL "$(/bin/cat "$CMUX_TEST_LEAF_PID")" >/dev/null 2>&1 || true; fi' EXIT
+        cmux_test_ready_attempt=0
+        while [ ! -s "$CMUX_TEST_LEAF_PID" ] && \
+          [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -s "$CMUX_TEST_LEAF_PID" || exit 99
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_root_pid" "$$"
+        wait "$cmux_test_root_pid" 2>/dev/null || true
+        /usr/bin/env LC_ALL=C LANG=C /bin/ps -o state= \
+          -p "$(/bin/cat "$CMUX_TEST_LEAF_PID")" \
+          > "$CMUX_TEST_LEAF_STATE" 2>/dev/null || true
+        trap - EXIT
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+                "CMUX_TEST_LEAF_STATE": leafStateFile.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+        let leafPID = try #require(Int32(
+            String(contentsOf: leafPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer { Darwin.kill(leafPID, SIGKILL) }
+        let leafState = try String(contentsOf: leafStateFile, encoding: .utf8)
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(leafState.isEmpty, "State-creation fallback left a descendant: \(leafState)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func recoverySweepCompletesPreservedUnpublishedOwnership(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
