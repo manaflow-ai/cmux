@@ -110,13 +110,22 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
         to output: inout [UInt8]
     ) {
         let suffixStart = tag.nameRange.upperBound
+        if omittingSelfClosingSlash,
+           let slashIndex = tag.selfClosingSlashIndex {
+            output.append(contentsOf: source[suffixStart..<slashIndex])
+            output.append(contentsOf: source[(slashIndex + 1)..<tag.endIndex])
+            return
+        }
         guard omittingSelfClosingSlash,
-              let slashIndex = tag.selfClosingSlashIndex else {
+              source[tag.endIndex - 2] == Self.slash else {
             output.append(contentsOf: source[suffixStart..<tag.endIndex])
             return
         }
-        output.append(contentsOf: source[suffixStart..<slashIndex])
-        output.append(contentsOf: source[(slashIndex + 1)..<tag.endIndex])
+        // libxml treats the final byte of an unquoted attribute value as an
+        // XML-style closing slash. Separate it from `>` after rewriting.
+        output.append(contentsOf: source[suffixStart..<(tag.endIndex - 1)])
+        output.append(Self.space)
+        output.append(Self.greaterThan)
     }
 
     private func scanTag(
