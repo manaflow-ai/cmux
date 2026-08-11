@@ -695,6 +695,13 @@ def _self_test() -> int:
             {RULE_SLEEP_THEN_ASSERT},
         ),
         (
+            "cmuxTests/annotated-continuous-clock.swift",
+            "// test-determinism: injected-clock\n"
+            "try await ContinuousClock().sleep(for: .seconds(7))\n"
+            "#expect(done)\n",
+            {RULE_SLEEP_THEN_ASSERT},
+        ),
+        (
             "tests/sh.sh",
             "sleep 1\ntest -f /tmp/out || exit 1\n",
             set(),  # shell `test -f` is not in our assertion vocabulary; ensure no false negative is required
