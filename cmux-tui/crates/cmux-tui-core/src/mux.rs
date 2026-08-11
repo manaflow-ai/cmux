@@ -27,7 +27,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
-use crate::browser::{self, BrowserBootstrap, BrowserRuntime, BrowserSource};
+use crate::browser::{self, BrowserRuntime, BrowserSource};
 use crate::browser_provider::{
     BrowserProviderRegistration, BrowserProviderRegistry, BrowserProviderSnapshot,
     BrowserProviderTargetLease,
@@ -8804,10 +8804,8 @@ impl Mux {
                                     );
                                     runtime.bootstrap_surface_sync(
                                         thread_surface.clone(),
-                                        BrowserBootstrap::ExistingTarget {
-                                            target_id: lease.target_id.clone(),
-                                            url: url.clone(),
-                                        },
+                                        lease.target_id.clone(),
+                                        url.clone(),
                                         weak_mux.clone(),
                                     )
                                 })();
@@ -8875,7 +8873,8 @@ impl Mux {
                                 .ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
                             runtime.bootstrap_surface_sync(
                                 thread_surface.clone(),
-                                BrowserBootstrap::ExistingTarget { target_id, url },
+                                target_id,
+                                url,
                                 weak_mux.clone(),
                             )
                         }
