@@ -15354,6 +15354,14 @@ fn remove_terminal_content_from_state(
     let runtime = state.terminal_catalog.remove(terminal_id);
     if let Some(runtime) = runtime.as_ref() {
         unregister_terminal_catalog_host(mux, state, terminal_id, runtime);
+    } else {
+        // Repair reverse indexes when a prior partial cleanup removed the
+        // catalog owner without unregistering its public identity.
+        state.terminal_catalog_by_runtime.retain(|_, public_id| public_id != terminal_id);
+        state.terminal_catalog_by_host.retain(|_, public_ids| {
+            public_ids.remove(terminal_id);
+            !public_ids.is_empty()
+        });
     }
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
         state.terminal_catalog_by_runtime.remove(&runtime_id);
