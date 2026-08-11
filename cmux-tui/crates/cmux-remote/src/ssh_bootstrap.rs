@@ -1253,7 +1253,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ncase \"$*\" in\n  *\"cmd.exe /D /S /C\"*\"{WINDOWS_SHELL_MARKER}\"*) printf '%s\\n' '{WINDOWS_SHELL_MARKER}' ;;\n  *\"remote-probe --json\"*) printf '%s' 'Sonde Windows héritée' >&2; exit 2 ;;\n  *\"remote-stop --session main\"*) printf '%s' 'cmux-tui: remote-stop is not implemented on Windows yet' >&2; exit 1 ;;\nesac\nexit 2\n"
+                "#!/bin/sh\ncase \"$*\" in\n  *\"cmd.exe /D /S /C\"*\"{WINDOWS_SHELL_MARKER}\"*) printf '%s\\n' '{WINDOWS_SHELL_MARKER}'; exit 0 ;;\n  *\"remote-probe --json\"*) printf '%s' 'Sonde Windows héritée' >&2; exit 2 ;;\n  *\"remote-stop --session main\"*) printf '%s' 'cmux-tui: remote-stop is not implemented on Windows yet' >&2; exit 1 ;;\nesac\nexit 2\n"
             ),
         )
         .unwrap();
