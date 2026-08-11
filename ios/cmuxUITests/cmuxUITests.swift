@@ -1906,6 +1906,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(unreadFilter.isSelected)
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
 
+        // Opening a notification later marks it read; release the unread
+        // filter before editing begins so the opened row remains visible
+        // under the query filter alone when the search session is restored.
+        unreadFilter.tap()
+        guard waitForHittable(readRow, timeout: 3) else {
+            return XCTFail("Releasing the unread filter must reveal read rows")
+        }
+
         let searchField = app.searchFields["Search notifications"]
         XCTAssertTrue(waitForHittable(searchField, timeout: 3))
         XCTAssertTrue(focusTextInput(searchField, in: app))
@@ -1914,13 +1922,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
-
-        // Opening a notification marks it read; release the unread filter
-        // first so the row remains visible under the query filter alone when
-        // the search session is restored.
-        unreadFilter.tap()
-        XCTAssertFalse(unreadFilter.isSelected)
-        XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
 
         matchingRow.tap()
         let workspaceDestination = app.descendants(matching: .any)[
