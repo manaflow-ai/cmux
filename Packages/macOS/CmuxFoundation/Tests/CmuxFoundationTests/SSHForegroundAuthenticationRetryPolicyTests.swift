@@ -3563,7 +3563,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
-    @Test func recoverySweepReclaimsPublishedOrphanAndSkipsLivePublisher() throws {
+    @Test func recoverySweepHoldsPublishedOrphanAndSkipsLivePublisher() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-published-recovery-\(UUID().uuidString)", isDirectory: true)
@@ -3598,8 +3598,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_LIVE_GROUP" || exit 95
         cmux_ssh_resume_failed_auth_group_reapers || exit 94
         wait
-        test "$(/bin/cat "$CMUX_TEST_RECOVERY_CALLS" 2>/dev/null)" = \
-          "cmux-ssh-auth-group.orphan" || exit 95
+        test ! -s "$CMUX_TEST_RECOVERY_CALLS" || exit 95
+        test -s "$CMUX_TEST_ORPHAN_GROUP/identity" || exit 94
         test -s "$CMUX_TEST_LIVE_GROUP/identity" || exit 94
         """
 
