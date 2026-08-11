@@ -1,6 +1,7 @@
 import CmuxTerminalCore
 import Dispatch
 import Foundation
+import os
 import Testing
 @testable import CmuxTerminal
 
@@ -512,6 +513,37 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(thirdResolved.environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] == nil)
     }
 
+    @Test
+    func commandShimLeaseRetainsOwnershipAfterBoundedRemovalFailure() async {
+        let shims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/retained-command-shims",
+            shims: []
+        )
+        let recorder = CommandShimRemovalRecorder(failuresBeforeSuccess: 3)
+        let state = TerminalSurfaceAgentCommandShimLeaseState(
+            shims: shims,
+            removalAttemptLimit: 3,
+            remove: { shims in
+                try recorder.remove(shims)
+            },
+            reportRemovalFailure: { shims, errorDescription in
+                recorder.recordFailure(shims, errorDescription: errorDescription)
+            }
+        )
+
+        await state.release()
+
+        #expect(recorder.attemptCount == 3)
+        #expect(recorder.failureCount == 1)
+        #expect(await state.hasOwnedShims)
+
+        await state.release()
+
+        #expect(recorder.attemptCount == 4)
+        #expect(recorder.failureCount == 1)
+        #expect(!(await state.hasOwnedShims))
+    }
+
     private func makeResolver(
         defaultArguments: [String],
         defaultArgumentsProvider: (@Sendable () -> [String])? = nil,
@@ -641,6 +673,45 @@ actor CommandShimCleanupRecorder {
         return await withCheckedContinuation { continuation in
             waiters.append(continuation)
         }
+    }
+}
+
+private struct CommandShimRemovalTestError: Error {
+    let attempt: Int
+}
+
+private final class CommandShimRemovalRecorder: @unchecked Sendable {
+    private struct State {
+        var attempts = 0
+        var failuresBeforeSuccess: Int
+        var failures: [(TerminalSurfaceAgentCommandShimSet, String)] = []
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(failuresBeforeSuccess: Int) {
+        state = OSAllocatedUnfairLock(
+            initialState: State(failuresBeforeSuccess: failuresBeforeSuccess)
+        )
+    }
+
+    var attemptCount: Int { state.withLock { $0.attempts } }
+    var failureCount: Int { state.withLock { $0.failures.count } }
+
+    func remove(_ shims: TerminalSurfaceAgentCommandShimSet) throws {
+        let failure = state.withLock { state -> CommandShimRemovalTestError? in
+            state.attempts += 1
+            guard state.attempts <= state.failuresBeforeSuccess else { return nil }
+            return CommandShimRemovalTestError(attempt: state.attempts)
+        }
+        if let failure { throw failure }
+    }
+
+    func recordFailure(
+        _ shims: TerminalSurfaceAgentCommandShimSet,
+        errorDescription: String
+    ) {
+        state.withLock { $0.failures.append((shims, errorDescription)) }
     }
 }
 
