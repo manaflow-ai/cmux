@@ -892,6 +892,88 @@ import CmuxTerminalCore
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
     }
 
+    @Test func repeatedStalledRecoveryUsesLatestFailureDelivery() throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let owners = try (0..<2).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        let recoveryID = UUID()
+        var deliveredFailures: [String] = []
+        #expect(
+            coordinator.reserveRuntimeSurfaceOwnership(
+                recoveryID: recoveryID,
+                onRecovery: { reservation in
+                    coordinator.cancelRuntimeSurfaceOwnership(reservation)
+                },
+                onFailure: { deliveredFailures.append("original") }
+            ) == .deferred
+        )
+        let deliveries = coordinator.runtimeOwnershipAdmission
+            .failRecoveriesForAllStalledCloseTeardowns()
+        let delivery = try #require(deliveries.first)
+
+        #expect(
+            coordinator.reserveRuntimeSurfaceOwnership(
+                recoveryID: recoveryID,
+                onRecovery: { reservation in
+                    coordinator.cancelRuntimeSurfaceOwnership(reservation)
+                },
+                onFailure: { deliveredFailures.append("latest") }
+            ) == .deferred
+        )
+        delivery()
+
+        #expect(deliveredFailures == ["latest"])
+        coordinator.runtimeOwnershipAdmission
+            .completeStalledCloseRecoveryFailures([delivery])
+        coordinator.cancelRuntimeSurfaceOwnershipRecovery(recoveryID)
+        coordinator.runtimeOwnershipAdmission.clearAllStalledCloseTeardowns()
+        for owner in owners {
+            coordinator.cancelRuntimeSurfaceOwnership(owner)
+        }
+    }
+
+    @Test func newRecoveryDefersBehindScheduledOlderGrant() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2
+        )
+        let owners = try (0..<2).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        let olderRecoveryIDs = (0..<2).map { _ in UUID() }
+        for recoveryID in olderRecoveryIDs {
+            #expect(
+                coordinator.reserveRuntimeSurfaceOwnership(
+                    recoveryID: recoveryID,
+                    onRecovery: { reservation in
+                        coordinator.cancelRuntimeSurfaceOwnership(reservation)
+                    }
+                ) == .deferred
+            )
+        }
+
+        coordinator.cancelRuntimeSurfaceOwnership(owners[0])
+        coordinator.cancelRuntimeSurfaceOwnership(owners[1])
+        let newestRecoveryID = UUID()
+        let newestResult = coordinator.reserveRuntimeSurfaceOwnership(
+            recoveryID: newestRecoveryID,
+            onRecovery: { reservation in
+                coordinator.cancelRuntimeSurfaceOwnership(reservation)
+            }
+        )
+        if case .reserved(let reservation) = newestResult {
+            coordinator.cancelRuntimeSurfaceOwnership(reservation)
+        }
+
+        #expect(newestResult == .deferred)
+        for recoveryID in olderRecoveryIDs + [newestRecoveryID] {
+            coordinator.cancelRuntimeSurfaceOwnershipRecovery(recoveryID)
+        }
+        await waitForMainActorQueueBarrier()
+    }
+
     @Test func completedFailureBatchRescansOverflowAndIgnoresStaleFailure() async throws {
         let capacity = 34
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
