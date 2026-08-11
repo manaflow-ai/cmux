@@ -7,6 +7,8 @@ use super::*;
 pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
+const RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_KEY: &str =
+    "resource_agent_session_generation_backfill_v1";
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -163,7 +165,35 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          CREATE UNIQUE INDEX IF NOT EXISTS resource_agent_session_generation_current
            ON resource_agent_session_generations(terminal_id)
            WHERE superseded = 0;
-         DELETE FROM resource_agent_session_generations
+         DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
+         CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
+           ON resource_mutations(operation, committed_revision DESC);
+         CREATE INDEX IF NOT EXISTS resource_agent_projections_by_revision
+           ON resource_agent_projections(committed_revision DESC, terminal_id DESC);
+         CREATE INDEX IF NOT EXISTS resource_agent_projections_by_state_revision
+           ON resource_agent_projections(
+             json_extract(result_json, '$.state'),
+             committed_revision DESC,
+             terminal_id DESC
+           );",
+    )?;
+    backfill_resource_agent_session_generations_once(transaction)?;
+    Ok(())
+}
+
+fn backfill_resource_agent_session_generations_once(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let completed = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM meta WHERE key = ?1)",
+        [RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_KEY],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if completed {
+        return Ok(());
+    }
+    transaction.execute_batch(
+        "DELETE FROM resource_agent_session_generations
          WHERE NOT EXISTS (
            SELECT 1
            FROM resource_agent_projections projection
@@ -262,18 +292,11 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
                  '$.source_session'
                )
            )
-         GROUP BY projection.terminal_id;
-         DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
-         CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
-           ON resource_mutations(operation, committed_revision DESC);
-         CREATE INDEX IF NOT EXISTS resource_agent_projections_by_revision
-           ON resource_agent_projections(committed_revision DESC, terminal_id DESC);
-         CREATE INDEX IF NOT EXISTS resource_agent_projections_by_state_revision
-           ON resource_agent_projections(
-             json_extract(result_json, '$.state'),
-             committed_revision DESC,
-             terminal_id DESC
-           );",
+         GROUP BY projection.terminal_id;",
+    )?;
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1')",
+        [RESOURCE_AGENT_SESSION_GENERATION_BACKFILL_KEY],
     )?;
     Ok(())
 }

@@ -67,6 +67,11 @@ pub(super) fn apply_agent_projection_journal_record(
         }
         return Ok(());
     }
+    // The append and candidate are already durable. Leave projection work for
+    // ordered replay instead of rejecting a live event during a bounded rebuild.
+    if !rebuilding_generation_history && agent_projection_rebuild_active(transaction)? {
+        return Ok(());
+    }
     let current = stored_projection(transaction, &next.terminal_id)?;
     validate_projection_transition(current.as_ref(), &next)?;
     let selected = merge_projection(current.clone(), next.clone());
@@ -162,6 +167,30 @@ fn record_agent_session_generation(
     if let Some((generation, superseded)) = existing {
         anyhow::ensure!(generation > 0, "agent session generation is not positive");
         if superseded {
+            if rebuilding_generation_history {
+                if let Some((active_provider, active_session, active_generation)) = &active {
+                    anyhow::ensure!(
+                        *active_generation > 0,
+                        "active agent session generation is not positive"
+                    );
+                    transaction.execute(
+                        "UPDATE resource_agent_session_generations
+                         SET superseded = 1
+                         WHERE terminal_id = ?1 AND provider = ?2
+                           AND source_session = ?3 AND superseded = 0",
+                        params![next.terminal_id.as_str(), active_provider, active_session],
+                    )?;
+                }
+                let reactivated = transaction.execute(
+                    "UPDATE resource_agent_session_generations
+                     SET superseded = 0
+                     WHERE terminal_id = ?1 AND provider = ?2
+                       AND source_session = ?3 AND superseded = 1",
+                    params![next.terminal_id.as_str(), provider, source_session],
+                )?;
+                anyhow::ensure!(reactivated == 1, "replayed agent generation disappeared");
+                return Ok(());
+            }
             let active_source = current
                 .filter(|projection| {
                     active.as_ref().is_some_and(|(provider, session, _)| {
@@ -191,13 +220,6 @@ fn record_agent_session_generation(
         return Ok(());
     }
 
-    if active.is_some()
-        && !rebuilding_generation_history
-        && (prejournal_projection_migration_cursor(transaction)?.is_some()
-            || agent_projection_journal_rebuild_target(transaction)?.is_some())
-    {
-        anyhow::bail!("agent session generation history rebuild is pending");
-    }
     if let Some((active_provider, active_session, active_generation)) = active {
         anyhow::ensure!(active_generation > 0, "active agent session generation is not positive");
         transaction.execute(
@@ -321,7 +343,6 @@ pub(super) fn rebuild_agent_projections_from_journal(
             &tx,
             sequence,
             target,
-            head_sequence,
             allow_archived_kind_backfill,
         )?;
     }
@@ -331,8 +352,7 @@ pub(super) fn rebuild_agent_projections_from_journal(
 
 impl WorkspaceRegistry {
     pub(crate) fn agent_projection_rebuild_pending(&self) -> anyhow::Result<bool> {
-        Ok(prejournal_projection_migration_cursor(&self.connection)?.is_some()
-            || agent_projection_journal_rebuild_target(&self.connection)?.is_some())
+        agent_projection_rebuild_active(&self.connection)
     }
 
     pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
@@ -341,11 +361,15 @@ impl WorkspaceRegistry {
     }
 }
 
+fn agent_projection_rebuild_active(connection: &Connection) -> anyhow::Result<bool> {
+    Ok(prejournal_projection_migration_cursor(connection)?.is_some()
+        || agent_projection_journal_rebuild_target(connection)?.is_some())
+}
+
 fn replay_agent_projection_journal_page(
     transaction: &Transaction<'_>,
     sequence: u64,
     target_sequence: u64,
-    head_sequence: u64,
     allow_archived_kind_backfill: bool,
 ) -> anyhow::Result<()> {
     if !session_journal::backfill_journal_event_index_kinds_page(
@@ -402,8 +426,16 @@ fn replay_agent_projection_journal_page(
             store_agent_projection_journal_cursor(transaction, last_sequence)?;
         }
         _ => {
-            store_agent_projection_journal_cursor(transaction, head_sequence)?;
-            clear_agent_projection_journal_rebuild_target(transaction)?;
+            store_agent_projection_journal_cursor(transaction, target_sequence)?;
+            // A live append can extend the candidate while this target is in
+            // progress. Keep rebuild ownership until that newer prefix replays.
+            if let Some(candidate) = agent_projection_journal_candidate(transaction)?
+                && candidate > target_sequence
+            {
+                store_agent_projection_journal_rebuild_target(transaction, candidate)?;
+            } else {
+                clear_agent_projection_journal_rebuild_target(transaction)?;
+            }
         }
     }
     Ok(())
