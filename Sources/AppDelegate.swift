@@ -698,10 +698,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // so its `#if DEBUG` `jumpUnreadInvoked` recorder and nil-store guard
             // still fire exactly as before; map the resolved notification back to
             // its id for the package boundary.
-            focusedJump: { [unowned self] excludedNotificationId, excludedWorkspaceId in
+            focusedJump: {
+                [unowned self] excludedNotificationId, excludedWorkspaceId, excludedWindowDockTarget in
                 self.jumpToLatestUnread(
                     excludingNotificationId: excludedNotificationId,
-                    excludingWorkspaceId: excludedWorkspaceId
+                    excludingWorkspaceId: excludedWorkspaceId,
+                    excludingWindowDockTarget: excludedWindowDockTarget
                 )?.id
             }
         )
@@ -3770,7 +3772,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager, workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache)
-        context.restoreWindowDockSessionSnapshot(snapshot)
+        context.restoreWindowDockSessionSnapshot(
+            snapshot,
+            notificationStore: notificationStore
+        )
         // Seed restored per-config frames for later configuration switches.
         if let configFrames = snapshot.configFrames {
             windowConfigFrames[context.windowId] = SessionConfigFrameRing(entries: configFrames)
@@ -4187,7 +4192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didDisableSuddenTermination = false
     }
 
-    private func sessionAutosaveFingerprint(
+    func sessionAutosaveFingerprint(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex
@@ -4206,6 +4211,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context.tabManager.sessionAutosaveFingerprint(
                     restorableAgentIndex: restorableAgentIndex,
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                )
+            )
+            hasher.combine(
+                context.existingWindowDock()?.sessionManualUnreadAutosaveFingerprint(
+                    notificationStore: notificationStore
                 )
             )
             hasher.combine(context.sidebarState.isVisible)
@@ -4854,7 +4864,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(
                 tabManager: tabManager,
-                notificationStore: notificationStore,
+                sidebarUnread: notificationStore?.sidebarUnread,
                 configStore: configStore
             )
         }
@@ -7132,6 +7142,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId) ?? true
     }
 
+    func ownsMainPanelKeyboardFocus(
+        workspaceId: UUID,
+        containerPanelId: UUID,
+        surfaceId: UUID,
+        in window: NSWindow?
+    ) -> Bool {
+        keyboardFocusCoordinator(for: window)?.ownsMainPanelInputFocus(
+            workspaceId: workspaceId,
+            containerPanelId: containerPanelId,
+            surfaceId: surfaceId
+        ) ?? false
+    }
+
     func syncBonsplitTabShortcutHintEligibility(in window: NSWindow?) {
         if let coordinator = keyboardFocusCoordinator(for: window) {
             coordinator.syncBonsplitTabShortcutHintEligibility()
@@ -7204,6 +7227,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             dlog(
                 "rs.focus.app.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
                 "\(debugShortcutRouteSnapshot())"
+            )
+#endif
+            return false
+        }
+        guard context.keyboardFocusCoordinator.canFocusRightSidebar(mode: requestedMode) else {
+#if DEBUG
+            dlog(
+                "rs.focus.app.abort reason=unavailable requested=\(requestedMode?.rawValue ?? "nil") " +
+                    "preferred={\(debugWindowToken(preferredWindow))} context={\(debugContextToken(context))}"
             )
 #endif
             return false
@@ -12868,7 +12900,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func jumpToLatestUnread(
         excludingNotificationId excludedNotificationId: UUID? = nil,
-        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil,
+        excludingWindowDockTarget excludedWindowDockTarget: WindowDockUnreadTarget? = nil
     ) -> TerminalNotification? {
         guard let notificationStore else { return nil }
 #if DEBUG
@@ -12881,7 +12914,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         guard let openedId = notificationNavigation.jumpToLatestUnread(
             excludingNotificationId: excludedNotificationId,
-            excludingWorkspaceId: excludedWorkspaceId
+            excludingWorkspaceId: excludedWorkspaceId,
+            excludingWindowDockTarget: excludedWindowDockTarget
         ) else {
             return nil
         }
@@ -14577,15 +14611,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
             let routedTabs = routedContext?.tabManager ?? tabManager
             if let selectedWorkspace = routedTabs?.selectedWorkspace {
-                let accepted =
+                let originatingSurface = resolvedShortcutEventWindow(event)?
+                    .firstResponder
+                    .cmuxStrictOwningGhosttyView()?
+                    .terminalSurface
+                let enqueueOutcome =
                     enqueueWorkspaceTerminalFontSizeChange(
                         workspaceTerminalFontSizeAction,
                         workspace: selectedWorkspace,
                         tabManager: routedTabs,
                         deferFlush: event.isARepeat
                     )
-                if !accepted {
+                switch enqueueOutcome {
+                case .rejected:
                     NSSound.beep()
+                case .acceptedMutation:
+                    // The font mutation fans out across the workspace. Attribute
+                    // the handled input only to the responder that originated it.
+                    originatingSurface?.didReceiveExplicitInput()
+                    originatingSurface?.didAcceptExplicitInput()
+                case .consumedWithoutMutation:
+                    break
                 }
             }
             return true
@@ -15011,9 +15057,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspace: Workspace,
         tabManager: TabManager?,
         deferFlush: Bool
-    ) -> Bool {
+    ) -> WorkspaceTerminalFontSizeShortcutOutcome {
         if action == .resetWorkspaceTerminalFontSize, deferFlush {
-            return true
+            return .consumedWithoutMutation
         }
         let change: WorkspaceTerminalFontSizeChange
         if action == .resetWorkspaceTerminalFontSize {
@@ -15025,20 +15071,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let tabManager,
               let context = mainWindowContext(for: tabManager) else {
-            return true
+            return .consumedWithoutMutation
         }
 #if DEBUG
         if let override =
                 context
                     .debugWorkspaceTerminalFontSizeEnqueueResultOverride {
-            return override
+            return override ? .acceptedMutation : .rejected
         }
 #endif
-        return context.workspaceTerminalFontSizeCoordinator.enqueue(
+        let accepted = context.workspaceTerminalFontSizeCoordinator.enqueue(
             change,
             workspaceId: workspace.id,
             deferFlush: deferFlush
         )
+        return accepted ? .acceptedMutation : .rejected
     }
 
 

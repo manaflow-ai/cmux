@@ -52,6 +52,7 @@ extension TerminalSurface {
         let posY = (Double(row) + 0.5) * cellHeightPt
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+        didAcceptExplicitInput()
     }
 
     /// Forward a mobile tap to this real surface as a left mouse click at the
@@ -93,6 +94,7 @@ extension TerminalSurface {
         mobileClickReleaseAfterInputNotification(
             runtimeGeneration: clickRuntimeGeneration
         )
+        didAcceptExplicitInput()
     }
 
     @MainActor

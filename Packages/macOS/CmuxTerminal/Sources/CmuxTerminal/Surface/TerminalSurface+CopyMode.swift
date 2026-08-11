@@ -93,7 +93,11 @@ extension TerminalSurface {
         ) {
             return true
         }
-        return performBindingActionImmediately(action)
+        let handled = performBindingActionImmediately(action)
+        if handled {
+            didAcceptExplicitInput()
+        }
+        return handled
     }
 
     /// Toggles keyboard copy mode through the surface view.
@@ -106,6 +110,7 @@ extension TerminalSurface {
         let handled = surfaceView.toggleKeyboardCopyMode()
         if handled {
             setKeyboardCopyModeActive(surfaceView.isKeyboardCopyModeActive)
+            didAcceptExplicitInput()
         }
         return handled
     }

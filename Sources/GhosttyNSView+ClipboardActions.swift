@@ -15,7 +15,9 @@ extension GhosttyNSView {
             return
         }
         recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
+        if performBindingAction("paste_from_clipboard") {
+            terminalSurface?.didAcceptExplicitInput()
+        }
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
@@ -26,6 +28,8 @@ extension GhosttyNSView {
             return
         }
         recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
+        if performBindingAction("paste_from_clipboard") {
+            terminalSurface?.didAcceptExplicitInput()
+        }
     }
 }

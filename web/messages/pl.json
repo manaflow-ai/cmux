@@ -158,6 +158,7 @@
       "signOut": "Wyloguj się",
       "signingOut": "Wylogowywanie…",
       "signOutError": "Nie udało się wylogować. Spróbuj ponownie.",
+      "organizationSwitchError": "Nie udało się zmienić organizacji. Spróbuj ponownie.",
       "signIn": "Zaloguj się"
     },
     "aiAccounts": {

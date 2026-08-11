@@ -50,11 +50,18 @@ extension TerminalSurface {
         )
     }
 
+    /// Notifies the current panel owner after explicit terminal input is accepted.
+    @MainActor
+    public func didAcceptExplicitInput() {
+        onExplicitInput?()
+    }
+
     /// Closes Find as an explicit user action, cancelling any deferred viewport restoration first.
     @MainActor
     public func closeSearchFromExplicitInput() {
         didReceiveExplicitInput()
         searchState = nil
+        didAcceptExplicitInput()
     }
 
     /// Whether closing this surface should ask for confirmation.
@@ -110,6 +117,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
                 requestInputDemandSurfaceStartIfNeeded()
+                didAcceptExplicitInput()
             }
             return queued
         }
@@ -118,6 +126,7 @@ extension TerminalSurface {
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
         writeTextData(data, to: liveSurface)
+        didAcceptExplicitInput()
         return true
     }
 
@@ -154,12 +163,16 @@ extension TerminalSurface {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
-        return text.withCString { ptr in
+        let handled = text.withCString { ptr in
             keyEvent.text = ptr
             return withRuntimeClipboardPasteIntent {
                 ghostty_surface_key(liveSurface, keyEvent)
             }
         }
+        if handled {
+            didAcceptExplicitInput()
+        }
+        return handled
     }
 
     /// Sends a named key (e.g. `"ctrl-c"`, `"enter"`), queueing on a cold
@@ -195,6 +208,7 @@ extension TerminalSurface {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             requestInputDemandSurfaceStartIfNeeded()
+            didAcceptExplicitInput()
             return .queued
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
@@ -202,6 +216,7 @@ extension TerminalSurface {
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
+        didAcceptExplicitInput()
         return .sent
     }
 
@@ -273,6 +288,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(text)
             if queued {
                 requestInputDemandSurfaceStartIfNeeded()
+                didAcceptExplicitInput()
             }
             return queued ? .queued : .inputQueueFull
         }
@@ -290,6 +306,7 @@ extension TerminalSurface {
                 validatedGeneration: &validatedGeneration
             ) || queuedInput
         }
+        didAcceptExplicitInput()
         return queuedInput ? .queued : .sent
     }
 
