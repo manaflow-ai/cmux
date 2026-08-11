@@ -16,13 +16,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.temporaryFiles.isEmpty)
     }
 
-    @Test func preservesPermanentAuthenticationFailure() throws {
+    @Test(arguments: [
+        "user@example.test: Permission denied (publickey,password).",
+        "Bad owner or permissions on /Users/test/.ssh/config",
+    ])
+    func preservesPermanentAuthenticationFailure(_ diagnostic: String) throws {
         let result = try run(
-            "printf '%s\\n' 'user@example.test: Permission denied (publickey,password).' >&2; exit 255"
+            "printf '%s\\n' '\(diagnostic)' >&2; exit 255"
         )
 
         #expect(result.status == 255)
-        #expect(result.stderr.contains("Permission denied"))
+        #expect(result.stderr.contains(diagnostic))
         #expect(result.temporaryFiles.isEmpty)
     }
 
