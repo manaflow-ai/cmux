@@ -8884,6 +8884,7 @@ impl Mux {
         self.start_kitty_image_budget_worker();
     }
 
+    #[cfg(test)]
     pub(crate) fn unregister_kitty_image_surface(
         self: &Arc<Self>,
         surface: &Surface,
