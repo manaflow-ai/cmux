@@ -145,6 +145,43 @@ extension NSEvent {
 /// AppKit host for a libghostty manual-I/O surface. The surface owns terminal
 /// emulation, styling, selection, input encoding, scrollback, and Metal
 /// rendering. Rust owns only transport ordering and the remote PTY stream.
+struct MarkedTextRanges: Equatable {
+  let marked: NSRange
+  let selected: NSRange
+
+  static func updated(
+    textLength: Int,
+    selectedRange: NSRange,
+    replacementRange: NSRange,
+    currentMarkedRange: NSRange,
+    fallbackSelection: NSRange
+  ) -> MarkedTextRanges {
+    let unavailable = NSRange(location: NSNotFound, length: 0)
+    let length = max(0, textLength)
+    guard length > 0 else { return MarkedTextRanges(marked: unavailable, selected: unavailable) }
+
+    let requestedBase: Int
+    if replacementRange.location != NSNotFound {
+      requestedBase = replacementRange.location
+    } else if currentMarkedRange.location != NSNotFound {
+      requestedBase = currentMarkedRange.location
+    } else if fallbackSelection.location != NSNotFound {
+      requestedBase = fallbackSelection.location
+    } else {
+      requestedBase = 0
+    }
+    let base = min(max(0, requestedBase), Int.max - length)
+    let requestedSelection = selectedRange.location == NSNotFound
+      ? length : selectedRange.location
+    let relativeLocation = min(max(0, requestedSelection), length)
+    let relativeLength = min(max(0, selectedRange.length), length - relativeLocation)
+    return MarkedTextRanges(
+      marked: NSRange(location: base, length: length),
+      selected: NSRange(location: base + relativeLocation, length: relativeLength)
+    )
+  }
+}
+
 final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient {
   var onGeometryChanged: ((TerminalGeometry) -> Void)?
   private(set) var initializationError: String?
@@ -154,6 +191,8 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   private let surfaceLifetime: GhosttyRemoteSurfaceLifetime
   private var surface: ghostty_surface_t? { surfaceLifetime.surface }
   private var markedText = NSMutableAttributedString()
+  private var markedTextRange = NSRange(location: NSNotFound, length: 0)
+  private var markedTextSelection = NSRange(location: NSNotFound, length: 0)
   private var keyTextAccumulator: [String]?
   private var locallyConsumedKeyCodes: Set<UInt16> = []
   private var lastReportedGeometry: TerminalGeometry?
@@ -667,22 +706,18 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   func markedRange() -> NSRange {
     markedText.length == 0
-      ? NSRange(location: NSNotFound, length: 0) : NSRange(location: 0, length: markedText.length)
+      ? NSRange(location: NSNotFound, length: 0) : markedTextRange
   }
 
   func selectedRange() -> NSRange {
-    guard let surface else { return NSRange(location: NSNotFound, length: 0) }
-    var selected = ghostty_text_s()
-    guard ghostty_surface_read_selection(surface, &selected) else {
-      return NSRange(location: NSNotFound, length: 0)
-    }
-    defer { ghostty_surface_free_text(surface, &selected) }
-    return NSRange(location: Int(selected.offset_start), length: Int(selected.offset_len))
+    if markedText.length > 0 { return markedTextSelection }
+    // The terminal selection is not editable NSTextInputClient storage. Use a
+    // stable virtual UTF-16 insertion point for input-method composition.
+    return NSRange(location: 0, length: 0)
   }
 
   func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-    _ = selectedRange
-    _ = replacementRange
+    let fallbackSelection = self.selectedRange()
     switch string {
     case let value as NSAttributedString:
       markedText = NSMutableAttributedString(attributedString: value)
@@ -691,12 +726,23 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     default:
       return
     }
+    let ranges = MarkedTextRanges.updated(
+      textLength: markedText.length,
+      selectedRange: selectedRange,
+      replacementRange: replacementRange,
+      currentMarkedRange: markedTextRange,
+      fallbackSelection: fallbackSelection
+    )
+    markedTextRange = ranges.marked
+    markedTextSelection = ranges.selected
     if keyTextAccumulator == nil { syncPreedit() }
   }
 
   func unmarkText() {
     guard markedText.length > 0 else { return }
     markedText.mutableString.setString("")
+    markedTextRange = NSRange(location: NSNotFound, length: 0)
+    markedTextSelection = NSRange(location: NSNotFound, length: 0)
     syncPreedit()
   }
 
@@ -706,23 +752,32 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     forProposedRange range: NSRange,
     actualRange: NSRangePointer?
   ) -> NSAttributedString? {
-    _ = range
-    _ = actualRange
-    guard let surface else { return nil }
-    var selected = ghostty_text_s()
-    guard ghostty_surface_read_selection(surface, &selected) else { return nil }
-    defer { ghostty_surface_free_text(surface, &selected) }
-    return NSAttributedString(string: nativeGhosttyText(selected))
+    guard markedText.length > 0,
+      markedTextRange.location != NSNotFound,
+      range.location != NSNotFound
+    else { return nil }
+    let intersection = NSIntersectionRange(range, markedTextRange)
+    guard intersection.length > 0 else { return nil }
+    actualRange?.pointee = intersection
+    return markedText.attributedSubstring(from: NSRange(
+      location: intersection.location - markedTextRange.location,
+      length: intersection.length
+    ))
   }
 
   func characterIndex(for point: NSPoint) -> Int {
     _ = point
-    return 0
+    let selected = selectedRange()
+    return selected.location == NSNotFound ? 0 : selected.location
   }
 
   func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-    _ = range
-    _ = actualRange
+    if markedText.length > 0, range.location != NSNotFound {
+      let intersection = NSIntersectionRange(range, markedTextRange)
+      actualRange?.pointee = intersection.length > 0 ? intersection : markedTextSelection
+    } else {
+      actualRange?.pointee = selectedRange()
+    }
     guard let surface else { return window?.convertToScreen(convert(bounds, to: nil)) ?? bounds }
     var x = 0.0
     var y = 0.0

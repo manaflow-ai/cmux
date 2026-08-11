@@ -50,6 +50,7 @@
 "error.no_session" = "デーモンでセッションを1つに特定できませんでした。";
 "error.too_many_changes" = "待機中の変更が多すぎます。完了後にもう一度お試しください。";
 "error.session_event_stream_ended" = "セッションイベントストリームが終了しました。";
+"error.session_event_recovery_limit" = "セッション更新ストリームを復旧できませんでした。再接続してもう一度お試しください。";
 "error.mutation_indeterminate" = "操作の結果を確認できません。表示を更新します。";
 "error.terminal_input_rejected" = "ターミナル入力が拒否されました。";
 "error.terminal_input_overloaded" = "ターミナル入力が混雑しています。もう一度お試しください。";
