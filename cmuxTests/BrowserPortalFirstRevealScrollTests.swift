@@ -208,6 +208,7 @@ struct BrowserPortalFirstRevealScrollTests {
         BrowserWindowPortalRegistry.bind(webView: webView, to: fixture.anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(fixture.anchor)
         await waitForNextMainTurn()
+        await waitForNextMainTurn()
 
         let slot = try #require(webView.superview as? WindowBrowserSlotView)
         let revealedSize = slot.bounds.size
@@ -242,7 +243,8 @@ struct BrowserPortalFirstRevealScrollTests {
         host.pinHostedWebView(webView, in: slot)
         webView.frameSizeCalls.removeAll()
 
-        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineReveal")
+        host.scheduleHostedWebKitPresentationRefresh(reason: "unitTestLocalInlineReveal")
+        await waitForNextMainTurn()
         await waitForNextMainTurn()
 
         let revealedSize = slot.bounds.size
@@ -254,7 +256,7 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(!webView.browserPortalNeedsFirstSizedRevealNudge)
 
         webView.frameSizeCalls.removeAll()
-        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineRevealAgain")
+        host.scheduleHostedWebKitPresentationRefresh(reason: "unitTestLocalInlineRevealAgain")
         await waitForNextMainTurn()
 
         #expect(!webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
@@ -277,20 +279,23 @@ struct BrowserPortalFirstRevealScrollTests {
         let nudgedSize = NSSize(width: revealedSize.width, height: max(1, revealedSize.height - 1))
 
         host.isHidden = true
-        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineHiddenAncestor")
+        host.scheduleHostedWebKitPresentationRefresh(reason: "unitTestLocalInlineHiddenAncestor")
+        await waitForNextMainTurn()
 
         #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
         #expect(!webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
 
         host.isHidden = false
         fixture.window.alphaValue = 0
-        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineAlphaZeroWindow")
+        host.scheduleHostedWebKitPresentationRefresh(reason: "unitTestLocalInlineAlphaZeroWindow")
+        await waitForNextMainTurn()
 
         #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
         #expect(!webView.frameSizeCalls.contains { size($0, approximatelyEquals: nudgedSize) })
 
         fixture.window.alphaValue = 1
-        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineVisibleReveal")
+        host.scheduleHostedWebKitPresentationRefresh(reason: "unitTestLocalInlineVisibleReveal")
+        await waitForNextMainTurn()
         await waitForNextMainTurn()
 
         #expect(webView.frameSizeCalls.filter { size($0, approximatelyEquals: nudgedSize) }.count == 1)
@@ -315,7 +320,8 @@ struct BrowserPortalFirstRevealScrollTests {
         webView.browserPortalNotifyHidden(reason: "unitTestLocalInlineCompanion")
         webView.frameSizeCalls.removeAll()
 
-        host.refreshHostedWebKitPresentation(reason: "unitTestLocalInlineCompanion")
+        host.scheduleHostedWebKitPresentationRefresh(reason: "unitTestLocalInlineCompanion")
+        await waitForNextMainTurn()
         await waitForNextMainTurn()
 
         let nudgedSize = NSSize(width: slot.bounds.width, height: max(1, slot.bounds.height - 1))

@@ -1805,9 +1805,12 @@ _cmux_install_prompt_command() {
 # Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
 # Shell init (.bashrc/.bash_profile) may prepend other dirs after launch.
 _cmux_fix_path() {
-    if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
-        local gui_dir="${GHOSTTY_BIN_DIR%/}"
-        local bin_dir="${gui_dir%/MacOS}/Resources/bin"
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    integration_dir="${integration_dir%/}"
+    if [[ "$integration_dir" == */Resources/shell-integration ]]; then
+        local resources_dir="${integration_dir%/shell-integration}"
+        local gui_dir="${resources_dir%/Resources}/MacOS"
+        local bin_dir="$resources_dir/bin"
         if [[ -d "$bin_dir" ]]; then
             PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
         fi

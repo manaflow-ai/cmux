@@ -196,7 +196,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         unreadObservation?.cancel()
         unreadSource = source
         applyUnreadSnapshot(source.snapshot)
-        unreadObservation = source.observeChanges(owner: self) { controller, snapshot in
+        unreadObservation = source.observeSummaryChanges(owner: self) { controller, snapshot in
             controller.applyUnreadSnapshot(snapshot)
         }
     }

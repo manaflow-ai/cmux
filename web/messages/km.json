@@ -158,6 +158,7 @@
       "signOut": "ចាកចេញ",
       "signingOut": "កំពុងចាកចេញ…",
       "signOutError": "មិនអាចចាកចេញបានទេ។ សូមព្យាយាមម្តងទៀត។",
+      "organizationSwitchError": "មិនអាចប្ដូរអង្គការបានទេ។ សូមព្យាយាមម្តងទៀត។",
       "signIn": "ចូល"
     },
     "aiAccounts": {
