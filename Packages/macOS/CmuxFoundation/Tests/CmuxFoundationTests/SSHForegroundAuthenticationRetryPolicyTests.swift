@@ -5650,6 +5650,38 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func workerKillRevalidatesStableIdentity(shellPath: String) throws {
+        let functions = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+        let command = """
+        \(functions)
+        ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
+        cmux_test_worker_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_worker_pid" >/dev/null 2>&1 || true; wait "$cmux_test_worker_pid" 2>/dev/null || true' EXIT
+        cmux_test_worker_identity=$(cmux_ssh_auth_stable_identity \
+          "$cmux_test_worker_pid") || exit 99
+        if cmux_ssh_auth_kill_worker_if_identity_matches \
+          "$cmux_test_worker_pid" "${cmux_test_worker_identity}_stale"; then exit 98; fi
+        /bin/kill -0 "$cmux_test_worker_pid" >/dev/null 2>&1 || exit 97
+        if cmux_ssh_auth_kill_worker_if_identity_matches \
+          "$cmux_test_worker_pid" ""; then exit 96; fi
+        /bin/kill -0 "$cmux_test_worker_pid" >/dev/null 2>&1 || exit 95
+        cmux_ssh_auth_kill_worker_if_identity_matches \
+          "$cmux_test_worker_pid" "$cmux_test_worker_identity" || exit 94
+        wait "$cmux_test_worker_pid" 2>/dev/null || true
+        if /bin/kill -0 "$cmux_test_worker_pid" >/dev/null 2>&1; then exit 93; fi
+        trap - EXIT
+        """
+
+        let result = try runShellCommand(command, environment: [:], shellPath: shellPath)
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+        #expect(!functions.contains("/bin/kill -KILL \"$cmux_ssh_auth_reaper_pid\""))
+        #expect(!functions.contains("/bin/kill -KILL \"$cmux_ssh_auth_recovery_sweep_pid\""))
+        #expect(!functions.contains("/bin/kill -KILL \"$cmux_ssh_auth_background_owner_pid\""))
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func cleanupRetainsAcknowledgedUnpublishedHandoff(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
