@@ -4138,6 +4138,72 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoverySchedulerStopsAfterBoundedPermanentFailure(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-auth-recovery-bounded-worker-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.permanent",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_resume_failed_auth_group_reapers() {
+          printf 'pass\n' >> "$CMUX_TEST_PASSES"
+        }
+        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_GROUP" || exit 99
+        CMUX_SSH_AUTH_RECOVERY_MAX_PASSES=1
+        export CMUX_SSH_AUTH_RECOVERY_MAX_PASSES
+        cmux_ssh_schedule_failed_auth_group_recovery || exit 98
+        trap '/bin/kill -KILL "$cmux_ssh_auth_recovery_sweep_pid" >/dev/null 2>&1 || true' EXIT
+
+        cmux_test_failed="$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.failed"
+        cmux_test_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
+        while [ ! -s "$cmux_test_failed" ]; do
+          cmux_test_now=$(cmux_ssh_auth_now_millis) || exit 97
+          [ "$cmux_test_now" -lt "$cmux_test_deadline" ] || exit 96
+          /bin/sleep 0.01
+        done
+        wait "$cmux_ssh_auth_recovery_sweep_pid" 2>/dev/null || true
+        trap - EXIT
+
+        test "$(/usr/bin/awk 'END { print NR + 0 }' "$CMUX_TEST_PASSES")" \
+          -eq 1 || exit 95
+        /usr/bin/grep -Eq '^recovery-v1\|[A-Fa-f0-9]{32}\|1$' \
+          "$cmux_test_failed" || exit 94
+        test ! -d \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.lock" || exit 93
+        cmux_test_still_queued=0
+        for cmux_test_queue in \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)"/queue.*; do
+          if /usr/bin/grep -Fqx "$CMUX_TEST_GROUP" "$cmux_test_queue" 2>/dev/null; then
+            cmux_test_still_queued=1
+          fi
+        done
+        test "$cmux_test_still_queued" -eq 1 || exit 92
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_GROUP": groupDirectory.path,
+                "CMUX_TEST_PASSES": root.appendingPathComponent("passes").path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func recoverySchedulerRetainsOwnerDuringBackoff(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
