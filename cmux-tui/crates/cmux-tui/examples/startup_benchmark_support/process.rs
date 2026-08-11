@@ -51,7 +51,9 @@ pub struct Target {
     pub launcher: Vec<String>,
     pub supervisor_binary: PathBuf,
     pub supervisor_binary_sha256: String,
+    #[cfg(windows)]
     pub windows_bootstrap_binary: PathBuf,
+    #[cfg(windows)]
     pub windows_bootstrap_sha256: String,
     pub trusted_source: PathBuf,
     pub trusted_sha: String,
@@ -68,7 +70,9 @@ impl Target {
             launcher,
             supervisor_binary,
             supervisor_binary_sha256,
+            #[cfg(windows)]
             windows_bootstrap_binary,
+            #[cfg(windows)]
             windows_bootstrap_sha256,
             trusted_source,
             trusted_sha,
@@ -124,7 +128,9 @@ impl Target {
             launcher,
             supervisor_binary,
             supervisor_binary_sha256,
+            #[cfg(windows)]
             windows_bootstrap_binary,
+            #[cfg(windows)]
             windows_bootstrap_sha256,
             trusted_source,
             trusted_sha,
@@ -194,7 +200,9 @@ pub struct TargetInput {
     pub launcher: Vec<String>,
     pub supervisor_binary: PathBuf,
     pub supervisor_binary_sha256: String,
+    #[cfg(windows)]
     pub windows_bootstrap_binary: PathBuf,
+    #[cfg(windows)]
     pub windows_bootstrap_sha256: String,
     pub trusted_source: PathBuf,
     pub trusted_sha: String,
@@ -2910,13 +2918,9 @@ mod tests {
             env::var_os(BOOTSTRAP_PATH_ENV)
                 .expect("CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP must name the minimal bootstrap"),
         );
-        #[cfg(not(windows))]
-        let windows_bootstrap_binary = PathBuf::new();
         #[cfg(windows)]
         let windows_bootstrap_sha256 =
             binary_sha256(&windows_bootstrap_binary).expect("hash trusted test bootstrap");
-        #[cfg(not(windows))]
-        let windows_bootstrap_sha256 = String::new();
         Target {
             kind: TargetKind::Candidate,
             binary: env::current_exe().unwrap(),
@@ -2932,7 +2936,9 @@ mod tests {
             launcher: Vec::new(),
             supervisor_binary,
             supervisor_binary_sha256,
+            #[cfg(windows)]
             windows_bootstrap_binary,
+            #[cfg(windows)]
             windows_bootstrap_sha256,
             trusted_source: env::current_dir().unwrap(),
             trusted_sha: "0".repeat(40),
