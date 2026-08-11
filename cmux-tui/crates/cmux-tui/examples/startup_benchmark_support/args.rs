@@ -76,12 +76,12 @@ impl Args {
                 "--trusted-source" => args.trusted_source = parser.path(&key, inline)?,
                 "--supervisor-binary" => args.supervisor_binary = parser.path(&key, inline)?,
                 "--supervisor-binary-sha256" => {
-                    args.supervisor_binary_sha256 = parser.value(&key, inline)?
+                    args.supervisor_binary_sha256 = parser.value(&key, inline)?;
                 }
                 "--sandbox-backend" => args.sandbox_backend = parser.value(&key, inline)?,
                 "--sandbox-preflight" => args.sandbox_preflight = parser.path(&key, inline)?,
                 "--sandbox-preflight-sha256" => {
-                    args.sandbox_preflight_sha256 = parser.value(&key, inline)?
+                    args.sandbox_preflight_sha256 = parser.value(&key, inline)?;
                 }
                 "--baseline-binary" => args.baseline_binary = parser.path(&key, inline)?,
                 "--candidate-binary" => args.candidate_binary = parser.path(&key, inline)?,
@@ -90,28 +90,28 @@ impl Args {
                 "--baseline-sha" => args.baseline_sha = parser.value(&key, inline)?,
                 "--candidate-sha" => args.candidate_sha = parser.value(&key, inline)?,
                 "--baseline-binary-sha256" => {
-                    args.baseline_binary_sha256 = parser.value(&key, inline)?
+                    args.baseline_binary_sha256 = parser.value(&key, inline)?;
                 }
                 "--candidate-binary-sha256" => {
-                    args.candidate_binary_sha256 = parser.value(&key, inline)?
+                    args.candidate_binary_sha256 = parser.value(&key, inline)?;
                 }
                 "--warmups" => args.warmups = parser.number(&key, inline)?,
                 "--samples" => args.samples = parser.number(&key, inline)?,
                 "--suite-deadline-seconds" => {
-                    args.suite_deadline_seconds = parser.number(&key, inline)?
+                    args.suite_deadline_seconds = parser.number(&key, inline)?;
                 }
                 "--output-dir" => args.output_dir = parser.path(&key, inline)?,
                 "--fixture-parent" => args.fixture_parent = parser.path(&key, inline)?,
                 "--platform-label" => args.platform_label = parser.value(&key, inline)?,
                 "--profile-only" => args.profile_only = Some(parser.value(&key, inline)?.parse()?),
                 "--profile-target" => {
-                    args.profile_target = Some(parser.value(&key, inline)?.parse()?)
+                    args.profile_target = Some(parser.value(&key, inline)?.parse()?);
                 }
                 "--baseline-launcher-arg" => {
-                    args.baseline_launcher.push(parser.value(&key, inline)?)
+                    args.baseline_launcher.push(parser.value(&key, inline)?);
                 }
                 "--candidate-launcher-arg" => {
-                    args.candidate_launcher.push(parser.value(&key, inline)?)
+                    args.candidate_launcher.push(parser.value(&key, inline)?);
                 }
                 _ => bail!("unknown argument {key}"),
             }

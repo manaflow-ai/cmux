@@ -5,10 +5,10 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use cmux_tui_core::platform::transport;
@@ -21,6 +21,7 @@ use startup_benchmark_protocol::{
 use wait_timeout::ChildExt;
 
 const MAX_SUPERVISOR_STDERR_BYTES: usize = 64 * 1024;
+const MAX_PRODUCT_EVENT_BYTES: usize = 64 * 1024;
 
 #[derive(Serialize)]
 struct PreflightEvidence {
@@ -76,7 +77,197 @@ struct InboundProbeEvidence {
 
 enum SupervisorStartupEvent {
     Connected(io::Result<Box<dyn transport::Stream>>),
+    ProductLine(io::Result<Vec<u8>>),
+    ProductOutputClosed(io::Result<()>),
     StderrClosed(io::Result<Vec<u8>>),
+}
+
+struct SupervisorEventOwner {
+    child: Child,
+    input: ChildStdin,
+    receiver: mpsc::Receiver<SupervisorStartupEvent>,
+    control_path: PathBuf,
+    control_thread: Option<thread::JoinHandle<()>>,
+    output_thread: Option<thread::JoinHandle<()>>,
+    stderr_thread: Option<thread::JoinHandle<()>>,
+    stderr: Option<Vec<u8>>,
+    output_closed: bool,
+}
+
+impl SupervisorEventOwner {
+    fn accept_control(&mut self) -> Result<Box<dyn transport::Stream>> {
+        match self.receiver.recv_timeout(CONTROL_TIMEOUT) {
+            Ok(SupervisorStartupEvent::Connected(stream)) => {
+                self.join_control_thread()?;
+                stream.context("accept preflight supervisor control connection")
+            }
+            Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
+                self.stderr = Some(stderr.context("read early preflight supervisor stderr")?);
+                self.fail("preflight supervisor exited before READY", "stderr closed")
+            }
+            Ok(SupervisorStartupEvent::ProductLine(_)) => self.fail(
+                "preflight supervisor protocol failed before READY",
+                "product output arrived before ARM",
+            ),
+            Ok(SupervisorStartupEvent::ProductOutputClosed(result)) => {
+                result.context("read early preflight product output")?;
+                self.output_closed = true;
+                self.fail("preflight supervisor exited before READY", "product output closed")
+            }
+            Err(error) => {
+                unblock_control_listener(&self.control_path);
+                self.fail("preflight supervisor did not connect", error)
+            }
+        }
+    }
+
+    fn product_line(&mut self, description: &str) -> Result<Vec<u8>> {
+        match self.receiver.recv_timeout(CONTROL_TIMEOUT) {
+            Ok(SupervisorStartupEvent::ProductLine(line)) => {
+                line.with_context(|| format!("read {description}"))
+            }
+            Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
+                self.stderr = Some(stderr.context("read preflight supervisor stderr")?);
+                self.fail(
+                    format!("preflight supervisor exited before {description}"),
+                    "stderr closed",
+                )
+            }
+            Ok(SupervisorStartupEvent::ProductOutputClosed(result)) => {
+                result.with_context(|| format!("read product output before {description}"))?;
+                self.output_closed = true;
+                self.fail(format!("preflight product output closed before {description}"), "EOF")
+            }
+            Ok(SupervisorStartupEvent::Connected(_)) => self.fail(
+                format!("preflight supervisor protocol failed before {description}"),
+                "a second control connection arrived",
+            ),
+            Err(error) => self.fail(format!("preflight {description} deadline expired"), error),
+        }
+    }
+
+    fn release_product(&mut self, description: &str) -> Result<()> {
+        self.input.write_all(b"X").with_context(|| description.to_string())?;
+        self.input.flush().with_context(|| description.to_string())
+    }
+
+    fn finish(&mut self) -> Result<(ExitStatus, Vec<u8>, bool)> {
+        let status = match self.child.wait_timeout(CONTROL_TIMEOUT)? {
+            Some(status) => status,
+            None => {
+                return self.fail("preflight supervisor exceeded its deadline", "process timeout");
+            }
+        };
+        let deadline = Instant::now()
+            .checked_add(CONTROL_TIMEOUT)
+            .context("preflight completion deadline overflow")?;
+        while self.stderr.is_none() || !self.output_closed {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match self.receiver.recv_timeout(remaining) {
+                Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
+                    self.stderr = Some(stderr.context("read preflight supervisor stderr")?);
+                }
+                Ok(SupervisorStartupEvent::ProductOutputClosed(result)) => {
+                    result.context("read preflight product output")?;
+                    self.output_closed = true;
+                }
+                Ok(SupervisorStartupEvent::ProductLine(_)) => {
+                    return self.fail(
+                        "preflight product emitted an unexpected event",
+                        "extra product output line",
+                    );
+                }
+                Ok(SupervisorStartupEvent::Connected(_)) => {
+                    return self.fail(
+                        "preflight supervisor protocol failed during cleanup",
+                        "a second control connection arrived",
+                    );
+                }
+                Err(error) => {
+                    return self.fail("preflight process-tree cleanup deadline expired", error);
+                }
+            }
+        }
+        self.join_event_threads()?;
+        Ok((status, self.stderr.take().unwrap_or_default(), self.output_closed))
+    }
+
+    fn abort<T>(&mut self, error: anyhow::Error) -> Result<T> {
+        self.fail("preflight supervisor operation failed", format!("{error:#}"))
+    }
+
+    fn fail<T>(
+        &mut self,
+        description: impl std::fmt::Display,
+        cause: impl std::fmt::Display,
+    ) -> Result<T> {
+        let _ = self.input.write_all(b"XX");
+        let _ = self.input.flush();
+        let status = match self.child.try_wait() {
+            Ok(Some(status)) => Some(status),
+            Ok(None) => {
+                let _ = self.child.kill();
+                self.child.wait().ok()
+            }
+            Err(_) => None,
+        };
+        unblock_control_listener(&self.control_path);
+        let deadline = Instant::now().checked_add(CONTROL_TIMEOUT);
+        while (self.stderr.is_none() || !self.output_closed)
+            && deadline.is_some_and(|deadline| Instant::now() < deadline)
+        {
+            let remaining = deadline
+                .map(|deadline| deadline.saturating_duration_since(Instant::now()))
+                .unwrap_or_default();
+            match self.receiver.recv_timeout(remaining) {
+                Ok(SupervisorStartupEvent::StderrClosed(Ok(stderr))) => self.stderr = Some(stderr),
+                Ok(SupervisorStartupEvent::ProductOutputClosed(Ok(()))) => {
+                    self.output_closed = true;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        let _ = self.join_control_thread();
+        if self.output_closed
+            && let Some(thread) = self.output_thread.take()
+        {
+            let _ = thread.join();
+        }
+        if self.stderr.is_some()
+            && let Some(thread) = self.stderr_thread.take()
+        {
+            let _ = thread.join();
+        }
+        let status = status.map_or_else(|| "unknown".into(), |status| status.to_string());
+        let stderr = self.stderr.as_deref().unwrap_or_default();
+        Err(anyhow::anyhow!(
+            "{description}: {cause}; supervisor exit {status}; stderr: {}",
+            String::from_utf8_lossy(stderr)
+        ))
+    }
+
+    fn join_control_thread(&mut self) -> Result<()> {
+        if let Some(thread) = self.control_thread.take() {
+            thread.join().map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
+        }
+        Ok(())
+    }
+
+    fn join_event_threads(&mut self) -> Result<()> {
+        self.join_control_thread()?;
+        self.output_thread
+            .take()
+            .context("preflight product-output thread owner is missing")?
+            .join()
+            .map_err(|_| anyhow::anyhow!("product-output thread panicked"))?;
+        self.stderr_thread
+            .take()
+            .context("preflight supervisor-stderr thread owner is missing")?
+            .join()
+            .map_err(|_| anyhow::anyhow!("supervisor-stderr thread panicked"))?;
+        Ok(())
+    }
 }
 
 fn main() {
@@ -118,24 +309,12 @@ fn run_controller(values: &[String]) -> Result<()> {
     let network_address = network_listener.local_addr()?;
 
     let control_path = root.join("control.sock");
-    let child_path = root.join("child.sock");
-    let inbound_path = root.join("inbound.sock");
     let timing = TimingPage::create(root.join("timing.page"))?;
     let control = transport::listen(&control_path)?;
-    let child_listener = transport::listen(&child_path)?;
-    let inbound_listener = transport::listen(&inbound_path)?;
     let (startup_sender, startup_receiver) = mpsc::channel();
     let control_sender = startup_sender.clone();
     let control_thread = thread::spawn(move || {
         let _ = control_sender.send(SupervisorStartupEvent::Connected(control.accept()));
-    });
-    let (child_sender, child_receiver) = mpsc::channel();
-    let child_thread = thread::spawn(move || {
-        let _ = child_sender.send(child_listener.accept());
-    });
-    let (inbound_sender, inbound_receiver) = mpsc::channel();
-    let inbound_thread = thread::spawn(move || {
-        let _ = inbound_sender.send(inbound_listener.accept());
     });
 
     let current = env::current_exe()?;
@@ -158,10 +337,8 @@ fn run_controller(values: &[String]) -> Result<()> {
         &inside.to_string_lossy(),
         &adjacent.to_string_lossy(),
         &child_adjacent.to_string_lossy(),
-        &child_path.to_string_lossy(),
         &network_address.to_string(),
         &network_address.ip().to_string(),
-        &inbound_path.to_string_lossy(),
         &probe_result.to_string_lossy(),
     ]);
     command.env_clear();
@@ -189,89 +366,81 @@ fn run_controller(values: &[String]) -> Result<()> {
             command.env(key, value);
         }
     }
-    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
-    let mut child = command.spawn()?;
-    let supervisor_stderr = child.stderr.take().context("capture preflight supervisor stderr")?;
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().context("spawn preflight supervisor")?;
+    let Some(supervisor_input) = child.stdin.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        unblock_control_listener(&control_path);
+        let _ = control_thread.join();
+        bail!("capture preflight supervisor stdin");
+    };
+    let Some(supervisor_output) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        unblock_control_listener(&control_path);
+        let _ = control_thread.join();
+        bail!("capture preflight supervisor stdout");
+    };
+    let Some(supervisor_stderr) = child.stderr.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        unblock_control_listener(&control_path);
+        let _ = control_thread.join();
+        bail!("capture preflight supervisor stderr");
+    };
+    let output_sender = startup_sender.clone();
+    let output_thread = thread::spawn(move || {
+        read_product_events(supervisor_output, &output_sender);
+    });
     let stderr_thread = thread::spawn(move || {
         let stderr = read_bounded_tail(supervisor_stderr, MAX_SUPERVISOR_STDERR_BYTES);
         let _ = startup_sender.send(SupervisorStartupEvent::StderrClosed(stderr));
     });
-    let mut supervisor_stream = match startup_receiver.recv_timeout(CONTROL_TIMEOUT) {
-        Ok(SupervisorStartupEvent::Connected(stream)) => stream?,
-        Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
-            let stderr = stderr?;
-            let status = child
-                .wait_timeout(CONTROL_TIMEOUT)?
-                .context("failed preflight supervisor did not exit")?;
-            unblock_control_listener(&control_path);
-            control_thread.join().map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
-            stderr_thread
-                .join()
-                .map_err(|_| anyhow::anyhow!("supervisor stderr thread panicked"))?;
-            bail!(
-                "preflight supervisor exited before READY with {status}: {}",
-                String::from_utf8_lossy(&stderr)
-            );
-        }
-        Err(error) => {
-            let _ = child.kill();
-            let status = child.wait().context("reap preflight supervisor after READY timeout")?;
-            unblock_control_listener(&control_path);
-            control_thread.join().map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
-            let stderr = receive_supervisor_stderr(&startup_receiver, stderr_thread)?;
-            return Err(error).context(format!(
-                "preflight supervisor did not connect; exit {status}; stderr: {}",
-                String::from_utf8_lossy(&stderr)
-            ));
-        }
+    let mut events = SupervisorEventOwner {
+        child,
+        input: supervisor_input,
+        receiver: startup_receiver,
+        control_path: control_path.clone(),
+        control_thread: Some(control_thread),
+        output_thread: Some(output_thread),
+        stderr_thread: Some(stderr_thread),
+        stderr: None,
+        output_closed: false,
     };
-    control_thread.join().map_err(|_| anyhow::anyhow!("control accept thread panicked"))?;
-    supervisor_stream.set_read_timeout(Some(CONTROL_TIMEOUT))?;
-    supervisor_stream.set_write_timeout(Some(CONTROL_TIMEOUT))?;
-    let ready = read_control_line(&mut supervisor_stream)?;
-    if ready != ready_line(&nonce).trim_end() {
-        bail!("preflight READY identity mismatch");
-    }
-    write_control_line(&mut supervisor_stream, &arm_line(&nonce))?;
-    supervisor_stream.shutdown(std::net::Shutdown::Both)?;
+    let protocol_result = (|| -> Result<_> {
+        let mut supervisor_stream = events.accept_control()?;
+        supervisor_stream.set_read_timeout(Some(CONTROL_TIMEOUT))?;
+        supervisor_stream.set_write_timeout(Some(CONTROL_TIMEOUT))?;
+        let ready = read_control_line(&mut supervisor_stream)?;
+        if ready != ready_line(&nonce).trim_end() {
+            bail!("preflight READY identity mismatch");
+        }
+        write_control_line(&mut supervisor_stream, &arm_line(&nonce))?;
+        supervisor_stream.shutdown(std::net::Shutdown::Both)?;
 
-    let mut inbound = inbound_receiver
-        .recv_timeout(CONTROL_TIMEOUT)
-        .context("preflight inbound-network probe did not connect")??;
-    inbound_thread.join().map_err(|_| anyhow::anyhow!("inbound accept thread panicked"))?;
-    inbound.set_read_timeout(Some(CONTROL_TIMEOUT))?;
-    inbound.set_write_timeout(Some(CONTROL_TIMEOUT))?;
-    let inbound_probe: InboundProbeEvidence =
-        serde_json::from_str(&read_control_line(&mut inbound)?)
-            .context("parse inbound-network probe evidence")?;
-    let inbound_network_denied = match inbound_probe.bound_address {
-        None => true,
-        Some(address) => TcpStream::connect_timeout(&address, Duration::from_secs(2)).is_err(),
-    };
-    inbound.write_all(b"X")?;
-    inbound.shutdown(std::net::Shutdown::Both)?;
+        let inbound_probe: InboundProbeEvidence =
+            serde_json::from_slice(&events.product_line("inbound-network probe evidence")?)
+                .context("parse inbound-network probe evidence")?;
+        let inbound_network_denied = match inbound_probe.bound_address {
+            None => true,
+            Some(address) => TcpStream::connect_timeout(&address, Duration::from_secs(2)).is_err(),
+        };
+        events.release_product("release inbound-network probe")?;
 
-    let mut descendant = child_receiver
-        .recv_timeout(CONTROL_TIMEOUT)
-        .context("preflight descendant did not connect")??;
-    child_thread.join().map_err(|_| anyhow::anyhow!("child accept thread panicked"))?;
-    descendant.set_read_timeout(Some(CONTROL_TIMEOUT))?;
-    descendant.set_write_timeout(Some(CONTROL_TIMEOUT))?;
-    let child_evidence: ChildProbeEvidence =
-        serde_json::from_str(&read_control_line(&mut descendant)?)
-            .context("parse preflight descendant evidence")?;
-    let status = child
-        .wait_timeout(CONTROL_TIMEOUT)?
-        .context("preflight supervisor exceeded its deadline")?;
-    let supervisor_stderr = receive_supervisor_stderr(&startup_receiver, stderr_thread)?;
+        let child_evidence: ChildProbeEvidence =
+            serde_json::from_slice(&events.product_line("descendant probe evidence")?)
+                .context("parse preflight descendant evidence")?;
+        let (status, supervisor_stderr, contained) = events.finish()?;
+        Ok((status, supervisor_stderr, contained, inbound_network_denied, child_evidence))
+    })();
+    let (status, supervisor_stderr, contained, inbound_network_denied, child_evidence) =
+        match protocol_result {
+            Ok(result) => result,
+            Err(error) => return events.abort(error),
+        };
     let event_ns = monotonic_ns()?;
     let timing_result = timing.measured_duration_ns(event_ns);
-    let mut tail = [0_u8; 1];
-    let contained = matches!(descendant.read(&mut tail), Ok(0));
-    if !contained {
-        let _ = descendant.write_all(b"X");
-        let _ = descendant.shutdown(std::net::Shutdown::Both);
-    }
 
     let probe: ProbeEvidence = serde_json::from_slice(
         &fs::read(&probe_result).context("read sandbox product probe evidence")?,
@@ -326,7 +495,6 @@ fn run_controller(values: &[String]) -> Result<()> {
             String::from_utf8_lossy(&supervisor_stderr)
         );
     }
-    drop(descendant);
     drop(timing);
     fs::remove_dir_all(&root).context("remove successful sandbox preflight root")?;
     fs::remove_file(&adjacent).context("remove successful parent sentinel")?;
@@ -335,17 +503,15 @@ fn run_controller(values: &[String]) -> Result<()> {
 }
 
 fn run_probe(values: &[String]) -> Result<()> {
-    if values.len() != 8 {
-        bail!("probe requires write, child, outbound-network, inbound-network, and result paths");
+    if values.len() != 6 {
+        bail!("probe requires write, network, and result paths");
     }
     let inside = PathBuf::from(&values[0]);
     let adjacent = PathBuf::from(&values[1]);
     let child_adjacent = PathBuf::from(&values[2]);
-    let child_socket = PathBuf::from(&values[3]);
-    let network_address = values[4].parse::<SocketAddr>()?;
-    let inbound_ip = values[5].parse::<std::net::IpAddr>()?;
-    let inbound_socket = PathBuf::from(&values[6]);
-    let result_path = PathBuf::from(&values[7]);
+    let network_address = values[3].parse::<SocketAddr>()?;
+    let inbound_ip = values[4].parse::<std::net::IpAddr>()?;
+    let result_path = PathBuf::from(&values[5]);
     fs::write(&inside, b"inside")?;
     let adjacent_denied = fs::write(&adjacent, b"changed").is_err();
     let network_denied =
@@ -365,37 +531,43 @@ fn run_probe(values: &[String]) -> Result<()> {
     let inbound_evidence = InboundProbeEvidence {
         bound_address: inbound_listener.as_ref().map(TcpListener::local_addr).transpose()?,
     };
-    let mut inbound = transport::connect(&inbound_socket)?;
-    write_control_line(&mut inbound, &format!("{}\n", serde_json::to_string(&inbound_evidence)?))?;
+    let stdout = io::stdout();
+    let mut controller_output = stdout.lock();
+    serde_json::to_writer(&mut controller_output, &inbound_evidence)?;
+    controller_output.write_all(b"\n")?;
+    controller_output.flush()?;
+    let stdin = io::stdin();
+    let mut controller_input = stdin.lock();
     let mut inbound_release = [0_u8; 1];
-    inbound.read_exact(&mut inbound_release)?;
+    controller_input
+        .read_exact(&mut inbound_release)
+        .context("read trusted inbound-network probe release")?;
     drop(inbound_listener);
     let platform = product_platform_proofs()?;
-    // The outer supervisor binds this exact trusted binary at the private Linux alias.
-    // `/proc/self/exe` resolves to an unmounted host path inside Bubblewrap.
+    // The proc magic link reopens this exact running image without resolving its unmounted host
+    // source path. Other platforms use the current executable path directly.
     #[cfg(target_os = "linux")]
-    let current = PathBuf::from("/cmux-bin/product");
+    let current = PathBuf::from("/proc/self/exe");
     #[cfg(not(target_os = "linux"))]
     let current = env::current_exe().context("resolve contained preflight executable")?;
     let mut child = Command::new(current);
     child
         .arg("--probe-child")
         .arg(child_adjacent)
-        .arg(child_socket)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::piped());
     detach(&mut child);
-    let mut child = child.spawn()?;
-    let mut child_stdout = child.stdout.take().context("capture descendant readiness")?;
+    let mut child = child.spawn().context("spawn contained preflight descendant")?;
+    let mut child_stderr = child.stderr.take().context("capture descendant evidence")?;
     let (ready_sender, ready_receiver) = mpsc::channel();
     let ready_thread = thread::spawn(move || {
-        let mut ready = [0_u8; 1];
-        let result = child_stdout.read_exact(&mut ready).map(|()| ready);
+        let result = read_bounded_line(&mut child_stderr, MAX_PRODUCT_EVENT_BYTES)
+            .and_then(|line| line.ok_or_else(|| io::Error::other("descendant evidence was empty")));
         let _ = ready_sender.send(result);
     });
-    let ready = match ready_receiver.recv_timeout(CONTROL_TIMEOUT) {
-        Ok(Ok(ready)) => ready,
+    let child_line = match ready_receiver.recv_timeout(CONTROL_TIMEOUT) {
+        Ok(Ok(line)) => line,
         Ok(Err(error)) => {
             let _ = child.kill();
             let _ = child.wait();
@@ -410,11 +582,11 @@ fn run_probe(values: &[String]) -> Result<()> {
         }
     };
     ready_thread.join().map_err(|_| anyhow::anyhow!("descendant readiness thread panicked"))?;
-    if ready != [b'R'] {
-        let _ = child.kill();
-        let _ = child.wait();
-        bail!("sandbox descendant sent invalid readiness");
-    }
+    let child_evidence: ChildProbeEvidence =
+        serde_json::from_slice(&child_line).context("parse contained descendant evidence")?;
+    serde_json::to_writer(&mut controller_output, &child_evidence)?;
+    controller_output.write_all(b"\n")?;
+    controller_output.flush()?;
     let evidence = ProbeEvidence {
         network_denied,
         linux_no_new_privs: platform.linux_no_new_privs,
@@ -432,18 +604,19 @@ fn run_probe(values: &[String]) -> Result<()> {
 }
 
 fn run_probe_child(values: &[String]) -> Result<()> {
-    if values.len() != 2 {
-        bail!("probe child requires adjacent and control paths");
+    if values.len() != 1 {
+        bail!("probe child requires an adjacent path");
     }
     let denied = fs::write(&values[0], b"changed").is_err();
-    let mut stream = transport::connect(Path::new(&values[1]))?;
     let evidence =
         ChildProbeEvidence { adjacent_write_denied: denied, windows_in_job: child_in_job()? };
-    write_control_line(&mut stream, &format!("{}\n", serde_json::to_string(&evidence)?))?;
-    io::stdout().write_all(b"R")?;
-    io::stdout().flush()?;
+    let stderr = io::stderr();
+    let mut parent = stderr.lock();
+    serde_json::to_writer(&mut parent, &evidence)?;
+    parent.write_all(b"\n")?;
+    parent.flush()?;
     let mut release = [0_u8; 1];
-    let _ = stream.read(&mut release);
+    io::stdin().read_exact(&mut release)?;
     if !denied {
         bail!("sandbox allowed a descendant adjacent write");
     }
@@ -816,23 +989,48 @@ fn read_bounded_tail(mut reader: impl Read, limit: usize) -> io::Result<Vec<u8>>
     }
 }
 
-fn unblock_control_listener(path: &Path) {
-    if let Ok(stream) = transport::connect(path) {
-        let _ = stream.shutdown(std::net::Shutdown::Both);
+fn read_product_events(mut reader: impl Read, sender: &mpsc::Sender<SupervisorStartupEvent>) {
+    loop {
+        match read_bounded_line(&mut reader, MAX_PRODUCT_EVENT_BYTES) {
+            Ok(Some(line)) => {
+                if sender.send(SupervisorStartupEvent::ProductLine(Ok(line))).is_err() {
+                    return;
+                }
+            }
+            Ok(None) => {
+                let _ = sender.send(SupervisorStartupEvent::ProductOutputClosed(Ok(())));
+                return;
+            }
+            Err(error) => {
+                let _ = sender.send(SupervisorStartupEvent::ProductOutputClosed(Err(error)));
+                return;
+            }
+        }
     }
 }
 
-fn receive_supervisor_stderr(
-    receiver: &mpsc::Receiver<SupervisorStartupEvent>,
-    thread: thread::JoinHandle<()>,
-) -> Result<Vec<u8>> {
-    let event = receiver
-        .recv_timeout(CONTROL_TIMEOUT)
-        .context("preflight supervisor stderr deadline expired")?;
-    thread.join().map_err(|_| anyhow::anyhow!("supervisor stderr thread panicked"))?;
-    match event {
-        SupervisorStartupEvent::StderrClosed(stderr) => stderr.map_err(Into::into),
-        SupervisorStartupEvent::Connected(_) => bail!("preflight supervisor connected twice"),
+fn read_bounded_line(reader: &mut impl Read, limit: usize) -> io::Result<Option<Vec<u8>>> {
+    let mut line = Vec::new();
+    let mut byte = [0_u8; 1];
+    loop {
+        match reader.read(&mut byte)? {
+            0 if line.is_empty() => return Ok(None),
+            0 => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "partial product event")),
+            _ if byte[0] == b'\n' => return Ok(Some(line)),
+            _ if line.len() == limit => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "product event exceeded its byte limit",
+                ));
+            }
+            _ => line.push(byte[0]),
+        }
+    }
+}
+
+fn unblock_control_listener(path: &Path) {
+    if let Ok(stream) = transport::connect(path) {
+        let _ = stream.shutdown(std::net::Shutdown::Both);
     }
 }
 

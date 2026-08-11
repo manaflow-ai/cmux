@@ -247,7 +247,7 @@ impl LifecycleRecorder {
         baseline.validate_sample()?;
         candidate.validate_sample()?;
         let expected_first =
-            if index % 2 == 0 { TargetKind::Baseline } else { TargetKind::Candidate };
+            if index.is_multiple_of(2) { TargetKind::Baseline } else { TargetKind::Candidate };
         if first != expected_first {
             bail!("pair {index} starts with {first:?}, expected {expected_first:?}");
         }

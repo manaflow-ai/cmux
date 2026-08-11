@@ -185,12 +185,13 @@ mod platform {
             "--unshare-all",
             "--die-with-parent",
             "--new-session",
-            "--cap-drop",
-            "ALL",
             "--clearenv",
             "--dir",
             "/cmux-bin",
         ]);
+        if !use_sudo {
+            command.args(["--cap-drop", "ALL"]);
+        }
         append_contained_environment(&mut command);
         command.arg("--ro-bind");
         command.arg(&current).arg(sandbox_supervisor);
@@ -212,12 +213,23 @@ mod platform {
         command.args(["--dev", "/dev", "--proc", "/proc", "--bind"]);
         command.arg(&launch.fixture_root).arg(&launch.fixture_root);
         command.arg("--chdir").arg(&launch.fixture_root);
-        if let Some((uid, gid)) = &identity {
-            // Bubblewrap processes mount sources in argument order. Change identity only after it
-            // opens every trusted host path, then run the contained command as the dedicated user.
-            command.arg("--gid").arg(gid).arg("--uid").arg(uid);
-        }
         command.arg("--");
+        if let Some((uid, gid)) = &identity {
+            // Root owns only namespace construction. setpriv makes one contained transition to
+            // the dedicated identity after Bubblewrap opens every trusted host bind source.
+            command.args([
+                "/usr/bin/setpriv",
+                "--reuid",
+                uid,
+                "--regid",
+                gid,
+                "--clear-groups",
+                "--no-new-privs",
+                "--bounding-set=-all",
+                "--inh-caps=-all",
+                "--ambient-caps=-all",
+            ]);
+        }
         let mut contained = launch.clone();
         contained.target = sandbox_target.into();
         command.arg(sandbox_supervisor).arg("--inner").args(forwarded_args(&contained));

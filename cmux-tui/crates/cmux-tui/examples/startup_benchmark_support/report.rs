@@ -194,7 +194,7 @@ fn nearest_rank(count: usize, percentile: usize) -> usize {
 
 fn median_f64(values: &[f64]) -> f64 {
     let midpoint = values.len() / 2;
-    if values.len() % 2 == 0 {
+    if values.len().is_multiple_of(2) {
         (values[midpoint - 1] + values[midpoint]) / 2.0
     } else {
         values[midpoint]

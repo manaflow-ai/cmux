@@ -11,7 +11,7 @@ use serde::Serialize;
 
 pub use args::Args;
 pub use lifecycle::{LifecycleRecorder, PhaseMetric, RunPhases, SampleKind};
-pub use process::{Fixture, Target, run_sample};
+pub use process::{Fixture, Target, TargetInput, run_sample};
 pub use report::{
     ComparisonReport, HostMetadata, InfrastructureMetadata, Pair, ProfileReport, SampleSet,
     ScenarioReport, SignedSummary, TargetMetadata, now_unix_ms,

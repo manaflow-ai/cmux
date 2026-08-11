@@ -55,18 +55,19 @@ pub struct Target {
 }
 
 impl Target {
-    pub fn new(
-        kind: TargetKind,
-        binary: PathBuf,
-        source: PathBuf,
-        sha: String,
-        expected_binary_sha256: String,
-        launcher: Vec<String>,
-        supervisor_binary: PathBuf,
-        supervisor_binary_sha256: String,
-        trusted_source: PathBuf,
-        trusted_sha: String,
-    ) -> Result<Self> {
+    pub fn new(input: TargetInput) -> Result<Self> {
+        let TargetInput {
+            kind,
+            binary,
+            source,
+            sha,
+            expected_binary_sha256,
+            launcher,
+            supervisor_binary,
+            supervisor_binary_sha256,
+            trusted_source,
+            trusted_sha,
+        } = input;
         let observed_sha = git_sha(&source)?;
         if observed_sha != sha {
             bail!(
@@ -169,7 +170,22 @@ impl Target {
     }
 }
 
-pub enum Fixture {
+pub struct TargetInput {
+    pub kind: TargetKind,
+    pub binary: PathBuf,
+    pub source: PathBuf,
+    pub sha: String,
+    pub expected_binary_sha256: String,
+    pub launcher: Vec<String>,
+    pub supervisor_binary: PathBuf,
+    pub supervisor_binary_sha256: String,
+    pub trusted_source: PathBuf,
+    pub trusted_sha: String,
+}
+
+pub struct Fixture(Box<FixtureState>);
+
+enum FixtureState {
     Cold(Common),
     Warm { common: Common, server: RunningHeadless },
     Headless(Common),
@@ -188,8 +204,8 @@ impl Fixture {
         deadline.ensure("preparing a startup fixture")?;
         let mut common = Common::new(target, scenario, wrap_measured_process, fixture_parent)?;
         match scenario {
-            Scenario::Cold => Ok(Self::Cold(common)),
-            Scenario::Headless => Ok(Self::Headless(common)),
+            Scenario::Cold => Ok(Self(Box::new(FixtureState::Cold(common)))),
+            Scenario::Headless => Ok(Self(Box::new(FixtureState::Headless(common)))),
             Scenario::Warm => {
                 let socket = common.path("warm.sock");
                 let session = common.session_name("warm");
@@ -199,7 +215,7 @@ impl Fixture {
                 assert_ping(&common, &socket, deadline)?;
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 1;
-                Ok(Self::Warm { common, server })
+                Ok(Self(Box::new(FixtureState::Warm { common, server })))
             }
             Scenario::Restored => {
                 let state = common.path("restored-state");
@@ -226,7 +242,7 @@ impl Fixture {
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 4;
                 common.setup_evidence.process_exits += 1;
-                Ok(Self::Restored { common, state, terminal_id })
+                Ok(Self(Box::new(FixtureState::Restored { common, state, terminal_id })))
             }
             Scenario::Incompatible => {
                 let state = common.path("incompatible-state");
@@ -266,7 +282,7 @@ impl Fixture {
                 common.setup_evidence.readiness_lines += 1;
                 common.setup_evidence.socket_rpcs += 2;
                 common.setup_evidence.process_exits += 1;
-                Ok(Self::Incompatible { common, state, database, expected })
+                Ok(Self(Box::new(FixtureState::Incompatible { common, state, database, expected })))
             }
         }
     }
@@ -278,13 +294,13 @@ impl Fixture {
     pub fn cleanup(&mut self) -> Result<Evidence> {
         let deadline = SuiteDeadline::unbounded();
         let mut evidence = Evidence::default();
-        match self {
-            Self::Warm { common, server } => {
+        match self.0.as_mut() {
+            FixtureState::Warm { common, server } => {
                 server.shutdown_and_wait(common, deadline)?;
                 evidence.socket_rpcs += 1;
                 evidence.process_exits += 1;
             }
-            Self::Restored { common, state, terminal_id } => {
+            FixtureState::Restored { common, state, terminal_id } => {
                 let socket = common.path("restored-cleanup.sock");
                 let session = common.session_name("restored");
                 let args = headless_args(&session, &socket, Some(state));
@@ -311,34 +327,34 @@ impl Fixture {
     }
 
     fn common(&self) -> &Common {
-        match self {
-            Self::Cold(common) | Self::Headless(common) => common,
-            Self::Warm { common, .. }
-            | Self::Restored { common, .. }
-            | Self::Incompatible { common, .. } => common,
+        match self.0.as_ref() {
+            FixtureState::Cold(common) | FixtureState::Headless(common) => common,
+            FixtureState::Warm { common, .. }
+            | FixtureState::Restored { common, .. }
+            | FixtureState::Incompatible { common, .. } => common,
         }
     }
 
     fn common_mut(&mut self) -> &mut Common {
-        match self {
-            Self::Cold(common) | Self::Headless(common) => common,
-            Self::Warm { common, .. }
-            | Self::Restored { common, .. }
-            | Self::Incompatible { common, .. } => common,
+        match self.0.as_mut() {
+            FixtureState::Cold(common) | FixtureState::Headless(common) => common,
+            FixtureState::Warm { common, .. }
+            | FixtureState::Restored { common, .. }
+            | FixtureState::Incompatible { common, .. } => common,
         }
     }
 }
 
 pub fn run_sample(fixture: &mut Fixture, deadline: SuiteDeadline) -> Result<RunResult> {
     deadline.ensure("starting a startup sample")?;
-    match fixture {
-        Fixture::Cold(common) => run_cold(common, deadline),
-        Fixture::Warm { common, server } => run_warm(common, server, deadline),
-        Fixture::Headless(common) => run_headless(common, deadline),
-        Fixture::Restored { common, state, terminal_id } => {
+    match fixture.0.as_mut() {
+        FixtureState::Cold(common) => run_cold(common, deadline),
+        FixtureState::Warm { common, server } => run_warm(common, server, deadline),
+        FixtureState::Headless(common) => run_headless(common, deadline),
+        FixtureState::Restored { common, state, terminal_id } => {
             run_restored(common, state, terminal_id, deadline)
         }
-        Fixture::Incompatible { common, state, database, expected } => {
+        FixtureState::Incompatible { common, state, database, expected } => {
             run_incompatible(common, state, database, expected, deadline)
         }
     }
@@ -977,13 +993,15 @@ fn run_pty(
         thread::Builder::new().name("startup-benchmark-pty-reader".into()).spawn(move || {
             let result = read_pty(
                 reader,
-                writer_for_reader,
-                marker_bytes,
-                reader_event_sender,
-                diagnostic_for_reader,
-                probe_queries_for_reader,
-                probe_responses_for_reader,
-                reader_cancelled_for_reader,
+                PtyReadContext {
+                    writer: writer_for_reader,
+                    marker: marker_bytes,
+                    sender: reader_event_sender,
+                    diagnostic: diagnostic_for_reader,
+                    probe_queries: probe_queries_for_reader,
+                    probe_responses: probe_responses_for_reader,
+                    reader_cancelled: reader_cancelled_for_reader,
+                },
             );
             let _ = reader_sender.send(result);
         })?;
@@ -1409,9 +1427,7 @@ impl RunningHeadless {
         if let Some(status) = child.wait_timeout(timeout)? {
             return Ok(status);
         }
-        if let Err(error) = deadline.ensure("waiting for headless process exit") {
-            return Err(error);
-        }
+        deadline.ensure("waiting for headless process exit")?;
         bail!("headless process exceeded {timeout:?}")
     }
 
@@ -1444,7 +1460,7 @@ impl RunningHeadless {
                     .reader_receiver
                     .recv_timeout(PROCESS_TIMEOUT)
                     .context("wait for headless stderr after cancellation");
-                let result = match recovery {
+                match recovery {
                     Ok(result) => result,
                     Err(recovery) => {
                         let mut error = recovery;
@@ -1460,8 +1476,7 @@ impl RunningHeadless {
                         }
                         return Err(error);
                     }
-                };
-                result
+                }
             }
             Err(error) => return Err(error).context("wait for headless stderr completion"),
         };
@@ -1762,10 +1777,8 @@ impl PtyRuntime {
             Ok(reader) => reader,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 reader_timed_out = true;
-                if !tree_termination_attempted {
-                    if let Err(error) = self.terminate_tree() {
-                        kill_error = Some(error);
-                    }
+                if !tree_termination_attempted && let Err(error) = self.terminate_tree() {
+                    kill_error = Some(error);
                 }
                 if let Err(error) = self.cancel_reader_io() {
                     kill_error = Some(error);
@@ -1917,8 +1930,7 @@ fn terminate_windows_process_tree(child_id: u32) -> io::Result<()> {
     }
 }
 
-fn read_pty(
-    mut reader: Box<dyn Read + Send>,
+struct PtyReadContext {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     marker: Vec<u8>,
     sender: mpsc::Sender<PtyEvent>,
@@ -1926,7 +1938,21 @@ fn read_pty(
     probe_queries: Arc<AtomicUsize>,
     probe_responses: Arc<AtomicUsize>,
     reader_cancelled: Arc<AtomicBool>,
+}
+
+fn read_pty(
+    mut reader: Box<dyn Read + Send>,
+    context: PtyReadContext,
 ) -> io::Result<PtyReadResult> {
+    let PtyReadContext {
+        writer,
+        marker,
+        sender,
+        diagnostic,
+        probe_queries,
+        probe_responses,
+        reader_cancelled,
+    } = context;
     let mut output = VecDeque::new();
     let mut probes = ProbeTracker::default();
     let mut frame_marker = FrameMarkerTracker::new(marker);
@@ -2239,20 +2265,20 @@ fn run_captured_process(
             return Err(error).context("spawn captured stderr reader");
         }
     };
-    if let Some(control) = control.as_mut() {
-        if let Err(error) = control.arm(deadline) {
-            let _ = process_tree.terminate();
-            let _ = child.kill();
-            let _ = child.wait_timeout(PROCESS_TIMEOUT);
-            let _ = stdout.cancel();
-            let _ = stderr.cancel();
-            for _ in 0..2 {
-                let _ = capture_receiver.recv_timeout(PROCESS_TIMEOUT);
-            }
-            let _ = stdout.join();
-            let _ = stderr.join();
-            return Err(error).context("arm captured product supervisor");
+    if let Some(control) = control.as_mut()
+        && let Err(error) = control.arm(deadline)
+    {
+        let _ = process_tree.terminate();
+        let _ = child.kill();
+        let _ = child.wait_timeout(PROCESS_TIMEOUT);
+        let _ = stdout.cancel();
+        let _ = stderr.cancel();
+        for _ in 0..2 {
+            let _ = capture_receiver.recv_timeout(PROCESS_TIMEOUT);
         }
+        let _ = stdout.join();
+        let _ = stderr.join();
+        return Err(error).context("arm captured product supervisor");
     }
     let mut lifecycle_error = None;
     let mut status = None;
@@ -2495,23 +2521,7 @@ impl CapturedProcessTree {
     }
 
     fn terminate(self) -> io::Result<()> {
-        #[cfg(unix)]
-        {
-            let group = self.child_id as libc::pid_t;
-            // SAFETY: process_group(0) created a new group whose leader is the
-            // validated direct child. The negative id targets only that group.
-            if unsafe { libc::kill(-group, libc::SIGKILL) } == 0 {
-                return Ok(());
-            }
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() == Some(libc::ESRCH) {
-                return Ok(());
-            }
-            return Err(error);
-        }
-
-        #[cfg(windows)]
-        return terminate_windows_process_tree(self.child_id);
+        terminate_captured_process_tree(self.child_id)
     }
 
     fn terminate_after_exit(self) -> io::Result<()> {
@@ -2526,15 +2536,24 @@ impl CapturedProcessTree {
     }
 }
 
-fn wait_child(child: &mut Child, timeout: Duration) -> Result<ExitStatus> {
-    if let Some(status) = child.wait_timeout(timeout)? {
-        return Ok(status);
+#[cfg(unix)]
+fn terminate_captured_process_tree(child_id: u32) -> io::Result<()> {
+    let group = child_id as libc::pid_t;
+    // SAFETY: process_group(0) created a new group whose leader is the
+    // validated direct child. The negative id targets only that group.
+    if unsafe { libc::kill(-group, libc::SIGKILL) } == 0 {
+        return Ok(());
     }
-    child.kill()?;
-    let status = child
-        .wait_timeout(PROCESS_TIMEOUT)?
-        .context("process did not exit after direct-child kill")?;
-    bail!("process exceeded {timeout:?} and was killed with {status}")
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(());
+    }
+    Err(error)
+}
+
+#[cfg(windows)]
+fn terminate_captured_process_tree(child_id: u32) -> io::Result<()> {
+    terminate_windows_process_tree(child_id)
 }
 
 fn assert_ping(common: &Common, socket: &Path, deadline: SuiteDeadline) -> Result<()> {
@@ -3065,7 +3084,7 @@ mod tests {
         let commit = "1111111111111111111111111111111111111111";
         let ghostty = "2222222222222222222222222222222222222222";
         let version = format!("0.1.0 ({commit}; ghostty {ghostty})");
-        assert_eq!(validate_binary_identity(&version, commit, ghostty, true).unwrap(), true);
+        assert!(validate_binary_identity(&version, commit, ghostty, true).unwrap());
         assert!(
             validate_binary_identity(
                 &version,
@@ -3085,6 +3104,6 @@ mod tests {
             .is_err()
         );
         assert!(validate_binary_identity("0.1.0", commit, ghostty, true).is_err());
-        assert_eq!(validate_binary_identity("0.1.0", commit, ghostty, false).unwrap(), false);
+        assert!(!validate_binary_identity("0.1.0", commit, ghostty, false).unwrap());
     }
 }

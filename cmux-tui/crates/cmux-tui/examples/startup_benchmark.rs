@@ -55,18 +55,18 @@ fn target_from_args(args: &Args, kind: TargetKind) -> Result<Target> {
             &args.candidate_launcher,
         ),
     };
-    Target::new(
+    Target::new(TargetInput {
         kind,
-        binary.clone(),
-        source.clone(),
-        sha.clone(),
-        binary_sha256.clone(),
-        launcher.clone(),
-        args.supervisor_binary.clone(),
-        args.supervisor_binary_sha256.clone(),
-        args.trusted_source.clone(),
-        args.trusted_sha.clone(),
-    )?
+        binary: binary.clone(),
+        source: source.clone(),
+        sha: sha.clone(),
+        expected_binary_sha256: binary_sha256.clone(),
+        launcher: launcher.clone(),
+        supervisor_binary: args.supervisor_binary.clone(),
+        supervisor_binary_sha256: args.supervisor_binary_sha256.clone(),
+        trusted_source: args.trusted_source.clone(),
+        trusted_sha: args.trusted_sha.clone(),
+    })?
     .verify_product_identity(&args.fixture_parent)
 }
 
