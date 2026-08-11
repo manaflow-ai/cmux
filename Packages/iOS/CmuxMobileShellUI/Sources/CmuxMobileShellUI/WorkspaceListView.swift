@@ -457,9 +457,17 @@ struct WorkspaceListView: View {
         // Group projection is synchronous and input-keyed across body updates.
         // Keep displayed and authoritative caches separate so a pending
         // optimistic drag cannot evict the rendered projection on every pass.
+        let currentGroupedWorkspaces = rendersGroupedSections
+            ? groupedWorkspaces
+            : []
+        let currentDisplayedGroupedWorkspaces = rendersGroupedSections
+            ? (optimisticGroupedState.optimisticOrder?
+                .materializedWorkspaces(from: currentGroupedWorkspaces)
+                ?? currentGroupedWorkspaces)
+            : []
         let currentDisplayedGroupedListItems = rendersGroupedSections
             ? displayedGroupedProjectionCache.items(
-                workspaces: displayedGroupedWorkspaces,
+                workspaces: currentDisplayedGroupedWorkspaces,
                 groups: groups,
                 appliesRecencySort: appliesRecencySort
             )
@@ -474,7 +482,7 @@ struct WorkspaceListView: View {
             ? (optimisticGroupedState.optimisticOrder == nil
                 ? currentDisplayedGroupedListItems
                 : authoritativeGroupedProjectionCache.items(
-                    workspaces: groupedWorkspaces,
+                    workspaces: currentGroupedWorkspaces,
                     groups: groups,
                     appliesRecencySort: appliesRecencySort
                 ))
