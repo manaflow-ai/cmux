@@ -4501,6 +4501,27 @@ impl Mux {
             }));
         }
         let revision = registry.resource_revision()?;
+        // Native process completion and terminal-stream EOF are separate
+        // signals. ConPTY can keep its output pipe open after the child has
+        // exited, so process wait observes the live runtime receipt while the
+        // reader continues to drain output before durable topology detach.
+        if let Some(exit) = self
+            .state
+            .lock()
+            .unwrap()
+            .terminal_catalog
+            .get(terminal_id)
+            .and_then(|surface| surface.terminal_exit())
+        {
+            return Ok(serde_json::json!({
+                "state": "exited",
+                "terminal_id": terminal_id,
+                "lifecycle": "exited",
+                "outcome": exit.outcome,
+                "exited_at": exit.exited_at_ms.to_string(),
+                "revision": revision.to_string(),
+            }));
+        }
         let lifecycle = match terminal.lifecycle {
             TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
             TerminalLifecycle::Running => "running",
@@ -4553,6 +4574,27 @@ impl Mux {
         for terminal_id in terminal_ids {
             self.terminal_exit_waiters.notify(&terminal_id);
         }
+    }
+
+    pub(crate) fn terminal_process_exited(&self, surface: &Arc<Surface>) {
+        let terminal_ids = {
+            let state = self.state.lock().unwrap();
+            self.resource_terminal_host_identity(surface)
+                .and_then(|identity| {
+                    state
+                        .terminal_catalog_by_host
+                        .get(&identity.terminal_id)
+                        .map(|terminal_ids| terminal_ids.iter().cloned().collect::<Vec<_>>())
+                })
+                .or_else(|| {
+                    surface
+                        .terminal_public_id()
+                        .cloned()
+                        .map(|terminal_id| vec![terminal_id])
+                })
+                .unwrap_or_default()
+        };
+        self.notify_terminal_exit_waiters(terminal_ids);
     }
 
     pub(crate) fn wait_for_terminal_exit(
@@ -25747,6 +25789,51 @@ mod tests {
         );
         assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
         assert_eq!(mux.terminal_exit_waiter_count_for_test(&public_id), 0);
+    }
+
+    #[test]
+    fn observed_process_exit_wakes_wait_before_terminal_stream_detaches() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("process-exit".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+
+        mux.reset_terminal_exit_state_query_count_for_test();
+        let waiting_mux = mux.clone();
+        let waiting_id = terminal_id.clone();
+        let waiter = std::thread::spawn(move || {
+            waiting_mux.wait_for_terminal_exit(&waiting_id, Some(Duration::from_secs(2)))
+        });
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1
+            || mux.terminal_exit_state_query_count_for_test() != 1
+        {
+            assert!(Instant::now() < waiting_deadline, "process exit wait did not subscribe");
+            std::thread::yield_now();
+        }
+
+        surface.observe_terminal_exit_for_test(TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 7 },
+            exited_at_ms: 7_654_321,
+        });
+        mux.terminal_process_exited(&surface);
+
+        let exited = waiter.join().unwrap().unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(exited["terminal_id"], terminal_id.as_str());
+        assert_eq!(exited["lifecycle"], "exited");
+        assert_eq!(exited["outcome"], serde_json::json!({"kind":"exit","code":7}));
+        assert_eq!(exited["exited_at"], "7654321");
+        assert!(exited["revision"].as_str().is_some());
+        assert!(
+            mux.surface(surface.id).is_some(),
+            "process completion must not detach a terminal before its reader drains"
+        );
+        assert_eq!(
+            mux.resolve_terminal(terminal_id.as_str()).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Running,
+            "durable lifecycle must remain ordered after final terminal output"
+        );
+        close_terminal_runtime_for_test(&mux, &surface);
     }
 
     #[cfg(unix)]

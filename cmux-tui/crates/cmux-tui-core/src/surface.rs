@@ -2535,6 +2535,9 @@ impl Surface {
                 let exit = wait_for_native_child_status(child.as_mut());
                 if let Some(pty) = surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
+                    if let Some(mux) = pty.mux.upgrade() {
+                        mux.terminal_process_exited(&surface);
+                    }
                 }
                 close_local_terminal_master_after_exit(&surface);
                 publish_local_exit_if_ready(&surface);
@@ -5273,6 +5276,12 @@ impl Surface {
 
     pub fn terminal_exit(&self) -> Option<TerminalExit> {
         self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observe_terminal_exit_for_test(&self, exit: TerminalExit) {
+        *self.as_pty().expect("terminal exit requires a PTY surface").exit.lock().unwrap() =
+            Some(exit);
     }
 
     /// Terminate a hosted terminal through its existing owner connection and
