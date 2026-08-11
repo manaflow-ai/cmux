@@ -6930,6 +6930,10 @@ mod unix {
                 break;
             }
         }
+        // This writer loop is the final owner of the connection. Closing the
+        // socket here also wakes the cloned input reader when a write timeout
+        // ends the loop before byte-queue overflow can close the tap.
+        tap.close();
         host.remove_client(client);
         Ok(())
     }
