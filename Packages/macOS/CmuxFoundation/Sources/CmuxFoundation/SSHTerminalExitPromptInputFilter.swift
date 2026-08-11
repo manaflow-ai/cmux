@@ -53,13 +53,16 @@ public struct SSHTerminalExitPromptInputFilter: Sendable {
     private mutating func consume(_ byte: UInt8) -> Bool {
         if byte == Self.carriageReturn || byte == Self.lineFeed {
             switch state {
-            case .bracketedPaste, .bracketedPasteEscape, .bracketedPasteCSI:
-                return false
-            default:
+            case .ground:
+                return true
+            case .escape, .csi, .operatingSystemCommand, .operatingSystemCommandEscape,
+                 .controlString, .controlStringEscape:
                 csiBody.removeAll(keepingCapacity: true)
                 state = .ground
-                return true
+            case .bracketedPaste, .bracketedPasteEscape, .bracketedPasteCSI:
+                break
             }
+            return false
         }
 
         switch state {

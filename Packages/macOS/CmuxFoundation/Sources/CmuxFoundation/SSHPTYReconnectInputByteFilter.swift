@@ -122,19 +122,6 @@ public struct SSHPTYReconnectInputByteFilter: Sendable {
         isFiltering
     }
 
-    /// Forwards a retained partial sequence and permanently ends filtering.
-    ///
-    /// - Returns: Pending bytes that could not be classified completely.
-    public mutating func flushPendingInput() -> Data {
-        guard isFiltering else {
-            return Data()
-        }
-        let data = Data(pending)
-        pending.removeAll(keepingCapacity: true)
-        isFiltering = false
-        return data
-    }
-
     private static func reconnectProbeReplySequence(
         in bytes: [UInt8],
         at start: Int

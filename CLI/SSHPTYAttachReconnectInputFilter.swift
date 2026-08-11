@@ -217,7 +217,7 @@ final class SSHPTYAttachReconnectInputFilter {
                 if pendingReadiness.inputReady {
                     readiness = (inputReady: true, stopRequested: true)
                 } else if let filter = reconnectInputFilter {
-                    guard await writeOrShutdown(filter.flushPendingInput()) else { return }
+                    guard await writeOrShutdown(filter.stopFiltering()) else { return }
                     guard stopReconnectFiltering() else { return }
                     continue
                 }
@@ -233,7 +233,7 @@ final class SSHPTYAttachReconnectInputFilter {
             if !readiness.inputReady {
                 if let filter = reconnectInputFilter,
                    filter.hasPendingInput {
-                    guard await writeOrShutdown(filter.flushPendingInput()) else { return }
+                    guard await writeOrShutdown(filter.stopFiltering()) else { return }
                 }
                 continue
             }
@@ -309,7 +309,4 @@ final class SSHPTYAttachReconnectInputFilter {
         return remainingDeadline?()
     }
 
-    func flushPendingInput() -> Data {
-        byteFilter.flushPendingInput()
-    }
 }

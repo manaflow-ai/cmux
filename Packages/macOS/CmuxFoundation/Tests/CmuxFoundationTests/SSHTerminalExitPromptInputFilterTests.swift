@@ -22,11 +22,18 @@ struct SSHTerminalExitPromptInputFilterTests {
         #expect(filter.consume(Data([0x0A])))
     }
 
-    @Test func rawEnterRecoversFromAnIncompleteReport() {
-        var filter = SSHTerminalExitPromptInputFilter()
+    @Test func embeddedNewlineAbandonsIncompleteControlInputWithoutDismissing() {
+        var oscFilter = SSHTerminalExitPromptInputFilter()
 
-        #expect(!filter.consume(Data("\u{1B}]11;rgb:ffff".utf8)))
-        #expect(filter.consume(Data([0x0D])))
+        #expect(!oscFilter.consume(Data("\u{1B}]11;rgb:ffff".utf8)))
+        #expect(!oscFilter.consume(Data([0x0D])))
+        #expect(oscFilter.consume(Data([0x0D])))
+
+        var controlStringFilter = SSHTerminalExitPromptInputFilter()
+
+        #expect(!controlStringFilter.consume(Data("\u{1B}P1+rfragment".utf8)))
+        #expect(!controlStringFilter.consume(Data([0x0A])))
+        #expect(controlStringFilter.consume(Data([0x0A])))
     }
 
     @Test func ignoresNewlinesInsideBracketedPaste() {

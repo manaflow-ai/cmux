@@ -85,15 +85,23 @@ struct SSHPTYReconnectInputByteFilterTests {
         #expect(filter.filter(freshControlCAndEnter) == freshControlCAndEnter)
     }
 
-    @Test func flushesPendingInputWhenNoContinuationArrives() {
+    @Test func stopsFilteringAndForwardsPendingInputWhenNoContinuationArrives() {
         var filter = SSHPTYReconnectInputByteFilter(enabled: true)
         let escape = Data([0x1B])
         #expect(filter.filter(escape) == Data())
         #expect(filter.hasPendingInput)
-        #expect(filter.flushPendingInput() == escape)
+        #expect(filter.stopFiltering() == escape)
 
         let keyInput = Data("\u{1B}[13;2u".utf8)
         #expect(filter.filter(keyInput) == keyInput)
+    }
+
+    @Test func stopsFilteringWhenAnIncompleteSequenceExceedsTheBuffer() {
+        var filter = SSHPTYReconnectInputByteFilter(enabled: true)
+        let oversized = Data("\u{1B}]11;rgb:".utf8) + Data(repeating: 0x61, count: 600)
+
+        #expect(filter.filter(oversized) == oversized)
+        #expect(!filter.isFilteringActive)
     }
 
     @Test func seededSplitFuzzPreservesNonProbeBytes() {
