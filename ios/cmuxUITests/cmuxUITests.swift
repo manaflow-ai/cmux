@@ -1365,7 +1365,6 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "9",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "recentActivity",
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_RECENCY_BLOCKS": "1",
         ])
         defer { app.terminate() }
 
@@ -1385,44 +1384,63 @@ final class cmuxUITests: XCTestCase {
         let member2 = app.descendants(matching: .any)[
             "MobileWorkspaceRow-workspace-seed-2"
         ]
-        let newestMember = app.descendants(matching: .any)[
+        let member3 = app.descendants(matching: .any)[
             "MobileWorkspaceRow-workspace-seed-3"
         ]
-        let recentUngrouped = app.descendants(matching: .any)[
+        let anchor1 = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-4"
+        ]
+        let member5 = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-5"
+        ]
+        let member6 = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-6"
+        ]
+        let member7 = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-7"
+        ]
+        let ungrouped = app.descendants(matching: .any)[
             "MobileWorkspaceRow-workspace-seed-8"
         ]
 
-        for element in [group0, group1, member1, member2, newestMember, recentUngrouped] {
+        for element in [
+            group0, group1, member1, member2, member3,
+            member5, member6, member7, ungrouped,
+        ] {
             XCTAssertTrue(element.waitForExistence(timeout: 4))
         }
         XCTAssertFalse(
             anchor0.exists,
             "The group header must represent the anchor without a duplicate workspace row."
         )
+        XCTAssertFalse(
+            anchor1.exists,
+            "Each group header must replace its anchor workspace row."
+        )
 
         let group0Frame = try XCTUnwrap(waitForUsableFrame(of: group0, timeout: 3))
         let member1Frame = try XCTUnwrap(waitForUsableFrame(of: member1, timeout: 3))
         let member2Frame = try XCTUnwrap(waitForUsableFrame(of: member2, timeout: 3))
-        let newestMemberFrame = try XCTUnwrap(
-            waitForUsableFrame(of: newestMember, timeout: 3)
-        )
-        let recentUngroupedFrame = try XCTUnwrap(
-            waitForUsableFrame(of: recentUngrouped, timeout: 3)
+        let member3Frame = try XCTUnwrap(
+            waitForUsableFrame(of: member3, timeout: 3)
         )
         let group1Frame = try XCTUnwrap(waitForUsableFrame(of: group1, timeout: 3))
+        let member5Frame = try XCTUnwrap(waitForUsableFrame(of: member5, timeout: 3))
+        let member6Frame = try XCTUnwrap(waitForUsableFrame(of: member6, timeout: 3))
+        let member7Frame = try XCTUnwrap(waitForUsableFrame(of: member7, timeout: 3))
+        let ungroupedFrame = try XCTUnwrap(waitForUsableFrame(of: ungrouped, timeout: 3))
 
         XCTAssertLessThan(group0Frame.minY, member1Frame.minY)
         XCTAssertLessThan(member1Frame.minY, member2Frame.minY)
-        XCTAssertLessThan(member2Frame.minY, newestMemberFrame.minY)
-        XCTAssertLessThan(
-            newestMemberFrame.minY,
-            recentUngroupedFrame.minY,
-            "A recent ungrouped row must follow the whole group block, not split its members."
-        )
-        XCTAssertLessThan(recentUngroupedFrame.minY, group1Frame.minY)
+        XCTAssertLessThan(member2Frame.minY, member3Frame.minY)
+        XCTAssertLessThan(member3Frame.minY, group1Frame.minY)
+        XCTAssertLessThan(group1Frame.minY, member5Frame.minY)
+        XCTAssertLessThan(member5Frame.minY, member6Frame.minY)
+        XCTAssertLessThan(member6Frame.minY, member7Frame.minY)
+        XCTAssertLessThan(member7Frame.minY, ungroupedFrame.minY)
         XCTAssertGreaterThanOrEqual(
             member1Frame.minX,
-            recentUngroupedFrame.minX + 15,
+            ungroupedFrame.minX + 15,
             "Grouped members must retain their visible nested indentation."
         )
 

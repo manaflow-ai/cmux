@@ -60,7 +60,8 @@ extension WorkspaceListView {
     }
 
     func workspaceTable(
-        groupedItems: [MobileWorkspaceListItem]
+        groupedItems: [MobileWorkspaceListItem],
+        workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     ) -> WorkspaceListTable {
         let grouped = rendersGroupedSections
         let enablesReorder = enablesWorkspaceReorder
@@ -75,10 +76,7 @@ extension WorkspaceListView {
                 }
         return WorkspaceListTable(
             items: workspaceTableItems(groupedItems: groupedItems),
-            workspacesByID: Dictionary(
-                workspaces.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            ),
+            workspacesByID: workspacesByID,
             groupsByID: groupsByID,
             groupHasUnreadByID: workspaceTableGroupHasUnreadByID(
                 groupedItems: groupedItems

@@ -131,9 +131,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
             (initialWorkspaces, initialGroups) = Self.seeded(
                 count: seedCount,
-                groupCount: groupCount,
-                usesGroupBlockRecencyPattern:
-                    environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_RECENCY_BLOCKS"] == "1"
+                groupCount: groupCount
             )
         } else {
             initialWorkspaces = Self.defaultWorkspaces
@@ -330,13 +328,9 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS`). Every 4th row is unread,
     /// preview lengths vary, and with `g` groups the first `g * 4` rows fold
     /// into anchored groups of 4 (anchor + 3 members) so headers and
-    /// end-of-group drop slots render like a real grouped list. The optional
-    /// recency pattern makes a non-anchor member rank each group around one
-    /// ungrouped row, proving Recent Activity orders atomic blocks.
+    /// end-of-group drop slots render like a real grouped list.
     private static func seeded(
-        count: Int,
-        groupCount: Int,
-        usesGroupBlockRecencyPattern: Bool
+        count: Int, groupCount: Int
     ) -> ([MobileWorkspacePreview], [MobileWorkspaceGroupPreview]) {
         let anchorTime = Date(timeIntervalSinceNow: -60)
         var groups: [MobileWorkspaceGroupPreview] = []
@@ -362,21 +356,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                     )
                 )
             }
-            let activityOffset: TimeInterval
-            if usesGroupBlockRecencyPattern {
-                switch index {
-                case 3:
-                    activityOffset = 0
-                case 8:
-                    activityOffset = -3_600
-                case 7:
-                    activityOffset = -7_200
-                default:
-                    activityOffset = -Double(100 + index) * 3_600
-                }
-            } else {
-                activityOffset = -Double(index) * 3_600
-            }
             var workspace = MobileWorkspacePreview(
                 id: id,
                 macDeviceID: macDeviceID,
@@ -384,8 +363,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                 name: "\(seedNames[index % seedNames.count]) \(index)",
                 groupID: groupID,
                 previewText: seedPreviews[index % seedPreviews.count],
-                previewAt: anchorTime.addingTimeInterval(activityOffset),
-                lastActivityAt: anchorTime.addingTimeInterval(activityOffset),
+                previewAt: anchorTime.addingTimeInterval(-Double(index) * 3600),
+                lastActivityAt: anchorTime.addingTimeInterval(-Double(index) * 3600),
                 hasUnread: index % 4 == 0,
                 terminals: [
                     MobileTerminalPreview(

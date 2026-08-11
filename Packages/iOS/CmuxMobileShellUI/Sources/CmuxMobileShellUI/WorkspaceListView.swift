@@ -472,8 +472,15 @@ struct WorkspaceListView: View {
         let currentGroupedWorkspaceOrderKey = currentAuthoritativeGroupedListItems.map {
             WorkspaceListStableOrderKey(item: $0)
         }
+        let currentWorkspacesByID = Dictionary(
+            workspaces.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         #if os(iOS)
-        let baseList = workspaceTable(groupedItems: currentDisplayedGroupedListItems)
+        let baseList = workspaceTable(
+            groupedItems: currentDisplayedGroupedListItems,
+            workspacesByID: currentWorkspacesByID
+        )
             .modifier(WorkspaceListBarUnderlap())
         #else
         let baseList = List {
@@ -526,7 +533,10 @@ struct WorkspaceListView: View {
             }
             Section {
                 if rendersGroupedSections {
-                    groupedRows(items: currentDisplayedGroupedListItems)
+                    groupedRows(
+                        items: currentDisplayedGroupedListItems,
+                        workspacesByID: currentWorkspacesByID
+                    )
                 } else if activeFilter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
                     // The filter alone (not the Mac, and not a search query)
                     // emptied the list; offer the way back. While searching, the
@@ -903,14 +913,15 @@ struct WorkspaceListView: View {
     /// Grouped presentation: collapsible Mac-ordered group headers and nested members.
     @ViewBuilder
     private func groupedRows(
-        items: [MobileWorkspaceListItem]
+        items: [MobileWorkspaceListItem],
+        workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     ) -> some View {
         let enablesReorder = enablesWorkspaceReorder
         let groupLookup = groupsByID
         ForEach(items, id: \.id) { item in
             switch item {
             case .groupHeader(let group, let hasUnread):
-                let anchorCapabilities = workspaces.first(where: { $0.id == group.anchorWorkspaceID })?.actionCapabilities ?? .none
+                let anchorCapabilities = workspacesByID[group.anchorWorkspaceID]?.actionCapabilities ?? .none
                 WorkspaceGroupHeaderRow(
                     value: WorkspaceGroupHeaderRowValue(
                         group: group,
