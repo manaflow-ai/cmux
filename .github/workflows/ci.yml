@@ -258,6 +258,9 @@ jobs:
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
 
+      - name: Initialize Bonsplit for deferred-work ownership guard
+        run: git submodule update --init --depth 1 vendor/bonsplit
+
       - name: Validate stored DispatchWorkItem ownership
         run: |
           python3 tests/test_lint_stored_dispatch_work_items.py
@@ -1397,6 +1400,29 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Run Bonsplit package tests
+        run: |
+          set -euo pipefail
+          # Blacksmith macOS runners intermittently abort a package's test
+          # runner at startup. Retry exactly once only for the known signal
+          # 5/6 crash immediately after build and before test output, matching
+          # the package loop below.
+          test_status=0
+          output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
+          printf '%s\n' "$output"
+          if [ "$test_status" -ne 0 ] \
+            && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
+            && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
+            && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
+            echo "Test runner crashed at startup (runner flake); retrying Bonsplit once."
+            test_status=0
+            output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
+            printf '%s\n' "$output"
+          fi
+          if [ "$test_status" -ne 0 ]; then
+            exit "$test_status"
+          fi
+
       - name: Run Swift package unit tests
         run: |
           set -euo pipefail
@@ -1483,13 +1509,14 @@ jobs:
               # test runner at startup (signal 5/6 immediately after "Build
               # complete!", zero test output). That is a runner flake, not a
               # test failure: retry exactly once, and only when no test
-              # failures were reported.
+              # output was emitted.
               test_status=0
               output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ] \
-                && printf '%s\n' "$output" | grep -q 'Exited with unexpected signal code' \
-                && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?'; then
+                && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
+                && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
+                && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
                 echo "Test runner crashed at startup (runner flake); retrying $pkg once."
                 test_status=0
                 output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
