@@ -191,6 +191,43 @@ private struct NoFontProbe: GhosttyFontProbing {
         #expect(Set(mappings.map(\.0)) == ["U+25B0", "U+25B1", "U+2B21", "U+2B22"])
         #expect(mappings.allSatisfy { $0.1 == GhosttyConfigDiscovery.symbolFallbackFont })
     }
+
+    @Test func defaultFaceCoveredSymbolCodepointsMatchGhosttysEmbeddedFont() throws {
+        // `defaultFaceCoveredSymbolCodepoints` is a hard-coded table because
+        // Ghostty's default face is embedded in its binary rather than
+        // installed system-wide, so it can't be resolved by family name.
+        // Probe the vendored copy of that font so the table fails here if the
+        // ghostty submodule ever moves to a default face with different
+        // coverage. The vendored static regular stands in for the variable
+        // build the app actually loads; both are JetBrains Mono.
+        //
+        // This file lives at
+        // Packages/macOS/CmuxTerminalCore/Tests/CmuxTerminalCoreTests/, so six
+        // deletions reach the repo root (which contains ghostty/).
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let fontURL = repoRoot.appendingPathComponent("ghostty/src/font/res/JetBrainsMonoNoNF-Regular.ttf")
+        // A missing file means the ghostty submodule is not checked out; fail
+        // loudly rather than let the drift check silently pass.
+        let fontData = try #require(
+            try? Data(contentsOf: fontURL),
+            "ghostty submodule not initialized; run ./scripts/setup.sh"
+        )
+        let provider = try #require(CGDataProvider(data: fontData as CFData))
+        let cgFont = try #require(CGFont(provider))
+        let font = CTFontCreateWithGraphicsFont(cgFont, 12, nil, nil)
+        #expect(CTFontCopyFamilyName(font) as String == "JetBrains Mono")
+
+        let covered = Set(GhosttyConfigDiscovery.symbolCodepoints.filter {
+            GhosttyConfigDiscovery.fontContainsGlyph(font, forCodepoint: $0)
+        })
+        #expect(covered == GhosttyConfigDiscovery.defaultFaceCoveredSymbolCodepoints)
+    }
 }
 
 @Suite struct GhosttyConfigDiscoveryFontSummaryTests {

@@ -100,6 +100,23 @@ public struct GhosttyConfigDiscovery {
     /// font actually lacks — see ``autoInjectedSymbolFontMappings(configPaths:codepointCoverageProbe:)``.
     public static let symbolFallbackFont = "Apple Symbols"
 
+    /// The subset of ``symbolCodepoints`` that Ghostty's built-in primary
+    /// face already renders, used when the user configured no `font-family`.
+    ///
+    /// With no `font-family`, Ghostty loads its embedded JetBrains Mono as the
+    /// primary face (`ghostty/src/font/SharedGridSet.zig`, `font.embedded.variable`),
+    /// and a `font-codepoint-map` entry outranks that face. Since the embedded
+    /// font ships with Ghostty rather than being installed system-wide, it
+    /// can't be resolved through ``GhosttyFontProbing`` by family name, so its
+    /// coverage of the managed codepoints is recorded here instead.
+    ///
+    /// `defaultFaceCoversManagedSymbolCodepointsMatchingGhosttysEmbeddedFont`
+    /// probes the vendored copy of that font and fails if this list drifts
+    /// from the submodule.
+    public static let defaultFaceCoveredSymbolCodepoints: Set<UInt32> = [
+        0x25A0, 0x25CB, 0x25CF,  // ■ ○ ● — JetBrains Mono has these; it lacks ▰ ▱ ⬡ ⬢
+    ]
+
     /// Returns `(codepoint, font)` pairs (`codepoint` formatted as `U+XXXX`)
     /// for cmux's symbol-glyph fallback. Always non-empty, since coverage
     /// isn't locale-conditioned like CJK.
@@ -127,7 +144,13 @@ public struct GhosttyConfigDiscovery {
         }
 
         guard let configuredFontFamily = summary.effectiveFontFamilies.first else {
-            return mappings
+            // No `font-family`: the primary face is Ghostty's embedded
+            // JetBrains Mono. Only override the codepoints that face lacks,
+            // for the same reason coverage is filtered per codepoint below.
+            mappings.removeAll { codepoint, _ in
+                Self.defaultFaceCoveredSymbolCodepoints.contains(Self.parseCodepoint(codepoint))
+            }
+            return mappings.isEmpty ? nil : mappings
         }
 
         if let codepointCoverageProbe {
