@@ -4809,6 +4809,26 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
     }
 
+    /// A typed missing-session response from a live Mac must not be flattened
+    /// into a reachability diagnosis when an attachment opens from chat.
+    @MainActor
+    func testAgentChatMissingAttachmentSessionDoesNotClaimMacUnreachable() throws {
+        let app = launchAgentChatPreviewApp(environment: [
+            "CMUX_UITEST_AGENT_CHAT_ARTIFACT_FAILURE": "session_not_found",
+        ])
+        let table = app.tables["ChatTranscriptTableView"]
+        _ = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
+        let attachment = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "ci-failure.png"))
+            .firstMatch
+        XCTAssertTrue(attachment.waitForExistence(timeout: 4))
+
+        tap(attachment, in: app)
+
+        XCTAssertTrue(app.staticTexts["Session not found"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Mac unreachable"].exists)
+    }
+
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
     /// composer must translate the actual transcript table frame upward with the
     /// composer while preserving the table's own bottom-visible content. The table
@@ -5917,10 +5937,14 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchAgentChatPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchAgentChatPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
             "CMUX_UITEST_AGENT_CHAT_PREVIEW": "1",
-        ])
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
         return app
     }

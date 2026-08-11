@@ -6,6 +6,20 @@ import Testing
 
 @Suite
 struct ChatArtifactViewerModelTests {
+    @Test("missing attachment session is not reported as an unreachable Mac")
+    @MainActor
+    func missingAttachmentSessionDoesNotClaimMacUnreachable() async {
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in throw ChatArtifactError.sessionNotFound }
+        )
+        let model = ChatArtifactViewerModel()
+
+        await model.load(path: "/tmp/cmux-attachments/ci-failure.png", loader: loader)
+
+        #expect(model.state != .macUnreachable)
+    }
+
     @Test("large transport chunks are published in bounded UI batches")
     @MainActor
     func batchesLargeTransportChunks() async {

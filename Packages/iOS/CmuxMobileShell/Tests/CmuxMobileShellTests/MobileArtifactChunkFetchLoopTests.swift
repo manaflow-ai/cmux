@@ -61,7 +61,7 @@ struct MobileArtifactChunkFetchLoopTests {
     }
 
     @Test
-    func rejectsEmptyNonEOFChunkAsMacUnreachable() async {
+    func rejectsEmptyNonEOFChunkWithoutClaimingMacUnreachable() async {
         let stalled = ChatArtifactChunk(
             data: Data(),
             offset: 0,
@@ -81,7 +81,7 @@ struct MobileArtifactChunkFetchLoopTests {
             }
             Issue.record("empty non-EOF chunk should fail")
         } catch let error as ChatArtifactError {
-            #expect(error == .macUnreachable)
+            #expect(error != .macUnreachable)
         } catch {
             Issue.record("unexpected error: \(error)")
         }
