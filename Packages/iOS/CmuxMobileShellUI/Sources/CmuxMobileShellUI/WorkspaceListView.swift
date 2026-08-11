@@ -339,14 +339,13 @@ struct WorkspaceListView: View {
 
     /// Groups render from every available Mac payload while unfiltered. Search
     /// and explicit filters flatten the results; selecting All Computers does
-    /// not discard the group structure. The recency sort interleaves computers
-    /// by time, which no group section can survive, so it also presents flat.
+    /// not discard the group structure. Recent Activity ranks whole group
+    /// blocks rather than interleaving their members.
     var rendersGroupedSections: Bool {
         !groups.isEmpty
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
-            && !appliesRecencySort
     }
 
     private func matchesQuery(
@@ -396,7 +395,13 @@ struct WorkspaceListView: View {
 
     /// Grouped drawable items preserving the Mac's member order and contiguity.
     var groupedListItems: [MobileWorkspaceListItem] {
-        MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
+        if appliesRecencySort {
+            return MobileWorkspaceRecencyOrder().groupedDisplayItems(
+                groupedWorkspaces,
+                groups: groups
+            )
+        }
+        return MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
     }
     var groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview] {
         Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -413,7 +418,19 @@ struct WorkspaceListView: View {
     }
 
     var displayedGroupedListItems: [MobileWorkspaceListItem] {
-        MobileWorkspaceListItem.items(workspaces: displayedGroupedWorkspaces, groups: groups)
+        if appliesRecencySort {
+            return MobileWorkspaceRecencyOrder().groupedDisplayItems(
+                displayedGroupedWorkspaces,
+                groups: groups
+            )
+        }
+        guard optimisticGroupedState.optimisticOrder != nil else {
+            return groupedListItems
+        }
+        return MobileWorkspaceListItem.items(
+            workspaces: displayedGroupedWorkspaces,
+            groups: groups
+        )
     }
 
     var groupedWorkspaces: [MobileWorkspacePreview] {
