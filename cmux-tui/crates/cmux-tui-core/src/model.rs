@@ -890,6 +890,7 @@ impl State {
         &self,
         affected_workspaces: &HashSet<WorkspaceId>,
         terminal_public_ids: &HashSet<TerminalPublicId>,
+        target_surfaces: &HashSet<SurfaceId>,
     ) -> Self {
         let active_workspace_id =
             self.workspaces.get(self.active_workspace).map(|workspace| workspace.id);
@@ -912,8 +913,9 @@ impl State {
             .filter(|(id, _)| selected_panes.contains(id))
             .map(|(id, pane)| (*id, pane.clone()))
             .collect::<HashMap<_, _>>();
-        let selected_surfaces =
+        let mut selected_surfaces =
             panes.values().flat_map(|pane| pane.tabs.iter().copied()).collect::<HashSet<_>>();
+        selected_surfaces.extend(target_surfaces);
         let surfaces = self
             .surfaces
             .iter()
@@ -994,6 +996,7 @@ impl State {
         mut scoped: Self,
         scoped_workspaces: &HashSet<WorkspaceId>,
         terminal_public_ids: &HashSet<TerminalPublicId>,
+        target_surfaces: &HashSet<SurfaceId>,
     ) {
         let old_workspaces = self
             .workspaces
@@ -1010,11 +1013,12 @@ impl State {
             .flat_map(|workspace| &workspace.screens)
             .flat_map(|screen| screen.root.pane_ids_vec())
             .collect::<HashSet<_>>();
-        let old_surfaces = old_panes
+        let mut old_surfaces = old_panes
             .iter()
             .filter_map(|pane| self.panes.get(pane))
             .flat_map(|pane| pane.tabs.iter().copied())
             .collect::<HashSet<_>>();
+        old_surfaces.extend(target_surfaces);
         let old_splits = self
             .split_screens
             .iter()

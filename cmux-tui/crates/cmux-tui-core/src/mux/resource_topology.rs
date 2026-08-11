@@ -221,6 +221,7 @@ enum ResourceCloseState {
         state: State,
         workspace_ids: HashSet<WorkspaceId>,
         catalog_public_ids: HashSet<TerminalPublicId>,
+        target_surfaces: HashSet<SurfaceId>,
     },
 }
 
@@ -240,8 +241,18 @@ impl ResourceCloseState {
     fn install(self, live: &mut State) {
         match self {
             Self::Full(state) => *live = state,
-            Self::Terminal { state, workspace_ids, catalog_public_ids } => {
-                live.install_terminal_scope(state, &workspace_ids, &catalog_public_ids);
+            Self::Terminal {
+                state,
+                workspace_ids,
+                catalog_public_ids,
+                target_surfaces,
+            } => {
+                live.install_terminal_scope(
+                    state,
+                    &workspace_ids,
+                    &catalog_public_ids,
+                    &target_surfaces,
+                );
             }
         }
     }
@@ -355,6 +366,7 @@ pub(super) struct TerminalExitDetachProjection {
     state: State,
     workspace_ids: HashSet<WorkspaceId>,
     catalog_public_ids: HashSet<TerminalPublicId>,
+    target_surfaces: HashSet<SurfaceId>,
     terminal_indexes: TerminalIndexProjection,
     runtime: Option<Arc<Surface>>,
     removed: Vec<Arc<Surface>>,
@@ -395,7 +407,12 @@ impl TerminalExitDetachProjection {
         let empty_revision =
             self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
         self.terminal_indexes.install_scoped(state, &mut self.state);
-        state.install_terminal_scope(self.state, &self.workspace_ids, &self.catalog_public_ids);
+        state.install_terminal_scope(
+            self.state,
+            &self.workspace_ids,
+            &self.catalog_public_ids,
+            &self.target_surfaces,
+        );
         TerminalExitDetachEffects {
             runtime: self.runtime,
             removed: self.removed,
@@ -3053,7 +3070,12 @@ impl Mux {
             .map(|(workspace, _)| state.workspaces[workspace].id)
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
-        let mut projected = state.clone_terminal_scope(&workspace_ids, &catalog_public_ids);
+        let target_surfaces = targets.iter().copied().collect::<HashSet<_>>();
+        let mut projected = state.clone_terminal_scope(
+            &workspace_ids,
+            &catalog_public_ids,
+            &target_surfaces,
+        );
         terminal_indexes.seed(&mut projected);
         let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
             self,
@@ -3119,6 +3141,7 @@ impl Mux {
             state: projected,
             workspace_ids,
             catalog_public_ids,
+            target_surfaces,
             terminal_indexes,
             runtime,
             removed,
@@ -3512,11 +3535,17 @@ impl Mux {
             .map(|(workspace, _)| state.workspaces[workspace].id)
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
+        let target_surfaces = surface_ids.iter().copied().collect::<HashSet<_>>();
         let mut state_projection = if terminal_public_id.is_some() {
             ResourceCloseState::Terminal {
-                state: state.clone_terminal_scope(&workspace_ids, &catalog_public_ids),
+                state: state.clone_terminal_scope(
+                    &workspace_ids,
+                    &catalog_public_ids,
+                    &target_surfaces,
+                ),
                 workspace_ids,
                 catalog_public_ids,
+                target_surfaces,
             }
         } else {
             ResourceCloseState::Full(state.clone())
