@@ -2184,6 +2184,25 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn macos_child_process_has_an_exact_signal_identity() {
+        let mut child = spawn_session_child();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let result = (|| -> io::Result<(bool, bool)> {
+            let process = StableProcessHandle::capture(pid)?.ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "child exited before identity capture")
+            })?;
+            Ok((process.matches_current()?, process.signal(0)?))
+        })();
+        let _ = child.kill();
+        let _ = child.wait();
+
+        let (matches, signaled) = result.unwrap();
+        assert!(matches);
+        assert!(signaled);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn macos_session_query_is_scoped_to_the_owned_session() {
         let mut child = spawn_session_child();
         let session = libc::pid_t::try_from(child.id()).unwrap();
