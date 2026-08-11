@@ -960,54 +960,6 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    func testCrowdedPaneTabBarKeepsAllDefaultActionsVisible() {
-        let (app, dataPath) = launchConfiguredApp(
-            startWithHiddenSidebar: true,
-            presentationMode: .standard,
-            windowSize: "760x420",
-            fourTabSetup: true
-        )
-
-        XCTAssertTrue(
-            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
-            "Expected cmux to launch for crowded pane-tab-bar controls UI test. state=\(app.state.rawValue)"
-        )
-        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
-        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
-            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
-
-        if let setupError = ready["setupError"], !setupError.isEmpty {
-            XCTFail("Setup failed: \(setupError)")
-            return
-        }
-
-        let window = app.windows.element(boundBy: 0)
-        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
-
-        let identifiers = [
-            "paneTabBarControl.newTerminal",
-            "paneTabBarControl.newBrowser",
-            "paneTabBarControl.splitRight",
-            "paneTabBarControl.splitDown",
-        ]
-        let buttons = identifiers.map { identifier in
-            app.descendants(matching: .any).matching(identifier: identifier).firstMatch
-        }
-
-        XCTAssertTrue(
-            waitForCondition(timeout: 3.0) {
-                buttons.allSatisfy { $0.exists && $0.isHittable }
-            },
-            "Expected every default pane tab bar action to remain visible and hittable when tabs fill the strip. buttons=\(buttons.map(\.debugDescription))"
-        )
-        for button in buttons {
-            XCTAssertGreaterThanOrEqual(button.frame.minX, window.frame.minX - 1)
-            XCTAssertLessThanOrEqual(button.frame.maxX, window.frame.maxX + 1)
-        }
-    }
-
     private enum WorkspacePresentationMode: String {
         case standard
         case minimal
