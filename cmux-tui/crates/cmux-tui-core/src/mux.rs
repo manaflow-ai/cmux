@@ -9387,6 +9387,21 @@ impl Mux {
                     "could not clean up terminal host {}",
                     record.terminal_id
                 );
+                if let Some((exit_path, exit)) =
+                    crate::terminal_host_runtime::terminal_host_exit_record(&path)?
+                {
+                    anyhow::ensure!(
+                        exit.terminal_id == record.terminal_id
+                            && exit.incarnation == record.incarnation,
+                        "terminal-host exit identity changed while closing {}",
+                        record.terminal_id
+                    );
+                    anyhow::ensure!(
+                        acknowledge_exact_terminal_host_exit(&exit_path, &exit),
+                        "could not acknowledge terminal-host exit {}",
+                        record.terminal_id
+                    );
+                }
             }
             Ok(())
         }
