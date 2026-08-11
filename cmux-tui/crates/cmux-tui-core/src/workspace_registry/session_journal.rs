@@ -523,10 +523,10 @@ pub(super) fn backfill_journal_event_index_kinds_page(
              WHERE sequence = ?2 AND kind IS NULL",
         )?;
         let mut updates = 0;
+        // A sealed segment is immutable and already bounded by its verified
+        // uncompressed byte size. Fill it after this one decode so a large
+        // segment cannot be decompressed again for each active-row page.
         for record in decoded.records {
-            if updates >= active_limit {
-                break;
-            }
             updates += statement.execute(params![
                 record.kind,
                 i64::try_from(record.sequence).context("journal sequence exceeds SQLite")?,

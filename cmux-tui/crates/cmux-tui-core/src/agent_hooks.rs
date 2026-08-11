@@ -18,6 +18,28 @@ const MAX_OPAQUE_IDENTIFIER_BYTES: usize = 512;
 const MAX_LABEL_BYTES: usize = 128;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
 const AGENT_SESSION_SUBJECT_FORMAT: &[u8] = b"cmux.agent-session.v1\0";
+const AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
+    &["session_id"],
+    &["sessionId"],
+    &["sessionID"],
+    &["conversation_id"],
+    &["thread_id"],
+    &["session", "id"],
+    &["properties", "sessionID"],
+    &["properties", "sessionId"],
+    &["properties", "info", "id"],
+    &["event", "properties", "sessionID"],
+    &["event", "properties", "sessionId"],
+    &["event", "properties", "info", "id"],
+    &["event", "properties", "info", "sessionID"],
+    &["event", "properties", "info", "sessionId"],
+    &["event", "session_id"],
+    &["event", "sessionId"],
+    &["event", "thread", "id"],
+    &["context", "session_id"],
+    &["context", "sessionId"],
+    &["context", "thread", "id"],
+];
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -44,6 +66,7 @@ pub fn agent_hook_journal_ingress(
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
     let native = redact_agent_native(native_event, native);
+    validate_agent_session_identifier(&native)?;
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
@@ -417,31 +440,7 @@ fn is_child_completion(event: &str) -> bool {
 fn normalized_fields(native: &Value) -> Map<String, Value> {
     let mut normalized = Map::new();
     for (field, paths) in [
-        (
-            "agent_session_id",
-            &[
-                &["session_id"][..],
-                &["sessionId"][..],
-                &["sessionID"][..],
-                &["conversation_id"][..],
-                &["thread_id"][..],
-                &["session", "id"][..],
-                &["properties", "sessionID"][..],
-                &["properties", "sessionId"][..],
-                &["properties", "info", "id"][..],
-                &["event", "properties", "sessionID"][..],
-                &["event", "properties", "sessionId"][..],
-                &["event", "properties", "info", "id"][..],
-                &["event", "properties", "info", "sessionID"][..],
-                &["event", "properties", "info", "sessionId"][..],
-                &["event", "session_id"][..],
-                &["event", "sessionId"][..],
-                &["event", "thread", "id"][..],
-                &["context", "session_id"][..],
-                &["context", "sessionId"][..],
-                &["context", "thread", "id"][..],
-            ][..],
-        ),
+        ("agent_session_id", AGENT_SESSION_ID_PATHS),
         (
             "turn_id",
             &[
@@ -725,6 +724,16 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
     }
 }
 
+fn validate_agent_session_identifier(native: &Value) -> anyhow::Result<()> {
+    if let Some(value) = first_raw_string_at(native, AGENT_SESSION_ID_PATHS) {
+        anyhow::ensure!(
+            safe_opaque_identifier(value),
+            "agent session identifier must contain 1 to {MAX_OPAQUE_IDENTIFIER_BYTES} bytes and no control characters"
+        );
+    }
+    Ok(())
+}
+
 fn safe_opaque_identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_OPAQUE_IDENTIFIER_BYTES
@@ -942,12 +951,15 @@ fn stable_topology_id(prefix: &str, components: &[&str]) -> String {
 }
 
 fn first_string_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
+    first_raw_string_at(native, paths).map(str::trim)
+}
+
+fn first_raw_string_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
     paths.iter().find_map(|path| {
         path.iter()
             .try_fold(native, |value, component| value.get(*component))
             .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.trim().is_empty())
     })
 }
 
