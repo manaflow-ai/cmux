@@ -52,6 +52,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CMUX_TUI_ZIG_VERSION: "0.16.0"
+
 jobs:
   contract:
     name: protocol contract
@@ -185,7 +188,7 @@ jobs:
         if: matrix.language == 'zig'
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.15.2
+          version: ${{ env.CMUX_TUI_ZIG_VERSION }}
 
       - name: Test and install Python SDK
         if: matrix.language == 'python'
@@ -290,7 +293,7 @@ jobs:
         if: matrix.language == 'zig'
         working-directory: cmux-tui/bindings/zig
         run: |
-          test "$(zig version)" = "0.15.2"
+          test "$(zig version)" = "$CMUX_TUI_ZIG_VERSION"
           zig fmt --check build.zig src examples
           zig build test
           zig build
@@ -365,7 +368,7 @@ jobs:
         if: matrix.language == 'zig'
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.15.2
+          version: ${{ env.CMUX_TUI_ZIG_VERSION }}
 
       - name: Test Python agent watchdog
         if: matrix.language == 'python'
@@ -449,7 +452,7 @@ jobs:
         if: matrix.language == 'zig'
         working-directory: cmux-tui/bindings/examples/zig-session-supervisor
         run: |
-          test "$(zig version)" = "0.15.2"
+          test "$(zig version)" = "$CMUX_TUI_ZIG_VERSION"
           zig fmt --check build.zig src tests
           zig build test -Doptimize=Debug
           zig build test -Doptimize=ReleaseSafe
@@ -509,7 +512,7 @@ jobs:
       - name: Set up Zig for Ghostty
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.16.0
+          version: ${{ env.CMUX_TUI_ZIG_VERSION }}
 
       - name: Install TypeScript adapter build tools
         working-directory: cmux-tui/bindings/typescript
@@ -518,13 +521,13 @@ jobs:
       - name: Build exact headless cmux-tui
         working-directory: cmux-tui
         run: |
-          test "$(zig version)" = "0.16.0"
+          test "$(zig version)" = "$CMUX_TUI_ZIG_VERSION"
           cargo +1.95.0 build -p cmux-tui --bin cmux-tui --locked
 
       - name: Set up Zig for SDK conformance
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.15.2
+          version: ${{ env.CMUX_TUI_ZIG_VERSION }}
 
       - name: Run shared fake and live protocol contract
         env:
@@ -534,7 +537,7 @@ jobs:
           NODE_OPTIONS: --experimental-websocket
           RUSTUP_TOOLCHAIN: 1.95.0
         run: |
-          test "$(zig version)" = "0.15.2"
+          test "$(zig version)" = "$CMUX_TUI_ZIG_VERSION"
           test "$(node -p 'typeof WebSocket')" = "function"
           python3 cmux-tui/bindings/conformance/runner.py \
             --require python,typescript,rust,go,java,cpp,zig \
