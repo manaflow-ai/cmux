@@ -2109,7 +2109,7 @@ private extension DockSplitStore {
                 inPane: pane
             )
         )
-        surfaceIdToPanelId[tabId] = panel.id
+        bindSurface(tabId, toPanelId: panel.id)
         bonsplitController.focusPane(pane)
         bonsplitController.selectTab(tabId)
         applyDockSelection(tabId: tabId, inPane: pane)
@@ -2129,7 +2129,7 @@ private extension DockSplitStore {
                 inPane: pane
             )
         )
-        surfaceIdToPanelId[tabId] = panel.id
+        bindSurface(tabId, toPanelId: panel.id)
         bonsplitController.focusPane(pane)
         bonsplitController.selectTab(tabId)
         applyDockSelection(tabId: tabId, inPane: pane)
