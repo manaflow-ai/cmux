@@ -1474,7 +1474,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func freezeRejectsRunningDescendantThatEscapesExclusiveGroup(shellPath: String) throws {
+    func freezeRejectsRunningDescendantWithoutGroupSignal(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-exclusive-group-escape-\(UUID().uuidString)", isDirectory: true)
@@ -1522,8 +1522,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         if cmux_ssh_auth_freeze_owned_processes; then exit 99; fi
-        /usr/bin/grep -Fqx -- '-STOP -- -777' "$CMUX_TEST_SIGNALS" || exit 98
-        ! /usr/bin/grep -Fq -- '-STOP -- -778' "$CMUX_TEST_SIGNALS" || exit 97
+        /usr/bin/grep -Fqx -- '-STOP 101' "$CMUX_TEST_SIGNALS" || exit 98
+        ! /usr/bin/grep -Fq -- '-STOP -- -' "$CMUX_TEST_SIGNALS" || exit 97
         """
 
         let result = try runShellCommand(
@@ -1585,11 +1585,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_freeze_owned_processes || exit 99
         test ! -s "$CMUX_TEST_SIGNALED_GROUPS" || exit 98
         test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALED_PIDS" | \
-          /usr/bin/tr -d '[:space:]')" -eq 1024 || exit 97
+          /usr/bin/tr -d '[:space:]')" -eq 32 || exit 97
         test "$(/usr/bin/wc -l < "$CMUX_TEST_FROZEN" | \
-          /usr/bin/tr -d '[:space:]')" -eq 1024 || exit 96
+          /usr/bin/tr -d '[:space:]')" -eq 32 || exit 96
         test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | \
-          /usr/bin/tr -d '[:space:]')" -eq 1024 || exit 95
+          /usr/bin/tr -d '[:space:]')" -eq 32 || exit 95
         ! /usr/bin/grep -Fq -- '-STOP -- -' "$CMUX_TEST_SIGNALS" || exit 94
         """
 
@@ -3714,6 +3714,37 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_ORPHAN_GROUP": orphanDirectory.path,
             "CMUX_TEST_RECOVERY_CALLS": callsFile.path,
             "TMPDIR": root.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test func publisherLivenessRequiresDurablePublisherRecord() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-publisher-record-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( trap 'exit 0' TERM; while :; do /bin/sleep 1; done ) &
+        cmux_test_anchor=$!
+        trap '/bin/kill -KILL "$cmux_test_anchor" >/dev/null 2>&1 || true' EXIT
+        cmux_test_anchor_identity=$(cmux_ssh_auth_identity "$cmux_test_anchor") || exit 99
+        cmux_test_anchor_remainder=${cmux_test_anchor_identity#*|}
+        printf '%s|%s\n' "$cmux_test_anchor" "$cmux_test_anchor_remainder" \
+          > "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 98
+        if cmux_ssh_auth_group_publisher_is_live "$CMUX_SSH_AUTH_GROUP_DIR"; then exit 97; fi
+        /bin/kill -TERM "$cmux_test_anchor" >/dev/null 2>&1 || true
+        wait "$cmux_test_anchor" 2>/dev/null || true
+        trap - EXIT
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ])
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
