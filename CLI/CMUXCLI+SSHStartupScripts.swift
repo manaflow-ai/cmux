@@ -306,6 +306,10 @@ extension CMUXCLI {
             terminalFailureCommand: "break"
         )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .startup)
+        let terminalExitPromptCommand = [
+            shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux")),
+            "__ssh-terminal-exit-prompt",
+        ].joined(separator: " ")
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -456,21 +460,14 @@ extension CMUXCLI {
             "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
             "  \(backoffBuilder.terminalInputModeResetLine)",
             "  cmux_ssh_prompt_tty_state=$(/bin/stty -g <&0 2>/dev/null || true)",
-            "  cmux_ssh_prompt_wait_dir=",
-            "  cmux_ssh_prompt_restore_tty() { if [ -n \"${cmux_ssh_prompt_tty_state:-}\" ]; then /bin/stty \"$cmux_ssh_prompt_tty_state\" <&0 2>/dev/null || true; cmux_ssh_prompt_tty_state=; fi; if [ -n \"${cmux_ssh_prompt_wait_dir:-}\" ]; then /bin/rm -rf \"$cmux_ssh_prompt_wait_dir\" 2>/dev/null || true; cmux_ssh_prompt_wait_dir=; fi; }",
+            "  cmux_ssh_prompt_restore_tty() { if [ -n \"${cmux_ssh_prompt_tty_state:-}\" ]; then /bin/stty \"$cmux_ssh_prompt_tty_state\" <&0 2>/dev/null || true; cmux_ssh_prompt_tty_state=; fi; }",
             "  cmux_ssh_prompt_signal_exit() { cmux_ssh_prompt_signal_status=\"$1\"; cmux_ssh_prompt_restore_tty; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_prompt_signal_status\"; }",
-            "  cmux_ssh_prompt_park_closed_input() { cmux_ssh_prompt_wait_dir=$(/usr/bin/mktemp -d \"${TMPDIR:-/tmp}/cmux-ssh-prompt-wait.XXXXXX\") || return 1; cmux_ssh_prompt_wait_fifo=\"$cmux_ssh_prompt_wait_dir/input\"; if ! /usr/bin/mkfifo \"$cmux_ssh_prompt_wait_fifo\"; then cmux_ssh_prompt_restore_tty; return 1; fi; if ! exec 9<>\"$cmux_ssh_prompt_wait_fifo\"; then cmux_ssh_prompt_restore_tty; return 1; fi; /bin/rm -rf \"$cmux_ssh_prompt_wait_dir\" 2>/dev/null || true; cmux_ssh_prompt_wait_dir=; IFS= read -r _cmux_prompt_closed_input <&9 || true; exec 9>&-; }",
             "  trap 'cmux_ssh_prompt_restore_tty' EXIT",
             "  trap 'cmux_ssh_prompt_signal_exit 129' HUP",
             "  trap 'cmux_ssh_prompt_signal_exit 130' INT",
             "  trap 'cmux_ssh_prompt_signal_exit 143' TERM",
-            "  if [ -n \"$cmux_ssh_prompt_tty_state\" ]; then",
-            "    if /bin/stty -echo -icanon min 0 time 1 <&0 2>/dev/null; then /bin/dd bs=8192 count=1 of=/dev/null <&0 2>/dev/null || true; fi",
-            "    cmux_ssh_prompt_restore_tty",
-            "  fi",
             "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
-            "  cmux_ssh_prompt_tty_read_failed=0",
-            "  while :; do if IFS= read -r _cmux_dismiss_key 2>/dev/null; then cmux_ssh_prompt_tty_read_failed=0; if [ -z \"$_cmux_dismiss_key\" ]; then break; fi; elif [ -t 0 ] && [ \"$cmux_ssh_prompt_tty_read_failed\" -eq 0 ]; then cmux_ssh_prompt_tty_read_failed=1; else while ! cmux_ssh_prompt_park_closed_input; do /bin/sleep 1; done; fi; done",
+            "  if [ -t 0 ]; then \(terminalExitPromptCommand) <&0; else exec \(terminalExitPromptCommand) <&0; fi",
             "  cmux_ssh_prompt_restore_tty",
             "  trap - EXIT HUP INT TERM",
             "fi",

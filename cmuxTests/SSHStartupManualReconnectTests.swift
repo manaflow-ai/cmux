@@ -371,11 +371,10 @@ struct SSHStartupManualReconnectTests {
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
             environment: environment,
-            timeout: 5
+            timeout: 2
         )
 
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 255, Comment(rawValue: result.stderr))
+        #expect(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
         #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "20")
     }
 
@@ -447,9 +446,12 @@ struct SSHStartupManualReconnectTests {
             "terminal exit prompt was not emitted"
         )
 
-        let dismissedByQueuedInput = Self.waitForExit(prompt.process, timeout: 0.5)
-        #expect(!dismissedByQueuedInput, "focus reports, CSI-u, and EOT must not dismiss the prompt")
-        if !dismissedByQueuedInput {
+        let lateWakeInput = Data([0x04, 0x04])
+            + Data("\u{1B}[O\u{1B}[13;2u\u{1B}[200~pasted\nline\u{1B}[201~".utf8)
+        try prompt.standardInput.fileHandleForWriting.write(contentsOf: lateWakeInput)
+        let dismissedByWakeInput = Self.waitForExit(prompt.process, timeout: 0.5)
+        #expect(!dismissedByWakeInput, "late focus reports, CSI-u, paste, and repeated EOT must not dismiss the prompt")
+        if !dismissedByWakeInput {
             try prompt.standardInput.fileHandleForWriting.write(contentsOf: Data([0x0A]))
             #expect(Self.waitForExit(prompt.process, timeout: 2), "a fresh Enter must dismiss the prompt")
             if !prompt.process.isRunning {
