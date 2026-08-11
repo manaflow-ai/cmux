@@ -1687,7 +1687,8 @@ impl TerminalExitDetachSignal {
 
     fn finish_worker(&self) {
         let mut state = self.state.lock().unwrap();
-        state.active_workers = state.active_workers.saturating_sub(1);
+        debug_assert!(state.active_workers > 0, "detach worker registration underflow");
+        state.active_workers -= 1;
         self.changed.notify_all();
     }
 
@@ -1720,6 +1721,16 @@ impl TerminalExitDetachSignal {
             .wait_timeout_while(state, timeout, |state| state.active_workers > 0)
             .unwrap();
         state.active_workers == 0
+    }
+}
+
+struct TerminalExitDetachWorkerGuard {
+    signal: Arc<TerminalExitDetachSignal>,
+}
+
+impl Drop for TerminalExitDetachWorkerGuard {
+    fn drop(&mut self) {
+        self.signal.finish_worker();
     }
 }
 
@@ -10874,6 +10885,7 @@ impl Mux {
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-exit-detach-{terminal_id}"))
             .spawn(move || {
+                let _worker = TerminalExitDetachWorkerGuard { signal: retry_signal.clone() };
                 let mut delay = Duration::from_millis(25);
                 let mut generation = retry_signal.snapshot();
                 loop {
@@ -10904,7 +10916,6 @@ impl Mux {
                         }
                     }
                 }
-                retry_signal.finish_worker();
             });
         if let Err(error) = spawn_result {
             self.terminal_exit_detach_signal.finish_worker();
