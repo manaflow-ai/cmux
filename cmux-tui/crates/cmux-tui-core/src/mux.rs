@@ -29791,10 +29791,10 @@ mod tests {
         drop(mux);
 
         let reopened = Mux::open_persistent("recover-exited", options, &root).unwrap();
-        let exited = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
-        assert_eq!(exited.surface, None);
-        assert_eq!(exited.terminal.lifecycle, TerminalLifecycle::Exited);
-        assert_eq!(exited.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
+        let tombstoned = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(tombstoned.surface, None);
+        assert_eq!(tombstoned.terminal.lifecycle, TerminalLifecycle::Tombstoned);
+        assert_eq!(tombstoned.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
         let _ = reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
