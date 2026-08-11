@@ -7,7 +7,10 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
 )
+
+const persistentDaemonProcessOutputSummaryInterval = time.Second
 
 // persistentDaemonProcessOutputRoute keeps process-level stdout and stderr on
 // the same rotating writer as structured daemon diagnostics. The persistent
@@ -25,6 +28,33 @@ type persistentDaemonProcessOutputStream struct {
 	savedFD  int
 	targetFD int
 	drained  chan struct{}
+}
+
+type persistentDaemonProcessOutputSummary struct {
+	minimumInterval time.Duration
+	pendingBytes    int64
+	lastEmittedAt   time.Time
+}
+
+func (s *persistentDaemonProcessOutputSummary) record(byteCount int, now time.Time) (int64, bool) {
+	if byteCount <= 0 {
+		return 0, false
+	}
+	s.pendingBytes += int64(byteCount)
+	if s.lastEmittedAt.IsZero() || now.Sub(s.lastEmittedAt) >= s.minimumInterval {
+		return s.flush(now)
+	}
+	return 0, false
+}
+
+func (s *persistentDaemonProcessOutputSummary) flush(now time.Time) (int64, bool) {
+	if s.pendingBytes <= 0 {
+		return 0, false
+	}
+	byteCount := s.pendingBytes
+	s.pendingBytes = 0
+	s.lastEmittedAt = now
+	return byteCount, true
 }
 
 func shouldRoutePersistentDaemonProcessOutput(stderr io.Writer) bool {
@@ -104,19 +134,32 @@ func routePersistentDaemonProcessOutputStream(
 }
 
 func (s *persistentDaemonProcessOutputStream) drain(writer io.Writer) {
-	defer close(s.drained)
+	summary := persistentDaemonProcessOutputSummary{
+		minimumInterval: persistentDaemonProcessOutputSummaryInterval,
+	}
+	emitSummary := func(byteCount int64) {
+		logPersistentDaemonEvent(
+			writer,
+			"process_output",
+			"stream", s.name,
+			"bytes", strconv.FormatInt(byteCount, 10),
+		)
+	}
+	defer func() {
+		if byteCount, emit := summary.flush(time.Now()); emit {
+			emitSummary(byteCount)
+		}
+		close(s.drained)
+	}()
 	buffer := make([]byte, 32*1024)
 	for {
 		count, err := s.reader.Read(buffer)
 		if count > 0 {
 			// Process output is arbitrary and may contain terminal input, commands,
-			// or credentials. Record only bounded metadata and discard the bytes.
-			logPersistentDaemonEvent(
-				writer,
-				"process_output",
-				"stream", s.name,
-				"bytes", strconv.Itoa(count),
-			)
+			// or credentials. Record rate-limited byte summaries and discard the bytes.
+			if byteCount, emit := summary.record(count, time.Now()); emit {
+				emitSummary(byteCount)
+			}
 		}
 		if err != nil {
 			return

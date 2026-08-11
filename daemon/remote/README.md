@@ -76,10 +76,10 @@ Persistent-daemon logging is always enabled. The current log is
 `~/.cmux/daemon/<version>/<slot>/daemon.log`, mode `0600`. It records daemon
 start/readiness/stop, authenticated connection lifecycle, PTY attach/detach/
 close/exit, channel or PTY-operation faults, and process-level stdout/stderr
-occurrence and byte counts. Arbitrary process output is discarded rather than
-persisted. Faults are recorded as bounded codes or categories rather than raw
-error text. Tokens, commands, terminal input, RPC request identifiers, and raw
-process output are never logged.
+occurrence and rate-limited aggregate byte counts. Arbitrary process output is
+discarded rather than persisted. Faults are recorded as bounded codes or
+categories rather than raw error text. Tokens, commands, terminal input, RPC
+request identifiers, and raw process output are never logged.
 
 The log rotates at 2 MiB. `daemon.log` is the newest file, with at most two
 older generations in `daemon.log.1` and `daemon.log.2`, so one slot uses at

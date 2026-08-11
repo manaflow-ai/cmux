@@ -54708,7 +54708,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The SSH terminal connection ended while the remote session is still running; reconnecting."
+            "value": "The SSH terminal connection ended while the remote session is still running; cmux is reconnecting."
           }
         },
         "ja": {

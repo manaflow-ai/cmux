@@ -177,7 +177,7 @@ extension CMUXCLI {
             } else {
                 message = String(
                     localized: "cli.sshPtyAttach.bridgeClosedSessionRunning",
-                    defaultValue: "The SSH terminal connection ended while the remote session is still running; reconnecting.",
+                    defaultValue: "The SSH terminal connection ended while the remote session is still running; cmux is reconnecting.",
                     bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                 )
             }
@@ -228,8 +228,30 @@ extension CMUXCLI {
         _ response: [String: Any],
         unavailableExitCode: SSHPTYAttachExitCode
     ) throws -> (intentionalCleanup: Bool, sessionIDs: [String]) {
-        let requestedLifecycle = (response["requested_session_lifecycle"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedLifecycle: String?
+        if let rawRequestedLifecycle = response["requested_session_lifecycle"] {
+            guard let rawRequestedLifecycle = rawRequestedLifecycle as? String else {
+                throw CLIError(
+                    message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                    exitCode: unavailableExitCode
+                )
+            }
+            let normalizedLifecycle = rawRequestedLifecycle
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard [
+                "active",
+                "intentional_cleanup_requested",
+                "intentionally_closed",
+            ].contains(normalizedLifecycle) else {
+                throw CLIError(
+                    message: sshPTYReconciliationUnavailableMessage(detail: nil),
+                    exitCode: unavailableExitCode
+                )
+            }
+            requestedLifecycle = normalizedLifecycle
+        } else {
+            requestedLifecycle = nil
+        }
         let intentionalCleanup = requestedLifecycle == "intentional_cleanup_requested" ||
             requestedLifecycle == "intentionally_closed"
         guard let sessions = response["sessions"] as? [[String: Any]] else {
