@@ -1167,6 +1167,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// recovery-scoped UI attributes flags to the exact pairing being
     /// redialed, never a healthy sibling build on the same physical Mac.
     private(set) var recoveryTargetInstanceTag: String?
+    /// The foreground pairing that a new connection attempt replaces. During
+    /// recovery the live identity is intentionally cleared before redial, so
+    /// the retained target remains the ownership authority for distinguishing
+    /// a same-Mac reconnect from a real Mac switch.
+    private var foregroundOrRecoveryMacKey: MacPairingKey {
+        guard foregroundMacDeviceID == nil,
+              let recoveryTargetMacDeviceID else {
+            return foregroundMacKey
+        }
+        return MacPairingKey(
+            macDeviceID: recoveryTargetMacDeviceID,
+            instanceTag: recoveryTargetInstanceTag
+        )
+    }
     /// Compatibility view over registry entries whose role is `.control`.
     var secondaryMacSubscriptions: MobileMacConnectionRegistry.ControlSubscriptions {
         macConnectionRegistry.controlSubscriptions
@@ -8020,7 +8034,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedMacDeviceID = pairedMacDeviceID
             ?? (ticketMacDeviceID.isEmpty ? nil : ticketMacDeviceID)
-        let previousForegroundKeyBeforeConnect = foregroundMacKey
+        let previousForegroundKeyBeforeConnect = foregroundOrRecoveryMacKey
         let currentFocusedConnection: MacConnection? =
             foregroundMacDeviceID.flatMap { macID in
                 guard let connection = connections[macID],
