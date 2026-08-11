@@ -9,6 +9,13 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
         case ineligible
     }
 
+    /// A connection-method choice seeded after migration eligibility is
+    /// snapshotted, for deterministic root-scene UI coverage.
+    public enum InitialConnectionMethod: String, Equatable, Sendable {
+        case automatic
+        case tailscale
+    }
+
     /// A real modal host that should own presentation before migration checks.
     public enum InitialModalHost: String, Equatable, Sendable {
         case rootPairing = "root-pairing"
@@ -27,6 +34,8 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
     public let eligibility: Eligibility
     /// A per-test identifier used to isolate all migration-owned defaults.
     public let identifier: String
+    /// A connection method seeded only when this fixture suite is first used.
+    public let initialConnectionMethod: InitialConnectionMethod?
     /// Whether Settings should own the root modal slot before migration
     /// eligibility is checked.
     public let presentsShellSettingsBeforeMigration: Bool
@@ -55,6 +64,19 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
         }
         self.eligibility = eligibility
         self.identifier = identifier
+        if let rawConnectionMethod = environment[
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_CONNECTION_METHOD"
+        ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawConnectionMethod.isEmpty {
+            guard let connectionMethod = InitialConnectionMethod(
+                rawValue: rawConnectionMethod
+            ) else {
+                return nil
+            }
+            self.initialConnectionMethod = connectionMethod
+        } else {
+            self.initialConnectionMethod = nil
+        }
         self.presentsShellSettingsBeforeMigration =
             environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines) == "1"

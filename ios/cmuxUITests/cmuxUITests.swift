@@ -405,13 +405,14 @@ final class cmuxUITests: XCTestCase {
     /// not expose Add Computer while the Tailscale-only method still does.
     @MainActor
     func testAddComputerIsAvailableOnlyForTailscaleConnectionMethod() throws {
-        let migrationEnvironment = [
+        let automaticEnvironment = [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_CONNECTION_METHOD": "automatic",
         ]
         let app = launchApp(
             mockData: true,
-            environment: migrationEnvironment
+            environment: automaticEnvironment
         )
         defer { app.terminate() }
 
@@ -446,12 +447,15 @@ final class cmuxUITests: XCTestCase {
         )
         app.terminate()
 
-        // The fixture uses one isolated defaults suite across relaunches. This
-        // proves the persisted Tailscale selection enables the ordinary shell
-        // affordances without relying on launch-argument defaults.
+        // Use a fresh isolated suite so the root scene is constructed from the
+        // Tailscale method, independent of UserDefaults flush timing on exit.
         let tailscaleApp = launchApp(
             mockData: true,
-            environment: migrationEnvironment
+            environment: [
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION_CONNECTION_METHOD": "tailscale",
+            ]
         )
         defer { tailscaleApp.terminate() }
         XCTAssertTrue(
