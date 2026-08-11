@@ -30,19 +30,21 @@ impl DescriptorCleanup {
 pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, Slave)> {
     let mut master_fd = -1;
     let mut slave_fd = -1;
-    let mut window_size = libc::winsize {
+    let window_size = libc::winsize {
         ws_row: size.rows,
         ws_col: size.cols,
         ws_xpixel: size.pixel_width,
         ws_ypixel: size.pixel_height,
     };
+    // Linux declares this input-only value as const, while macOS still uses a mutable pointer.
+    let window_size_ptr = std::ptr::from_ref(&window_size).cast_mut();
     let result = unsafe {
         libc::openpty(
             &mut master_fd,
             &mut slave_fd,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-            &mut window_size,
+            window_size_ptr,
         )
     };
     if result != 0 {

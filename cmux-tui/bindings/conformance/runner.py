@@ -148,7 +148,10 @@ def adapter_specs() -> dict[str, AdapterSpec]:
         "typescript": AdapterSpec(
             "typescript",
             ("node", "npm"),
-            (("npm", "run", "build", "--silent"),),
+            (
+                ("npm", "ci", "--no-audit", "--no-fund"),
+                ("npm", "run", "build", "--silent"),
+            ),
             ("node", str(adapters / "typescript" / "adapter.mjs")),
             BINDINGS / "typescript",
         ),
