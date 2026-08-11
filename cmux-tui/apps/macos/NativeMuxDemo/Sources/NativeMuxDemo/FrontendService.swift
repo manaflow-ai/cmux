@@ -4,6 +4,25 @@ import Dispatch
 
 enum FrontendServiceError: LocalizedError {
   case message(String)
+  case mutationIndeterminate(operation: String, idempotencyKey: String)
+
+  static func requestFailure(_ message: String) -> FrontendServiceError {
+    guard let data = message.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      object["code"] as? String == "mutation.indeterminate",
+      let details = object["details"] as? [String: Any],
+      let operation = details["operation"] as? String,
+      let idempotencyKey = details["idempotency_key"] as? String
+    else {
+      return .message(message)
+    }
+    return .mutationIndeterminate(operation: operation, idempotencyKey: idempotencyKey)
+  }
+
+  var requiresAuthoritativeReconciliation: Bool {
+    if case .mutationIndeterminate = self { return true }
+    return false
+  }
 
   var errorDescription: String? {
     switch self {
@@ -15,6 +34,11 @@ enum FrontendServiceError: LocalizedError {
         return readable
       }
       return message
+    case .mutationIndeterminate:
+      return L10n.text(
+        "error.mutation_indeterminate",
+        "The operation result is not known. The view will refresh."
+      )
     }
   }
 }
@@ -319,7 +343,7 @@ actor FrontendService {
     let payload: String
     switch response {
     case .success(let value): payload = value
-    case .failure(let error): throw FrontendServiceError.message(error.message)
+    case .failure(let error): throw FrontendServiceError.requestFailure(error.message)
     }
     let data = Data(payload.utf8)
     return try JSONDecoder().decode(type, from: data)

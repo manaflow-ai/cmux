@@ -54,18 +54,31 @@ struct FrontendRecoveryPolicy: Sendable {
 
 typealias FrontendRecoveryDelay = @Sendable (UInt64) async throws -> Void
 
+struct FrontendResourceStream: Sendable, Equatable {
+    let id: String
+
+    func cancellationParameters(machineID: String, sessionID: String) -> [String: JSONValue] {
+        [
+            "machine": .string(machineID),
+            "session": .string(sessionID),
+            "stream": .string(id),
+        ]
+    }
+}
+
 @MainActor
-@Observable
 final class TerminalTitleOwner {
     let terminalID: String
     private(set) var title: String
 
-    @ObservationIgnored private var pendingTitle: String?
-    @ObservationIgnored private var deliveryTask: Task<Void, Never>?
+    private let onTitleChange: (() -> Void)?
+    private var pendingTitle: String?
+    private var deliveryTask: Task<Void, Never>?
 
-    init(terminalID: String, title: String) {
+    init(terminalID: String, title: String, onTitleChange: (() -> Void)? = nil) {
         self.terminalID = terminalID
         self.title = title
+        self.onTitleChange = onTitleChange
     }
 
     func submit(_ nextTitle: String) {
@@ -77,7 +90,10 @@ final class TerminalTitleOwner {
             let latest = pendingTitle
             pendingTitle = nil
             deliveryTask = nil
-            if let latest, latest != title { title = latest }
+            if let latest, latest != title {
+                title = latest
+                onTitleChange?()
+            }
             if pendingTitle != nil { submit(pendingTitle ?? title) }
         }
     }
@@ -86,7 +102,10 @@ final class TerminalTitleOwner {
         deliveryTask?.cancel()
         deliveryTask = nil
         pendingTitle = nil
-        if title != nextTitle { title = nextTitle }
+        if title != nextTitle {
+            title = nextTitle
+            onTitleChange?()
+        }
     }
 
     func cancel() {
@@ -98,14 +117,14 @@ final class TerminalTitleOwner {
 
 @MainActor
 struct TerminalTitleFn {
-    private let owners: [String: TerminalTitleOwner]
+    private let titles: [String: String]
 
     init(owners: [String: TerminalTitleOwner]) {
-        self.owners = owners
+        titles = owners.mapValues(\.title)
     }
 
-    func callAsFunction(_ terminalID: String) -> TerminalTitleOwner? {
-        owners[terminalID]
+    func callAsFunction(_ terminalID: String) -> String? {
+        titles[terminalID]
     }
 }
 
@@ -121,11 +140,13 @@ final class FrontendModel {
     private(set) var transportDiagnostics = ""
     private(set) var selectedWorkspaceID: String?
     private(set) var selectedScreenID: String?
+    private(set) var terminalTitleRevision: UInt64 = 0
 
     @ObservationIgnored private var service: FrontendService?
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshRequested = false
     @ObservationIgnored private var terminalControllers: [String: NativeTerminalModel] = [:]
     @ObservationIgnored private var terminalTitles: [String: TerminalTitleOwner] = [:]
     @ObservationIgnored private var terminalRetirementTasks: [UUID: Task<Void, Never>] = [:]
@@ -230,8 +251,9 @@ final class FrontendModel {
                 sessionID = session.id
                 try await refreshNow()
                 let updates = await service.updates()
+                let resourceStream: FrontendResourceStream
                 do {
-                    try await openResourceStream(
+                    resourceStream = try await openResourceStream(
                         service: service,
                         machineID: machine.id,
                         sessionID: session.id
@@ -240,7 +262,11 @@ final class FrontendModel {
                     await service.stopUpdates(generation: updates.generation)
                     throw error
                 }
-                beginResourceUpdates(service: service, initialUpdates: updates)
+                beginResourceUpdates(
+                    service: service,
+                    initialUpdates: updates,
+                    initialStream: resourceStream
+                )
                 transportDiagnostics = await service.diagnostics()
                 isConnecting = false
             } catch {
@@ -253,6 +279,7 @@ final class FrontendModel {
     private func disconnectAfterFailure(_ error: any Error) async {
         updatesTask?.cancel()
         refreshTask?.cancel()
+        refreshRequested = false
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
@@ -293,7 +320,7 @@ final class FrontendModel {
         service: FrontendService,
         machineID: String,
         sessionID: String
-    ) async throws {
+    ) async throws -> FrontendResourceStream {
         let streamID = "stream_" + UUID().uuidString
             .replacingOccurrences(of: "-", with: "")
             .lowercased()
@@ -305,15 +332,33 @@ final class FrontendModel {
                 "stream_id": .string(streamID),
             ]
         )
+        return FrontendResourceStream(id: streamID)
+    }
+
+    private func cancelResourceStream(
+        service: FrontendService,
+        machineID: String,
+        sessionID: String,
+        stream: FrontendResourceStream
+    ) async throws {
+        try await service.requestDiscardingResult(
+            "stream.cancel",
+            params: stream.cancellationParameters(
+                machineID: machineID,
+                sessionID: sessionID
+            )
+        )
     }
 
     private func beginResourceUpdates(
         service: FrontendService,
-        initialUpdates: FrontendUpdateSubscription
+        initialUpdates: FrontendUpdateSubscription,
+        initialStream: FrontendResourceStream
     ) {
         updatesTask?.cancel()
         updatesTask = Task { [weak self] in
             var updates = initialUpdates
+            var resourceStream = initialStream
             while !Task.isCancelled {
                 var endReason = FrontendResourceStreamEndReason.none
                 var recoveryNeeded = false
@@ -351,11 +396,14 @@ final class FrontendModel {
                     guard let machineID = self.machineID, let sessionID = self.sessionID else {
                         return
                     }
-                    updates = try await self.recoverResourceStream(
+                    let recovered = try await self.recoverResourceStream(
                         service: service,
                         machineID: machineID,
-                        sessionID: sessionID
+                        sessionID: sessionID,
+                        currentStream: resourceStream
                     )
+                    updates = recovered.updates
+                    resourceStream = recovered.stream
                 } catch {
                     await self.disconnectAfterFailure(error)
                     return
@@ -367,9 +415,17 @@ final class FrontendModel {
     private func recoverResourceStream(
         service: FrontendService,
         machineID: String,
-        sessionID: String
-    ) async throws -> FrontendUpdateSubscription {
+        sessionID: String,
+        currentStream: FrontendResourceStream
+    ) async throws -> (updates: FrontendUpdateSubscription, stream: FrontendResourceStream) {
+        try await cancelResourceStream(
+            service: service,
+            machineID: machineID,
+            sessionID: sessionID,
+            stream: currentStream
+        )
         let pendingRefresh = refreshTask
+        refreshRequested = false
         pendingRefresh?.cancel()
         await pendingRefresh?.value
         await service.discardResourceUpdates()
@@ -382,12 +438,12 @@ final class FrontendModel {
                 try await refreshNow()
                 let nextUpdates = await service.updates()
                 do {
-                    try await openResourceStream(
+                    let nextStream = try await openResourceStream(
                         service: service,
                         machineID: machineID,
                         sessionID: sessionID
                     )
-                    return nextUpdates
+                    return (nextUpdates, nextStream)
                 } catch {
                     await service.stopUpdates(generation: nextUpdates.generation)
                     throw error
@@ -465,14 +521,18 @@ final class FrontendModel {
     }
 
     private func scheduleRefresh() {
+        refreshRequested = true
         guard refreshTask == nil else { return }
         refreshTask = Task { [weak self] in
             defer { self?.refreshTask = nil }
             guard let self, !Task.isCancelled else { return }
-            do {
-                try await refreshNow()
-            } catch {
-                errorMessage = error.localizedDescription
+            while refreshRequested, !Task.isCancelled {
+                refreshRequested = false
+                do {
+                    try await refreshNow()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -568,7 +628,10 @@ final class FrontendModel {
             } else {
                 terminalTitles[terminal.id] = TerminalTitleOwner(
                     terminalID: terminal.id,
-                    title: terminal.title
+                    title: terminal.title,
+                    onTitleChange: { [weak self] in
+                        if let self { terminalTitleRevision &+= 1 }
+                    }
                 )
             }
         }
@@ -587,7 +650,8 @@ final class FrontendModel {
     }
 
     func terminalTitleLookup() -> TerminalTitleFn {
-        TerminalTitleFn(owners: terminalTitles)
+        _ = terminalTitleRevision
+        return TerminalTitleFn(owners: terminalTitles)
     }
 
     func selectWorkspace(_ workspace: WorkspaceSnapshot) {
@@ -627,6 +691,7 @@ final class FrontendModel {
             operation,
             selectors: selectors,
             onSuccess: { await self.reconcileFocusMutation(requestID) },
+            onIndeterminate: { _ = self.focusMutations.finish(requestID) },
             onFailure: {
                 guard let rollback = self.focusMutations.rollback(requestID) else { return false }
                 self.selectedWorkspaceID = rollback.workspaceID
@@ -876,6 +941,7 @@ final class FrontendModel {
         selectors: [String: String],
         fields: [String: JSONValue] = [:],
         onSuccess: (() async -> Void)? = nil,
+        onIndeterminate: (() -> Void)? = nil,
         onFailure: (() -> Bool)? = nil
     ) -> Bool {
         guard let service, let machineID, let sessionID else { return false }
@@ -919,6 +985,13 @@ final class FrontendModel {
             } catch is CancellationError {
                 return
             } catch {
+                if let serviceError = error as? FrontendServiceError,
+                   serviceError.requiresAuthoritativeReconciliation {
+                    onIndeterminate?()
+                    scheduleRefresh()
+                    errorMessage = serviceError.localizedDescription
+                    return
+                }
                 if onFailure?() ?? true {
                     errorMessage = error.localizedDescription
                 }
@@ -966,6 +1039,7 @@ final class FrontendModel {
         connectTask?.cancel()
         updatesTask?.cancel()
         refreshTask?.cancel()
+        refreshRequested = false
         focusMutations = FocusMutationTracker()
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
