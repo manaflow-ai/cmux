@@ -4992,7 +4992,7 @@ fn journal_agent_projection_cursor_advances_and_replays_only_a_suffix() {
         .unwrap()
         .parse::<u64>()
         .unwrap();
-    assert_eq!(applied, head_sequence);
+    assert_eq!(applied, agent_sequence);
     let agents = reopened.public_projections().unwrap().agents;
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].state, "working");
