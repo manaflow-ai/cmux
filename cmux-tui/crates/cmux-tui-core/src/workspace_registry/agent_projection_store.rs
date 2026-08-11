@@ -485,6 +485,87 @@ impl WorkspaceRegistry {
         transaction.commit()?;
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) fn seed_agent_projection_checkpoint_for_test(&self) -> anyhow::Result<()> {
+        const EVENT_COUNT: usize = AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE + 1;
+
+        let producer = JournalProducer { kind: "test".into(), id: "checkpoint-test".into() };
+        let payload = json!({});
+        let transaction = self.connection.unchecked_transaction()?;
+        for index in 0..EVENT_COUNT {
+            let event_id = format!("event_agent_checkpoint_{index:04}");
+            session_journal::append_journal_record(
+                &transaction,
+                &session_journal::JournalAppend {
+                    event_id: &event_id,
+                    schema_version: 1,
+                    kind: "agent.unknown",
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    occurred_at_ms: index as u64,
+                    producer: &producer,
+                    authority: None,
+                    causation_id: None,
+                    correlation_id: None,
+                    causation_depth: 0,
+                    subjects: &[],
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload: &payload,
+                    content: None,
+                    resource_revision: None,
+                    previous_resource_revision: None,
+                },
+            )?;
+        }
+        transaction.execute(
+            "DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1',
+               'agent_projection_journal_rebuild_target_sequence_v1'
+             )",
+            [],
+        )?;
+        transaction.commit()?;
+
+        rebuild_agent_projections_from_journal(&self.connection, true)?;
+        let target = agent_projection_journal_rebuild_target(&self.connection)?
+            .context("checkpoint test rebuild target is absent")?;
+
+        let transaction = self.connection.unchecked_transaction()?;
+        session_journal::append_journal_record(
+            &transaction,
+            &session_journal::JournalAppend {
+                event_id: "event_checkpoint_later_candidate",
+                schema_version: 1,
+                kind: "test.unrelated",
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                occurred_at_ms: EVENT_COUNT as u64,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: &[],
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        transaction.commit()?;
+
+        let cursor = agent_projection_journal_cursor(&self.connection)?
+            .context("checkpoint test rebuild cursor is absent")?;
+        let candidate = agent_projection_journal_candidate(&self.connection)?
+            .context("checkpoint test rebuild candidate is absent")?;
+        anyhow::ensure!(cursor < target, "checkpoint test target already completed");
+        anyhow::ensure!(target < candidate, "checkpoint test has no later candidate");
+        Ok(())
+    }
 }
 
 fn agent_projection_rebuild_active(connection: &Connection) -> anyhow::Result<bool> {

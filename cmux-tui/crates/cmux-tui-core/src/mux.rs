@@ -1940,6 +1940,8 @@ pub struct Mux {
     #[cfg(test)]
     agent_projection_refresh_failure: AtomicBool,
     #[cfg(test)]
+    agent_projection_rebuild_after_step: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
+    #[cfg(test)]
     journal_before_publish: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
@@ -2311,6 +2313,8 @@ impl Mux {
             agent_projection_rebuild_running: AtomicBool::new(false),
             #[cfg(test)]
             agent_projection_refresh_failure: AtomicBool::new(false),
+            #[cfg(test)]
+            agent_projection_rebuild_after_step: Mutex::new(None),
             #[cfg(test)]
             journal_before_publish: Mutex::new(None),
             placement_notifications: Mutex::new(HashMap::new()),
@@ -5020,6 +5024,8 @@ impl Mux {
         })();
         match result {
             Ok(false) => {
+                #[cfg(test)]
+                mux.notify_agent_projection_rebuild_step_for_test();
                 let continuation = Arc::downgrade(&mux);
                 if mux.deadline_fanout_pool.resubmit_current(Box::new(move || {
                     Self::run_agent_projection_rebuild_worker(continuation);
@@ -5035,6 +5041,8 @@ impl Mux {
             Ok(true) => {
                 mux.agent_projection_rebuild_running.store(false, Ordering::Release);
                 mux.publish_journal_event();
+                #[cfg(test)]
+                mux.notify_agent_projection_rebuild_step_for_test();
             }
             Err(error) => {
                 mux.agent_projection_rebuild_running.store(false, Ordering::Release);
@@ -5360,6 +5368,25 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn fail_next_agent_projection_refresh_for_test(&self) {
         self.agent_projection_refresh_failure.store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_agent_projection_rebuild_after_step_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        *self.agent_projection_rebuild_after_step.lock().unwrap() = Some((entered, release));
+    }
+
+    #[cfg(test)]
+    fn notify_agent_projection_rebuild_step_for_test(&self) {
+        let Some((entered, release)) = self.agent_projection_rebuild_after_step.lock().unwrap().take()
+        else {
+            return;
+        };
+        entered.send(()).unwrap();
+        release.recv().unwrap();
     }
 
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
@@ -20920,6 +20947,32 @@ mod tests {
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_agent_rebuild_publishes_each_fixed_checkpoint() {
+        let mux = test_mux();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .seed_agent_projection_checkpoint_for_test()
+            .unwrap();
+        assert!(mux.agent_projection_rebuild_pending_for_test().unwrap());
+        let resource_epoch = mux.resource_event_epoch();
+        let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
+        let (release, release_receiver) = std::sync::mpsc::sync_channel(1);
+        mux.install_agent_projection_rebuild_after_step_for_test(entered, release_receiver);
+
+        mux.start_agent_projection_rebuild_worker().unwrap();
+        entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        let checkpoint_epoch = mux.resource_event_epoch();
+        release.send(()).unwrap();
+
+        assert_ne!(
+            checkpoint_epoch, resource_epoch,
+            "a completed fixed target must publish before a later candidate is replayed"
+        );
+        mux.shutdown();
     }
 
     #[test]
