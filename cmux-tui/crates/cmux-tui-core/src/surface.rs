@@ -2772,9 +2772,8 @@ impl Surface {
         let sequence_boundary = snapshot.sequence_boundary;
         let protocol_version = attachment.protocol_version();
         let host_identity = attachment.identity();
-        let mux_owner = mux
-            .upgrade()
-            .ok_or_else(|| anyhow::anyhow!("terminal host has no mux owner"))?;
+        let mux_owner =
+            mux.upgrade().ok_or_else(|| anyhow::anyhow!("terminal host has no mux owner"))?;
         let pending_host_binding =
             mux_owner.register_pending_terminal_host(id, host_identity.clone())?;
         drop(mux_owner);

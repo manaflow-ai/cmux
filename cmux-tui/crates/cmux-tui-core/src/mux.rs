@@ -5680,11 +5680,7 @@ impl Mux {
             "surface already has a pending terminal host"
         );
         pending.insert(surface_id, identity.clone());
-        Ok(PendingTerminalHostBinding {
-            mux: Arc::downgrade(self),
-            surface_id,
-            identity,
-        })
+        Ok(PendingTerminalHostBinding { mux: Arc::downgrade(self), surface_id, identity })
     }
 
     /// A hosted reader can lose and restore its admin stream before its
