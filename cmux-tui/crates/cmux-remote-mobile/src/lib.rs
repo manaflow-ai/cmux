@@ -380,6 +380,10 @@ pub unsafe extern "C" fn cmux_mobile_write(
 }
 
 /// Resize the remote PTY. Call this on rotation and on keyboard show/hide.
+///
+/// # Safety
+/// A non-null `client` must be a live handle returned by
+/// [`cmux_mobile_connect`] and must not be freed during this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_mobile_resize(
     client: *mut CmuxMobileClient,
@@ -415,6 +419,10 @@ pub unsafe extern "C" fn cmux_mobile_resize(
 /// A credential-free connection snapshot as JSON: generation, state, provider,
 /// route, and whether the selected Iroh path is direct or relayed. This is what
 /// a status line should show, and it is safe to log.
+///
+/// # Safety
+/// A non-null `client` must be a live handle returned by
+/// [`cmux_mobile_connect`] and must not be freed during this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_mobile_snapshot_json(client: *mut CmuxMobileClient) -> *mut c_char {
     let Some(client) = (unsafe { client.as_ref() }) else {
@@ -438,6 +446,10 @@ pub unsafe extern "C" fn cmux_mobile_snapshot_json(client: *mut CmuxMobileClient
 /// The daemon keeps the terminal model, so a phone renders styled runs instead
 /// of carrying a VT parser and reproducing scroll regions, wrapping, and
 /// character sets on the client. Returns null when no terminal is open.
+///
+/// # Safety
+/// A non-null `client` must be a live handle returned by
+/// [`cmux_mobile_connect`] and must not be freed during this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_mobile_terminal_json(client: *mut CmuxMobileClient) -> *mut c_char {
     let Some(client) = (unsafe { client.as_ref() }) else {
@@ -461,6 +473,10 @@ pub unsafe extern "C" fn cmux_mobile_terminal_json(client: *mut CmuxMobileClient
 }
 
 /// The message behind the last failing call on this handle, or null.
+///
+/// # Safety
+/// A non-null `client` must be a live handle returned by
+/// [`cmux_mobile_connect`] and must not be freed during this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_mobile_last_error(client: *mut CmuxMobileClient) -> *mut c_char {
     let Some(client) = (unsafe { client.as_ref() }) else {

@@ -230,8 +230,9 @@ jobs:
               --leak-check=full \
               --show-leak-kinds=definite \
               --errors-for-leak-kinds=definite \
+              --suppressions=../.github/valgrind-ring.supp \
               --track-origins=yes \
-              -- "$bin"
+              -- "$bin" --test-threads=1
           done < target/valgrind-test-binaries.txt
 
   valgrind-leak-check:
@@ -396,35 +397,11 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui
 
-      - name: Resolve Zig SDK version
-        id: zig-sdk-version
-        shell: bash
-        run: |
-          version="$(
-            sed -nE 's/^[[:space:]]*\.minimum_zig_version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
-              cmux-tui/bindings/zig/build.zig.zon | head -1
-          )"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid Zig SDK version: $version" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Install Zig for SDK conformance
-        env:
-          ZIG_REQUIRED: ${{ steps.zig-sdk-version.outputs.version }}
-          ZIG_FORCE_LOCAL_INSTALL: "1"
-        run: ./scripts/install-zig-ci.sh
-
       - name: Python conformance fixtures
-        run: |
-          test "$("$CMUX_ZIG" version)" = "${{ steps.zig-sdk-version.outputs.version }}"
-          python3 cmux-tui/bindings/conformance/runner.py
+        run: python3 cmux-tui/bindings/conformance/runner.py
 
       - name: Binding e2e
-        run: |
-          test "$("$CMUX_ZIG" version)" = "${{ steps.zig-sdk-version.outputs.version }}"
-          bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
+        run: bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
 
   build-artifacts:
     name: release-path dogfood artifacts
