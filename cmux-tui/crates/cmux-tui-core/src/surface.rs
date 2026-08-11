@@ -1449,7 +1449,7 @@ pub(crate) struct TerminalJournalGap {
 
 enum PtyRuntime {
     Local {
-        writer: Box<dyn Write + Send>,
+        writer: Option<Box<dyn Write + Send>>,
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
     },
@@ -1966,14 +1966,15 @@ fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
 #[cfg(windows)]
 fn close_local_terminal_master_after_exit(surface: &Arc<Surface>) {
     let Some(pty) = surface.as_pty() else { return };
-    let master = {
+    let (writer, master) = {
         let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { master, .. } = &mut *runtime;
-        master.take()
+        let PtyRuntime::Local { writer, master, .. } = &mut *runtime;
+        (writer.take(), master.take())
     };
-    // portable-pty's ConPTY reader keeps a separate output handle. Closing
-    // the master closes the pseudoconsole, which lets that reader drain the
+    // ConPTY keeps the console alive while its input pipe remains open. Close
+    // input before the pseudoconsole so the separate output reader can drain
     // final bytes and then observe EOF.
+    drop(writer);
     drop(master);
 }
 
@@ -2334,7 +2335,11 @@ impl Surface {
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-                runtime: Mutex::new(PtyRuntime::Local { writer, master: Some(master), killer }),
+                runtime: Mutex::new(PtyRuntime::Local {
+                    writer: Some(writer),
+                    master: Some(master),
+                    killer,
+                }),
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
@@ -4063,7 +4068,7 @@ impl Surface {
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local {
-                    writer: Box::new(std::io::sink()),
+                    writer: Some(Box::new(std::io::sink())),
                     master: Some(Box::new(TestMasterPty {
                         size: Mutex::new(initial_pty_size),
                         control: test_master_control.clone(),
@@ -4207,6 +4212,12 @@ impl Surface {
         let mut runtime = pty.runtime.lock().unwrap();
         match &mut *runtime {
             PtyRuntime::Local { writer, .. } => {
+                let Some(writer) = writer.as_mut() else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "terminal process has exited",
+                    ));
+                };
                 writer.write_all(bytes)?;
                 writer.flush()
             }
@@ -4251,6 +4262,12 @@ impl Surface {
         let mut runtime = pty.runtime.lock().unwrap();
         let PtyRuntime::Local { writer, .. } = &mut *runtime else {
             unreachable!("hosted paste returned above")
+        };
+        let Some(writer) = writer.as_mut() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "terminal process has exited",
+            ));
         };
         if bracketed {
             writer.write_all(b"\x1b[200~")?;
@@ -4830,6 +4847,11 @@ impl Surface {
                         unreachable!("a local PTY runtime cannot become hosted")
                     };
                     let Some(master) = master.as_deref() else {
+                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                            "terminal process has exited"
+                        )));
+                    };
+                    let Some(writer) = writer.as_mut() else {
                         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                             "terminal process has exited"
                         )));
@@ -6973,7 +6995,7 @@ mod tests {
         let PtyRuntime::Local { writer, .. } = &mut *runtime else {
             panic!("test surface unexpectedly uses a terminal host");
         };
-        *writer = replacement;
+        *writer = Some(replacement);
     }
 
     #[test]
@@ -8915,7 +8937,7 @@ mod tests {
             let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
                 panic!("test surface unexpectedly uses a terminal host");
             };
-            *writer = Box::new(write_end);
+            *writer = Some(Box::new(write_end));
             *master = Some(Box::new(FdMasterPty {
                 file: master_file,
                 size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
