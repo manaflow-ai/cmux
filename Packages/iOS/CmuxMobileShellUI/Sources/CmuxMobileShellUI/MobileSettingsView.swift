@@ -362,6 +362,19 @@ struct MobileSettingsView: View {
                     defaultValue: "CMUX Labs"
                 )) {
                     NavigationLink {
+                        NotificationFeedPreviewView(showsLabControls: true)
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.feedLab",
+                                defaultValue: "Feed Lab"
+                            ),
+                            systemImage: "bell.badge"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsFeedLab")
+
+                    NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {
                         Label(

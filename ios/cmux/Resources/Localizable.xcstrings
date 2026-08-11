@@ -3901,6 +3901,7 @@
     "mobile.notificationFeed.design.conversation": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Conversation"}},"ja":{"stringUnit":{"state":"translated","value":"会話"}}}},
     "mobile.notificationFeed.design.timeline": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Timeline"}},"ja":{"stringUnit":{"state":"translated","value":"タイムライン"}}}},
     "mobile.notificationFeed.design.update": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Update"}},"ja":{"stringUnit":{"state":"translated","value":"更新"}}}},
+    "mobile.notificationFeed.lab.reset": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reset Feed"}},"ja":{"stringUnit":{"state":"translated","value":"フィードをリセット"}}}},
     "mobile.notificationFeed.open": {
       "extractionState": "manual",
       "localizations": {
@@ -6798,6 +6799,7 @@
     "mobile.settings.cmuxLabs": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"CMUX Labs"}},"ja":{"stringUnit":{"state":"translated","value":"CMUX Labs"}}}},
     "mobile.settings.cmuxLabs.feedDesign": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Feed Design"}},"ja":{"stringUnit":{"state":"translated","value":"フィードのデザイン"}}}},
     "mobile.settings.cmuxLabs.feedDesign.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Switch between five notification Feed experiments."}},"ja":{"stringUnit":{"state":"translated","value":"5つの通知フィードの実験デザインを切り替えます。"}}}},
+    "mobile.settings.feedLab": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Feed Lab"}},"ja":{"stringUnit":{"state":"translated","value":"フィードラボ"}}}},
     "mobile.settings.betaFeatures": {
       "extractionState": "manual",
       "localizations": {

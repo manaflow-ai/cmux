@@ -8,6 +8,9 @@ import UIKit
 /// Deterministic real-app fixture for notification-feed interaction and visual
 /// verification. It mounts the production tab scaffold and production feed.
 public struct NotificationFeedPreviewView: View {
+    private let showsLabControls: Bool
+    @AppStorage(MobileNotificationFeedDesign.storageKey) private var designRaw =
+        MobileNotificationFeedDesign.timeline.rawValue
     @State private var selectedTab: MobilePrimaryTab = .notifications
     @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator(
         initialScope: .notifications
@@ -20,19 +23,11 @@ public struct NotificationFeedPreviewView: View {
     @State private var macSelection: WorkspaceMacSelection = .all
 
     /// Creates a deterministic notification-feed preview fixture.
-    public init() {
+    public init(showsLabControls: Bool = false) {
+        self.showsLabControls = showsLabControls
         let referenceDate = Date()
         _referenceDate = State(initialValue: referenceDate)
-        let items: [MobileNotificationFeedItem]
-        if let stressCount = UITestConfig.notificationFeedPreviewItemCount {
-            items = makeNotificationFeedPreviewStressItems(
-                referenceDate: referenceDate,
-                count: stressCount
-            )
-        } else {
-            items = makeNotificationFeedPreviewFixtureItems(referenceDate: referenceDate)
-        }
-        _items = State(initialValue: items)
+        _items = State(initialValue: makeNotificationFeedPreviewItems(referenceDate: referenceDate))
     }
 
     /// The preview fixture's production-style tab and feed body.
@@ -97,14 +92,23 @@ public struct NotificationFeedPreviewView: View {
 
     /// The notifications-tab feed with the optional profiling scroll driver.
     private func notificationsTabFeed(proxy: ScrollViewProxy) -> some View {
-        NotificationFeedView(
-            status: .ready,
-            projection: projection,
-            refreshesOnAppear: true,
-            actions: actions
-        )
-        .task {
-            await runScrollStressIfEnabled(proxy: proxy)
+        VStack(spacing: 0) {
+            if showsLabControls {
+                NotificationFeedPreviewLabControls(
+                    designRaw: $designRaw,
+                    reset: resetFixture
+                )
+                Divider()
+            }
+            NotificationFeedView(
+                status: .ready,
+                projection: projection,
+                refreshesOnAppear: true,
+                actions: actions
+            )
+            .task {
+                await runScrollStressIfEnabled(proxy: proxy)
+            }
         }
         .toolbar {
             WorkspaceRootToolbarContent(
@@ -203,6 +207,21 @@ public struct NotificationFeedPreviewView: View {
         items.removeAll { $0.id == id }
     }
 
+    private func resetFixture() {
+        let nextReferenceDate = Date()
+        let nextItems = makeNotificationFeedPreviewItems(referenceDate: nextReferenceDate)
+        let nextProjection = NotificationFeedProjection(referenceDate: nextReferenceDate)
+        nextProjection.update(items: nextItems, referenceDate: nextReferenceDate)
+        selectedTab = .notifications
+        primarySearchCoordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
+        referenceDate = nextReferenceDate
+        items = nextItems
+        projection = nextProjection
+        notificationRoute = nil
+        pendingSearchNotificationNavigationID = nil
+        macSelection = .all
+    }
+
     private func consumePendingSearchNavigation(for tab: MobilePrimaryTab) {
         guard !primarySearchCoordinator.isPresented else { return }
         guard tab == .notifications,
@@ -290,6 +309,85 @@ public struct NotificationFeedPreviewView: View {
         )
     }
 
+}
+
+private struct NotificationFeedPreviewLabControls: View {
+    @Binding var designRaw: String
+    let reset: @MainActor () -> Void
+
+    private var design: MobileNotificationFeedDesign {
+        MobileNotificationFeedDesign(rawValue: designRaw) ?? .timeline
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                designMenu
+                Spacer(minLength: 0)
+                resetButton
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                designMenu
+                resetButton
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .accessibilityIdentifier("MobileNotificationFeedLabControls")
+    }
+
+    private var designMenu: some View {
+        Menu {
+            ForEach(MobileNotificationFeedDesign.allCases) { candidate in
+                Button {
+                    designRaw = candidate.rawValue
+                } label: {
+                    if candidate == design {
+                        Label(candidate.title, systemImage: "checkmark")
+                    } else {
+                        Text(candidate.title)
+                    }
+                }
+                .accessibilityIdentifier(
+                    "MobileNotificationFeedLabDesignOption-\(candidate.rawValue)"
+                )
+            }
+        } label: {
+            Label(design.title, systemImage: "paintpalette")
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel(L10n.string(
+            "mobile.settings.cmuxLabs.feedDesign",
+            defaultValue: "Feed Design"
+        ))
+        .accessibilityValue(design.title)
+        .accessibilityIdentifier("MobileNotificationFeedLabDesign")
+    }
+
+    private var resetButton: some View {
+        Button(action: reset) {
+            Label(
+                L10n.string(
+                    "mobile.notificationFeed.lab.reset",
+                    defaultValue: "Reset Feed"
+                ),
+                systemImage: "arrow.counterclockwise"
+            )
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("MobileNotificationFeedLabReset")
+    }
+}
+
+private func makeNotificationFeedPreviewItems(
+    referenceDate: Date
+) -> [MobileNotificationFeedItem] {
+    if let stressCount = UITestConfig.notificationFeedPreviewItemCount {
+        makeNotificationFeedPreviewStressItems(referenceDate: referenceDate, count: stressCount)
+    } else {
+        makeNotificationFeedPreviewFixtureItems(referenceDate: referenceDate)
+    }
 }
 
 private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [MobileNotificationFeedItem] {

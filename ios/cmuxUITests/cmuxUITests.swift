@@ -2220,7 +2220,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testNotificationFeedLabsExposesAndRendersAllFiveDesigns() throws {
-        var app = launchApp(
+        let app = launchApp(
             mockData: false,
             environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
         )
@@ -2228,11 +2228,18 @@ final class cmuxUITests: XCTestCase {
         let settings = app.buttons["MobileWorkspaceSettingsMenu"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
         tap(settings, in: app)
-        let picker = app.descendants(matching: .any)["MobileSettingsNotificationFeedDesign"].firstMatch
-        for _ in 0..<6 where !picker.isHittable {
+
+        let feedLab = app.descendants(matching: .any)["MobileSettingsFeedLab"].firstMatch
+        for _ in 0..<12 where !feedLab.isHittable {
             app.swipeUp(velocity: .slow)
         }
-        XCTAssertTrue(picker.isHittable)
+        XCTAssertTrue(feedLab.isHittable)
+        feedLab.tap()
+
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
+        XCTAssertTrue(feed.waitForExistence(timeout: 8))
+        let designMenu = app.descendants(matching: .any)["MobileNotificationFeedLabDesign"].firstMatch
+        XCTAssertTrue(designMenu.waitForExistence(timeout: 3))
         for (design, title) in [
             ("timeline", "Timeline"),
             ("cards", "Cards"),
@@ -2240,44 +2247,36 @@ final class cmuxUITests: XCTestCase {
             ("conversation", "Conversation"),
             ("commandCenter", "Command Center"),
         ] {
-            picker.tap()
+            designMenu.tap()
             let option = app.descendants(matching: .any)[
-                "MobileSettingsNotificationFeedDesignOption-\(design)"
+                "MobileNotificationFeedLabDesignOption-\(design)"
             ]
             XCTAssertTrue(option.waitForExistence(timeout: 3))
             option.tap()
             let selectedValue = XCTNSPredicateExpectation(
                 predicate: NSPredicate(format: "value CONTAINS %@", title),
-                object: app.descendants(matching: .any)["MobileSettingsNotificationFeedDesign"].firstMatch
+                object: feed
             )
             XCTAssertEqual(XCTWaiter.wait(for: [selectedValue], timeout: 3), .completed)
-        }
-        app.terminate()
-
-        for (design, title) in [
-            ("timeline", "Timeline"),
-            ("cards", "Cards"),
-            ("compact", "Compact"),
-            ("conversation", "Conversation"),
-            ("commandCenter", "Command Center"),
-        ] {
-            app = launchApp(
-                mockData: false,
-                environment: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1"],
-                launchArguments: ["-cmux.labs.notificationFeedDesign", design]
-            )
-            let feed = app.descendants(matching: .any)["MobileNotificationFeed"].firstMatch
-            XCTAssertTrue(feed.waitForExistence(timeout: 8), "Missing Feed design: \(design)")
-            XCTAssertTrue(
-                (feed.value as? String)?.contains(title) == true,
-                "Feed did not render design: \(design)"
-            )
             let attachment = XCTAttachment(screenshot: app.screenshot())
             attachment.name = "iOS Feed \(design)"
             attachment.lifetime = .keepAlways
             add(attachment)
-            app.terminate()
         }
+
+        let permissionRow = app.descendants(matching: .any)[
+            "MobileNotificationFeedRow-studio-codex-approval"
+        ].firstMatch
+        let allowOnce = app.buttons["MobileNotificationFeedPermission-once"]
+        XCTAssertTrue(permissionRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(allowOnce.waitForExistence(timeout: 3))
+        allowOnce.tap()
+        XCTAssertTrue(permissionRow.waitForNonExistence(timeout: 3))
+
+        let reset = app.buttons["MobileNotificationFeedLabReset"]
+        XCTAssertTrue(reset.waitForExistence(timeout: 3))
+        reset.tap()
+        XCTAssertTrue(permissionRow.waitForExistence(timeout: 3))
     }
 
     /// Regression: every task-composer action must remain discoverable through
