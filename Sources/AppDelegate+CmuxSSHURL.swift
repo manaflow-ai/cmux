@@ -401,7 +401,7 @@ extension AppDelegate {
     func resumeInitialMainWindowBootstrapAfterExternalConfirmation(debugSource: String) {
         guard shouldDeferInitialMainWindowBootstrapForExternalConfirmation else { return }
         shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
-        scheduleInitialMainWindowBootstrap(debugSource: debugSource)
+        scheduleAutomaticLaunchBootstrap(debugSource: debugSource)
     }
 
     func bootstrapInitialMainWindowAfterAcceptedExternalOpen(

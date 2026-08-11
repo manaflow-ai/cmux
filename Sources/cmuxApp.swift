@@ -398,7 +398,7 @@ struct cmuxApp: App {
                         AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
                     }
 #endif
-                    bootstrapMainWindowScene()
+                    bootstrapApplicationScene()
                 }
                 .onChange(of: appearanceMode) { _ in
                     applyAppearance()
@@ -1130,8 +1130,8 @@ struct cmuxApp: App {
         )
     }
 
-    private func bootstrapMainWindowScene() {
-        appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
+    private func bootstrapApplicationScene() {
+        appDelegate.scheduleAutomaticLaunchBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
     }

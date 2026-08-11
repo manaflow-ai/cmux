@@ -179,10 +179,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
         try writeSSHPTYReconnectTestShell(at: fakeSSH, lines: [
             "#!/bin/sh",
+            "case \" $* \" in",
+            "  *\" -G \"*) printf '%s\\n' \"controlpath ${CMUX_TEST_CONTROL_PATH}\"; exit 0 ;;",
+            "  *\" -O check \"*) exit 1 ;;",
+            "esac",
             "count=$(cat \"${CMUX_TEST_AUTH_ATTEMPTS}\" 2>/dev/null || printf 0)",
             "count=$((count + 1))",
             "printf '%s' \"$count\" > \"${CMUX_TEST_AUTH_ATTEMPTS}\"",
-            "if [ \"$count\" -eq 2 ]; then exit 255; fi",
+            "if [ \"$count\" -eq 2 ]; then",
+            "  printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2",
+            "  exit 255",
+            "fi",
             "exit 0",
         ])
         try writeSSHPTYReconnectTestShell(at: fakeSleep, lines: [
@@ -202,10 +209,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_TEST_AUTH_ATTEMPTS"] = authAttempts.path
         environment["CMUX_TEST_ATTACH_ATTEMPTS"] = attachAttempts.path
         environment["CMUX_TEST_SLEEP_ATTEMPTS"] = sleepAttempts.path
+        environment["CMUX_TEST_CONTROL_PATH"] = "/tmp/cmux-ssh-\(getuid())-\(root.lastPathComponent)"
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
-        let command = SSHPTYAttachStartupCommandBuilder.command(
+        let generatedCommand = SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-test-session",
             foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: "user@example.test",
@@ -215,6 +223,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 token: "foreground-auth-token"
             )
         )
+        let command = generatedCommand.replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+        XCTAssertNotEqual(command, generatedCommand, "Expected generated command to reference /usr/bin/ssh")
         let result = runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", command],
@@ -246,13 +256,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try writeSSHPTYReconnectTestShell(at: fakeAuth, lines: [
             "#!/bin/sh",
             "case \" $* \" in",
+            "  *\" -G \"*) printf '%s\\n' \"controlpath ${CMUX_TEST_CONTROL_PATH}\"; exit 0 ;;",
+            "  *\" -O check \"*) exit 1 ;;",
             "  *\" -T example.test true \"*) ;;",
             "  *) exit 0 ;;",
             "esac",
             "count=$(cat \"${CMUX_TEST_AUTH_ATTEMPTS}\" 2>/dev/null || printf 0)",
             "count=$((count + 1))",
             "printf '%s' \"$count\" > \"${CMUX_TEST_AUTH_ATTEMPTS}\"",
-            "if [ \"$count\" -eq 2 ]; then exit 255; fi",
+            "if [ \"$count\" -eq 2 ]; then",
+            "  printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2",
+            "  exit 255",
+            "fi",
             "exit 0",
         ])
         try writeSSHPTYReconnectTestShell(at: fakeAttach, lines: [
@@ -275,8 +290,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let generatedScript = try persistentSSHInitialStartupScriptForReconnectTest()
         let bundledCLI = try bundledCLIPath()
-        let rewrittenScript = generatedScript.replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
-        XCTAssertNotEqual(rewrittenScript, generatedScript, "Expected generated wrapper to reference the bundled CLI")
+        let scriptWithFakeCLI = generatedScript.replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
+        XCTAssertNotEqual(scriptWithFakeCLI, generatedScript, "Expected generated wrapper to reference the bundled CLI")
+        let rewrittenScript = scriptWithFakeCLI.replacingOccurrences(of: "/usr/bin/ssh", with: fakeAuth.path)
+        XCTAssertNotEqual(rewrittenScript, scriptWithFakeCLI, "Expected generated wrapper to reference /usr/bin/ssh")
         try writeSSHPTYReconnectTestShell(at: fakeStartup, contents: rewrittenScript)
         for executable in [fakeStartup, fakeAuth, fakeAttach, fakeSleep] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
@@ -290,6 +307,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_TEST_AUTH_ATTEMPTS"] = authAttempts.path
         environment["CMUX_TEST_ATTACH_ATTEMPTS"] = attachAttempts.path
         environment["CMUX_TEST_SLEEP_ATTEMPTS"] = sleepAttempts.path
+        environment["CMUX_TEST_CONTROL_PATH"] = "/tmp/cmux-ssh-\(getuid())-\(root.lastPathComponent)"
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 

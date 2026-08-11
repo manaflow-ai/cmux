@@ -216,7 +216,8 @@ import Testing
 
         #expect(binding.kind == nil)
         #expect(binding.command.contains(executablePath), "\(binding.command)")
-        #expect(startupInput.contains("codex 'resume' 'session-legacy-cli'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("resume session-legacy-cli"), "\(startupInput)")
         #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
@@ -263,7 +264,8 @@ import Testing
             )
 
             let startupInput = try #require(binding.startupInput)
-            #expect(startupInput.contains("codex 'resume' 'session-managed-cli'"), "\(startupInput)")
+            #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+            #expect(startupInput.contains("resume session-managed-cli"), "\(startupInput)")
             #expect(!startupInput.contains(executablePath), "\(startupInput)")
         }
     }
@@ -287,7 +289,9 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("CMUX_TRACE=1 codex 'resume' 'session-env-cli'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_TRACE=1"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("resume session-env-cli"), "\(startupInput)")
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
@@ -309,7 +313,9 @@ import Testing
         )
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("env 'CMUX_TRACE=1' codex 'resume' 'session-quoted-env-cli'"), "\(startupInput)")
+        #expect(startupInput.contains("env CMUX_TRACE=1"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("resume session-quoted-env-cli"), "\(startupInput)")
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
@@ -481,12 +487,20 @@ import Testing
             panelId: localPanel.id
         ))
 
-        let snapshot = remoteWorkspace.sessionSnapshot(includeScrollback: false)
-        let persistedLocalPanel = try #require(snapshot.panels.first {
+        var snapshot = remoteWorkspace.sessionSnapshot(includeScrollback: false)
+        let persistedLocalPanelIndex = try #require(snapshot.panels.firstIndex {
             $0.customTitle == "Local Resume Shell"
         })
+        let persistedLocalPanel = snapshot.panels[persistedLocalPanelIndex]
         #expect(persistedLocalPanel.terminal?.isRemoteTerminal == false)
         #expect(persistedLocalPanel.terminal?.resumeBinding?.command.contains(staleExecutablePath) == true)
+
+        // This model-only fixture has no live Codex process to observe. The
+        // restore path under test starts only agents recorded as running when
+        // the snapshot was saved, so model that persisted liveness explicitly.
+        var persistedTerminal = try #require(persistedLocalPanel.terminal)
+        persistedTerminal.wasAgentRunning = true
+        snapshot.panels[persistedLocalPanelIndex].terminal = persistedTerminal
 
         let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
         restoredWorkspace.restoreSessionSnapshot(snapshot)

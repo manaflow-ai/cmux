@@ -41,7 +41,7 @@ extension AgentNotificationRegressionTests {
         """.write(to: initialScript, atomically: true, encoding: .utf8)
         try """
         export CMUX_SURFACE_ID='\(fixture.panelId.uuidString)'
-        exec /bin/sh -c 'touch "\(execMarker.path)"; exec sleep 30'
+        exec /bin/sh -c 'touch "\(execMarker.path)"; while :; do sleep 1; done'
         """.write(to: scopedScript, atomically: true, encoding: .utf8)
 
         let process = Process()
