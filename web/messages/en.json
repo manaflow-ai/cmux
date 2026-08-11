@@ -130,6 +130,7 @@
       "signOut": "Sign out",
       "signingOut": "Signing out…",
       "signOutError": "Could not sign out. Try again.",
+      "organizationSwitchError": "Could not switch organization. Try again.",
       "signIn": "Sign in"
     },
     "billing": {
@@ -145,8 +146,8 @@
       "free": {
         "name": "Free",
         "body": "You are currently on the Free plan. Upgrade when you need Pro limits and hosted features.",
-        "upsellTitle": "Upgrade when you need cloud agents or team billing.",
-        "upsellBody": "Choose Pro for personal cloud features, or Team for shared billing and seats.",
+        "upsellTitle": "Upgrade when you need cloud agents or shared CodeRouter.",
+        "upsellBody": "Choose Pro for personal cloud features, or Team for shared CodeRouter with anonymous aggregate usage and cost analytics.",
         "testflightTitle": "Get the cmux iOS app",
         "testflightBody": "The iOS beta is available through TestFlight for active personal Pro subscribers.",
         "testflightCta": "Join the iOS beta"
@@ -469,12 +470,7 @@
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Unified billing: one invoice for the whole team",
-        "Centralized seat management: add and remove members anytime",
-        "Pooled Cloud VM compute hours shared across the team",
-        "Shared team rules, settings, and workspace templates",
-        "Team-wide CodeRouter with per-member usage and cost analytics",
-        "Centralized admin and priority email support"
+        "Team-wide CodeRouter with anonymous aggregate usage and cost analytics"
       ]
     },
     "enterprise": {
@@ -544,7 +540,7 @@
           "label": "Cloud agents on Cloud VMs",
           "free": "1 VM trial",
           "pro": "20 hrs/mo, then usage-based",
-          "team": "Pooled, usage-based",
+          "team": "20 hrs/mo, then usage-based",
           "enterprise": "Committed usage"
         },
         {
@@ -577,13 +573,6 @@
           "hostedNetworking": true
         },
         {
-          "label": "Unified billing and seat management",
-          "free": "false",
-          "pro": "false",
-          "team": "true",
-          "enterprise": "true"
-        },
-        {
           "label": "SSO and SAML sign-in",
           "free": "false",
           "pro": "false",
@@ -595,13 +584,6 @@
           "free": "false",
           "pro": "false",
           "team": "false",
-          "enterprise": "true"
-        },
-        {
-          "label": "Centralized admin and shared team rules",
-          "free": "false",
-          "pro": "false",
-          "team": "true",
           "enterprise": "true"
         },
         {
@@ -693,7 +675,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
+          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, and adds shared CodeRouter with anonymous aggregate usage and cost analytics."
         }
       ]
     },

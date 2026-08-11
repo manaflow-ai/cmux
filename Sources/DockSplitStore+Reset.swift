@@ -20,6 +20,7 @@ extension DockSplitStore {
         }
         removeAllDetachedSurfaceTransfers()
         agentRuntimeByPanelId.removeAll()
+        agentNeedsInputAttention.replace(with: [])
         restoredTerminalScrollbackByPanelId.removeAll()
         restoredAgentLifecycle.snapshotsByPanelId.removeAll()
         restoredAgentLifecycle.resumeStatesByPanelId.removeAll()

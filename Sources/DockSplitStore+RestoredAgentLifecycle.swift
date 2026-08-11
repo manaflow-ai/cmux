@@ -1,5 +1,6 @@
-import CmuxWorkspaces
+import CmuxNotifications
 import CmuxSidebar
+import CmuxWorkspaces
 import Darwin
 import Foundation
 
@@ -16,6 +17,7 @@ extension DockSplitStore {
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         agentRuntimeByPanelId.removeValue(forKey: panelId)
+        syncAgentNeedsInputAttention(panelId: panelId, runtime: nil)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
     }
 
@@ -148,6 +150,10 @@ extension DockSplitStore {
         } else {
             agentRuntimeByPanelId.removeValue(forKey: detached.panelId)
         }
+        syncAgentNeedsInputAttention(
+            panelId: detached.panelId,
+            runtime: detached.agentRuntime
+        )
     }
 
     func configureAgentHibernationResume(for terminal: TerminalPanel) {
@@ -252,7 +258,7 @@ extension DockSplitStore {
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID) -> Bool {
         var didReplaceRuntime = false
-        mutateAgentRuntime(panelId: panelId) { runtime in
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) { runtime in
             if Self.isStructuredAgentHookPIDKey(key, runtime: runtime) {
                 let staleKeys = runtime.agentPIDKeys.filter {
                     $0 != key && Self.isStructuredAgentHookPIDKey($0, runtime: runtime)
@@ -282,9 +288,18 @@ extension DockSplitStore {
         panelId: UUID,
         lifecycle: AgentHibernationLifecycleState
     ) {
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             $0.agentLifecycleStates[key] = lifecycle
         }
+    }
+
+    @discardableResult
+    func clearAgentLifecycle(key: String, panelId: UUID) -> Bool {
+        var didClear = false
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
+            didClear = $0.agentLifecycleStates.removeValue(forKey: key) != nil
+        }
+        return didClear
     }
 
     @discardableResult
@@ -299,7 +314,7 @@ extension DockSplitStore {
             return false
         }
         var didChange = false
-        mutateAgentRuntime(panelId: panelId) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             didChange = Self.clearAgentPID(
                 key: key,
                 clearStatus: clearStatus,
@@ -311,6 +326,7 @@ extension DockSplitStore {
 
     private func mutateAgentRuntime(
         panelId: UUID,
+        updatesAgentAttention: Bool = false,
         mutation: (inout Workspace.DetachedAgentRuntimeState) -> Void
     ) {
         guard panels[panelId] != nil else { return }
@@ -335,6 +351,20 @@ extension DockSplitStore {
             transfer.agentRuntime = shouldKeep ? runtime : nil
             detachedSurfaceTransfersByPanelId[panelId] = transfer
         }
+        if updatesAgentAttention {
+            syncAgentNeedsInputAttention(
+                panelId: panelId,
+                runtime: shouldKeep ? runtime : nil
+            )
+        }
+    }
+
+    private func syncAgentNeedsInputAttention(
+        panelId: UUID,
+        runtime: Workspace.DetachedAgentRuntimeState?
+    ) {
+        let needsInput = runtime?.agentLifecycleStates.values.contains(.needsInput) == true
+        agentNeedsInputAttention.setAttention(needsInput, forSurfaceId: panelId)
     }
 
     @discardableResult

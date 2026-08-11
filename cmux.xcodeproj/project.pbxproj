@@ -1029,6 +1029,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
+		9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9466A07A0000000000000002 /* FeedAttentionTarget.swift */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
 		8672D0018672D0018672D001 /* FeedCoordinator+DeliveryTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */; };
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
@@ -1438,6 +1439,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
 		F7A110000000000000000003 /* MobileTerminalThemeEmissionDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */; };
 		F7A110000000000000000001 /* MobileTerminalThemeInvalidationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */; };
+		018B51BF03D44D3381D2DA30 /* MobileWorkspaceEmissionCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08EEC9A298B84FC5AE83BBFD /* MobileWorkspaceEmissionCoalescer.swift */; };
 		F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */; };
 		00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */; };
 		D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */; };
@@ -2662,6 +2664,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F87920000000000000000031 /* WorkspaceTerminalFontSizeRequestResourceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000032 /* WorkspaceTerminalFontSizeRequestResourceKey.swift */; };
 		F87920000000000000000033 /* WorkspaceTerminalFontSizeRequestTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000034 /* WorkspaceTerminalFontSizeRequestTarget.swift */; };
 		F87920000000000000000035 /* WorkspaceTerminalFontSizeSessionProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000036 /* WorkspaceTerminalFontSizeSessionProjection.swift */; };
+		F9466A010000000000000001 /* WorkspaceTerminalFontSizeShortcutOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9466A010000000000000002 /* WorkspaceTerminalFontSizeShortcutOutcome.swift */; };
 		F87920000000000000000037 /* WorkspaceTerminalFontSizeSnapshotIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000038 /* WorkspaceTerminalFontSizeSnapshotIntent.swift */; };
 		F87920000000000000000039 /* WorkspaceTerminalFontSizeSnapshotProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8792000000000000000003A /* WorkspaceTerminalFontSizeSnapshotProjection.swift */; };
 		F8792000000000000000003B /* WorkspaceTerminalFontSizeTransferObligation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8792000000000000000003C /* WorkspaceTerminalFontSizeTransferObligation.swift */; };
@@ -3711,6 +3714,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
+		9466A07A0000000000000002 /* FeedAttentionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedAttentionTarget.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
 		8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+DeliveryTarget.swift"; sourceTree = "<group>"; };
 		FEED0000000000000000F001 /* FeedCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedCoordinator.swift; sourceTree = "<group>"; };
@@ -4116,6 +4120,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
 		F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalThemeEmissionDecision.swift; sourceTree = "<group>"; };
 		F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalThemeInvalidationScheduler.swift; sourceTree = "<group>"; };
+		08EEC9A298B84FC5AE83BBFD /* MobileWorkspaceEmissionCoalescer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceEmissionCoalescer.swift; sourceTree = "<group>"; };
 		86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListFidelityTests.swift; sourceTree = "<group>"; };
 		C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
 		D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceObserverSignposts.swift; sourceTree = "<group>"; };
@@ -5326,6 +5331,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F87920000000000000000032 /* WorkspaceTerminalFontSizeRequestResourceKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeRequestResourceKey.swift; sourceTree = "<group>"; };
 		F87920000000000000000034 /* WorkspaceTerminalFontSizeRequestTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeRequestTarget.swift; sourceTree = "<group>"; };
 		F87920000000000000000036 /* WorkspaceTerminalFontSizeSessionProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeSessionProjection.swift; sourceTree = "<group>"; };
+		F9466A010000000000000002 /* WorkspaceTerminalFontSizeShortcutOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeShortcutOutcome.swift; sourceTree = "<group>"; };
 		F87920000000000000000038 /* WorkspaceTerminalFontSizeSnapshotIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeSnapshotIntent.swift; sourceTree = "<group>"; };
 		F8792000000000000000003A /* WorkspaceTerminalFontSizeSnapshotProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeSnapshotProjection.swift; sourceTree = "<group>"; };
 		F8792000000000000000003C /* WorkspaceTerminalFontSizeTransferObligation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTerminalFontSizeTransferObligation.swift; sourceTree = "<group>"; };
@@ -5682,6 +5688,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C1A070000000000000000016 /* MobilePairingView+Connected.swift */,
 				5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */,
 				C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */,
+				08EEC9A298B84FC5AE83BBFD /* MobileWorkspaceEmissionCoalescer.swift */,
 				D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */,
 				F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */,
 				E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */,
@@ -6310,6 +6317,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F87920000000000000000048 /* WorkspaceTerminalFontSizeWindowDockSlot.swift */,
 				F87910120000000000000002 /* TerminalFontConfigurationReloadTransaction.swift */,
 				F87910010000000000000002 /* WorkspaceTerminalFontSizeChange.swift */,
+				F9466A010000000000000002 /* WorkspaceTerminalFontSizeShortcutOutcome.swift */,
 				F87910150000000000000002 /* TerminalFontSizeChangeInheritanceContext.swift */,
 				F87910160000000000000002 /* TerminalFontSizeLineageSelection.swift */,
 				F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */,
@@ -8156,6 +8164,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			children = (
 				FEED0000000000000000F001 /* FeedCoordinator.swift */,
 				8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */,
+				9466A07A0000000000000002 /* FeedAttentionTarget.swift */,
 				8672E00B8672E00B8672E00B /* FeedIngressDeliveryImportance.swift */,
 				8672E0098672E0098672E009 /* FeedIngressDeliveryKey.swift */,
 				8672E0018672E0018672E001 /* FeedIngressDeliveryLane.swift */,
@@ -9199,6 +9208,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
+				9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				8672D0018672D0018672D001 /* FeedCoordinator+DeliveryTarget.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
@@ -9481,6 +9491,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
 				F7A110000000000000000003 /* MobileTerminalThemeEmissionDecision.swift in Sources */,
 				F7A110000000000000000001 /* MobileTerminalThemeInvalidationScheduler.swift in Sources */,
+				018B51BF03D44D3381D2DA30 /* MobileWorkspaceEmissionCoalescer.swift in Sources */,
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
 				D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */,
 					C75740020000000000000001 /* MouseDownMenuItemView.swift in Sources */,
@@ -10351,6 +10362,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F87920000000000000000031 /* WorkspaceTerminalFontSizeRequestResourceKey.swift in Sources */,
 				F87920000000000000000033 /* WorkspaceTerminalFontSizeRequestTarget.swift in Sources */,
 				F87920000000000000000035 /* WorkspaceTerminalFontSizeSessionProjection.swift in Sources */,
+				F9466A010000000000000001 /* WorkspaceTerminalFontSizeShortcutOutcome.swift in Sources */,
 				F87920000000000000000037 /* WorkspaceTerminalFontSizeSnapshotIntent.swift in Sources */,
 				F87920000000000000000039 /* WorkspaceTerminalFontSizeSnapshotProjection.swift in Sources */,
 				F8792000000000000000003B /* WorkspaceTerminalFontSizeTransferObligation.swift in Sources */,

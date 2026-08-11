@@ -4,6 +4,7 @@ import Combine
 import CmuxAppKitSupportUI
 import CmuxCore
 import CmuxFoundation
+import CmuxNotifications
 import CmuxSettings
 import CmuxTerminal
 import CmuxTerminalCore
@@ -45,6 +46,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    @ObservationIgnored weak var notificationStore: TerminalNotificationStore?
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?
@@ -61,6 +63,8 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored private let terminalTitleUpdateCoalescer:
         NotificationBurstCoalescer
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+    /// Focused presentation of Dock panels whose agent lifecycle needs input.
+    @ObservationIgnored let agentNeedsInputAttention = SurfaceAttentionModel()
     @ObservationIgnored var restoredPanelTitleBoundariesByPanelId:
         [UUID: RestoredPanelTitleBoundary] = [:]
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
@@ -910,7 +914,7 @@ final class DockSplitStore: BonsplitDelegate {
         if let terminal = panel as? TerminalPanel {
             configureAgentHibernationResume(for: terminal)
         }
-        installAttentionFlashRouting(for: panel)
+        installAttentionRouting(for: panel)
         if let browser = panel as? BrowserPanel {
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),

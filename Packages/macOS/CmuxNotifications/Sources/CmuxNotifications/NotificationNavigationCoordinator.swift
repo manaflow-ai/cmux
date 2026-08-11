@@ -20,7 +20,8 @@ import Observation
 /// ``FocusedNotificationMarker``, owned by this coordinator and driven through
 /// the ``FocusedNotificationResolving`` seam; the coordinator exposes the two
 /// public focused-mark entry points and forwards to the marker, which delegates
-/// its jump step back to ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:)``.
+/// its jump step back to
+/// ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:excludingWindowDockTarget:)``.
 @MainActor
 @Observable
 public final class NotificationNavigationCoordinator: NotificationDeliveryTerminalNavigating {
@@ -30,7 +31,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     private let openRouting: any NotificationOpenRouting
     private let clickRouting: any NotificationClickRouting
     private let focusedResolving: any FocusedNotificationResolving
-    private let explicitFocusedJump: ((UUID?, UUID?) -> UUID?)?
+    private let explicitFocusedJump: ((UUID?, UUID?, WindowDockUnreadTarget?) -> UUID?)?
     /// The focused-mark state machine. Lazy so its default jump closure can
     /// capture `self` (allowed only after all stored properties are initialized);
     /// the closure is invoked later, on the main actor. `@ObservationIgnored`
@@ -40,10 +41,12 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     @ObservationIgnored
     private lazy var focusedMarker: FocusedNotificationMarker = FocusedNotificationMarker(
         resolver: focusedResolving,
-        jumpToLatestUnread: explicitFocusedJump ?? { [unowned self] excludedNotificationId, excludedWorkspaceId in
+        jumpToLatestUnread: explicitFocusedJump ?? {
+            [unowned self] excludedNotificationId, excludedWorkspaceId, excludedWindowDockTarget in
             self.jumpToLatestUnread(
                 excludingNotificationId: excludedNotificationId,
-                excludingWorkspaceId: excludedWorkspaceId
+                excludingWorkspaceId: excludedWorkspaceId,
+                excludingWindowDockTarget: excludedWindowDockTarget
             )
         }
     )
@@ -60,7 +63,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     ///   `jumpToLatestUnread` (which fires the `#if DEBUG` `jumpUnreadInvoked`
     ///   UI-test recorder and applies the nil-store guard), preserving byte-identical
     ///   recorder behavior. Defaults to this coordinator's plain
-    ///   ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:)``.
+    ///   ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:excludingWindowDockTarget:)``.
     public init(
         store: any NotificationNavigationStoreReading,
         windows: any MainWindowContextResolving,
@@ -68,7 +71,11 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         openRouting: any NotificationOpenRouting,
         clickRouting: any NotificationClickRouting,
         focusedResolving: any FocusedNotificationResolving,
-        focusedJump: ((_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?)? = nil
+        focusedJump: ((
+            _ excludingNotificationId: UUID?,
+            _ excludingWorkspaceId: UUID?,
+            _ excludingWindowDockTarget: WindowDockUnreadTarget?
+        ) -> UUID?)? = nil
     ) {
         self.store = store
         self.windows = windows
@@ -109,7 +116,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     @discardableResult
     public func jumpToLatestUnread(
         excludingNotificationId excludedNotificationId: UUID? = nil,
-        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil,
+        excludingWindowDockTarget excludedWindowDockTarget: WindowDockUnreadTarget? = nil
     ) -> UUID? {
         for notification in store.orderedNotifications
         where notification.isOpenableForJump(
@@ -120,8 +128,27 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
                 return notification.id
             }
         }
+        if openLatestWindowDockUnread(excludingTarget: excludedWindowDockTarget) {
+            return nil
+        }
         _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
         return nil
+    }
+
+    private func openLatestWindowDockUnread(
+        excludingTarget excludedTarget: WindowDockUnreadTarget?
+    ) -> Bool {
+        for target in store.windowDockUnreadTargets
+        where target != excludedTarget {
+            guard openRouting.openWindowDockUnread(target) else { continue }
+            signalDidFocusForJumpUnread(
+                tabId: target.windowId,
+                surfaceId: target.surfaceId
+            )
+            store.clearWindowDockUnread(target)
+            return true
+        }
+        return false
     }
 
     private func openLatestWorkspaceUnread(excludingWorkspaceId excludedWorkspaceId: UUID? = nil) -> Bool {
