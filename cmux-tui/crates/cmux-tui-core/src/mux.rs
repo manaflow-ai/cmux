@@ -2188,6 +2188,7 @@ impl AsyncSurfaceCreationGate {
     fn stop_and_wait_until(&self, deadline: Instant) -> bool {
         let mut state = self.inner.state.lock().unwrap();
         state.shutting_down = true;
+        self.inner.idle.notify_all();
         while state.active != 0 {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return false;
@@ -2195,6 +2196,22 @@ impl AsyncSurfaceCreationGate {
             let (next, timeout) = self.inner.idle.wait_timeout(state, remaining).unwrap();
             state = next;
             if timeout.timed_out() && state.active != 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[cfg(test)]
+    fn wait_until_stopping(&self, deadline: Instant) -> bool {
+        let mut state = self.inner.state.lock().unwrap();
+        while !state.shutting_down {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.inner.idle.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && !state.shutting_down {
                 return false;
             }
         }
@@ -27854,31 +27871,34 @@ mod tests {
     }
 
     #[test]
-    fn daemon_exit_retries_until_async_surface_creation_releases_ownership() {
+    fn daemon_exit_waits_for_async_surface_creation_release() {
         let mux = test_mux();
-        mux.set_shutdown_attempt_timeout_for_test(crate::test_timeout(Duration::from_millis(25)));
         let creation = mux.async_surface_creations.begin().unwrap();
 
         let (shutdown_done_tx, shutdown_done_rx) = std::sync::mpsc::sync_channel(1);
         let shutdown = std::thread::spawn({
             let mux = mux.clone();
             move || {
-                mux.shutdown().unwrap();
-                shutdown_done_tx.send(()).unwrap();
+                shutdown_done_tx.send(mux.shutdown()).unwrap();
             }
         });
-        let finished_early =
-            shutdown_done_rx.recv_timeout(crate::test_timeout(Duration::from_millis(100))).is_ok();
-        drop(creation);
-        if !finished_early {
-            shutdown_done_rx.recv_timeout(crate::test_timeout(Duration::from_secs(2))).unwrap();
-        }
-        shutdown.join().unwrap();
-
         assert!(
-            !finished_early,
+            mux.async_surface_creations
+                .wait_until_stopping(Instant::now() + Duration::from_secs(1)),
+            "daemon exit did not stop the async creation owner"
+        );
+        assert!(
+            matches!(shutdown_done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
             "daemon exit completed while an async creation still owned in-flight work"
         );
+
+        drop(creation);
+        shutdown_done_rx
+            .recv_timeout(crate::test_timeout(Duration::from_secs(2)))
+            .unwrap()
+            .unwrap();
+        shutdown.join().unwrap();
+
         assert!(!mux.browser_runtime.has_runtime_for_test());
     }
 
