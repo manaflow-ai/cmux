@@ -2373,7 +2373,7 @@ impl Mux {
             let terminal = registry.terminal_record(terminal_id)?.ok_or_else(|| {
                 terminal_close_state_error(format!("terminal close omitted host {terminal_id}"))
             })?;
-            vec![(terminal_id.to_string(), Some(terminal.incarnation))]
+            vec![(terminal_id.to_string(), terminal.incarnation)]
         } else {
             Vec::new()
         };
