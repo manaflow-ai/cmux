@@ -264,6 +264,54 @@ struct TerminalSurfaceLaunchResolverTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func hungLaunchResourceCheckUsesInjectedDeadlineFallback() async throws {
+        let blocker = DispatchSemaphore(value: 0)
+        defer { blocker.signal() }
+        let clock = LaunchResolverManualClock()
+        let filesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+            installAgentCommandShims: { _, _, _ in nil },
+            isExecutableFile: { _ in false },
+            directoryExists: { _ in
+                blocker.wait()
+                return true
+            }
+        )
+        let resolver = makeResolver(
+            defaultArguments: ["/bin/zsh", "-l"],
+            runtimeFilesystem: filesystem,
+            resourceURL: URL(fileURLWithPath: "/tmp/cmux-test-resources"),
+            launchResourceSnapshotDeadline: .seconds(5),
+            launchResourceSnapshotDeadlineClock: clock
+        )
+        let request = TerminalSurfaceLaunchRequest(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            configTemplate: nil,
+            workingDirectory: nil,
+            portOrdinal: 0,
+            initialCommand: nil,
+            initialInput: nil,
+            initialEnvironmentOverrides: [:],
+            additionalEnvironment: [:]
+        )
+        let firstResolution = Task {
+            await resolver.resolveInstallingCommandShim(request)
+        }
+        try await clock.waitUntilSleepers()
+
+        clock.advance(by: .seconds(5))
+        let firstResolved = await firstResolution.value.resolvedLaunch
+        let secondResolved = (
+            await resolver.resolveInstallingCommandShim(request)
+        ).resolvedLaunch
+
+        #expect(firstResolved.environment["CMUX_BUNDLED_CLI_PATH"] == nil)
+        #expect(firstResolved.environment["GHOSTTY_BIN"] == nil)
+        #expect(secondResolved.environment == firstResolved.environment)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func hungDefaultShellLookupUsesInjectedDeadlineFallback() async throws {
         let blocker = DispatchSemaphore(value: 0)
         defer { blocker.signal() }
@@ -414,6 +462,8 @@ struct TerminalSurfaceLaunchResolverTests {
         userGhosttyCommand: String? = nil,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem? = nil,
         resourceURL: URL? = nil,
+        launchResourceSnapshotDeadline: Duration = .seconds(5),
+        launchResourceSnapshotDeadlineClock: any Clock<Duration> = ContinuousClock(),
         agentCommandShimInstallDeadline: Duration = .seconds(5),
         agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock()
     ) -> TerminalSurfaceLaunchResolver {
@@ -437,6 +487,8 @@ struct TerminalSurfaceLaunchResolverTests {
             ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
             defaultShellArguments: defaultArguments,
             asynchronousDefaultShellArguments: defaultArgumentsProvider,
+            launchResourceSnapshotDeadline: launchResourceSnapshotDeadline,
+            launchResourceSnapshotDeadlineClock: launchResourceSnapshotDeadlineClock,
             agentCommandShimInstallDeadline: agentCommandShimInstallDeadline,
             agentCommandShimInstallDeadlineClock: agentCommandShimInstallDeadlineClock
         )
