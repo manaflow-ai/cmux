@@ -42,7 +42,6 @@ const SMART_RENDERER_PROTOCOL_VERSION: u16 = 3;
 const HOST_EXIT_RECORD_VERSION: u32 = 1;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
-const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
@@ -5337,10 +5336,6 @@ mod unix {
             self.take(length)
         }
 
-        fn blob(&mut self) -> anyhow::Result<&'a [u8]> {
-            self.bytes_with_limit(MAX_BLOB)
-        }
-
         fn string(&mut self) -> anyhow::Result<String> {
             Ok(std::str::from_utf8(self.bytes_with_limit(MAX_STRING)?)?.to_string())
         }
@@ -5372,15 +5367,6 @@ mod unix {
 
     fn put_string(output: &mut Vec<u8>, value: &str) -> anyhow::Result<()> {
         put_bytes(output, value.as_bytes())
-    }
-
-    fn put_blob(output: &mut Vec<u8>, value: &[u8]) -> anyhow::Result<()> {
-        if value.len() > MAX_BLOB {
-            anyhow::bail!("terminal-host payload blob is too large");
-        }
-        output.extend_from_slice(&(value.len() as u32).to_le_bytes());
-        output.extend_from_slice(value);
-        Ok(())
     }
 
     fn put_optional_string(output: &mut Vec<u8>, value: Option<&str>) -> anyhow::Result<()> {
