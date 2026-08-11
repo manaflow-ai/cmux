@@ -1379,6 +1379,31 @@ impl State {
         removed
     }
 
+    pub(crate) fn remove_screen_at(
+        &mut self,
+        workspace_index: usize,
+        screen_index: usize,
+    ) -> Screen {
+        let workspace = &mut self.workspaces[workspace_index];
+        let removed = workspace.screens.remove(screen_index);
+        workspace.active_screen =
+            workspace.active_screen.min(workspace.screens.len().saturating_sub(1));
+        let shifted = workspace
+            .screens
+            .iter()
+            .enumerate()
+            .skip(screen_index)
+            .map(|(index, screen)| (screen.id, index))
+            .collect::<Vec<_>>();
+        self.resource_indexes.screen_positions.remove(&removed.id);
+        for (screen, index) in shifted {
+            self.resource_indexes
+                .screen_positions
+                .insert(screen, (workspace_index, index));
+        }
+        removed
+    }
+
     pub(crate) fn push_workspace(&mut self, workspace: Workspace) {
         let index = self.workspaces.len();
         debug_assert!(!self.workspace_index_by_id.contains_key(&workspace.id));
@@ -1535,12 +1560,13 @@ impl State {
 
     /// Workspace and screen indices of the screen containing a pane.
     pub fn screen_of(&self, pane: PaneId) -> Option<(usize, usize)> {
-        if let Some(position) = self
-            .resource_indexes
-            .pane_screen
-            .get(&pane)
-            .and_then(|screen| self.resource_indexes.screen_positions.get(screen))
-            .copied()
+        if let Some(screen_id) = self.resource_indexes.pane_screen.get(&pane)
+            && let Some(position) = self.resource_indexes.screen_positions.get(screen_id).copied()
+            && self
+                .workspaces
+                .get(position.0)
+                .and_then(|workspace| workspace.screens.get(position.1))
+                .is_some_and(|screen| screen.id == *screen_id)
         {
             return Some(position);
         }

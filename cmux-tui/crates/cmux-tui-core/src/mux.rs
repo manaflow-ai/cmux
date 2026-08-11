@@ -16474,10 +16474,8 @@ fn remove_surface_without_focus_stamp(
     }
 
     // Screen emptied: drop it from the workspace.
-    let ws = &mut state.workspaces[wi];
-    ws.screens.remove(si);
-    ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
-    if !ws.screens.is_empty() {
+    state.remove_screen_at(wi, si);
+    if !state.workspaces[wi].screens.is_empty() {
         return (removed, true);
     }
 
@@ -16513,9 +16511,7 @@ fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {
             state.workspaces[wi].screens[si].active_pane = next;
         }
     } else {
-        let ws = &mut state.workspaces[wi];
-        ws.screens.remove(si);
-        ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
+        state.remove_screen_at(wi, si);
     }
 }
 
