@@ -303,6 +303,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(tailscaleMethod.isSelected)
         XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
         tap(tailscaleMethod, in: app)
+        XCTAssertTrue(
+            app.buttons["MobileOnboardingSecondaryButton"].waitForNonExistence(timeout: 2)
+        )
 
         let scanPairingCodeButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(scanPairingCodeButton.waitForExistence(timeout: 4))
@@ -342,6 +345,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+        tap(automaticMethod, in: app)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
 
         app.terminate()
         XCUIDevice.shared.orientation = .landscapeRight
@@ -437,6 +442,37 @@ final class cmuxUITests: XCTestCase {
             tailscaleApp.descendants(matching: .any)["MobileAddDeviceForm"]
                 .waitForExistence(timeout: 4)
         )
+    }
+
+    /// An externally supplied Auto-Connect attach ticket may still need an
+    /// explicit compatibility approval. That approval must remain reachable
+    /// without restoring any manual Add Computer controls.
+    @MainActor
+    func testAutomaticAttachVersionApprovalDoesNotExposeManualPairing() throws {
+        let attachURL = try attachURL(
+            port: UInt16(CmxMobileDefaults.defaultHostPort),
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion + 1
+        )
+        let app = launchApp(
+            mockData: true,
+            environment: [
+                "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            ],
+            launchArguments: [
+                "-dev.cmux.mobile.connectionMethod.v1", "automatic",
+            ]
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.staticTexts["MobilePairingVersionWarning"].waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(app.buttons["MobilePairingVersionWarningContinueButton"].exists)
+        XCTAssertFalse(app.otherElements["MobileAddDeviceForm"].exists)
+        XCTAssertFalse(app.buttons["MobileScanQRCodeButton"].exists)
+        XCTAssertFalse(app.buttons["MobilePairButton"].exists)
     }
 
     @MainActor
@@ -5929,7 +5965,10 @@ final class cmuxUITests: XCTestCase {
         return app
     }
 
-    private func attachURL(port: UInt16) throws -> URL {
+    private func attachURL(
+        port: UInt16,
+        macPairingCompatibilityVersion: Int = CmxMobileDefaults.pairingCompatibilityVersion
+    ) throws -> URL {
         let route = try CmxAttachRoute(
             id: "debug_loopback",
             kind: .debugLoopback,
@@ -5940,7 +5979,7 @@ final class cmuxUITests: XCTestCase {
             terminalID: nil,
             macDeviceID: "ui-test-mac",
             macDisplayName: "UI Test Mac",
-            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macPairingCompatibilityVersion: macPairingCompatibilityVersion,
             routes: [route],
             expiresAt: Date(timeIntervalSinceNow: 60 * 60),
             authToken: "ui-test-ticket"
