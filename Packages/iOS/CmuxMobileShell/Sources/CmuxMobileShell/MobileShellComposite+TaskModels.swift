@@ -154,6 +154,10 @@ extension MobileShellComposite {
             }
             return MobileTaskModelListResult(models: models, source: source)
         } catch {
+            // View lifecycle and connection-trigger retries intentionally
+            // cancel superseded probes. Cancellation says nothing about Mac
+            // availability and must never enter transport recovery.
+            guard !Task.isCancelled else { throw error }
             if context.isCurrent(
                 macDeviceID: foregroundMacDeviceID,
                 instanceTag: activeMacInstanceTag,

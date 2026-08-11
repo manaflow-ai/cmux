@@ -4,40 +4,40 @@ import Testing
 @testable import CmuxMobileShellUI
 
 @Suite struct TaskComposerModelRefreshIDTests {
-    @Test func foregroundConnectionChangeDoesNotReplaceTheRequestOwner() {
-        let beforeSwitch = TaskComposerModelRefreshID(
+    @Test func foregroundConnectionChangeRetriesTheSameRequestOwner() {
+        let requestID = TaskComposerModelRefreshID(
             provider: .claude,
-            macPairingID: "selected-mac#nightly",
+            macPairingID: "selected-mac#nightly"
+        )
+        let beforeSwitch = TaskComposerModelRefreshTrigger(
+            requestID: requestID,
             connectedMacPairingID: "other-mac#stable"
         )
-        let afterSwitch = TaskComposerModelRefreshID(
-            provider: .claude,
-            macPairingID: "selected-mac#nightly",
+        let afterSwitch = TaskComposerModelRefreshTrigger(
+            requestID: requestID,
             connectedMacPairingID: "selected-mac#nightly"
         )
 
-        #expect(beforeSwitch == afterSwitch)
+        #expect(beforeSwitch != afterSwitch)
+        #expect(beforeSwitch.requestID == afterSwitch.requestID)
     }
 
-    @Test func failedProbeRepeatsOnceFromTheSettledConnection() {
-        let refresh = TaskComposerModelRefreshID(
+    @Test func providerOrSelectedMacReplacesTheRequestOwner() {
+        let initial = TaskComposerModelRefreshID(
             provider: .claude,
-            macPairingID: "selected-mac#nightly",
-            connectedMacPairingID: "other-mac#stable"
+            macPairingID: "selected-mac#nightly"
+        )
+        let changedProvider = TaskComposerModelRefreshID(
+            provider: .codex,
+            macPairingID: "selected-mac#nightly"
+        )
+        let changedMac = TaskComposerModelRefreshID(
+            provider: .claude,
+            macPairingID: "other-mac#stable"
         )
 
-        #expect(refresh.shouldRefreshAgain(
-            connectedMacPairingID: "selected-mac#nightly",
-            source: .backend
-        ))
-        #expect(!refresh.shouldRefreshAgain(
-            connectedMacPairingID: "selected-mac#nightly",
-            source: .discovered
-        ))
-        #expect(!refresh.shouldRefreshAgain(
-            connectedMacPairingID: "other-mac#stable",
-            source: .backend
-        ))
+        #expect(initial != changedProvider)
+        #expect(initial != changedMac)
     }
 }
 #endif

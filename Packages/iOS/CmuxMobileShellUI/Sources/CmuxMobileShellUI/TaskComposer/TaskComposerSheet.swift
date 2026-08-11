@@ -331,10 +331,10 @@ struct TaskComposerSheet: View {
         .background(TaskComposerInitialFocusCoordinator(
             isEnabled: !submissionPhase.disablesRequestEditing
         ))
-        // Observe the request identity explicitly so the first provider loads
-        // as the sheet appears and later provider/Mac changes cancel and
-        // replace the in-flight refresh through the same lifecycle path.
-        .onChange(of: modelRefreshID, initial: true) { _, _ in
+        // The provider/Mac owns results, while each foreground-connection
+        // snapshot is a new opportunity to run that request. Keeping those
+        // identities separate lets a settling connection retry immediately.
+        .onChange(of: modelRefreshTrigger, initial: true) { _, _ in
             restartModelRefresh()
         }
     }
@@ -457,7 +457,13 @@ struct TaskComposerSheet: View {
             provider: selectedTemplate.flatMap {
                 MobileTaskAgentProvider(command: $0.command)
             },
-            macPairingID: selectedMacPairingID,
+            macPairingID: selectedMacPairingID
+        )
+    }
+
+    private var modelRefreshTrigger: TaskComposerModelRefreshTrigger {
+        TaskComposerModelRefreshTrigger(
+            requestID: modelRefreshID,
             connectedMacPairingID: store.connectedMacDeviceID.map {
                 MobilePairedMac.pairingID(
                     macDeviceID: $0,
@@ -510,20 +516,8 @@ struct TaskComposerSheet: View {
             ) {
                 displayedModels = refreshedModels
             }
-            let source = store.taskModelListSource(
-                provider: provider,
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            )
-            let shouldRefreshAgain = refreshID.shouldRefreshAgain(
-                connectedMacPairingID: modelRefreshID.connectedMacPairingID,
-                source: source
-            )
             modelRefreshTask = nil
             modelRefreshOperationID = nil
-            if shouldRefreshAgain {
-                restartModelRefresh()
-            }
         }
     }
 
