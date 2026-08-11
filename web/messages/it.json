@@ -158,6 +158,7 @@
       "signOut": "Esci",
       "signingOut": "Uscita…",
       "signOutError": "Impossibile uscire. Riprova.",
+      "organizationSwitchError": "Impossibile cambiare organizzazione. Riprova.",
       "signIn": "Accedi"
     },
     "aiAccounts": {
