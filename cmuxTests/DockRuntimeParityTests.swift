@@ -1296,6 +1296,7 @@ struct DockRuntimeParityTests {
             #expect(appDelegate.tabManager === primaryManager)
             #expect(appDelegate.dockReferenceTabManager(for: dock) === secondaryManager)
 
+            terminal.surface.requestInputDemandSurfaceStartIfNeeded()
             await waitForLiveSurface(terminal.surface)
             let event = try #require(NSEvent.keyEvent(
                 with: .keyDown,
