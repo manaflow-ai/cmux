@@ -1415,7 +1415,26 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
 /// Return the kernel PID version used for exact macOS process signaling.
 #[cfg(target_os = "macos")]
 pub(crate) fn mac_process_pid_version(pid: u32) -> Option<u32> {
-    Some(process_identity(pid)?.started as u32)
+    const PROC_PIDUNIQIDENTIFIERINFO: libc::c_int = 17;
+    let pid_int = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<MacProcessUniqueInfo>::zeroed();
+    let size = libc::c_int::try_from(size_of::<MacProcessUniqueInfo>()).ok()?;
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid_int,
+            PROC_PIDUNIQIDENTIFIERINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if written != size {
+        return None;
+    }
+    // SAFETY: proc_pidinfo initialized the full structure. This narrow flavor
+    // exposes the kernel PID version without the BSD metadata access check.
+    let info = unsafe { info.assume_init() };
+    Some(info.id_version as u32)
 }
 
 #[cfg(target_os = "macos")]
