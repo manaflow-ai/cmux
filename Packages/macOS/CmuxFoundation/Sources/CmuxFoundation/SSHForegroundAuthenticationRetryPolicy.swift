@@ -2096,6 +2096,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # A failed freeze can still have a write-ahead record. Include every
           # such identity in the final kill or EXIT-resume decision.
           cmux_ssh_auth_direct_records="$cmux_ssh_auth_direct_stopped_records"
+          # An incomplete scan does not prove ownership of the full tree. Exit
+          # before KILL so the EXIT trap resumes every exact stopped identity and
+          # leaves the root alive for a later cleanup attempt.
+          if [ "$cmux_ssh_auth_direct_capture_status" != 0 ]; then exit "$cmux_ssh_auth_direct_capture_status"; fi
           cmux_ssh_auth_direct_kill_status=0
           printf '%s\n' "$cmux_ssh_auth_direct_records" | (
             cmux_ssh_auth_direct_record_status=0
