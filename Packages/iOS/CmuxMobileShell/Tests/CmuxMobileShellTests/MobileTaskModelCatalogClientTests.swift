@@ -104,7 +104,7 @@ struct MobileTaskModelCatalogClientTests {
     }
 
     @MainActor
-    @Test func safeHostProbeWinsWhenCapabilitySnapshotIsStale() async throws {
+    @Test func safeHostProbeOverridesBackendWhenCapabilitySnapshotIsStale() async throws {
         let probe = MobileTaskModelCatalogProbe(responses: [
             catalogData(claude: [("backend-next-999", "Backend Next 999")]),
         ])
@@ -146,7 +146,62 @@ struct MobileTaskModelCatalogClientTests {
             macDeviceID: "test-mac",
             instanceTag: nil
         ) == .discovered)
-        #expect(await probe.requestCount == 0)
+    }
+
+    @MainActor
+    @Test func backendAppearsWhileSlowHostDiscoveryContinuesThenHostWins() async throws {
+        let probe = MobileTaskModelCatalogProbe(responses: [
+            catalogData(claude: [("backend-next-999", "Backend Next 999")]),
+        ])
+        let router = RoutingHostRouter()
+        await router.setTaskModels(
+            [
+                MobileTaskAgentModel(
+                    id: "host-next-999",
+                    displayName: "Host Next 999"
+                ),
+            ],
+            provider: .claude
+        )
+        await router.setHoldTaskModelList(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [],
+            taskModelCatalogClient: makeClient(probe: probe)
+        )
+        let connectedRefresh = Task { @MainActor in
+            await store.refreshTaskModels(
+                provider: .claude,
+                macDeviceID: "test-mac",
+                instanceTag: nil
+            )
+        }
+        await router.awaitTaskModelListReached()
+        for _ in 0..<100 {
+            if store.taskModelListSource(
+                provider: .claude,
+                macDeviceID: "test-mac",
+                instanceTag: nil
+            ) == .backend {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(store.discoveredTaskModels(
+            provider: .claude,
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        )?.map(\.id) == ["backend-next-999"])
+
+        await router.releaseTaskModelList()
+        await connectedRefresh.value
+
+        #expect(store.discoveredTaskModels(
+            provider: .claude,
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        )?.map(\.id) == ["host-next-999"])
+        #expect(await probe.requestCount == 1)
     }
 
     @MainActor

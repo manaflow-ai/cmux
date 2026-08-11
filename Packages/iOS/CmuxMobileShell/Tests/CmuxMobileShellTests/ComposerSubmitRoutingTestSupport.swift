@@ -73,6 +73,10 @@ actor RoutingHostRouter {
     private var directorySearchError: (code: String?, message: String)?
     private var taskModelsByProvider: [String: [MobileTaskAgentModel]] = [:]
     private var taskModelListProviders: [String] = []
+    private var holdTaskModelList = false
+    private var taskModelListHeld = false
+    private var taskModelListContinuation: CheckedContinuation<Void, Never>?
+    private var taskModelListReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -148,6 +152,21 @@ actor RoutingHostRouter {
         provider: MobileTaskAgentProvider
     ) {
         taskModelsByProvider[provider.rawValue] = models
+    }
+
+    func setHoldTaskModelList(_ hold: Bool) {
+        holdTaskModelList = hold
+    }
+
+    func awaitTaskModelListReached() async {
+        if taskModelListHeld { return }
+        await withCheckedContinuation { taskModelListReachedWaiters.append($0) }
+    }
+
+    func releaseTaskModelList() {
+        let continuation = taskModelListContinuation
+        taskModelListContinuation = nil
+        continuation?.resume()
     }
 
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
@@ -363,6 +382,13 @@ actor RoutingHostRouter {
         case "mobile.task.models.list":
             let provider = info.provider ?? ""
             taskModelListProviders.append(provider)
+            if holdTaskModelList {
+                taskModelListHeld = true
+                let reachedWaiters = taskModelListReachedWaiters
+                taskModelListReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { taskModelListContinuation = $0 }
+            }
             let models = taskModelsByProvider[provider, default: []].map { model in
                 ["id": model.id, "display_name": model.displayName]
             }
