@@ -9181,6 +9181,7 @@ impl Mux {
                         // no longer need an acknowledgement, and retaining a
                         // blocked removal would leak this registry entry.
                         budget.entries.remove(&id);
+                        budget.blocked_surfaces.remove(&id);
                     } else if budget.entries.contains_key(&id) {
                         budget.blocked_surfaces.insert(id);
                     }
