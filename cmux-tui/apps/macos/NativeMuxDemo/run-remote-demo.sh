@@ -30,7 +30,11 @@ fi
 
 lifecycle_event() {
   [[ -n "$LIFECYCLE_PIPE" ]] || return 0
-  printf '%s\n' "$1" >"$LIFECYCLE_PIPE"
+  /usr/bin/perl -MFcntl=O_WRONLY,O_NONBLOCK -e '
+    my ($path, $event) = @ARGV;
+    sysopen(my $channel, $path, O_WRONLY | O_NONBLOCK) or exit 1;
+    print {$channel} "$event\n" or exit 1;
+  ' "$LIFECYCLE_PIPE" "$1"
 }
 
 DEMO_BUILD_ROOT="$TUI_ROOT/target/native-mux-demo"

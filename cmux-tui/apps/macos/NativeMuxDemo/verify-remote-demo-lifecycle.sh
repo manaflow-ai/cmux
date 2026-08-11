@@ -91,12 +91,12 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   LAUNCH_LOG="$TEST_ROOT/launcher-$run.log"
   LIFECYCLE_PIPE="$TEST_ROOT/lifecycle-$run.pipe"
   /usr/bin/mkfifo "$LIFECYCLE_PIPE"
+  exec 7<>"$LIFECYCLE_PIPE"
+  LIFECYCLE_FD_OPEN=1
   APP_PIDS_BEFORE="$(matching_app_pids)"
   CMUX_NATIVE_LIFECYCLE_PIPE="$LIFECYCLE_PIPE" \
     "$RUN_REMOTE_DEMO" "$REMOTE_HOST" >"$LAUNCH_LOG" 2>&1 &
   LAUNCHER_PID=$!
-  exec 7<>"$LIFECYCLE_PIPE"
-  LIFECYCLE_FD_OPEN=1
 
   set +e
   cmux_wait_for_remote_demo_ready \
