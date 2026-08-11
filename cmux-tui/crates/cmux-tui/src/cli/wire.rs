@@ -435,6 +435,18 @@ fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
 }
 
 fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
+    localize_operation_error_with_messages(
+        plan,
+        error,
+        &crate::localization::catalog().local_server,
+    );
+}
+
+fn localize_operation_error_with_messages(
+    plan: &RequestPlan,
+    error: &mut Value,
+    messages: &crate::localization::LocalServerMessages,
+) {
     let is_lifecycle_operation = matches!(
         &plan.operation,
         WireOperation::Typed(
@@ -444,10 +456,15 @@ fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
     );
     if is_lifecycle_operation
         && error["code"] == "operation.failed"
-        && error["details"]["reason"] == "lifecycle_not_ready"
     {
-        error["message"] =
-            Value::String(crate::localization::catalog().local_server.starting.to_string());
+        let message = match error["details"]["reason"].as_str() {
+            Some("lifecycle_not_ready") => Some(messages.starting),
+            Some("owner_stopped") => Some(messages.reload_owner_stopped),
+            _ => None,
+        };
+        if let Some(message) = message {
+            error["message"] = Value::String(message.to_string());
+        }
     }
 }
 
@@ -791,5 +808,42 @@ mod tests {
         };
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
+    }
+
+    #[test]
+    fn stopped_owner_reload_error_is_localized_for_human_output() {
+        let plan = RequestPlan {
+            operation: WireOperation::Typed(ResourceOperation::SessionReloadConfig),
+            params: json!({}),
+            idempotency_key: Some("reload-owner-stopped".into()),
+            stream: false,
+        };
+        let mut english = json!({
+            "code":"operation.failed",
+            "message":"owner_stopped",
+            "details":{"operation":"session.reload_config","reason":"owner_stopped"},
+            "retryable":false,
+        });
+        let mut japanese = english.clone();
+
+        localize_operation_error_with_messages(
+            &plan,
+            &mut english,
+            &crate::localization::catalog_for_locale("en_US.UTF-8").local_server,
+        );
+        localize_operation_error_with_messages(
+            &plan,
+            &mut japanese,
+            &crate::localization::catalog_for_locale("ja_JP.UTF-8").local_server,
+        );
+
+        assert_eq!(
+            english["message"],
+            "the local server stopped before it applied the configuration reload; start the session and retry"
+        );
+        assert_eq!(
+            japanese["message"],
+            "ローカルサーバーが設定の再読み込みを適用する前に停止しました。セッションを起動して再試行してください"
+        );
     }
 }
