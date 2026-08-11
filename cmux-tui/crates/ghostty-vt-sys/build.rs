@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -72,13 +72,13 @@ fn main() {
 /// Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
 /// profile: the VT parser is on the PTY hot path and a debug zig build is an
 /// order of magnitude slower.
-fn build_libghostty_vt(ghostty_dir: &PathBuf, out_dir: &PathBuf, target: &str) -> PathBuf {
+fn build_libghostty_vt(ghostty_dir: &Path, out_dir: &Path, target: &str) -> PathBuf {
     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".to_string());
     let prefix = out_dir.join("ghostty-vt");
     let host = env::var("HOST").unwrap();
     let mut command = Command::new(&zig);
     command
-        .current_dir(&ghostty_dir)
+        .current_dir(ghostty_dir)
         .arg("build")
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
@@ -108,7 +108,7 @@ fn build_libghostty_vt(ghostty_dir: &PathBuf, out_dir: &PathBuf, target: &str) -
 
 /// Generate Rust bindings from the public C header. This needs the ghostty
 /// sources but no zig, so it runs the same way for a prebuilt archive.
-fn generate_bindings(ghostty_dir: &PathBuf, out_dir: &PathBuf, _target: &str) {
+fn generate_bindings(ghostty_dir: &Path, out_dir: &Path, _target: &str) {
     let include_dir = ghostty_dir.join("include");
     let bindings = bindgen::Builder::default()
         .header(include_dir.join("ghostty/vt.h").to_str().unwrap().to_string())
