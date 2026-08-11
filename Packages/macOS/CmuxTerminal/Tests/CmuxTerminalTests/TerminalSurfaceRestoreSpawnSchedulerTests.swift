@@ -837,6 +837,16 @@ import CmuxTerminalCore
             rejectedAfterStall.surface
                 .runtimeSurfaceAdmissionDeferredCreationSource != nil
         )
+
+        deferredFixtures[0].surface.createSurface(
+            for: deferredFixtures[0].nativeView
+        )
+        scheduler.runScheduledOperation(at: deferredFixtures.count + 1)
+        #expect(
+            deferredFixtures[0].paneHost.runtimeSurfaceCreationFailureMessages
+                == [expectedMessage],
+            "repeated creation discarded its existing primary recovery owner"
+        )
         let firstDeferredAttemptCount = deferredFixtures[0].surface
             .debugRuntimeSurfaceCreateAttemptCountForTesting()
 
