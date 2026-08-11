@@ -1070,10 +1070,13 @@ static int prepare_broker_security(const BootstrapConfig *config, BrokerSecurity
     PSID low_sid = NULL;
     SID_AND_ATTRIBUTES restricting;
     TOKEN_MANDATORY_LABEL label;
+    DWORD error;
     memory_zero(security, sizeof(*security));
+    /* CreateRestrictedToken preserves this handle's rights. Low-integrity labeling needs
+       TOKEN_ADJUST_DEFAULT on the returned restricted-token handle. */
     if (!OpenProcessToken(
             GetCurrentProcess(),
-            TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_PRIVILEGES,
+            TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_PRIVILEGES | TOKEN_ADJUST_DEFAULT,
             &security->primary_token)
         || !enable_se_increase_quota(
             security->primary_token,
@@ -1124,8 +1127,10 @@ static int prepare_broker_security(const BootstrapConfig *config, BrokerSecurity
     LocalFree(low_sid);
     return 1;
 failure:
+    error = GetLastError();
     if (low_sid != NULL) LocalFree(low_sid);
     close_broker_security(security);
+    SetLastError(error);
     return 0;
 }
 
