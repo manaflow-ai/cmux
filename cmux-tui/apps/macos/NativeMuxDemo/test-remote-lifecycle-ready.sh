@@ -7,6 +7,7 @@ READY_HELPER="$SCRIPT_DIR/remote-lifecycle-ready.sh"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/cmux-remote-ready-test.XXXXXX")"
 CHILD_PID=""
 EVENT_FD_OPEN=0
+EVENT_READ_FD_OPEN=0
 
 cleanup() {
   set +e
@@ -16,6 +17,9 @@ cleanup() {
   fi
   if [[ "$EVENT_FD_OPEN" == "1" ]]; then
     exec 7<&-
+  fi
+  if [[ "$EVENT_READ_FD_OPEN" == "1" ]]; then
+    exec 8<&-
   fi
   rm -rf -- "$TEST_ROOT"
 }
@@ -141,6 +145,31 @@ wait "$CHILD_PID"
 CHILD_PID=""
 if [[ "$STATUS" != "10" ]]; then
   echo "An early launcher exit returned $STATUS instead of status 10." >&2
+  exit 1
+fi
+
+EVENT_PIPE="$TEST_ROOT/silent-exit-events"
+mkfifo "$EVENT_PIPE"
+(
+  printf 'daemon-starting\n' >"$EVENT_PIPE"
+) &
+CHILD_PID=$!
+exec 7<>"$EVENT_PIPE"
+EVENT_FD_OPEN=1
+exec 8<"$EVENT_PIPE"
+EVENT_READ_FD_OPEN=1
+set +e
+cmux_wait_for_remote_demo_ready 8 "$CHILD_PID" 2 2
+STATUS=$?
+set -e
+exec 8<&-
+EVENT_READ_FD_OPEN=0
+exec 7<&-
+EVENT_FD_OPEN=0
+wait "$CHILD_PID"
+CHILD_PID=""
+if [[ "$STATUS" != "10" ]]; then
+  echo "A silent launcher exit returned $STATUS instead of status 10." >&2
   exit 1
 fi
 
