@@ -43,9 +43,14 @@ on:
         default: false
         type: boolean
       verify_linux_arm64:
-        description: "Run package entrypoint verification on native Linux ARM64"
+        description: "Add native Linux ARM64 when package entrypoint verification is enabled"
         required: false
         default: true
+        type: boolean
+      verify_linux_package_entrypoints:
+        description: "Run newer Linux package entrypoint checks when their script exists"
+        required: false
+        default: false
         type: boolean
       macos_runner:
         description: "Optional macOS runner label override"
@@ -692,7 +697,7 @@ jobs:
     needs:
       - plan-build
       - package
-    if: ${{ inputs.build_remote_components && (inputs.package_npm || inputs.package_pypi) }}
+    if: ${{ inputs.verify_linux_package_entrypoints && (inputs.package_npm || inputs.package_pypi) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:

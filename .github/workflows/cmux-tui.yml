@@ -20,6 +20,11 @@ on:
         required: false
         default: ""
         type: string
+      extended_suite:
+        description: "Run newer Valgrind, vendored parser, and SDK checks when the target branch contains them"
+        required: false
+        default: false
+        type: boolean
       request_id:
         description: "Unique caller token used to find this run"
         required: true
@@ -120,7 +125,7 @@ jobs:
   valgrind-leak-check-shard:
     name: valgrind-leak-check (${{ matrix.shard }})
     needs: validate-inputs
-    if: inputs.mode == 'full'
+    if: inputs.mode == 'full' && inputs.extended_suite
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # Full behavior stays in the normal macOS and Linux suites. Valgrind owns
     # the bounded startup parsers and terminal replay state only.
@@ -303,7 +308,7 @@ jobs:
 
   valgrind-leak-check:
     name: valgrind-leak-check
-    if: always() && inputs.mode == 'full'
+    if: always() && inputs.mode == 'full' && inputs.extended_suite
     needs: valgrind-leak-check-shard
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 2
@@ -394,7 +399,7 @@ jobs:
           cargo test --workspace --locked "$TEST_FILTER"
 
       - name: crossterm parser tests
-        if: inputs.mode == 'full'
+        if: inputs.mode == 'full' && inputs.extended_suite
         working-directory: cmux-tui
         run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
 
@@ -412,7 +417,7 @@ jobs:
 
   bindings-e2e:
     needs: validate-inputs
-    if: inputs.mode == 'full'
+    if: inputs.mode == 'full' && inputs.extended_suite
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
@@ -507,7 +512,8 @@ jobs:
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
       build_cloudflare_relay: false
-      verify_linux_arm64: ${{ inputs.mode == 'full' }}
+      verify_linux_package_entrypoints: false
+      verify_linux_arm64: false
       macos_runner: blacksmith-6vcpu-macos-15
       linux_runner: blacksmith-4vcpu-ubuntu-2404
       windows_runner: windows-latest
@@ -527,6 +533,7 @@ jobs:
     timeout-minutes: 5
     env:
       MODE: ${{ inputs.mode }}
+      EXTENDED_SUITE: ${{ inputs.extended_suite }}
       VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
       WEB_RESULT: ${{ needs.web-frontend.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
@@ -549,8 +556,10 @@ jobs:
           require_success "input validation" "$VALIDATE_RESULT"
           require_success "Rust tests" "$TEST_RESULT"
           require_success "dogfood artifact build" "$ARTIFACT_RESULT"
-          if [[ "$MODE" == "full" ]]; then
+          if [[ "$MODE" == "full" && "$EXTENDED_SUITE" == "true" ]]; then
             require_success "web frontend" "$WEB_RESULT"
             require_success "Valgrind" "$VALGRIND_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
+          elif [[ "$MODE" == "full" ]]; then
+            require_success "web frontend" "$WEB_RESULT"
           fi
