@@ -162,7 +162,20 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          );
          CREATE TABLE IF NOT EXISTS resource_agent_projection_rebuild_changes (
            terminal_id TEXT PRIMARY KEY NOT NULL
-             REFERENCES resource_terminals(public_id) ON DELETE CASCADE
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+           previous_result_json TEXT CHECK (
+             previous_result_json IS NULL OR json_valid(previous_result_json)
+           ),
+           previous_committed_revision INTEGER CHECK (
+             previous_committed_revision IS NULL OR previous_committed_revision >= 0
+           ),
+           CHECK (
+             (previous_result_json IS NULL AND previous_committed_revision IS NULL)
+             OR (
+               previous_result_json IS NOT NULL
+               AND previous_committed_revision IS NOT NULL
+             )
+           )
          );
          CREATE TABLE IF NOT EXISTS resource_agent_session_generations (
            terminal_id TEXT NOT NULL
@@ -195,7 +208,58 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              terminal_id DESC
            );",
     )?;
+    ensure_resource_agent_projection_rebuild_snapshot(transaction)?;
     ensure_resource_agent_session_journal_identity(transaction)?;
+    Ok(())
+}
+
+fn ensure_resource_agent_projection_rebuild_snapshot(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let columns = {
+        let mut statement =
+            transaction.prepare("PRAGMA table_info(resource_agent_projection_rebuild_changes)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
+    let mut upgraded = false;
+    if !columns.contains("previous_result_json") {
+        transaction.execute(
+            "ALTER TABLE resource_agent_projection_rebuild_changes
+             ADD COLUMN previous_result_json TEXT CHECK (
+               previous_result_json IS NULL OR json_valid(previous_result_json)
+             )",
+            [],
+        )?;
+        upgraded = true;
+    }
+    if !columns.contains("previous_committed_revision") {
+        transaction.execute(
+            "ALTER TABLE resource_agent_projection_rebuild_changes
+             ADD COLUMN previous_committed_revision INTEGER CHECK (
+               previous_committed_revision IS NULL OR previous_committed_revision >= 0
+             )",
+            [],
+        )?;
+        upgraded = true;
+    }
+    if upgraded {
+        // The previous draft schema retained only terminal identities. Its
+        // best recoverable stable value is the projection present at upgrade.
+        transaction.execute(
+            "UPDATE resource_agent_projection_rebuild_changes AS changed
+             SET previous_result_json = (
+                   SELECT result_json FROM resource_agent_projections AS projection
+                   WHERE projection.terminal_id = changed.terminal_id
+                 ),
+                 previous_committed_revision = (
+                   SELECT committed_revision FROM resource_agent_projections AS projection
+                   WHERE projection.terminal_id = changed.terminal_id
+                 )",
+            [],
+        )?;
+    }
     Ok(())
 }
 

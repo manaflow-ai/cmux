@@ -284,10 +284,22 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "WITH selected AS MATERIALIZED (
                SELECT projection.terminal_id,
-                      projection.result_json,
-                      projection.committed_revision
+                      CASE
+                        WHEN changed.terminal_id IS NULL THEN projection.result_json
+                        ELSE changed.previous_result_json
+                      END AS result_json,
+                      CASE
+                        WHEN changed.terminal_id IS NULL THEN projection.committed_revision
+                        ELSE changed.previous_committed_revision
+                      END AS committed_revision
                FROM resource_agent_projections projection
+               LEFT JOIN resource_agent_projection_rebuild_changes changed
+                 ON changed.terminal_id = projection.terminal_id
                WHERE (?1 IS NULL OR projection.terminal_id = ?1)
+                 AND (
+                   changed.terminal_id IS NULL
+                   OR changed.previous_result_json IS NOT NULL
+                 )
              )
              SELECT terminal_id, result_json, committed_revision
              FROM selected

@@ -120,6 +120,24 @@ impl TerminalAgentRecords {
         Ok(())
     }
 
+    pub(super) fn stage_or_insert(
+        &mut self,
+        version: u64,
+        records: Vec<(TerminalPublicId, TerminalAgentRecord)>,
+    ) -> anyhow::Result<()> {
+        if version > self.published_version {
+            return self.stage(version, records);
+        }
+        anyhow::ensure!(
+            version == self.published_version,
+            "agent cache synchronization version {version} is stale"
+        );
+        for (terminal_id, record) in records {
+            self.insert(terminal_id, record);
+        }
+        Ok(())
+    }
+
     pub(super) fn publish(&mut self, version: u64) -> anyhow::Result<()> {
         anyhow::ensure!(
             version > self.published_version && version <= self.next_version,

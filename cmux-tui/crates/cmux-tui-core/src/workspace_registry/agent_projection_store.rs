@@ -126,6 +126,9 @@ pub(super) fn apply_agent_projection_journal_record(
     }
     validate_projection_transition(current.as_ref(), &next)?;
     let selected = merge_projection(current.clone(), next.clone());
+    if replaying_projection_journal || agent_projection_rebuild_changes_pending(transaction)? {
+        record_agent_projection_rebuild_change(transaction, &next.terminal_id)?;
+    }
     upsert_projection(transaction, &selected)?;
     if selected.committed_sequence == next.committed_sequence {
         record_agent_session_generation(
@@ -693,8 +696,12 @@ pub(super) fn rebuild_agent_projections_from_journal(
     let (checkpoint_ready, refresh_required) = if candidate <= sequence {
         store_agent_projection_journal_cursor(&tx, head_sequence)?;
         clear_agent_projection_journal_rebuild_target(&tx)?;
-        clear_agent_projection_rebuild_changes(&tx)?;
-        (true, false)
+        if agent_projection_rebuild_changes_pending(&tx)? {
+            (true, true)
+        } else {
+            clear_agent_projection_rebuild_changes(&tx)?;
+            (true, false)
+        }
     } else {
         let target = match agent_projection_journal_rebuild_target(&tx)? {
             Some(target) => target,
@@ -725,7 +732,11 @@ impl WorkspaceRegistry {
 
     #[cfg(test)]
     pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
-        Ok(!self.continue_agent_projection_rebuild_page()?.pending)
+        let step = self.continue_agent_projection_rebuild_page()?;
+        if step.checkpoint_ready && step.refresh_required {
+            self.clear_agent_projection_rebuild_changes()?;
+        }
+        Ok(!self.agent_projection_rebuild_pending()?)
     }
 
     pub(crate) fn continue_agent_projection_rebuild_page(
@@ -792,6 +803,32 @@ impl WorkspaceRegistry {
         let complete = projections.len() < AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE;
         let last_terminal_id = projections.last().map(|projection| projection.terminal_id.clone());
         Ok(AgentProjectionRebuildChangePage { projections, last_terminal_id, complete })
+    }
+
+    pub(crate) fn agent_projection_for_cache_refresh(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<Option<RegistryAgentProjection>> {
+        let stored = self
+            .connection
+            .query_row(
+                "SELECT result_json, committed_revision
+                 FROM resource_agent_projections
+                 WHERE terminal_id = ?1",
+                [terminal_id.as_str()],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        stored
+            .map(|(result_json, committed_revision)| {
+                public_projection_store::decode_agent_projection(
+                    &result_json,
+                    terminal_id,
+                    &self.session_id,
+                    committed_revision,
+                )
+            })
+            .transpose()
     }
 
     pub(crate) fn clear_agent_projection_rebuild_changes(&self) -> anyhow::Result<()> {
@@ -892,7 +929,36 @@ impl WorkspaceRegistry {
 fn agent_projection_rebuild_active(connection: &Connection) -> anyhow::Result<bool> {
     Ok(resource_store::resource_agent_generation_backfill_pending(connection)?
         || prejournal_projection_migration_cursor(connection)?.is_some()
-        || agent_projection_journal_rebuild_target(connection)?.is_some())
+        || agent_projection_journal_rebuild_target(connection)?.is_some()
+        || agent_projection_rebuild_changes_pending(connection)?)
+}
+
+fn agent_projection_rebuild_changes_pending(connection: &Connection) -> anyhow::Result<bool> {
+    let pending = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM resource_agent_projection_rebuild_changes LIMIT 1)",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        ?;
+    Ok(pending)
+}
+
+fn record_agent_projection_rebuild_change(
+    transaction: &Transaction<'_>,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT OR IGNORE INTO resource_agent_projection_rebuild_changes(
+           terminal_id, previous_result_json, previous_committed_revision
+         ) VALUES(
+           ?1,
+           (SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1),
+           (SELECT committed_revision FROM resource_agent_projections WHERE terminal_id = ?1)
+         )",
+        [terminal_id.as_str()],
+    )?;
+    Ok(())
 }
 
 fn replay_agent_projection_journal_page(

@@ -5152,11 +5152,45 @@ impl Mux {
         registry: &WorkspaceRegistry,
         terminal_ids: HashSet<TerminalPublicId>,
     ) -> anyhow::Result<bool> {
+        let refresh_version = self
+            .agent_projection_cache_refresh
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|refresh| refresh.version);
+        if let Some(version) = refresh_version {
+            self.stage_agent_records_for_terminals(registry, terminal_ids, version)?;
+            return Ok(false);
+        }
         if registry.agent_projection_rebuild_pending()? {
             return Ok(false);
         }
         self.refresh_agent_records_for_terminals(registry, terminal_ids)?;
         Ok(true)
+    }
+
+    fn stage_agent_records_for_terminals(
+        &self,
+        registry: &WorkspaceRegistry,
+        terminal_ids: HashSet<TerminalPublicId>,
+        version: u64,
+    ) -> anyhow::Result<()> {
+        let mut records = Vec::with_capacity(terminal_ids.len());
+        for terminal_id in terminal_ids {
+            let Some(projection) = registry.agent_projection_for_cache_refresh(&terminal_id)? else {
+                continue;
+            };
+            records.push((
+                projection.terminal_id,
+                public_projections::terminal_agent_record(
+                    &projection.state,
+                    &projection.source,
+                    projection.source_session,
+                    projection.updated_at_ms,
+                )?,
+            ));
+        }
+        self.agent_records.lock().unwrap().stage_or_insert(version, records)
     }
 
     fn refresh_agent_records_for_terminals(
