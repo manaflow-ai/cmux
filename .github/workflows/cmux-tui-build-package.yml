@@ -487,6 +487,11 @@ jobs:
         shell: pwsh
         run: |
           $localAppData = [IO.Path]::GetFullPath($env:LOCALAPPDATA).TrimEnd([IO.Path]::DirectorySeparatorChar)
+          $originalTemp = $env:TEMP
+          $originalTmp = $env:TMP
+          if ([string]::IsNullOrWhiteSpace($originalTemp) -or [string]::IsNullOrWhiteSpace($originalTmp)) {
+            throw "The Windows runner must define TEMP and TMP"
+          }
           # Keep the owned root short enough for Windows AF_UNIX test sockets.
           $testTempName = "c$([guid]::NewGuid().ToString('N').Substring(0, 7))"
           $testTemp = [IO.Path]::GetFullPath((Join-Path $localAppData $testTempName))
@@ -545,6 +550,8 @@ jobs:
             Remove-Item Env:CMUX_EXPECTED_TEMP_ROOT
             @(
               "CMUX_WINDOWS_NATIVE_TEST_TEMP=$testTemp"
+              "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TEMP=$originalTemp"
+              "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TMP=$originalTmp"
               "TEMP=$testTemp"
               "TMP=$testTemp"
             ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -677,6 +684,18 @@ jobs:
           if ($leaf -notmatch '^c[0-9a-f]{7}$') {
             throw "Refusing to clean an unowned Windows temp root: $testTemp"
           }
+          $originalTemp = $env:CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TEMP
+          $originalTmp = $env:CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TMP
+          if ([string]::IsNullOrWhiteSpace($originalTemp) -or [string]::IsNullOrWhiteSpace($originalTmp)) {
+            throw "Refusing to clean without the original Windows TEMP and TMP values"
+          }
+          @(
+            "TEMP=$originalTemp"
+            "TMP=$originalTmp"
+            "CMUX_WINDOWS_NATIVE_TEST_TEMP="
+            "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TEMP="
+            "CMUX_WINDOWS_NATIVE_TEST_ORIGINAL_TMP="
+          ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           if (Test-Path -LiteralPath $testTemp) {
             Remove-Item -LiteralPath $testTemp -Recurse -Force -ErrorAction Stop
           }
