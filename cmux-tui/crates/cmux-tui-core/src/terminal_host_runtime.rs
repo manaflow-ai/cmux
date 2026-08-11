@@ -9151,6 +9151,35 @@ mod unix {
         }
 
         #[test]
+        fn confirmed_host_termination_acknowledges_its_exact_exit_sidecar() {
+            let (record_path, record, lease) = record_fixture("confirmed-exit-sidecar");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let exit_record = TerminalHostExitRecord::new(
+                &TerminalHostIdentity {
+                    terminal_id: record.terminal_id.clone(),
+                    incarnation: record.incarnation.clone(),
+                },
+                TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                    exited_at_ms: 1_234_567,
+                },
+            );
+            let exit_path = record_path.with_extension("exit");
+            write_exit_record(&exit_path, &exit_record).unwrap();
+            drop(lease);
+
+            assert!(terminate_and_confirm_terminal_host_record(
+                &record,
+                &record_path,
+                Instant::now() + Duration::from_secs(1),
+            ));
+            assert!(!record_path.exists(), "confirmed termination retained its discovery record");
+            assert!(!exit_path.exists(), "confirmed termination retained its exact exit sidecar");
+
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn exit_sidecar_publication_never_clobbers_a_concurrent_outcome() {
             let (record_path, record, lease) = record_fixture("exit-sidecar-race");
             let root = record_path.parent().unwrap().to_path_buf();
