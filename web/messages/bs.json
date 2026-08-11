@@ -158,6 +158,7 @@
       "signOut": "Odjavi se",
       "signingOut": "Odjava…",
       "signOutError": "Odjava nije uspjela. Pokušajte ponovo.",
+      "organizationSwitchError": "Nije moguće promijeniti organizaciju. Pokušajte ponovo.",
       "signIn": "Prijavi se"
     },
     "aiAccounts": {
