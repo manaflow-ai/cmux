@@ -508,10 +508,11 @@ impl Mux {
             .iter()
             .filter_map(|pane| live.resource_indexes.pane_ids.get(pane).cloned())
             .collect::<HashSet<_>>();
-        let durable_screens = registry
-            .resource_topology_snapshot()?
+        let durable_topology = registry.resource_topology_snapshot()?;
+        let durable_screens = durable_topology
             .screens
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|screen| (screen.public_id.clone(), screen))
             .collect::<HashMap<_, _>>();
         let mut affected_screens = affected_panes
@@ -693,7 +694,11 @@ impl Mux {
                     .filter(|pane| registry_layout_contains_pane(&durable.layout, pane))
                     .cloned();
             }
-            let layout = resource_content::public_layout_from_registry(&durable, projected)?;
+            let layout = resource_content::public_layout_from_registry_with_durable_fallback(
+                &durable,
+                projected,
+                &durable_topology,
+            )?;
             if changed_screen_set.contains(screen_slot) {
                 patch.push(ResourceChange::UpsertScreen(durable));
             }

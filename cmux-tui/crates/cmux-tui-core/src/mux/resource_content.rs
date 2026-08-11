@@ -15,7 +15,7 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
     RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
-    WorkspaceMutation, WorkspaceRegistry,
+    ResourceTopologySnapshot, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget};
 
@@ -1278,31 +1278,69 @@ pub(super) fn public_layout_from_registry(
     screen: &RegistryScreen,
     state: &State,
 ) -> anyhow::Result<Value> {
+    public_layout_from_registry_with_fallback(screen, state, None)
+}
+
+pub(super) fn public_layout_from_registry_with_durable_fallback(
+    screen: &RegistryScreen,
+    state: &State,
+    topology: &ResourceTopologySnapshot,
+) -> anyhow::Result<Value> {
+    public_layout_from_registry_with_fallback(screen, state, Some(topology))
+}
+
+fn public_layout_from_registry_with_fallback(
+    screen: &RegistryScreen,
+    state: &State,
+    topology: Option<&ResourceTopologySnapshot>,
+) -> anyhow::Result<Value> {
     Ok(json!({
         "version":1,
         "screen_id":screen.public_id,
         "active_pane_id":screen.active_pane,
         "zoomed_pane_id":screen.zoomed_pane,
-        "root":public_layout_node(&screen.layout, state)?,
+        "root":public_layout_node(&screen.layout, state, topology)?,
     }))
 }
 
-fn public_layout_node(node: &RegistryLayoutNode, state: &State) -> anyhow::Result<Value> {
+fn public_layout_node(
+    node: &RegistryLayoutNode,
+    state: &State,
+    topology: Option<&ResourceTopologySnapshot>,
+) -> anyhow::Result<Value> {
     Ok(match node {
         RegistryLayoutNode::Leaf { pane } => {
-            let slot =
-                state.resource_indexes.panes.get(pane).context("layout pane has no live slot")?;
-            let pane_state = state.panes.get(slot).context("layout pane is missing")?;
-            json!({
-                "kind":"leaf",
-                "pane_id":pane,
-                "tab_ids":pane_state.tabs.iter().filter_map(|surface| {
-                    state.resource_indexes.tab_ids.get(surface)
-                }).collect::<Vec<_>>(),
-                "active_tab_id":pane_state.tabs.get(pane_state.active_tab).and_then(|surface| {
-                    state.resource_indexes.tab_ids.get(surface)
-                }),
-            })
+            if let Some(pane_state) = state
+                .resource_indexes
+                .panes
+                .get(pane)
+                .and_then(|slot| state.panes.get(slot))
+            {
+                json!({
+                    "kind":"leaf",
+                    "pane_id":pane,
+                    "tab_ids":pane_state.tabs.iter().filter_map(|surface| {
+                        state.resource_indexes.tab_ids.get(surface)
+                    }).collect::<Vec<_>>(),
+                    "active_tab_id":pane_state.tabs.get(pane_state.active_tab).and_then(|surface| {
+                        state.resource_indexes.tab_ids.get(surface)
+                    }),
+                })
+            } else {
+                let topology = topology.context("layout pane has no live slot")?;
+                let pane_state = topology
+                    .panes
+                    .iter()
+                    .find(|candidate| &candidate.public_id == pane)
+                    .context("layout pane is missing from durable topology")?;
+                let tabs = ordered_tabs(&topology.tabs, pane);
+                json!({
+                    "kind":"leaf",
+                    "pane_id":pane,
+                    "tab_ids":tabs.iter().map(|tab| &tab.public_id).collect::<Vec<_>>(),
+                    "active_tab_id":pane_state.active_tab.as_ref(),
+                })
+            }
         }
         RegistryLayoutNode::Split { split, direction, ratio, first, second } => json!({
             "kind":"split",
@@ -1313,8 +1351,8 @@ fn public_layout_node(node: &RegistryLayoutNode, state: &State) -> anyhow::Resul
                 other => other,
             },
             "ratio":f64::from(*ratio),
-            "first":public_layout_node(first, state)?,
-            "second":public_layout_node(second, state)?,
+            "first":public_layout_node(first, state, topology)?,
+            "second":public_layout_node(second, state, topology)?,
         }),
         RegistryLayoutNode::Stack { panes, expanded } => json!({
             "kind":"stack",
