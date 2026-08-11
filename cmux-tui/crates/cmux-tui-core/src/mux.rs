@@ -20359,18 +20359,22 @@ mod tests {
         wait_for_kitty_image_budget(&mux);
 
         let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let blocked_once = Arc::new(AtomicBool::new(false));
         let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
         let (finished_sender, finished_receiver) = std::sync::mpsc::sync_channel(1);
         *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
             let gate = gate.clone();
+            let blocked_once = blocked_once.clone();
             move |_surface, _limits, _deadline| {
-                let _ = started_sender.try_send(());
-                let (released, changed) = &*gate;
-                let mut released = released.lock().unwrap();
-                while !*released {
-                    released = changed.wait(released).unwrap();
+                if !blocked_once.swap(true, Ordering::AcqRel) {
+                    let _ = started_sender.try_send(());
+                    let (released, changed) = &*gate;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                    let _ = finished_sender.try_send(());
                 }
-                let _ = finished_sender.try_send(());
                 anyhow::bail!("released persistent Kitty quota operation")
             }
         }));
