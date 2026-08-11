@@ -14817,7 +14817,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 focusBrowserAddressBar(in: focusedBrowser)
                 return true
             }
-            if let focusedPanel = tabManager?.focusedBrowserPanel {
+            let routedManager = preferredMainWindowContextForShortcutRouting(
+                event: event
+            )?.tabManager ?? tabManager
+            if let focusedPanel = routedManager?.focusedWorkspaceBrowserPanel {
                 focusBrowserAddressBar(in: focusedPanel)
                 return true
             }

@@ -350,9 +350,14 @@ extension DockSplitStore {
               let tab = bonsplitController.tab(tabId) else {
             return false
         }
+        let notificationStore = resolvedNotificationStore()
         return tab.showsNotificationBadge ||
             manualUnreadPanelIds.contains(panelId) ||
-            resolvedNotificationStore()?.hasUnreadNotification(
+            notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true ||
+            notificationStore?.hasUnreadNotification(
                 forTabId: workspaceId,
                 surfaceId: panelId
             ) == true
