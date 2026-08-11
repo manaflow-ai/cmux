@@ -421,7 +421,20 @@ extension SSHForegroundAuthenticationRetryPolicy {
               "$cmux_ssh_auth_group" "$cmux_ssh_auth_started" \
               "$cmux_ssh_auth_state" \
               >> "$cmux_ssh_auth_signaled_processes" || return 1
-            kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            cmux_ssh_auth_debug_stop_status=0
+            kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || \
+              cmux_ssh_auth_debug_stop_status=$?
+            if [ "${CMUX_SSH_AUTH_DEBUG_STOP:-}" = 1 ]; then
+              printf 'STOP pid=%s status=%s\n' "$cmux_ssh_auth_pid" \
+                "$cmux_ssh_auth_debug_stop_status" >&2
+              cmux_ssh_auth_debug_bin_stop_status=0
+              /bin/kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || \
+                cmux_ssh_auth_debug_bin_stop_status=$?
+              printf 'BIN STOP pid=%s status=%s\n' "$cmux_ssh_auth_pid" \
+                "$cmux_ssh_auth_debug_bin_stop_status" >&2
+              /bin/ps -o pid=,ppid=,pgid=,state=,flags=,command= \
+                -p "$cmux_ssh_auth_pid" -p "$cmux_ssh_auth_parent" >&2 || true
+            fi
             # Confirm each child before STOP reaches its parent. zsh can have a
             # child in vfork while the parent must run for the child to finish
             # exec; stopping both without this handoff can leave the child
@@ -429,6 +442,10 @@ extension SSHForegroundAuthenticationRetryPolicy {
             while :; do
               cmux_ssh_auth_take_process_snapshot \
                 "$cmux_ssh_auth_poststop_snapshot" || return 1
+              if [ "${CMUX_SSH_AUTH_DEBUG_STOP:-}" = 1 ]; then
+                /bin/ps -o pid=,ppid=,pgid=,state=,flags=,command= \
+                  -p "$cmux_ssh_auth_pid" -p "$cmux_ssh_auth_parent" >&2 || true
+              fi
               if /usr/bin/awk \
                 -v cmux_pid="$cmux_ssh_auth_pid" \
                 -v cmux_group="$cmux_ssh_auth_group" \

@@ -2413,6 +2413,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 "CMUX_TEST_GROUP_DIR": groupDirectory.path,
                 "CMUX_TEST_LEAF_PID": leafPIDFile.path,
                 "CMUX_TEST_RELEASE": releaseFile.path,
+                "CMUX_SSH_AUTH_DEBUG_STOP": "1",
                 "TMPDIR": root.path,
             ],
             shellPath: shellPath
