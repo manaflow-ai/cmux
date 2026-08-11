@@ -154,14 +154,31 @@ private func continuousClockFFITimeout(
   }
 }
 
+private actor FFIPendingOperationLimit {
+  private let maximum: Int
+  private var count = 0
+
+  init(maximum: Int) {
+    self.maximum = max(1, maximum)
+  }
+
+  func reserve() -> Bool {
+    guard count < maximum else { return false }
+    count += 1
+    return true
+  }
+
+  func release() {
+    count -= 1
+  }
+}
+
 // Safe because the queue is the sole executor for each handle's blocking C
 // calls; callers never access the raw handle outside this serialized path.
 final class SerialFFIExecutor: @unchecked Sendable {
   private let queue: DispatchQueue
   private let timeoutScheduler: FFITimeoutScheduler
-  private let pendingLock = NSLock()
-  private let maximumPendingCancellableOperations: Int
-  private var pendingCancellableOperations = 0
+  private let pendingCancellableOperations: FFIPendingOperationLimit
 
   init(
     label: String,
@@ -169,22 +186,10 @@ final class SerialFFIExecutor: @unchecked Sendable {
     timeoutScheduler: @escaping FFITimeoutScheduler = continuousClockFFITimeout
   ) {
     queue = DispatchQueue(label: label)
-    self.maximumPendingCancellableOperations = max(1, maximumPendingCancellableOperations)
+    pendingCancellableOperations = FFIPendingOperationLimit(
+      maximum: maximumPendingCancellableOperations
+    )
     self.timeoutScheduler = timeoutScheduler
-  }
-
-  private func reserveCancellableOperation() -> Bool {
-    pendingLock.lock()
-    defer { pendingLock.unlock() }
-    guard pendingCancellableOperations < maximumPendingCancellableOperations else { return false }
-    pendingCancellableOperations += 1
-    return true
-  }
-
-  private func releaseCancellableOperation() {
-    pendingLock.lock()
-    pendingCancellableOperations -= 1
-    pendingLock.unlock()
   }
 
   func run<T: Sendable>(
@@ -203,17 +208,25 @@ final class SerialFFIExecutor: @unchecked Sendable {
     _ operation: @escaping @Sendable () -> T,
     onEnqueued: (@Sendable () -> Void)? = nil
   ) async throws -> T {
-    guard reserveCancellableOperation() else { throw SerialFFIExecutorError.queueFull }
+    guard await pendingCancellableOperations.reserve() else {
+      throw SerialFFIExecutorError.queueFull
+    }
     let waiter = FFIResultWaiter<T>()
-    queue.async { [self] in
-      defer { releaseCancellableOperation() }
+    let operationLimit = pendingCancellableOperations
+    queue.async {
       guard cancellation.beginExecution() else {
-        Task { await waiter.complete(.cancelled) }
+        Task {
+          await operationLimit.release()
+          await waiter.complete(.cancelled)
+        }
         return
       }
       let result = operation()
       cancellation.finishExecution()
-      Task { await waiter.complete(.value(result)) }
+      Task {
+        await operationLimit.release()
+        await waiter.complete(.value(result))
+      }
     }
     if let timeoutNanoseconds {
       let timeoutTask = timeoutScheduler(timeoutNanoseconds) {
