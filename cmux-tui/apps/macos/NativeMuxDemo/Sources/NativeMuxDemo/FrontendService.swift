@@ -678,18 +678,20 @@ actor TerminalHandle {
     await ffiQueue.run(operation)
   }
 
-  func submit(_ input: TerminalInput) async -> Bool {
+  func submit(_ queuedInput: QueuedTerminalInput, epoch: TerminalInputEpoch) async -> Bool? {
     guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return false }
     return await enqueue {
-      let raw = OpaquePointer(bitPattern: rawAddress)!
-      switch input {
-      case .bytes(let data):
-        return data.withUnsafeBytes { cmux_frontend_terminal_send(raw, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
-      case .paste(let text):
-        let data = Data(text.utf8)
-        return data.withUnsafeBytes { cmux_frontend_terminal_paste(raw, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
-      case .key(let chord, let isRepeat):
-        return chord.withCString { cmux_frontend_terminal_send_key(raw, $0, isRepeat) }
+      epoch.submitIfCurrent(queuedInput) {
+        let raw = OpaquePointer(bitPattern: rawAddress)!
+        switch queuedInput.input {
+        case .bytes(let data):
+          return data.withUnsafeBytes { cmux_frontend_terminal_send(raw, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
+        case .paste(let text):
+          let data = Data(text.utf8)
+          return data.withUnsafeBytes { cmux_frontend_terminal_paste(raw, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
+        case .key(let chord, let isRepeat):
+          return chord.withCString { cmux_frontend_terminal_send_key(raw, $0, isRepeat) }
+        }
       }
     }
   }

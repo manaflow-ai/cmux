@@ -688,11 +688,13 @@ func localizationIsInjectedForTextAndFormatting() {
 
 @Test
 func terminalInputRelayReportsBoundedBufferDrops() async {
-    let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(1))
+    let input = AsyncStream<QueuedTerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(1))
     let drops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let epoch = TerminalInputEpoch()
     let relay = GhosttyTerminalInputRelay(
         continuation: input.continuation,
-        dropContinuation: drops.continuation
+        dropContinuation: drops.continuation,
+        epoch: epoch
     )
     defer {
         input.continuation.finish()
@@ -702,7 +704,7 @@ func terminalInputRelayReportsBoundedBufferDrops() async {
     #expect(relay.send(Data("first".utf8)))
     #expect(!relay.send(Data("second".utf8)))
     var inputIterator = input.stream.makeAsyncIterator()
-    guard case .some(.bytes(let received)) = await inputIterator.next() else {
+    guard let queued = await inputIterator.next(), case .bytes(let received) = queued.input else {
         Issue.record("The relay did not keep the oldest buffered input.")
         return
     }
@@ -713,6 +715,18 @@ func terminalInputRelayReportsBoundedBufferDrops() async {
 
     input.continuation.finish()
     #expect(!relay.send(Data("after-finish".utf8)))
+}
+
+@Test
+func terminalInputEpochRejectsQueuedInputAfterInvalidation() {
+    let epoch = TerminalInputEpoch()
+    let stale = epoch.stamp(.bytes(Data("stale".utf8)))
+
+    epoch.advance()
+    let current = epoch.stamp(.bytes(Data("current".utf8)))
+
+    #expect(epoch.submitIfCurrent(stale) { "submitted" } == nil)
+    #expect(epoch.submitIfCurrent(current) { "submitted" } == "submitted")
 }
 
 @Test
@@ -1066,11 +1080,13 @@ func decodesNativeResetSidecarKittyAliasesAndCursors() {
 
 @Test @MainActor
 func resetKeepsSurfaceCreationError() {
-    let input = AsyncStream<TerminalInput>.makeStream()
+    let input = AsyncStream<QueuedTerminalInput>.makeStream()
     let drops = AsyncStream<Void>.makeStream()
+    let epoch = TerminalInputEpoch()
     let relay = GhosttyTerminalInputRelay(
         continuation: input.continuation,
-        dropContinuation: drops.continuation
+        dropContinuation: drops.continuation,
+        epoch: epoch
     )
     let view = GhosttyRemoteSurfaceView(
         runtime: nil,
@@ -1092,11 +1108,13 @@ func resetKeepsSurfaceCreationError() {
 
 @Test @MainActor
 func invalidResetBlocksLaterRenderEventsAndReadyState() {
-    let input = AsyncStream<TerminalInput>.makeStream()
+    let input = AsyncStream<QueuedTerminalInput>.makeStream()
     let drops = AsyncStream<Void>.makeStream()
+    let epoch = TerminalInputEpoch()
     let relay = GhosttyTerminalInputRelay(
         continuation: input.continuation,
-        dropContinuation: drops.continuation
+        dropContinuation: drops.continuation,
+        epoch: epoch
     )
     let view = GhosttyRemoteSurfaceView(
         runtime: nil,
@@ -1135,11 +1153,13 @@ func invalidResetBlocksLaterRenderEventsAndReadyState() {
 
 @Test @MainActor
 func exitClearsMarkedTextFromThePreviousInputEpoch() {
-    let input = AsyncStream<TerminalInput>.makeStream()
+    let input = AsyncStream<QueuedTerminalInput>.makeStream()
     let drops = AsyncStream<Void>.makeStream()
+    let epoch = TerminalInputEpoch()
     let relay = GhosttyTerminalInputRelay(
         continuation: input.continuation,
-        dropContinuation: drops.continuation
+        dropContinuation: drops.continuation,
+        epoch: epoch
     )
     let view = GhosttyRemoteSurfaceView(
         runtime: nil,

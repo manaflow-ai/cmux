@@ -5,20 +5,23 @@ import GhosttyKit
 import QuartzCore
 
 final class GhosttyTerminalInputRelay: Sendable {
-  private let continuation: AsyncStream<TerminalInput>.Continuation
+  private let continuation: AsyncStream<QueuedTerminalInput>.Continuation
   private let dropContinuation: AsyncStream<Void>.Continuation
+  private let epoch: TerminalInputEpoch
 
   init(
-    continuation: AsyncStream<TerminalInput>.Continuation,
-    dropContinuation: AsyncStream<Void>.Continuation
+    continuation: AsyncStream<QueuedTerminalInput>.Continuation,
+    dropContinuation: AsyncStream<Void>.Continuation,
+    epoch: TerminalInputEpoch
   ) {
     self.continuation = continuation
     self.dropContinuation = dropContinuation
+    self.epoch = epoch
   }
 
   @discardableResult
   func send(_ data: Data) -> Bool {
-    switch continuation.yield(.bytes(data)) {
+    switch continuation.yield(epoch.stamp(.bytes(data))) {
     case .enqueued:
       return true
     case .dropped, .terminated:
@@ -28,6 +31,10 @@ final class GhosttyTerminalInputRelay: Sendable {
       dropContinuation.yield()
       return false
     }
+  }
+
+  func invalidateEpoch() {
+    epoch.advance()
   }
 }
 
@@ -320,6 +327,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   private func clearLocalInputEpoch() {
+    callbackContext.inputRelay.invalidateEpoch()
     markedText.mutableString.setString("")
     markedTextRange = NSRange(location: NSNotFound, length: 0)
     markedTextSelection = NSRange(location: NSNotFound, length: 0)

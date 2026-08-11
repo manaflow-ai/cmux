@@ -7,6 +7,40 @@ enum TerminalInput: Sendable {
   case key(chord: String, repeat: Bool)
 }
 
+struct QueuedTerminalInput: Sendable {
+  let epoch: UInt64
+  let input: TerminalInput
+}
+
+/// Safe because the lock protects the complete epoch read, advance, and
+/// conditional-submit transaction on every calling thread.
+final class TerminalInputEpoch: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: UInt64 = 0
+
+  func stamp(_ input: TerminalInput) -> QueuedTerminalInput {
+    lock.lock()
+    defer { lock.unlock() }
+    return QueuedTerminalInput(epoch: value, input: input)
+  }
+
+  func advance() {
+    lock.lock()
+    value &+= 1
+    lock.unlock()
+  }
+
+  func submitIfCurrent<T: Sendable>(
+    _ queued: QueuedTerminalInput,
+    operation: @Sendable () -> T
+  ) -> T? {
+    lock.lock()
+    defer { lock.unlock() }
+    guard queued.epoch == value else { return nil }
+    return operation()
+  }
+}
+
 struct TerminalGeometry: Equatable, Sendable {
   let cols: UInt16
   let rows: UInt16
@@ -71,8 +105,9 @@ final class NativeTerminalModel {
   @ObservationIgnored private var drainRequested = false
   @ObservationIgnored private var inputErrorMessage: String?
   @ObservationIgnored private var resizeQueue = NewestResizeQueue()
-  @ObservationIgnored private let inputStream: AsyncStream<TerminalInput>
-  @ObservationIgnored private let inputContinuation: AsyncStream<TerminalInput>.Continuation
+  @ObservationIgnored private let inputStream: AsyncStream<QueuedTerminalInput>
+  @ObservationIgnored private let inputContinuation: AsyncStream<QueuedTerminalInput>.Continuation
+  @ObservationIgnored private let inputEpoch: TerminalInputEpoch
   @ObservationIgnored private let inputDropStream: AsyncStream<Void>
   @ObservationIgnored private let inputDropContinuation: AsyncStream<Void>.Continuation
   @ObservationIgnored private var latestGeometry: TerminalGeometry?
@@ -99,15 +134,18 @@ final class NativeTerminalModel {
     self.terminalID = terminalID
     self.service = service
     self.localization = localization
-    let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(256))
+    let input = AsyncStream<QueuedTerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(256))
     let inputDrops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     inputStream = input.stream
     inputContinuation = input.continuation
+    let inputEpoch = TerminalInputEpoch()
+    self.inputEpoch = inputEpoch
     inputDropStream = inputDrops.stream
     inputDropContinuation = inputDrops.continuation
     let inputRelay = GhosttyTerminalInputRelay(
       continuation: input.continuation,
-      dropContinuation: inputDrops.continuation
+      dropContinuation: inputDrops.continuation,
+      epoch: inputEpoch
     )
     surfaceView = GhosttyRemoteSurfaceView(
       runtime: runtime,
@@ -172,10 +210,10 @@ final class NativeTerminalModel {
     guard inputTask == nil else { return }
     let stream = inputStream
     inputTask = Task { [weak self] in
-      for await input in stream {
+      for await queuedInput in stream {
         guard !Task.isCancelled, let self, !isShuttingDown else { return }
         guard let handle, isAttached else { continue }
-        let accepted = await handle.submit(input)
+        guard let accepted = await handle.submit(queuedInput, epoch: inputEpoch) else { continue }
         guard !Task.isCancelled, !isShuttingDown,
           let activeHandle = self.handle, activeHandle === handle
         else { continue }
@@ -284,7 +322,7 @@ final class NativeTerminalModel {
 
   func submit(_ input: TerminalInput) {
     guard isAttached, !didExit else { return }
-    if case .dropped = inputContinuation.yield(input) {
+    if case .dropped = inputContinuation.yield(inputEpoch.stamp(input)) {
       reportInputOverload()
     }
   }

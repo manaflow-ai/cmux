@@ -1295,10 +1295,17 @@ fn set_client_status(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates, s
     updates.notify();
 }
 
-fn restart_stream(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates) -> StreamOutcome {
+fn begin_stream_restart(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates) {
     state.lock().unwrap().fail_closed_for_stream_restart();
     updates.notify();
-    StreamOutcome::Restart
+}
+
+fn set_restart_status(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates, status: String) {
+    let mut state = state.lock().unwrap();
+    state.fail_closed_for_stream_restart();
+    state.status = status;
+    drop(state);
+    updates.notify();
 }
 
 fn finish_decoder(
@@ -1325,9 +1332,9 @@ async fn receive_frames(
         match stream.receive().await {
             Ok(Some(chunk)) => {
                 if chunk.lane != Lane::Interactive {
-                    set_client_status(&state, &updates, "wrong-lane".into());
+                    set_restart_status(&state, &updates, "wrong-lane".into());
                     let _ = finish_decoder(&decoder, &state, &updates);
-                    return restart_stream(&state, &updates);
+                    return StreamOutcome::Restart;
                 }
                 match decoder.push(&chunk.payload) {
                     Ok(frames) => {
@@ -1346,27 +1353,28 @@ async fn receive_frames(
                                     break;
                                 }
                                 Err(error) => {
-                                    set_client_status(&state, &updates, error);
+                                    set_restart_status(&state, &updates, error);
                                     let _ = finish_decoder(&decoder, &state, &updates);
-                                    return restart_stream(&state, &updates);
+                                    return StreamOutcome::Restart;
                                 }
                             }
                         }
                         if let Some(outcome) = outcome {
                             let _ = finish_decoder(&decoder, &state, &updates);
                             return match outcome {
-                                StreamOutcome::Restart => restart_stream(&state, &updates),
+                                StreamOutcome::Restart => StreamOutcome::Restart,
                                 StreamOutcome::Stop => StreamOutcome::Stop,
                             };
                         }
                     }
                     Err(error) => {
-                        set_client_status(&state, &updates, format!("codec: {error}"));
+                        set_restart_status(&state, &updates, format!("codec: {error}"));
                         let _ = finish_decoder(&decoder, &state, &updates);
-                        return restart_stream(&state, &updates);
+                        return StreamOutcome::Restart;
                     }
                 }
                 if chunk.finished || chunk.reset {
+                    begin_stream_restart(&state, &updates);
                     if finish_decoder(&decoder, &state, &updates) {
                         set_client_status(
                             &state,
@@ -1374,20 +1382,22 @@ async fn receive_frames(
                             if chunk.reset { "stream-reset" } else { "stream-closed" }.into(),
                         );
                     }
-                    return restart_stream(&state, &updates);
+                    return StreamOutcome::Restart;
                 }
             }
             Ok(None) => {
+                begin_stream_restart(&state, &updates);
                 if finish_decoder(&decoder, &state, &updates) {
                     set_client_status(&state, &updates, "stream-closed".into());
                 }
-                return restart_stream(&state, &updates);
+                return StreamOutcome::Restart;
             }
             Err(error) => {
+                begin_stream_restart(&state, &updates);
                 if finish_decoder(&decoder, &state, &updates) {
                     set_client_status(&state, &updates, format!("stream: {error}"));
                 }
-                return restart_stream(&state, &updates);
+                return StreamOutcome::Restart;
             }
         }
     }
