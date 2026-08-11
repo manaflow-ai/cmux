@@ -150,7 +150,23 @@ public final class TerminalSurfaceLaunchResolver {
                 waitAfterCommand: draft.waitAfterCommand
             )
         }
-        if Task.isCancelled, commandShimLease == nil, let shims {
+        let ownedCommandShimLease: TerminalSurfaceAgentCommandShimLease?
+        if let commandShimLease {
+            ownedCommandShimLease = commandShimLease
+        } else if !Task.isCancelled, let shims {
+            // There is no suspension between the cancellation decision and
+            // lease creation. From this point, either this result owns the
+            // installed directory or the cleanup owner below does.
+            ownedCommandShimLease = TerminalSurfaceAgentCommandShimLease(
+                shims: shims,
+                removalAttemptLimit: runtimeFilesystem.agentCommandShimRemovalAttemptLimit,
+                remove: runtimeFilesystem.removeAgentCommandShims,
+                reportRemovalFailure: runtimeFilesystem.reportAgentCommandShimRemovalFailure
+            )
+        } else {
+            ownedCommandShimLease = nil
+        }
+        if commandShimLease == nil, ownedCommandShimLease == nil, let shims {
             await runtimeFilesystem.cleanupUnownedAgentCommandShims(
                 shims,
                 retryClock: agentCommandShimInstallDeadlineClock
@@ -161,19 +177,6 @@ public final class TerminalSurfaceLaunchResolver {
                 launchResourceSnapshot: launchResourceSnapshot,
                 defaultShellArguments: resolvedDefaultShellArguments
             )
-        }
-        let ownedCommandShimLease: TerminalSurfaceAgentCommandShimLease?
-        if let commandShimLease {
-            ownedCommandShimLease = commandShimLease
-        } else if !Task.isCancelled, let shims {
-            ownedCommandShimLease = TerminalSurfaceAgentCommandShimLease(
-                shims: shims,
-                removalAttemptLimit: runtimeFilesystem.agentCommandShimRemovalAttemptLimit,
-                remove: runtimeFilesystem.removeAgentCommandShims,
-                reportRemovalFailure: runtimeFilesystem.reportAgentCommandShimRemovalFailure
-            )
-        } else {
-            ownedCommandShimLease = nil
         }
         return TerminalSurfaceOwnedLaunch(
             resolvedLaunch: resolution.resolvedLaunch,
