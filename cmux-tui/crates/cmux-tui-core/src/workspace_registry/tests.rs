@@ -5323,7 +5323,7 @@ fn journal_agent_generation_backfill_is_bounded_and_resumable() {
 }
 
 #[test]
-fn journal_agent_live_session_waits_in_journal_for_pending_rebuild() {
+fn journal_agent_live_session_events_wait_in_journal_for_pending_rebuild() {
     const EVENT_COUNT: usize = 1_025;
 
     let root = temp_root("journal-agent-live-during-rebuild");
@@ -5400,26 +5400,31 @@ fn journal_agent_live_session_waits_in_journal_for_pending_rebuild() {
 
     let mut reopened = WorkspaceRegistry::open(&root, session).unwrap();
     assert!(reopened.agent_projection_rebuild_pending().unwrap());
-    let ingress = crate::agent_hook_journal_ingress(
-        "pi",
-        "SessionStart",
-        Some(terminal_id.as_str()),
-        json!({"session_id":"session-during-rebuild"}),
-    )
-    .unwrap();
     let validated = crate::journal_kernel::ValidatedJournalIngress {
         class: JournalClass::Observation,
         replay: JournalReplayPolicy::Advisory,
         sensitivity: JournalSensitivity::Sensitive,
     };
-    reopened
-        .append_journal_ingress(
-            &ingress,
-            &validated,
-            "client_live_during_rebuild",
-            "journal_agent_live_during_rebuild",
+    for (event, key) in [
+        ("SessionStart", "journal_agent_live_during_rebuild_start"),
+        ("AgentStart", "journal_agent_live_during_rebuild_turn"),
+    ] {
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            event,
+            Some(terminal_id.as_str()),
+            json!({"session_id":"session-during-rebuild"}),
         )
         .unwrap();
+        reopened
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_live_during_rebuild",
+                key,
+            )
+            .unwrap();
+    }
 
     for _ in 0..4 {
         if reopened.continue_agent_projection_rebuild().unwrap() {
@@ -5428,6 +5433,7 @@ fn journal_agent_live_session_waits_in_journal_for_pending_rebuild() {
     }
     assert!(!reopened.agent_projection_rebuild_pending().unwrap());
     let agent = reopened.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
     assert_eq!(agent.source, "hook");
     assert_eq!(agent.source_session.as_deref(), Some("session-during-rebuild"));
     drop(reopened);
