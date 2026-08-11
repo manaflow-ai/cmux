@@ -490,7 +490,9 @@ jobs:
               # A headless CoreSimulator boot does not load Simulator.app's host
               # keyboard preference. Launch the GUI against this isolated UDID so
               # ConnectHardwareKeyboard=false takes effect before XCTest starts.
-              open -a Simulator --args -CurrentDeviceUDID "$SIMULATOR_ID"
+              SIMULATOR_APP="$DEVELOPER_DIR/Applications/Simulator.app"
+              test -d "$SIMULATOR_APP"
+              open "$SIMULATOR_APP" --args -CurrentDeviceUDID "$SIMULATOR_ID"
               for _ in {1..50}; do
                 pgrep -x Simulator >/dev/null 2>&1 && break
                 sleep 0.2
