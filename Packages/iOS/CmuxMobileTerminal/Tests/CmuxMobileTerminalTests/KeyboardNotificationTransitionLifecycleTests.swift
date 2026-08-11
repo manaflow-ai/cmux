@@ -56,17 +56,17 @@ struct KeyboardNotificationTransitionLifecycleTests {
         let interruptedFrame = CGRect(x: 0, y: 720, width: 402, height: 300)
 
         postKeyboardFrameChange(
-            .keyboardWillChangeFrameNotification,
+            UIResponder.keyboardWillChangeFrameNotification,
             beginFrame: shownFrame,
             endFrame: hiddenFrame
         )
         postKeyboardFrameChange(
-            .keyboardWillChangeFrameNotification,
+            UIResponder.keyboardWillChangeFrameNotification,
             beginFrame: interruptedFrame,
             endFrame: shownFrame
         )
         postKeyboardFrameChange(
-            .keyboardDidChangeFrameNotification,
+            UIResponder.keyboardDidChangeFrameNotification,
             beginFrame: shownFrame,
             endFrame: hiddenFrame
         )
