@@ -118,12 +118,22 @@ struct SSHConfiguredRemoteCommandHostTests {
         } else {
             startupArtifact = startupCommand
         }
-        #expect(
-            startupArtifact.contains(
-                "export CMUX_SSH_AUTH_GROUP_DIR\n    cmux_ssh_schedule_failed_auth_group_recovery\n    ( cmux_ssh_foreground_auth )"
-            ),
-            "Foreground authentication must schedule recovery after group creation and before authentication starts"
-        )
+        var recoverySequenceCursor = startupArtifact.startIndex
+        for marker in [
+            "CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir)",
+            "export CMUX_SSH_AUTH_GROUP_DIR",
+            "cmux_ssh_schedule_failed_auth_group_recovery",
+            "( cmux_ssh_foreground_auth )",
+        ] {
+            let range = try #require(
+                startupArtifact.range(
+                    of: marker,
+                    range: recoverySequenceCursor..<startupArtifact.endIndex
+                ),
+                "Foreground authentication must schedule recovery after group creation and before authentication starts"
+            )
+            recoverySequenceCursor = range.upperBound
+        }
         #expect(
             startupArtifact.contains(
                 "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi; cmux_ssh_status=255; break"
