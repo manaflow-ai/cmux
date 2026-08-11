@@ -4884,6 +4884,7 @@ const SESSION_GUARD_COORDINATOR_FILE: &str = ".coordinator.lock";
 const SESSION_GUARD_COORDINATOR_WAITER_DIR: &str = ".coordinator.waiters";
 const SESSION_GUARD_COORDINATOR_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(250);
+const SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT: usize = 64;
 static SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
@@ -5412,8 +5413,8 @@ impl SessionLease {
                 continue;
             }
 
-            // The file lock remains authoritative when the owner crashes or
-            // its best-effort UDP notification is lost.
+            // The file lock remains authoritative when the owner crashes
+            // before it publishes a registered waiter signal.
             match FileExt::try_lock(&file) {
                 Ok(()) => return Ok(Self::coordinator(file, path)),
                 Err(fs4::TryLockError::WouldBlock) => return session_coordinator_busy(path),
@@ -5451,8 +5452,14 @@ fn session_coordinator_busy(path: &Path) -> anyhow::Result<SessionLease> {
 }
 
 struct SessionCoordinatorWaiter {
+    #[cfg(unix)]
+    signal_reader: File,
+    #[cfg(unix)]
+    _signal_anchor: File,
+    #[cfg(not(unix))]
     socket: std::net::UdpSocket,
     registration_path: PathBuf,
+    #[cfg(not(unix))]
     token: String,
 }
 
@@ -5462,73 +5469,176 @@ impl SessionCoordinatorWaiter {
 
         let waiter_dir = session_guard_coordinator_waiter_dir(coordinator_path);
         prepare_session_coordinator_waiter_dir(&waiter_dir)?;
-        let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
-        let address = socket.local_addr()?;
 
-        loop {
-            let sequence =
-                SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let token = format!("{:x}-{:x}-{:x}", std::process::id(), address.port(), sequence);
-            let registration_path = waiter_dir.join(format!("{token}.waiter"));
-            let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
-            let mut options = OpenOptions::new();
-            options.create_new(true).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-            }
-            let mut registration = match options.open(&temporary_path) {
-                Ok(registration) => registration,
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error.into()),
-            };
-            if let Err(error) = writeln!(registration, "{address} {token}") {
-                let _ = fs::remove_file(&temporary_path);
-                return Err(error.into());
-            }
-            if let Err(error) = registration.flush() {
-                let _ = fs::remove_file(&temporary_path);
-                return Err(error.into());
-            }
-            drop(registration);
-            if let Err(error) = fs::rename(&temporary_path, &registration_path) {
-                let _ = fs::remove_file(&temporary_path);
-                if error.kind() == std::io::ErrorKind::NotFound {
-                    continue;
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            use std::os::unix::fs::OpenOptionsExt;
+
+            loop {
+                let sequence =
+                    SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let token = format!("{:x}-{sequence:x}", std::process::id());
+                let registration_path = waiter_dir.join(format!("{token}.waiter"));
+                let fifo_path = std::ffi::CString::new(registration_path.as_os_str().as_bytes())?;
+                // SAFETY: fifo_path is a valid NUL-terminated path and mode
+                // only grants access to the current user.
+                let created = unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) };
+                if created != 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        continue;
+                    }
+                    return Err(error.into());
                 }
-                return Err(error.into());
+
+                let mut reader_options = OpenOptions::new();
+                reader_options
+                    .read(true)
+                    .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+                let signal_reader = match reader_options.open(&registration_path) {
+                    Ok(reader) => reader,
+                    Err(error) => {
+                        let _ = fs::remove_file(&registration_path);
+                        return Err(error.into());
+                    }
+                };
+                let mut anchor_options = OpenOptions::new();
+                anchor_options
+                    .write(true)
+                    .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+                let signal_anchor = match anchor_options.open(&registration_path) {
+                    Ok(anchor) => anchor,
+                    Err(error) => {
+                        let _ = fs::remove_file(&registration_path);
+                        return Err(error.into());
+                    }
+                };
+                return Ok(Self {
+                    signal_reader,
+                    _signal_anchor: signal_anchor,
+                    registration_path,
+                });
             }
-            return Ok(Self { socket, registration_path, token });
+        }
+
+        #[cfg(not(unix))]
+        {
+            let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
+            let address = socket.local_addr()?;
+
+            loop {
+                let sequence =
+                    SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let token = format!("{:x}-{:x}-{:x}", std::process::id(), address.port(), sequence);
+                let registration_path = waiter_dir.join(format!("{token}.waiter"));
+                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let mut options = OpenOptions::new();
+                options.create_new(true).write(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+                }
+                let mut registration = match options.open(&temporary_path) {
+                    Ok(registration) => registration,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                if let Err(error) = writeln!(registration, "{address} {token}") {
+                    let _ = fs::remove_file(&temporary_path);
+                    return Err(error.into());
+                }
+                if let Err(error) = registration.flush() {
+                    let _ = fs::remove_file(&temporary_path);
+                    return Err(error.into());
+                }
+                drop(registration);
+                if let Err(error) = fs::rename(&temporary_path, &registration_path) {
+                    let _ = fs::remove_file(&temporary_path);
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        continue;
+                    }
+                    return Err(error.into());
+                }
+                return Ok(Self { socket, registration_path, token });
+            }
         }
     }
 
     fn wait_until(&self, deadline: std::time::Instant) -> std::io::Result<bool> {
-        let mut message = [0_u8; 128];
-        loop {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                return Ok(false);
-            }
-            self.socket.set_read_timeout(Some(remaining))?;
-            match self.socket.recv_from(&mut message) {
-                Ok((length, sender))
-                    if sender.ip().is_loopback()
-                        && message.get(..length) == Some(self.token.as_bytes()) =>
-                {
-                    return Ok(true);
-                }
-                Ok(_) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
                     return Ok(false);
                 }
-                Err(error) => return Err(error),
+                let timeout_ms =
+                    remaining.as_millis().saturating_add(1).min(i32::MAX as u128) as i32;
+                let mut descriptor = libc::pollfd {
+                    fd: self.signal_reader.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                // SAFETY: descriptor points to one valid pollfd for the call.
+                let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+                if ready == 0 {
+                    return Ok(false);
+                }
+                if ready < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if descriptor.revents & libc::POLLIN != 0 {
+                    let mut signal = [0_u8; 1];
+                    let mut signal_reader = &self.signal_reader;
+                    match signal_reader.read(&mut signal) {
+                        Ok(1) => return Ok(true),
+                        Ok(_) => {}
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
+                        Err(error) => return Err(error),
+                    }
+                }
+                if descriptor.revents & (libc::POLLERR | libc::POLLNVAL) != 0 {
+                    return Err(std::io::Error::other("session coordinator signal pipe failed"));
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            let mut message = [0_u8; 128];
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    return Ok(false);
+                }
+                self.socket.set_read_timeout(Some(remaining))?;
+                match self.socket.recv_from(&mut message) {
+                    Ok((length, sender))
+                        if sender.ip().is_loopback()
+                            && message.get(..length) == Some(self.token.as_bytes()) =>
+                    {
+                        return Ok(true);
+                    }
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        return Ok(false);
+                    }
+                    Err(error) => return Err(error),
+                }
             }
         }
     }
@@ -5576,24 +5686,23 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
     let Ok(entries) = fs::read_dir(waiter_dir) else {
         return;
     };
+    #[cfg(not(unix))]
     let Ok(socket) = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)) else {
         return;
     };
-    for entry in entries.flatten() {
+    for entry in entries.flatten().take(SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT) {
         let path = entry.path();
         let Ok(metadata) = fs::symlink_metadata(&path) else {
             continue;
         };
-        if !metadata.file_type().is_file() {
-            continue;
-        }
         match path.extension().and_then(|value| value.to_str()) {
             Some("tmp") => {
-                let is_stale = metadata
-                    .modified()
-                    .ok()
-                    .and_then(|modified| modified.elapsed().ok())
-                    .is_some_and(|age| age >= SESSION_GUARD_COORDINATOR_TIMEOUT);
+                let is_stale = metadata.file_type().is_file()
+                    && metadata
+                        .modified()
+                        .ok()
+                        .and_then(|modified| modified.elapsed().ok())
+                        .is_some_and(|age| age >= SESSION_GUARD_COORDINATOR_TIMEOUT);
                 if is_stale {
                     let _ = fs::remove_file(path);
                 }
@@ -5602,6 +5711,31 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
             Some("waiter") => {}
             _ => continue,
         }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+
+            if !metadata.file_type().is_fifo() {
+                let _ = fs::remove_file(path);
+                continue;
+            }
+            let mut options = OpenOptions::new();
+            options.write(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+            let published =
+                options.open(&path).and_then(|mut signal| signal.write_all(&[1])).is_ok();
+            let _ = fs::remove_file(path);
+            if published {
+                break;
+            }
+            continue;
+        }
+
+        #[cfg(not(unix))]
+        if !metadata.file_type().is_file() {
+            continue;
+        }
+        #[cfg(not(unix))]
         if let Ok(registration) = fs::read_to_string(&path) {
             let mut fields = registration.split_whitespace();
             let address =
@@ -5613,9 +5747,13 @@ fn publish_session_coordinator_available(waiter_dir: &Path) {
                 && token.len() <= 128
                 && token.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
             {
-                let _ = socket.send_to(token.as_bytes(), address);
+                if socket.send_to(token.as_bytes(), address).is_ok() {
+                    let _ = fs::remove_file(path);
+                    break;
+                }
             }
         }
+        #[cfg(not(unix))]
         let _ = fs::remove_file(path);
     }
 }
