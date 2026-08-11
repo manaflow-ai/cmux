@@ -52,7 +52,7 @@ actor ChatArtifactTemporaryFileWriter {
               chunk.totalSize <= limit,
               nextOffset <= limit - Int64(chunk.data.count),
               let fileHandle else {
-            throw ChatArtifactError.macUnreachable
+            throw ChatArtifactError.loadFailed
         }
         try fileHandle.write(contentsOf: chunk.data)
         nextOffset += Int64(chunk.data.count)
@@ -60,7 +60,7 @@ actor ChatArtifactTemporaryFileWriter {
 
     func finish() throws -> URL {
         guard let fileHandle else {
-            throw ChatArtifactError.macUnreachable
+            throw ChatArtifactError.loadFailed
         }
         try fileHandle.close()
         self.fileHandle = nil

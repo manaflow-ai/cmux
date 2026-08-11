@@ -12,6 +12,7 @@ import SwiftUI
 /// host serves real transcripts.
 struct AgentChatDemoScreen: View {
     let style: AgentChatDemoScreenStyle
+    private let artifactLoader: ChatArtifactLoader
 
     @Environment(\.dismiss) private var dismiss
     @State private var stack: DemoStack?
@@ -19,6 +20,7 @@ struct AgentChatDemoScreen: View {
 
     init(style: AgentChatDemoScreenStyle = .standalone) {
         self.style = style
+        artifactLoader = Self.makeArtifactLoader()
     }
 
     var body: some View {
@@ -148,6 +150,7 @@ struct AgentChatDemoScreen: View {
                 providesOwnChrome: false,
                 onOpenTerminal: {}
             )
+            .environment(\.chatArtifactLoader, artifactLoader)
         case .inlineWorkspace:
             ChatScreen(
                 store: stack.store,
@@ -156,7 +159,30 @@ struct AgentChatDemoScreen: View {
                 providesOwnChrome: false,
                 onOpenTerminal: {}
             )
+            .environment(\.chatArtifactLoader, artifactLoader)
         }
+    }
+
+    private static func makeArtifactLoader() -> ChatArtifactLoader {
+        let failure = UITestConfig.value(
+            for: "CMUX_UITEST_AGENT_CHAT_ARTIFACT_FAILURE",
+            env: ProcessInfo.processInfo.environment
+        )
+        let error: ChatArtifactError
+        switch failure {
+        case "session_not_found":
+            error = .sessionNotFound
+        case "load_failed":
+            error = .loadFailed
+        case "mac_unreachable":
+            error = .macUnreachable
+        default:
+            return .unsupported()
+        }
+        return ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in throw error }
+        )
     }
 
     private func header(for stack: DemoStack) -> some View {

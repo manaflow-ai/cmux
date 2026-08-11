@@ -37,7 +37,7 @@ struct MobileArtifactChunkFetchLoop: Sendable {
                 return result
             }
             guard !chunk.data.isEmpty else {
-                throw ChatArtifactError.macUnreachable
+                throw ChatArtifactError.loadFailed
             }
         }
     }

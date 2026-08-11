@@ -50,6 +50,28 @@ struct TerminalArtifactSelection: Identifiable, Equatable {
     var id: String { "\(workspaceID)#\(surfaceID)#\(sessionID ?? "terminal")#\(path)" }
 }
 
+enum TerminalArtifactGalleryFailure: Equatable {
+    case macUnreachable
+    case sessionMissing
+    case loadFailed
+
+    init(error: any Error) {
+        guard let artifactError = error as? ChatArtifactError else {
+            self = .loadFailed
+            return
+        }
+        switch artifactError {
+        case .macUnreachable:
+            self = .macUnreachable
+        case .sessionNotFound:
+            self = .sessionMissing
+        case .unsupported, .invalidParams, .forbidden, .fileNotFound,
+             .unsupportedMedia, .unavailable, .loadFailed, .tooLarge:
+            self = .loadFailed
+        }
+    }
+}
+
 struct TerminalArtifactFilesSheet: View {
     let workspaceID: String
     let surfaceID: String
@@ -173,7 +195,7 @@ struct TerminalArtifactFilesSheet: View {
 
     private func loadInitial() async {
         guard let source else {
-            inViewState = .failed
+            inViewState = .failed(.loadFailed)
             scope = .inView
             return
         }
@@ -203,14 +225,14 @@ struct TerminalArtifactFilesSheet: View {
         } catch is CancellationError {
             return
         } catch {
-            inViewState = .failed
+            inViewState = .failed(TerminalArtifactGalleryFailure(error: error))
             scope = .inView
         }
     }
 
     func refreshInView() async {
         guard let source else {
-            inViewState = .failed
+            inViewState = .failed(.loadFailed)
             return
         }
         do {
@@ -227,7 +249,7 @@ struct TerminalArtifactFilesSheet: View {
         } catch is CancellationError {
             return
         } catch {
-            inViewState = .failed
+            inViewState = .failed(TerminalArtifactGalleryFailure(error: error))
         }
     }
 
@@ -265,10 +287,11 @@ struct TerminalArtifactFilesSheet: View {
             return
         } catch {
             if !preservingContent {
+                let failure = TerminalArtifactGalleryFailure(error: error)
                 if query == nil {
-                    sessionState = .failed
+                    sessionState = .failed(failure)
                 } else {
-                    searchState = .failed
+                    searchState = .failed(failure)
                 }
             }
         }
@@ -541,14 +564,14 @@ struct TerminalArtifactFilesSheet: View {
     enum InViewLoadState: Equatable {
         case loading
         case loaded([TerminalArtifactReference])
-        case failed
+        case failed(TerminalArtifactGalleryFailure)
     }
 
     enum SessionLoadState: Equatable {
         case idle
         case loading
         case loaded(SessionGallerySnapshot)
-        case failed
+        case failed(TerminalArtifactGalleryFailure)
     }
 
     typealias SessionGallerySnapshot = ChatArtifactGallerySnapshot

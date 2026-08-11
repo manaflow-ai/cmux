@@ -494,6 +494,40 @@
         }
       }
     },
+    "chat.artifact.load_failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file couldn’t be loaded. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.load_failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t load file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めません"
+          }
+        }
+      }
+    },
     "chat.artifact.loading": {
       "extractionState": "manual",
       "localizations": {
@@ -541,6 +575,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macに接続できません"
+          }
+        }
+      }
+    },
+    "chat.artifact.session_missing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat session for this file is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルのチャットセッションは利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "chat.artifact.session_missing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションが見つかりません"
           }
         }
       }

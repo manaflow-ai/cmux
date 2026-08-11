@@ -319,15 +319,19 @@ final class ChatArtifactViewerModel {
         stat: ChatArtifactStat?
     ) -> ChatArtifactViewerState {
         guard let artifactError = error as? ChatArtifactError else {
-            return .macUnreachable
+            return .loadFailed
         }
         switch artifactError {
         case .fileNotFound:
             return .fileMissing
+        case .sessionNotFound:
+            return .sessionMissing
         case .forbidden:
             return .forbidden
-        case .macUnreachable, .unavailable, .unsupported, .sessionNotFound, .invalidParams:
+        case .macUnreachable:
             return .macUnreachable
+        case .loadFailed, .unavailable, .unsupported, .invalidParams:
+            return .loadFailed
         case .unsupportedMedia:
             return .unsupportedMedia
         case .tooLarge(let limitBytes):

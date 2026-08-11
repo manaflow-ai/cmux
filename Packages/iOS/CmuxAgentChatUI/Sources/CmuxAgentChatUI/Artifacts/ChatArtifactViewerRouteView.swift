@@ -195,6 +195,18 @@ struct ChatArtifactViewerRouteView: View {
                 message: String(localized: "chat.artifact.file_missing.message", defaultValue: "The file is no longer available on your Mac.", bundle: .module),
                 retry: false
             )
+        case .sessionMissing:
+            unavailableView(
+                title: String(localized: "chat.artifact.session_missing.title", defaultValue: "Session not found", bundle: .module),
+                message: String(localized: "chat.artifact.session_missing.message", defaultValue: "The chat session for this file is no longer available.", bundle: .module),
+                retry: false
+            )
+        case .loadFailed:
+            unavailableView(
+                title: String(localized: "chat.artifact.load_failed.title", defaultValue: "Couldn’t load file", bundle: .module),
+                message: String(localized: "chat.artifact.load_failed.message", defaultValue: "The file couldn’t be loaded. Try again.", bundle: .module),
+                retry: true
+            )
         case .macUnreachable:
             unavailableView(
                 title: String(localized: "chat.artifact.mac_unreachable.title", defaultValue: "Mac unreachable", bundle: .module),

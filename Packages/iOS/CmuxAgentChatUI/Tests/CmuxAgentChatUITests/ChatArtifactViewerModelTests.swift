@@ -17,7 +17,31 @@ struct ChatArtifactViewerModelTests {
 
         await model.load(path: "/tmp/cmux-attachments/ci-failure.png", loader: loader)
 
-        #expect(model.state != .macUnreachable)
+        #expect(model.state == .sessionMissing)
+    }
+
+    @Test("only a reachability error reports an unreachable Mac")
+    @MainActor
+    func distinguishesLoadFailureFromMacReachability() async {
+        let loadFailureModel = ChatArtifactViewerModel()
+        await loadFailureModel.load(
+            path: "/tmp/broken.txt",
+            loader: ChatArtifactLoader(
+                supportsArtifacts: true,
+                stat: { _ in throw ChatArtifactError.loadFailed }
+            )
+        )
+        let unreachableModel = ChatArtifactViewerModel()
+        await unreachableModel.load(
+            path: "/tmp/unreachable.txt",
+            loader: ChatArtifactLoader(
+                supportsArtifacts: true,
+                stat: { _ in throw ChatArtifactError.macUnreachable }
+            )
+        )
+
+        #expect(loadFailureModel.state == .loadFailed)
+        #expect(unreachableModel.state == .macUnreachable)
     }
 
     @Test("large transport chunks are published in bounded UI batches")

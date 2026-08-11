@@ -107,8 +107,8 @@ extension TerminalArtifactFilesSheet {
                 )
                 .refreshable { await refreshInView() }
             }
-        case .failed:
-            failureView { await refreshInView() }
+        case .failed(let failure):
+            failureView(failure: failure) { await refreshInView() }
         }
     }
 
@@ -143,8 +143,8 @@ extension TerminalArtifactFilesSheet {
         switch state {
         case .idle, .loading:
             loadingView
-        case .failed:
-            failureView { await loadFirstSessionPage(query: nil) }
+        case .failed(let failure):
+            failureView(failure: failure) { await loadFirstSessionPage(query: nil) }
         case .loaded(let snapshot):
             let visibleSnapshotIsEmpty = displaySettings.showMissingFiles
                 ? snapshot.isEmpty
@@ -285,8 +285,8 @@ extension TerminalArtifactFilesSheet {
         switch state {
         case .idle, .loading:
             loadingView
-        case .failed:
-            failureView { await loadFirstSessionPage(query: query) }
+        case .failed(let failure):
+            failureView(failure: failure) { await loadFirstSessionPage(query: query) }
         case .loaded(let snapshot):
             let presentation = ChatArtifactGalleryPresentation(
                 snapshot: snapshot,
@@ -532,22 +532,17 @@ extension TerminalArtifactFilesSheet {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func failureView(retry: @escaping @MainActor () async -> Void) -> some View {
+    private func failureView(
+        failure: TerminalArtifactGalleryFailure,
+        retry: @escaping @MainActor () async -> Void
+    ) -> some View {
         ContentUnavailableView {
             Label(
-                String(
-                    localized: "terminal.artifact.gallery.unreachable.title",
-                    defaultValue: "Mac unreachable",
-                    bundle: .module
-                ),
-                systemImage: "wifi.exclamationmark"
+                failureTitle(failure),
+                systemImage: failureSystemImage(failure)
             )
         } description: {
-            Text(String(
-                localized: "terminal.artifact.gallery.unreachable.message",
-                defaultValue: "Check the connection to your Mac and try again.",
-                bundle: .module
-            ))
+            Text(failureMessage(failure))
         } actions: {
             Button {
                 Task { await retry() }
@@ -562,6 +557,39 @@ extension TerminalArtifactFilesSheet {
                 )
             }
             .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private func failureTitle(_ failure: TerminalArtifactGalleryFailure) -> String {
+        switch failure {
+        case .macUnreachable:
+            String(localized: "terminal.artifact.gallery.unreachable.title", defaultValue: "Mac unreachable", bundle: .module)
+        case .sessionMissing:
+            String(localized: "terminal.artifact.gallery.session_missing.title", defaultValue: "Session not found", bundle: .module)
+        case .loadFailed:
+            String(localized: "terminal.artifact.gallery.load_failed.title", defaultValue: "Couldn’t load files", bundle: .module)
+        }
+    }
+
+    private func failureMessage(_ failure: TerminalArtifactGalleryFailure) -> String {
+        switch failure {
+        case .macUnreachable:
+            String(localized: "terminal.artifact.gallery.unreachable.message", defaultValue: "Check the connection to your Mac and try again.", bundle: .module)
+        case .sessionMissing:
+            String(localized: "terminal.artifact.gallery.session_missing.message", defaultValue: "The chat session for these files is no longer available.", bundle: .module)
+        case .loadFailed:
+            String(localized: "terminal.artifact.gallery.load_failed.message", defaultValue: "The file list couldn’t be loaded. Try again.", bundle: .module)
+        }
+    }
+
+    private func failureSystemImage(_ failure: TerminalArtifactGalleryFailure) -> String {
+        switch failure {
+        case .macUnreachable:
+            "wifi.exclamationmark"
+        case .sessionMissing:
+            "exclamationmark.bubble"
+        case .loadFailed:
+            "exclamationmark.triangle"
         }
     }
 

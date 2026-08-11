@@ -14,7 +14,9 @@ public enum ChatArtifactError: Error, Sendable, Equatable {
     case unsupportedMedia
     /// The Mac-side artifact service is not wired.
     case unavailable
-    /// The Mac could not be reached or did not answer.
+    /// The source answered, but the artifact response could not be loaded safely.
+    case loadFailed
+    /// The control transport to the Mac closed before the request completed.
     case macUnreachable
     /// The file exceeds the inline preview size limit.
     case tooLarge(limitBytes: Int64)

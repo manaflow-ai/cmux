@@ -81,7 +81,7 @@ struct MobileArtifactChunkFetchLoopTests {
             }
             Issue.record("empty non-EOF chunk should fail")
         } catch let error as ChatArtifactError {
-            #expect(error != .macUnreachable)
+            #expect(error == .loadFailed)
         } catch {
             Issue.record("unexpected error: \(error)")
         }

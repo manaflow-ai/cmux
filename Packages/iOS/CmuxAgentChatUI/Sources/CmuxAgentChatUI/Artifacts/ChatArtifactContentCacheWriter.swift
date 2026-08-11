@@ -46,20 +46,20 @@ actor ChatArtifactContentCacheWriter {
               chunk.totalSize == expectedSize,
               nextOffset <= expectedSize - Int64(chunk.data.count),
               let fileHandle else {
-            throw ChatArtifactError.macUnreachable
+            throw ChatArtifactError.loadFailed
         }
         try fileHandle.write(contentsOf: chunk.data)
         memoryData?.append(chunk.data)
         nextOffset += Int64(chunk.data.count)
         reachedEOF = chunk.eof
         if reachedEOF, nextOffset != expectedSize {
-            throw ChatArtifactError.macUnreachable
+            throw ChatArtifactError.loadFailed
         }
     }
 
     func finish() throws -> Data? {
         guard reachedEOF, nextOffset == expectedSize, let fileHandle else {
-            throw ChatArtifactError.macUnreachable
+            throw ChatArtifactError.loadFailed
         }
         try fileHandle.close()
         self.fileHandle = nil
