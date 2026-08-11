@@ -616,6 +616,7 @@ pub fn product_exit_line(nonce: &str, code: u32) -> Result<String> {
     Ok(format!("PRODUCT_EXIT {nonce} {code}\n"))
 }
 
+#[cfg(windows)]
 pub fn parse_product_exit_line(line: &str, nonce: &str) -> Result<u32> {
     decode_nonce(nonce).context("product-exit nonce is invalid")?;
     let prefix = format!("PRODUCT_EXIT {nonce} ");
@@ -1075,6 +1076,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn product_exit_line_is_nonce_bound_and_canonical() {
         let nonce = "ab".repeat(NONCE_BYTES);
         let line = product_exit_line(&nonce, 125).unwrap();

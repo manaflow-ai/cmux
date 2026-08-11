@@ -484,6 +484,11 @@ pub(super) fn run_probe_child(values: &[String]) -> Result<()> {
 #[derive(Debug)]
 struct OwnedHandle(HANDLE);
 
+// SAFETY: OwnedHandle uniquely owns one process-wide Windows kernel handle. Windows handles have
+// no thread affinity, moving the owner does not change handle validity, and Drop only calls
+// CloseHandle once. The wrapper does not provide shared access, so it is not Sync.
+unsafe impl Send for OwnedHandle {}
+
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
         if !self.0.is_null() && self.0 != INVALID_HANDLE_VALUE {
@@ -1554,8 +1559,8 @@ fn network_profile_present(
             !entry.appContainerSid.is_null()
                 && !entry.userSid.is_null()
                 && unsafe { pwstr_equals(entry.appContainerName, expected_name) }
-                && unsafe { EqualSid(entry.appContainerSid, appcontainer_sid.0.cast()) } != 0
-                && unsafe { EqualSid(entry.userSid, account_sid.0.cast()) } != 0
+                && unsafe { EqualSid(entry.appContainerSid.cast(), appcontainer_sid.0.cast()) } != 0
+                && unsafe { EqualSid(entry.userSid.cast(), account_sid.0.cast()) } != 0
         })
     };
     if !entries.is_null() {

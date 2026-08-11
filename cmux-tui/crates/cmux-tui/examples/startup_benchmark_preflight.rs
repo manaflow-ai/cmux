@@ -22,12 +22,13 @@ use startup_benchmark_protocol::{
     BootstrapHangDiagnosticReport, CONTROL_TIMEOUT, MAX_BOOTSTRAP_HANG_DUMP_BYTES,
     MAX_BOOTSTRAP_HANG_REPORT_BYTES, MAX_PRODUCT_FAILURE_STDOUT_TAIL_BYTES, STARTUP_LINE_TIMEOUT,
     SupervisorStartupLine, TimingPage, arm_line, bootstrap_failure_hang_artifact, monotonic_ns,
-    parse_product_exit_line, parse_supervisor_startup_line, read_control_line,
-    validate_bootstrap_failure_records, write_control_line,
+    parse_supervisor_startup_line, read_control_line, validate_bootstrap_failure_records,
+    write_control_line,
 };
 #[cfg(windows)]
 use startup_benchmark_protocol::{
-    PRODUCT_STARTED_TIMEOUT, parse_product_started_line, read_product_started_control_line,
+    PRODUCT_STARTED_TIMEOUT, parse_product_exit_line, parse_product_started_line,
+    read_product_started_control_line,
 };
 use wait_timeout::ChildExt;
 
@@ -1149,13 +1150,15 @@ fn run_controller(values: &[String]) -> Result<()> {
             Ok(PreflightProtocolOutcome::StartupFailure { checkpoint_name, public_deadline }) => {
                 let finished = events.finish_failure_until(public_deadline);
                 let observation = events.controller_failure_observation(&nonce);
-                let mut copied = copy_bootstrap_failure_checkpoint(
+                let copied = copy_bootstrap_failure_checkpoint(
                     &root,
                     &output,
                     checkpoint_name.as_deref(),
                     &nonce,
                     Some(&observation),
                 );
+                #[cfg(windows)]
+                let mut copied = copied;
                 #[cfg(windows)]
                 if let Some(relayed) = relayed_bootstrap_evidence.as_ref() {
                     let relay = persist_relayed_product_started_evidence(
