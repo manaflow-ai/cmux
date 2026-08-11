@@ -2644,8 +2644,11 @@ fn tombstone_resource_tab(
                 let terminal = read_terminal(transaction, &terminal_id)?
                     .with_context(|| format!("terminal {terminal_id} has no durable placement"))?;
                 anyhow::ensure!(
-                    terminal.lifecycle == TerminalLifecycle::Exited,
-                    "tab {tab_id} can detach only exited terminal content"
+                    matches!(
+                        terminal.lifecycle,
+                        TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+                    ),
+                    "tab {tab_id} can detach only exited or closed terminal content"
                 );
             }
             "browser" => anyhow::bail!("tab {tab_id} cannot detach browser content"),

@@ -1778,6 +1778,46 @@ fn resource_tab_detach_preserves_exited_terminal_identity_and_outcome() {
 }
 
 #[test]
+fn resource_close_atomically_detaches_its_tombstoned_terminal() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-close-detach").unwrap();
+    commit_terminal_topology(&mut registry, "create-terminal-close-detach");
+    let terminal_public_id = terminal_resource(TERMINAL_ONE);
+
+    let close = registry
+        .commit_resource_close_patch(
+            "close-terminal-atomic",
+            "terminal.close",
+            &json!({"terminal":terminal_public_id}),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: false },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"closed":true}),
+            &json!([]),
+            &[(TERMINAL_ONE.to_string(), None)],
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(close.terminal_batch.closed, 1);
+    assert!(registry.resource_topology_snapshot().unwrap().tabs.is_empty());
+    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), Some(terminal_public_id));
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
+        TerminalLifecycle::Tombstoned
+    );
+}
+
+#[test]
 fn resource_tab_detach_rejects_live_terminal_content() {
     let mut registry = WorkspaceRegistry::in_memory("terminal-detach-live").unwrap();
     commit_terminal_topology(&mut registry, "create-terminal-detach-live");
@@ -1807,7 +1847,7 @@ fn resource_tab_detach_rejects_live_terminal_content() {
         )
         .unwrap_err();
 
-    assert!(error.to_string().contains("can detach only exited terminal content"));
+    assert!(error.to_string().contains("can detach only exited or closed terminal content"));
     let snapshot = registry.resource_topology_snapshot().unwrap();
     assert_eq!(snapshot.revision, 1);
     assert_eq!(snapshot.tabs.len(), 1);
