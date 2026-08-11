@@ -549,7 +549,7 @@ impl WorkspaceRegistry {
             &session_journal::JournalAppend {
                 event_id: "event_checkpoint_later_candidate",
                 schema_version: 1,
-                kind: "test.unrelated",
+                kind: "agent.unknown",
                 class: JournalClass::Observation,
                 replay: JournalReplayPolicy::Advisory,
                 occurred_at_ms: EVENT_COUNT as u64,
