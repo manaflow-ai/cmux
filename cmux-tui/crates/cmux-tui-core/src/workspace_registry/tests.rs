@@ -1255,11 +1255,7 @@ fn journal_agent_rejected_wrong_session_open_does_not_advance_rebuild() {
         .unwrap();
 
     let error = WorkspaceRegistry::open(&root, requested_session).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("workspace registry belongs to session \"stored-session\"")
-    );
+    assert!(error.to_string().contains("workspace registry belongs to session \"stored-session\""));
     let cursor_count = Connection::open(&database)
         .unwrap()
         .query_row(
