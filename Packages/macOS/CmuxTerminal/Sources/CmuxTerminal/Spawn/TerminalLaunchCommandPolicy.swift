@@ -66,8 +66,9 @@ public struct TerminalLaunchCommandPolicy: Sendable {
         resolvedShell: String?
     ) -> TerminalSurfaceLaunchForm? {
         for candidate in [initialCommand, surfaceCommand] {
-            if let candidate, !candidate.isEmpty {
-                return TerminalSurfaceLaunchForm(command: candidate)
+            if let candidate,
+               let configuredCommand = GhosttyConfiguredCommand(rawValue: candidate) {
+                return configuredCommand.launchForm
             }
         }
         if let userGhosttyCommand {
