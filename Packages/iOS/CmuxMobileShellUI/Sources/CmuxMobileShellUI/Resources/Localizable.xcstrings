@@ -1244,6 +1244,20 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "リレーポリシーを利用できません" } }
       }
     },
+    "mobile.iroh.diagnostics.failure.payloadTooLarge" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Payload Too Large" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイロードが大きすぎます" } }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.resourceLimitReached" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Resource Limit Reached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リソース上限に達しました" } }
+      }
+    },
     "mobile.iroh.diagnostics.failure.endpointUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {

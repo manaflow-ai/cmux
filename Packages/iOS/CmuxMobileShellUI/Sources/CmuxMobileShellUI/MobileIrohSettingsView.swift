@@ -383,6 +383,13 @@ private extension MobileIrohSettingsView {
             )
         case .some(.policyUnavailable):
             L10n.string("mobile.iroh.diagnostics.failure.policyUnavailable", defaultValue: "Relay Policy Unavailable")
+        case .some(.payloadTooLarge):
+            L10n.string("mobile.iroh.diagnostics.failure.payloadTooLarge", defaultValue: "Payload Too Large")
+        case .some(.resourceLimitReached):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.resourceLimitReached",
+                defaultValue: "Resource Limit Reached"
+            )
         case .some(.endpointUnavailable):
             L10n.string("mobile.iroh.diagnostics.failure.endpointUnavailable", defaultValue: "Endpoint Unavailable")
         case .some(.identityMismatch):
@@ -424,8 +431,6 @@ private extension MobileIrohSettingsView {
                 "mobile.iroh.diagnostics.failure.sendQueueOverflow",
                 defaultValue: "Send Queue Overflow"
             )
-        case .some(.routeGated):
-            L10n.string("mobile.iroh.diagnostics.failure.routeGated", defaultValue: "Route Gated")
         case .some(.superseded):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.superseded",
