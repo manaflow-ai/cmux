@@ -378,6 +378,30 @@ struct DockPaneDropUnfocusedRoutingTests {
         }
     }
 
+    @Test("Overlay late target discovery resolves its Dock before performing the drop")
+    @MainActor
+    func overlayLateTargetDiscoveryResolvesDockBeforePerformingDrop() async throws {
+        try await withGlobalDockTerminalFileDrop(defaultBehavior: .preview) {
+            target, draggingInfo, dock, terminalPanel, fileURL, _, _ in
+            let contentView = try #require(target.window?.contentView)
+            let overlay = FileDropOverlayView(frame: contentView.bounds)
+            contentView.addSubview(overlay, positioned: .above, relativeTo: target)
+            defer { overlay.removeFromSuperview() }
+
+            #expect(overlay.activePaneDropTarget == nil)
+            #expect(overlay.prepareForDragOperation(draggingInfo))
+            #expect((overlay.preparedPaneDropTarget as AnyObject?) === target)
+            #expect(overlay.performDragOperation(draggingInfo))
+
+            let previewPanels = dock.panels.values.compactMap { $0 as? FilePreviewPanel }
+            let previewPanel = try #require(previewPanels.first)
+            #expect(previewPanels.count == 1)
+            #expect(previewPanel.filePath == fileURL.path)
+            #expect(dock.containsPanel(terminalPanel.id))
+            #expect(dock.paneId(forPanelId: previewPanel.id) != nil)
+        }
+    }
+
     @Test("Accepted unfocused Dock pane drop moves a main surface into the Dock")
     @MainActor
     func acceptedUnfocusedDockPaneDropMovesMainSurfaceIntoDock() async throws {
