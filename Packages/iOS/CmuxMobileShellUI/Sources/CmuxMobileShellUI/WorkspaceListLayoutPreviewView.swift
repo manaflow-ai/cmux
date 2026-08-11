@@ -99,7 +99,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var model: WorkspaceListLayoutPreviewModel
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
-    @State private var filterState = WorkspaceListFilterState()
+    @State private var filterState: WorkspaceListFilterState
     /// Store-free stand-ins for the device-local sort preference, so the
     /// fixture's sort menu and computer-order editor are fully interactive.
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT` (a raw mode value) and
@@ -123,6 +123,14 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// measurement.
     public init() {
         let environment = ProcessInfo.processInfo.environment
+        let initialFilter = MobileWorkspaceListFilter(
+            machines: environment[
+                "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_FILTER_MACHINE"
+            ].map { Set([$0]) } ?? []
+        )
+        _filterState = State(
+            initialValue: WorkspaceListFilterState(filter: initialFilter)
+        )
         let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
         let usesMixedGroupFixture = environment[
@@ -352,7 +360,8 @@ public struct WorkspaceListLayoutPreviewView: View {
             macInstanceTag: String,
             name: String,
             groupID: MobileWorkspaceGroupPreview.ID? = nil,
-            activityOffset: TimeInterval? = nil
+            activityOffset: TimeInterval? = nil,
+            hasUnread: Bool = false
         ) -> MobileWorkspacePreview {
             let activityAt = activityOffset.map { now.addingTimeInterval($0) }
             var workspace = MobileWorkspacePreview(
@@ -363,6 +372,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 groupID: groupID,
                 previewAt: activityAt,
                 lastActivityAt: activityAt,
+                hasUnread: hasUnread,
                 terminals: []
             )
             workspace.macInstanceTag = macInstanceTag
@@ -403,7 +413,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     "mobile.workspaces.preview.mixed.inactiveMember",
                     defaultValue: "Inactive Member"
                 ),
-                groupID: alphaGroupID
+                groupID: alphaGroupID,
+                hasUnread: true
             ),
             workspace(
                 id: "workspace-mixed-between",
@@ -438,7 +449,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     defaultValue: "Recent Member"
                 ),
                 groupID: betaGroupID,
-                activityOffset: -120
+                activityOffset: -120,
+                hasUnread: true
             ),
             workspace(
                 id: "workspace-mixed-after",
