@@ -3720,11 +3720,7 @@ impl Mux {
         let mut state_projection = if !terminal_public_ids.is_empty() {
             ResourceCloseState::Terminal {
                 state: state
-                    .clone_terminal_scope(
-                        &workspace_ids,
-                        &catalog_public_ids,
-                        &target_surfaces,
-                    )
+                    .clone_terminal_scope(&workspace_ids, &catalog_public_ids, &target_surfaces)
                     .0,
                 workspace_ids,
                 catalog_public_ids,

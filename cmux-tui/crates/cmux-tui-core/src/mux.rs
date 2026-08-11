@@ -15799,9 +15799,7 @@ fn restore_resource_state(
     }
     for (workspace_index, workspace) in workspaces.iter().enumerate() {
         for (screen_index, screen) in workspace.screens.iter().enumerate() {
-            indexes
-                .screen_positions
-                .insert(screen.id, (workspace_index, screen_index));
+            indexes.screen_positions.insert(screen.id, (workspace_index, screen_index));
         }
     }
     let active_workspace = match topology.active_workspace.as_ref() {
@@ -18630,19 +18628,17 @@ mod tests {
         let (topology_scope_sizes, topology_discovery_steps) = {
             let registry = mux.workspace_registry.lock().unwrap();
             let state = mux.state.lock().unwrap();
-            let projection = mux.terminal_exit_detach_projection_locked(
-                &registry,
-                &state,
-                &host.terminal_id,
-                Some(&host.incarnation),
-                &terminal_id,
-            )
-            .unwrap()
-            .unwrap();
-            (
-                projection.topology_scope_sizes(),
-                projection.topology_discovery_steps(),
-            )
+            let projection = mux
+                .terminal_exit_detach_projection_locked(
+                    &registry,
+                    &state,
+                    &host.terminal_id,
+                    Some(&host.incarnation),
+                    &terminal_id,
+                )
+                .unwrap()
+                .unwrap();
+            (projection.topology_scope_sizes(), projection.topology_discovery_steps())
         };
         assert_eq!(
             topology_scope_sizes,

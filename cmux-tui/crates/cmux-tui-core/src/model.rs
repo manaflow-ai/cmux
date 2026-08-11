@@ -965,7 +965,8 @@ impl State {
                 .filter_map(|screen| {
                     let (workspace_index, screen_index) =
                         self.resource_indexes.screen_positions.get(screen).copied()?;
-                    (workspace_index == self.workspace_index(*workspace_id)?).then_some(screen_index)
+                    (workspace_index == self.workspace_index(*workspace_id)?)
+                        .then_some(screen_index)
                 })
                 .collect::<Vec<_>>();
             removed_positions.sort_unstable();
@@ -995,9 +996,7 @@ impl State {
                     .pane_ids_vec()
                     .into_iter()
                     .filter(|pane| !removed_panes.contains(pane))
-                    .filter_map(|pane| {
-                        self.panes.get(&pane).map(|owner| (pane, owner.active_at))
-                    })
+                    .filter_map(|pane| self.panes.get(&pane).map(|owner| (pane, owner.active_at)))
                     .max_by_key(|(_, active_at)| *active_at)
                     .map(|(pane, _)| pane)
             {
@@ -1026,11 +1025,8 @@ impl State {
                         .map(|(_, position)| *position)
                         .unwrap_or(usize::MAX)
                 });
-                let screens = screen_ids
-                    .into_iter()
-                    .filter_map(screen_at)
-                    .cloned()
-                    .collect::<Vec<_>>();
+                let screens =
+                    screen_ids.into_iter().filter_map(screen_at).cloned().collect::<Vec<_>>();
                 let active_screen_id =
                     workspace.screens.get(workspace.active_screen).map(|screen| screen.id);
                 let active_screen = active_screen_id
@@ -1240,11 +1236,8 @@ impl State {
                 self.resource_indexes.screen_positions.remove(screen);
             }
             if let Some(first_shifted) = first_shifted {
-                for (screen_index, screen) in self.workspaces[workspace_index]
-                    .screens
-                    .iter()
-                    .enumerate()
-                    .skip(first_shifted)
+                for (screen_index, screen) in
+                    self.workspaces[workspace_index].screens.iter().enumerate().skip(first_shifted)
                 {
                     self.resource_indexes
                         .screen_positions
@@ -1260,10 +1253,7 @@ impl State {
                 .min(self.workspaces[workspace_index].screens.len().saturating_sub(1));
             self.workspaces[workspace_index].active_screen = selected_screen
                 .and_then(|selected| {
-                    self.resource_indexes
-                        .screen_positions
-                        .get(&selected)
-                        .map(|(_, screen)| *screen)
+                    self.resource_indexes.screen_positions.get(&selected).map(|(_, screen)| *screen)
                 })
                 .unwrap_or(fallback);
         }
@@ -1353,8 +1343,7 @@ impl State {
             };
             let screen = &self.workspaces[workspace_index].screens[screen_index];
             for split in screen_split_slots(screen) {
-                self.split_screens
-                    .insert(split, (workspace_index, screen_index, screen.id));
+                self.split_screens.insert(split, (workspace_index, screen_index, screen.id));
             }
         }
     }
@@ -1423,9 +1412,7 @@ impl State {
             self.workspace_index_by_id.insert(workspace.id, index);
             self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
-                self.resource_indexes
-                    .screen_positions
-                    .insert(screen.id, (index, screen_index));
+                self.resource_indexes.screen_positions.insert(screen.id, (index, screen_index));
             }
         }
     }
@@ -1443,9 +1430,7 @@ impl State {
                 debug_assert!(old.is_none(), "duplicate screen public id");
                 indexes.screen_ids.insert(screen.id, screen.public_id.clone());
                 indexes.screen_workspace.insert(screen.id, workspace.id);
-                indexes
-                    .screen_positions
-                    .insert(screen.id, (workspace_index, screen_index));
+                indexes.screen_positions.insert(screen.id, (workspace_index, screen_index));
                 for pane_id in screen.root.pane_ids_vec() {
                     if let Some(pane) = self.panes.get(&pane_id) {
                         let old = indexes.panes.insert(pane.public_id.clone(), pane.id);
