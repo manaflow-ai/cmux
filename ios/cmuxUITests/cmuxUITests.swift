@@ -1764,6 +1764,10 @@ final class cmuxUITests: XCTestCase {
             "Tab bar must hide while the search-opened workspace detail is presented"
         )
         XCTAssertTrue(
+            waitForNotHittable(searchField, timeout: 3),
+            "Search field must not be reachable while the detail is presented"
+        )
+        XCTAssertTrue(
             workspaceDetail.exists,
             "Detail must still be presented after the tab bar hides"
         )
@@ -1952,6 +1956,10 @@ final class cmuxUITests: XCTestCase {
         // The opened notification is read now, so the still-active unread
         // filter correctly hides it; the non-matching rows stay hidden under
         // the restored query.
+        XCTAssertTrue(
+            waitForNotHittable(matchingRow, timeout: 3),
+            "The opened (now read) row must be hidden by the still-active unread filter"
+        )
         XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
     }
