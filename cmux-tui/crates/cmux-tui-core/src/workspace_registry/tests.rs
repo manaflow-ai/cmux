@@ -7076,6 +7076,37 @@ fn journal_agent_sessionless_activity_does_not_reopen_final_session() {
 }
 
 #[test]
+fn journal_agent_sessionless_lifecycle_advances_before_final_state() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-sessionless-lifecycle").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-sessionless-lifecycle-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, event, expected_state) in
+        [(0, "SessionStart", "idle"), (1, "TurnStart", "working"), (2, "AgentEnd", "done")]
+    {
+        let ingress =
+            crate::agent_hook_journal_ingress("pi", event, Some(terminal_id.as_str()), json!({}))
+                .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_sessionless_lifecycle",
+                &format!("journal_agent_sessionless_lifecycle_{index}"),
+            )
+            .unwrap();
+
+        let agent = registry.public_projections().unwrap().agents.remove(0);
+        assert_eq!(agent.state, expected_state);
+        assert!(agent.source_session.is_none());
+    }
+}
+
+#[test]
 fn journal_agent_explicit_start_reopens_final_same_session_identity() {
     let mut registry = WorkspaceRegistry::in_memory("journal-agent-restart-same-session").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-restart-same-session-topology");

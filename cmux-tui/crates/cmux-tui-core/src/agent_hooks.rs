@@ -1081,6 +1081,33 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_conflicting_session_identifiers_reject_ingress() {
+        let error = agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            None,
+            json!({
+                "session_id":"outer-session",
+                "event":{"thread":{"id":"inner-session"}},
+            }),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("conflicting agent session identifiers"));
+
+        let accepted = agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            None,
+            json!({
+                "session_id":"shared-session",
+                "event":{"thread":{"id":"shared-session"}},
+            }),
+        )
+        .unwrap();
+        assert_eq!(accepted.payload["normalized"]["agent_session_id"], "shared-session");
+    }
+
+    #[test]
     fn dedicated_question_and_plan_tools_are_semantic_events() {
         let question = agent_hook_journal_ingress(
             "claude-code",
