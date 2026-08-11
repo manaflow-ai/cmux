@@ -73,10 +73,33 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
         }
     }
 
+    func prepareForInstall(
+        retryClock: any Clock<Duration>
+    ) async -> Bool {
+        // A failed directory remains owned after its bounded retry schedule.
+        // Sweep retained work before another install, and reject the install
+        // while any directory remains. This bounds stale directories to shims
+        // that were already installed when the first cleanup stopped succeeding.
+        guard !leases.isEmpty else { return true }
+        guard retryTask == nil, activeRetryGeneration == nil else { return false }
+        nextRetryGeneration &+= 1
+        let generation = nextRetryGeneration
+        activeRetryGeneration = generation
+        if await retryAll(generation: generation, retryClock: retryClock) {
+            return true
+        }
+        guard activeRetryGeneration == generation else { return leases.isEmpty }
+        activeRetryGeneration = nil
+        scheduleRetries(retryClock: retryClock)
+        return false
+    }
+
     private func scheduleRetries(
         retryClock: any Clock<Duration>
     ) {
-        guard retryTask == nil, !leases.isEmpty else { return }
+        guard retryTask == nil,
+              activeRetryGeneration == nil,
+              !leases.isEmpty else { return }
         let retryDelays = retryDelays
         nextRetryGeneration &+= 1
         let generation = nextRetryGeneration
@@ -180,16 +203,17 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
         retryClock: any Clock<Duration>
     ) {
         guard activeRetryGeneration == generation else { return }
-        for (directoryPath, retainedLease) in Array(leases)
-        where retainedLease.lastRetryGeneration == generation
-            && retainedLease.lastRetryRevision == retainedLease.revision
-        {
-            if leases[directoryPath]?.lease === retainedLease.lease {
-                leases[directoryPath] = nil
-            }
+        // Keep fully attempted leases for a later install-time sweep. Only work
+        // that arrived after this generation's final snapshot starts a new
+        // schedule now.
+        let hasUnattemptedWork = leases.values.contains { retainedLease in
+            retainedLease.lastRetryGeneration != generation
+                || retainedLease.lastRetryRevision != retainedLease.revision
         }
         activeRetryGeneration = nil
         retryTask = nil
-        scheduleRetries(retryClock: retryClock)
+        if hasUnattemptedWork {
+            scheduleRetries(retryClock: retryClock)
+        }
     }
 }

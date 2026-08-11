@@ -915,6 +915,38 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(await owner.pendingRetryCount == 1)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func exhaustedCleanupBlocksNewInstallsAndStartsALaterSweep() async throws {
+        let shims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/exhausted-command-shims",
+            shims: []
+        )
+        let clock = LaunchResolverManualClock()
+        let recorder = CommandShimRemovalRecorder(failuresBeforeSuccess: .max)
+        let owner = TerminalSurfaceAgentCommandShimCleanupOwner(
+            removalAttemptLimit: 1,
+            removalLane: TerminalSurfaceAgentCommandShimRemovalLane(),
+            retryDelays: [.seconds(5)],
+            remove: { shims in
+                try recorder.remove(shims)
+            },
+            reportRemovalFailure: { shims, errorDescription in
+                recorder.recordFailure(shims, errorDescription: errorDescription)
+            }
+        )
+
+        await owner.cleanup(shims, retryClock: clock)
+        try await clock.waitUntilSleepers()
+        clock.advance(by: .seconds(5))
+        while recorder.attemptCount < 2 { await Task.yield() }
+        while await owner.pendingRetryCount > 0 { await Task.yield() }
+
+        #expect(await owner.retainedLeaseCount == 1)
+        #expect(await owner.prepareForInstall(retryClock: clock) == false)
+        #expect(await owner.retainedLeaseCount == 1)
+        #expect(await owner.pendingRetryCount == 1)
+    }
+
     private func makeResolver(
         defaultArguments: [String],
         defaultArgumentsProvider: (@Sendable () -> [String])? = nil,

@@ -85,4 +85,12 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     ) async {
         await agentCommandShimCleanupOwner.cleanup(shims, retryClock: retryClock)
     }
+
+    func prepareAgentCommandShimInstall(
+        retryClock: any Clock<Duration>
+    ) async -> Bool {
+        // New shim directories stop at the cleanup ownership boundary until a
+        // bounded sweep removes every previously failed directory.
+        await agentCommandShimCleanupOwner.prepareForInstall(retryClock: retryClock)
+    }
 }

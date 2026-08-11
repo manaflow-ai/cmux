@@ -70,6 +70,17 @@ actor TerminalSurfaceCommandShimInstallAttempt {
                 await installLease.release(installToken)
                 return
             }
+            guard await filesystem.prepareAgentCommandShimInstall(
+                retryClock: clock
+            ) else {
+                await installLease.release(installToken)
+                await self?.resolve(nil)
+                return
+            }
+            guard !Task.isCancelled else {
+                await installLease.release(installToken)
+                return
+            }
             let shims = await filesystem.installAgentCommandShims(
                 wrapperDirectoryURL,
                 surfaceID,
