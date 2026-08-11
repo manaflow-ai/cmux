@@ -152,9 +152,17 @@ struct TaskComposerSheet: View {
             template: selectedTemplate,
             discoveredModels: initialDiscoveredModels
         )
-        let initialModelID = (draft?.templateID == selectedTemplateID)
-            ? initialModelAvailability.validatedModelID(draft?.modelID)
+        // A model persisted by this composer was already validated when the
+        // user selected it. Preserve that explicit choice across a cold cache
+        // or later delisting instead of changing the request while discovery
+        // is still loading.
+        let restoredDraftModelID = (draft?.templateID == selectedTemplateID)
+            ? draft?.modelID
             : nil
+        let initialModelID = initialModelAvailability.validatedModelID(
+            restoredDraftModelID,
+            previouslyValidModelID: restoredDraftModelID
+        )
         let openDirectory = Self.preferredOpenDirectory(
             workspaces: store.workspaces,
             selectedWorkspaceID: store.selectedWorkspaceID,

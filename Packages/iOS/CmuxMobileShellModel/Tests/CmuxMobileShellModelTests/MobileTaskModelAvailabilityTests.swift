@@ -57,4 +57,25 @@ struct MobileTaskModelAvailabilityTests {
                 )
         )
     }
+
+    @Test func previouslyValidDraftSelectionSurvivesColdCatalog() {
+        let coldAvailability = MobileTaskModelAvailability(
+            template: template,
+            discoveredModels: nil
+        )
+
+        let restored = coldAvailability.validatedModelID(
+            "persisted-agent-model",
+            previouslyValidModelID: "persisted-agent-model"
+        )
+
+        #expect(restored == "persisted-agent-model")
+        #expect(
+            coldAvailability.selectedModel(id: restored)
+                == MobileTaskAgentModel(
+                    id: "persisted-agent-model",
+                    displayName: "persisted-agent-model"
+                )
+        )
+    }
 }

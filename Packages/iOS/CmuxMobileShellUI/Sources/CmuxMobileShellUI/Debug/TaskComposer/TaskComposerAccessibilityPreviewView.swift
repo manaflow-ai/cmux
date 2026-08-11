@@ -64,6 +64,18 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 didEditDirectory: false
             ))
         }
+        if environment["CMUX_UITEST_TASK_COMPOSER_RESTORED_MODEL_DRAFT"] == "1" {
+            templateStore.setComposerDraft(MobileTaskComposerDraft(
+                prompt: "Retry the persisted model",
+                modelID: "persisted-agent-model",
+                templateID: templateStore.listTemplates().first?.id,
+                macDeviceID: Self.previewMac.macDeviceID,
+                macInstanceTag: Self.previewMac.instanceTag,
+                directory: "~",
+                didEditDirectory: false,
+                operationID: UUID(uuidString: "0D9A7F2E-0B69-49C7-A725-F6F72517C584")
+            ))
+        }
         if presentsOpenDirectory {
             templateStore.setLastDirectory(
                 "/Users/ui/previous-task",

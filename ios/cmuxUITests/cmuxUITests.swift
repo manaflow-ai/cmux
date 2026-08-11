@@ -3124,6 +3124,37 @@ final class cmuxUITests: XCTestCase {
         let submittedCommand = emptyApp.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
         XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
         XCTAssertEqual(submittedCommand.label, "claude -- \"$CMUX_TASK_PROMPT\"")
+        emptyApp.terminate()
+
+        // A persisted model was validated when the user selected it. A cold
+        // cache must retain both that choice and the draft operation identity
+        // while discovery is unavailable, preventing a retry from becoming a
+        // different default-model request.
+        let restoredApp = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_MODEL_CATALOG_JSON": emptyCatalog,
+            "CMUX_UITEST_TASK_COMPOSER_RESTORED_MODEL_DRAFT": "1",
+        ])
+        defer { restoredApp.terminate() }
+
+        XCTAssertTrue(taskComposerPrompt(in: restoredApp).waitForExistence(timeout: 8))
+        let restoredModel = restoredApp.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(
+            restoredModel.waitForExistence(timeout: 3),
+            "A previously validated draft model must survive a cold catalog"
+        )
+        XCTAssertEqual(restoredModel.value as? String, "persisted-agent-model")
+        tap(restoredApp.buttons["MobileTaskComposerSubmitButton"], in: restoredApp)
+
+        let restoredCommand = restoredApp.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+        XCTAssertTrue(restoredCommand.waitForExistence(timeout: 4))
+        XCTAssertEqual(
+            restoredCommand.label,
+            "claude --model 'persisted-agent-model' -- \"$CMUX_TASK_PROMPT\""
+        )
+        let restoredOperationID = restoredApp.staticTexts["MobileTaskComposerSubmittedOperationID"]
+        XCTAssertTrue(restoredOperationID.waitForExistence(timeout: 3))
+        XCTAssertEqual(restoredOperationID.label, "0D9A7F2E-0B69-49C7-A725-F6F72517C584")
     }
 
     /// Regression: every task-composer action must remain discoverable through
