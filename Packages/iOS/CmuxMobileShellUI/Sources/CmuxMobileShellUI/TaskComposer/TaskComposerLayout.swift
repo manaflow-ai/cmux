@@ -28,7 +28,7 @@ struct TaskComposerLayout: View {
     let optionsSheet: () -> TaskComposerOptionsSheet
     let endEditing: () -> Void
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
-    let selectModel: (String?) -> Void
+    let selectModel: (MobileTaskAgentModel?) -> Void
     let editTemplates: () -> Void
     let cancel: () -> Void
     let submit: () -> Void

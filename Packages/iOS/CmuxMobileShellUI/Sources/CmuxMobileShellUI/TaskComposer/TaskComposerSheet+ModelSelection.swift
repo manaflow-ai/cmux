@@ -32,7 +32,7 @@ extension TaskComposerSheet {
 
     var selectedModel: MobileTaskAgentModel? {
         guard let selectedModelID else { return nil }
-        return modelAvailability.selectedModel(id: selectedModelID)
+        return availableModels.first { $0.id == selectedModelID }
     }
 
     func validatedModelID(
@@ -57,16 +57,16 @@ extension TaskComposerSheet {
         )
     }
 
-    func selectModel(_ id: String?) {
+    func selectModel(_ model: MobileTaskAgentModel?) {
         guard !submissionPhase.disablesRequestEditing else { return }
-        // Validate against the exact snapshot rendered in the keyboard dock.
-        // The store can finish or replace a refresh while a UIKit Menu is
-        // open, but a choice the user can see must remain selectable.
-        let validatedID = modelAvailability.validatedModelID(id)
-        guard id == nil || validatedID != nil else { return }
-        guard selectedModelID != validatedID else { return }
+        // TaskComposerModelMenuContent resolves this concrete value from the
+        // menu snapshot UIKit presented. It remains authoritative for the tap
+        // even if host discovery replaces the live catalog while the menu is
+        // open. Draft restoration still uses validatedModelID(_:for:).
+        let selectedID = model?.id
+        guard selectedModelID != selectedID else { return }
         updateSubmissionRequest(reconcileRecovery: true) {
-            selectedModelID = validatedID
+            selectedModelID = selectedID
         }
     }
 }

@@ -7,7 +7,7 @@ import SwiftUI
 struct TaskComposerModelMenuContent: View {
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
-    let selectModel: (String?) -> Void
+    let selectModel: (MobileTaskAgentModel?) -> Void
 
     var body: some View {
         Picker(
@@ -15,8 +15,16 @@ struct TaskComposerModelMenuContent: View {
             selection: Binding(
                 get: { selectedModelID },
                 set: { id in
-                    guard id == nil || models.contains(where: { $0.id == id }) else { return }
-                    selectModel(id)
+                    guard let id else {
+                        selectModel(nil)
+                        return
+                    }
+                    guard let model = models.first(where: { $0.id == id }) else {
+                        return
+                    }
+                    // Resolve against this presented menu snapshot. The live
+                    // catalog can be replaced while UIKit keeps the menu open.
+                    selectModel(model)
                 }
             )
         ) {
