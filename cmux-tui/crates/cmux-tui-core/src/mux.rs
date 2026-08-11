@@ -18980,10 +18980,15 @@ mod tests {
             let terminal_id = source.terminal_public_id().cloned().unwrap();
             let host = mux.resource_terminal_host_identity(&source).unwrap();
 
-            for _ in 1..workspace_count {
+            for workspace_index in 1..workspace_count {
                 let destination = mux.new_workspace(None, Some((80, 24))).unwrap();
                 let destination_pane =
                     mux.with_state(|state| state.pane_of(destination.id).unwrap());
+                let mutation = WorkspaceMutation::new(
+                    format!("project-terminal-for-scale-test-{workspace_index}"),
+                    "test",
+                )
+                .unwrap();
                 mux.resource_project_terminal_selected(
                     crate::ResourceSelectors {
                         terminal: Some(terminal_id.to_string()),
@@ -18993,7 +18998,7 @@ mod tests {
                     usize::MAX,
                     None,
                     None,
-                    &WorkspaceMutation::new("project-terminal-for-scale-test", "test").unwrap(),
+                    &mutation,
                 )
                 .unwrap();
             }
