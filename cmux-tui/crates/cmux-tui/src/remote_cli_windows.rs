@@ -797,8 +797,8 @@ async fn serve_remote_mux_owner(
                 break;
             }
             match events.recv_timeout(Duration::from_millis(250)) {
-                Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
                     let _ = shutdown_tx.send(());
                     break;
                 }
