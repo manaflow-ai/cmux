@@ -209,12 +209,9 @@ extension Workspace {
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
-        restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
-        restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
-        invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
+        restoredAgentLifecycle.removeAllSessionRestores()
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredPanelTitleBoundariesByPanelId.removeAll(keepingCapacity: false)
         panelShellActivityStates.removeAll(keepingCapacity: false)
 
@@ -1730,7 +1727,10 @@ extension Workspace {
                     panelId: terminalPanel.id,
                     restorableAgent: restorableAgent,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
-                    willRunStartupInput: restoredAgentWillRunStartupInput
+                    willRunStartupInput: restoredAgentWillRunStartupInput,
+                    resumeSessionWorkingDirectory: restoredDirectoryIsLocalPath
+                        ? resumeSessionWorkingDirectory
+                        : nil
                 )
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
@@ -1745,22 +1745,11 @@ extension Workspace {
                     panelId: terminalPanel.id,
                     restorableAgent: nil,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
-                    willRunStartupInput: restoredAgentWillRunStartupInput
+                    willRunStartupInput: restoredAgentWillRunStartupInput,
+                    resumeSessionWorkingDirectory: restoredDirectoryIsLocalPath
+                        ? resumeSessionWorkingDirectory
+                        : nil
                 )
-            }
-            // While an auto-resumed agent-hook or restorable-agent launcher
-            // holds the pane's foreground no prompt runs, so a stray
-            // post-restore report can park the tracked cwd on the surface
-            // default with nothing left to repair it. Keep the resolved
-            // session directory for the run's lifetime so split/new-tab
-            // inheritance can rescue it (#7155).
-            if restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput,
-               restoredDirectoryIsLocalPath,
-               let resumeSessionDirectory = resumeSessionWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !resumeSessionDirectory.isEmpty {
-                restoredResumeSessionWorkingDirectoriesByPanelId[terminalPanel.id] = resumeSessionDirectory
-            } else {
-                restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
@@ -2648,7 +2637,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the resumed run so split/new-tab cwd inheritance can rescue a
     /// clobbered tracked cwd while the agent holds the pane's foreground (#7155).
-    var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] {
+        get { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId }
+        set { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId = newValue }
+    }
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable, awaitingAutoResumeCommand, autoResumeCommandRunning, observedAgentCommandRunning, completedAgentExit
     }
@@ -3387,7 +3379,8 @@ final class Workspace: Identifiable, ObservableObject {
                         panelId: terminalPanel.id,
                         restorableAgent: initialTerminalStartupRestoreAgent,
                         willRunStartupCommand: false,
-                        willRunStartupInput: initialTerminalInput != nil
+                        willRunStartupInput: initialTerminalInput != nil,
+                        resumeSessionWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory
                     )
                 }
             }
@@ -8079,7 +8072,8 @@ final class Workspace: Identifiable, ObservableObject {
                 panelId: newPanel.id,
                 restorableAgent: startupRestoreAgent,
                 willRunStartupCommand: false,
-                willRunStartupInput: initialInput != nil
+                willRunStartupInput: initialInput != nil,
+                resumeSessionWorkingDirectory: startupRestoreAgent.workingDirectory
             )
         }
         publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
@@ -9886,11 +9880,6 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceId: detached.panelId
         )
         seedDetachedRestoredAgentState(from: detached)
-        if let resumeSessionWorkingDirectory = detached.restoredResumeSessionWorkingDirectory {
-            restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionWorkingDirectory
-        } else {
-            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
-        }
         let transferredResumeBinding: SurfaceResumeBindingSnapshot? = {
             if let resumeBinding = detached.resumeBinding,
                !resumeBinding.isProcessDetected {
@@ -11592,7 +11581,8 @@ final class Workspace: Identifiable, ObservableObject {
                 panelId: newPanel.id,
                 restorableAgent: startupRestoreAgent,
                 willRunStartupCommand: false,
-                willRunStartupInput: initialInput != nil
+                willRunStartupInput: initialInput != nil,
+                resumeSessionWorkingDirectory: startupRestoreAgent.workingDirectory
             )
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
