@@ -128,10 +128,11 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// Builds a bounded no-progress sub-loop for a wrapper that already owns
     /// general reconnect and foreground-authentication policy.
     ///
-    /// Status 252 is consumed until its health budget is exhausted. All other
-    /// statuses, including 251, 254, and 255, return unchanged to the enclosing
-    /// wrapper so its existing reconnect and reauthentication behavior remains
-    /// the single owner of those transitions.
+    /// Status 252 is consumed until its health budget is exhausted, with terminal
+    /// reporting modes reset before each reattach. All other statuses, including
+    /// 251, 254, and 255, return unchanged to the enclosing wrapper so its existing
+    /// reconnect and reauthentication behavior remains the single owner of those
+    /// transitions.
     ///
     /// The attach environment is exported on its own lines rather than as an
     /// assignment prefix, because a prefix is only legal before a simple command
@@ -141,6 +142,7 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// - Returns: Shell source lines implementing the no-progress budget.
     public static func noProgressRetryLoopLines(command: String) -> [String] {
         let policy = noProgressShellPolicy()
+        let terminalModeReset = SSHTerminalModeResetSequence().shellPrintfFormat.remoteCommandShellQuoted
 
         return policy.configurationLines + [
             "cmux_ssh_attach_no_progress_retry=0",
@@ -150,6 +152,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             "  export CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT",
             "  \(command)",
             "  cmux_ssh_attach_status=$?",
+            "  if [ \"$cmux_ssh_attach_status\" -eq \(policy.status) ] && [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi",
             "  if [ \"$cmux_ssh_attach_status\" -ne \(policy.status) ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1))",
             "  \(policy.limitReachedCommand)",
