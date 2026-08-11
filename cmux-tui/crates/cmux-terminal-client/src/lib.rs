@@ -640,9 +640,7 @@ impl ClientState {
         let accepted = if kind == NativeRenderEventKind::Bytes {
             payload
                 .chunks(MAX_NATIVE_RENDER_BYTES_EVENT_BYTES)
-                .all(|chunk| {
-                    self.push_native_render_event(kind, cols, rows, chunk.to_vec())
-                })
+                .all(|chunk| self.push_native_render_event(kind, cols, rows, chunk.to_vec()))
         } else {
             self.push_native_render_event(kind, cols, rows, payload)
         };
@@ -2474,10 +2472,7 @@ mod tests {
 
         let events = state.native_render_events.as_ref().unwrap();
         assert_eq!(events.len(), 2);
-        assert_eq!(
-            events[0].payload.len(),
-            MAX_NATIVE_RENDER_BYTES_EVENT_BYTES
-        );
+        assert_eq!(events[0].payload.len(), MAX_NATIVE_RENDER_BYTES_EVENT_BYTES);
         assert_eq!(events[1].payload.len(), 1);
     }
 
