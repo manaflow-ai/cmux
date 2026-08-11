@@ -255,6 +255,27 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
         \#(ownedProcessGroupTerminationShellFunctions())
 
+        cmux_ssh_wait_for_auth_process_exit() {
+          cmux_ssh_auth_wait_pid="$1"
+          case "$cmux_ssh_auth_wait_pid" in ''|0|*[!0-9]*) return 1 ;; esac
+          cmux_ssh_auth_wait_started="$(cmux_ssh_auth_now_millis)" || return 1
+          case "$cmux_ssh_auth_wait_started" in ''|*[!0-9]*) return 1 ;; esac
+          cmux_ssh_auth_wait_deadline=$((cmux_ssh_auth_wait_started + 500))
+          while /bin/kill -0 "$cmux_ssh_auth_wait_pid" 2>/dev/null; do
+            cmux_ssh_auth_wait_state=$(/usr/bin/env LC_ALL=C LANG=C \
+              /bin/ps -o state= -p "$cmux_ssh_auth_wait_pid" 2>/dev/null | \
+              /usr/bin/tr -d '[:space:]')
+            case "$cmux_ssh_auth_wait_state" in Z*) break ;; esac
+            cmux_ssh_auth_wait_now="$(cmux_ssh_auth_now_millis)" || return 1
+            case "$cmux_ssh_auth_wait_now" in ''|*[!0-9]*) return 1 ;; esac
+            if [ "$cmux_ssh_auth_wait_now" -ge \
+              "$cmux_ssh_auth_wait_deadline" ]; then return 1; fi
+            /bin/sleep 0.01
+          done
+          wait "$cmux_ssh_auth_wait_pid" 2>/dev/null || true
+          return 0
+        }
+
         cmux_ssh_auth_parse_recorded_process() {
           cmux_ssh_auth_record_file="$1"
           if [ ! -s "$cmux_ssh_auth_record_file" ]; then return 1; fi
@@ -1396,43 +1417,57 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_recovery_sweep_lock" \
               "$cmux_ssh_auth_recovery_sweep_generation" 1 \
               >/dev/null 2>&1 || true' EXIT
-            cmux_ssh_resume_failed_auth_group_reapers \
-              </dev/null >/dev/null 2>&1
-            cmux_ssh_auth_recovery_sweep_reschedule=0
-            if cmux_ssh_auth_recovery_lock; then
-              if cmux_ssh_auth_reaper_generation_is_current \
-                  "$cmux_ssh_auth_recovery_sweep_lock" \
-                  "$cmux_ssh_auth_recovery_sweep_generation" && \
-                cmux_ssh_auth_reaper_owner_matches_generation \
-                  "$cmux_ssh_auth_recovery_sweep_lock" \
-                  "$cmux_ssh_auth_recovery_sweep_generation"; then
-                if cmux_ssh_auth_recovery_queue_has_work_locked; then
-                  cmux_ssh_auth_recovery_sweep_reschedule=1
+            while :; do
+              cmux_ssh_resume_failed_auth_group_reapers \
+                </dev/null >/dev/null 2>&1
+              cmux_ssh_auth_recovery_sweep_reschedule=0
+              cmux_ssh_auth_recovery_sweep_released=0
+              if cmux_ssh_auth_recovery_lock; then
+                if cmux_ssh_auth_reaper_generation_is_current \
+                    "$cmux_ssh_auth_recovery_sweep_lock" \
+                    "$cmux_ssh_auth_recovery_sweep_generation" && \
+                  cmux_ssh_auth_reaper_owner_matches_generation \
+                    "$cmux_ssh_auth_recovery_sweep_lock" \
+                    "$cmux_ssh_auth_recovery_sweep_generation"; then
+                  if cmux_ssh_auth_recovery_queue_has_work_locked; then
+                    cmux_ssh_auth_recovery_sweep_reschedule=1
+                    /bin/rm -f -- \
+                      "$cmux_ssh_auth_recovery_sweep_lock/pending" \
+                      "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
+                      2>/dev/null || true
+                  else
+                    /bin/rm -f -- "$cmux_ssh_auth_recovery_sweep_lock/owner" \
+                      "$cmux_ssh_auth_recovery_sweep_lock/owner.new" \
+                      "$cmux_ssh_auth_recovery_sweep_lock/publisher" \
+                      "$cmux_ssh_auth_recovery_sweep_lock/publisher.new" \
+                      "$cmux_ssh_auth_recovery_sweep_lock/generation" \
+                      "$cmux_ssh_auth_recovery_sweep_lock/generation.new" \
+                      "$cmux_ssh_auth_recovery_sweep_lock/pending" \
+                      "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
+                      2>/dev/null || true
+                    if /bin/rmdir "$cmux_ssh_auth_recovery_sweep_lock" \
+                      2>/dev/null; then
+                      cmux_ssh_auth_recovery_sweep_released=1
+                    fi
+                  fi
                 fi
-                /bin/rm -f -- "$cmux_ssh_auth_recovery_sweep_lock/owner" \
-                  "$cmux_ssh_auth_recovery_sweep_lock/owner.new" \
-                  "$cmux_ssh_auth_recovery_sweep_lock/publisher" \
-                  "$cmux_ssh_auth_recovery_sweep_lock/publisher.new" \
-                  "$cmux_ssh_auth_recovery_sweep_lock/generation" \
-                  "$cmux_ssh_auth_recovery_sweep_lock/generation.new" \
-                  "$cmux_ssh_auth_recovery_sweep_lock/pending" \
-                  "$cmux_ssh_auth_recovery_sweep_lock/pending.new" \
-                  2>/dev/null || true
-                /bin/rmdir "$cmux_ssh_auth_recovery_sweep_lock" 2>/dev/null || true
+                cmux_ssh_auth_recovery_unlock
               fi
-              cmux_ssh_auth_recovery_unlock
-            fi
-            trap - EXIT HUP INT TERM
-            if [ "$cmux_ssh_auth_recovery_sweep_reschedule" = 1 ]; then
-              cmux_ssh_auth_recovery_backoff="$CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS"
-              /bin/sleep "$cmux_ssh_auth_recovery_backoff"
-              cmux_ssh_auth_recovery_next_backoff=$((cmux_ssh_auth_recovery_backoff * 2))
-              if [ "$cmux_ssh_auth_recovery_next_backoff" -gt 60 ]; then
-                cmux_ssh_auth_recovery_next_backoff=60
+              if [ "$cmux_ssh_auth_recovery_sweep_reschedule" = 1 ]; then
+                cmux_ssh_auth_recovery_backoff="$CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS"
+                /bin/sleep "$cmux_ssh_auth_recovery_backoff"
+                cmux_ssh_auth_recovery_next_backoff=$((cmux_ssh_auth_recovery_backoff * 2))
+                if [ "$cmux_ssh_auth_recovery_next_backoff" -gt 60 ]; then
+                  cmux_ssh_auth_recovery_next_backoff=60
+                fi
+                CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS="$cmux_ssh_auth_recovery_next_backoff"
+                continue
               fi
-              CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS="$cmux_ssh_auth_recovery_next_backoff"
-              cmux_ssh_schedule_failed_auth_group_recovery
-            fi
+              if [ "$cmux_ssh_auth_recovery_sweep_released" = 1 ]; then
+                trap - EXIT HUP INT TERM
+              fi
+              break
+            done
           ) </dev/null >/dev/null 2>&1 &
           cmux_ssh_auth_recovery_sweep_pid=$!
           cmux_ssh_auth_recovery_sweep_identity=$(cmux_ssh_auth_stable_identity \
