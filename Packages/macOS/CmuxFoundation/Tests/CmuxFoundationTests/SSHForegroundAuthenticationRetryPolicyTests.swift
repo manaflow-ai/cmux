@@ -3528,6 +3528,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         wait "$cmux_test_first_reaper" || exit 97
         test -s "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" || exit 96
         : > "$CMUX_TEST_ALLOW_CLEANUP"
+        cmux_test_anchor_identity=$(cmux_ssh_auth_identity "$$") || exit 95
+        cmux_test_anchor_remainder=${cmux_test_anchor_identity#*|}
+        printf '%s|%s\n' "$$" "$cmux_test_anchor_remainder" \
+          > "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 95
         CMUX_SSH_AUTH_GROUP_DIR=
         export CMUX_SSH_AUTH_GROUP_DIR
         cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.test" || exit 95
@@ -3663,6 +3667,23 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_abandoned_identity=$(cmux_ssh_auth_identity "$cmux_test_abandoned_publisher") || exit 99
         cmux_test_active_identity=$(cmux_ssh_auth_identity "$cmux_test_active_publisher") || exit 98
         cmux_test_ownerless_identity=$(cmux_ssh_auth_identity "$cmux_test_ownerless_publisher") || exit 97
+        cmux_test_write_group_identity() {
+          cmux_test_identity_group_dir=$1
+          cmux_test_identity_pid=$2
+          cmux_test_identity_record=$3
+          cmux_test_identity_remainder=${cmux_test_identity_record#*|}
+          printf '%s|%s\n' "$cmux_test_identity_pid" \
+            "$cmux_test_identity_remainder" \
+            > "$cmux_test_identity_group_dir/identity"
+        }
+        cmux_test_write_group_identity "$CMUX_TEST_SUSPENDED_GROUP" \
+          "$cmux_test_suspended_publisher" "$cmux_test_suspended_identity" || exit 97
+        cmux_test_write_group_identity "$CMUX_TEST_ABANDONED_GROUP" \
+          "$cmux_test_abandoned_publisher" "$cmux_test_abandoned_identity" || exit 97
+        cmux_test_write_group_identity "$CMUX_TEST_ACTIVE_GROUP" \
+          "$cmux_test_active_publisher" "$cmux_test_active_identity" || exit 97
+        cmux_test_write_group_identity "$CMUX_TEST_OWNERLESS_GROUP" \
+          "$cmux_test_ownerless_publisher" "$cmux_test_ownerless_identity" || exit 97
         printf '%s|%s\n' "$cmux_test_suspended_publisher" "$cmux_test_suspended_identity" \
           > "$CMUX_TEST_SUSPENDED_GROUP/publisher" || exit 97
         printf '%s|%s\n' "$cmux_test_abandoned_publisher" "$cmux_test_abandoned_identity" \
@@ -3762,6 +3783,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_test_anchor_identity=$(cmux_ssh_auth_identity "$$") || exit 100
+        cmux_test_anchor_remainder=${cmux_test_anchor_identity#*|}
+        for cmux_test_group_dir in "$TMPDIR"/cmux-ssh-auth-group.*; do
+          printf '%s|%s\n' "$$" "$cmux_test_anchor_remainder" \
+            > "$cmux_test_group_dir/identity" || exit 100
+        done
         cmux_ssh_launch_owned_auth_group_reaper() {
           CMUX_SSH_AUTH_REAPER_LAUNCHED=1
           /usr/bin/basename "$1" >> "$CMUX_TEST_RECOVERY_CALLS"
@@ -3908,6 +3935,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_test_anchor_identity=$(cmux_ssh_auth_identity "$$") || exit 100
+        cmux_test_anchor_remainder=${cmux_test_anchor_identity#*|}
+        for cmux_test_group_dir in "$TMPDIR"/cmux-ssh-auth-group.*; do
+          printf '%s|%s\n' "$$" "$cmux_test_anchor_remainder" \
+            > "$cmux_test_group_dir/identity" || exit 100
+        done
         cmux_ssh_launch_owned_auth_group_reaper() {
           /usr/bin/basename "$1" >> "$CMUX_TEST_RECOVERY_CALLS"
           CMUX_SSH_AUTH_REAPER_LAUNCHED=0
@@ -4378,6 +4411,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_test_anchor_identity=$(cmux_ssh_auth_identity "$$") || exit 99
+        cmux_test_anchor_remainder=${cmux_test_anchor_identity#*|}
+        printf '%s|%s\n' "$$" "$cmux_test_anchor_remainder" \
+          > "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 99
         cmux_ssh_terminate_owned_auth_group() {
           /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
         }
