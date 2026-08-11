@@ -1243,7 +1243,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_freeze_owned_processes || exit 99
         : > "$CMUX_TEST_SIGNALS"
         cmux_ssh_auth_resume_signaled_processes || exit 98
-        /usr/bin/grep -Fqx -- '-CONT -- -777' "$CMUX_TEST_SIGNALS" || exit 97
+        /usr/bin/grep -Fqx -- '-CONT 102' "$CMUX_TEST_SIGNALS" || exit 97
         """
 
         let result = try runShellCommand(
@@ -1635,8 +1635,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_resume_signaled_processes
         test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" \
           -eq 2 || exit 99
-        /usr/bin/grep -Fqx -- '-CONT -- -11' "$CMUX_TEST_SIGNALS" || exit 98
-        /usr/bin/grep -Fqx -- '-CONT -- -13' "$CMUX_TEST_SIGNALS" || exit 97
+        /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 98
+        /usr/bin/grep -Fqx -- '-CONT 103' "$CMUX_TEST_SIGNALS" || exit 97
         ! /usr/bin/grep -Fqx -- '-CONT -- -12' "$CMUX_TEST_SIGNALS" || exit 96
         ! /usr/bin/grep -Fqx -- '-CONT -- -14' "$CMUX_TEST_SIGNALS" || exit 95
         """
@@ -1751,10 +1751,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_resume_signaled_processes || exit 99
         test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" -eq 2 \
           || exit 98
-        /usr/bin/grep -Fqx -- '-CONT -- -11' "$CMUX_TEST_SIGNALS" || exit 97
-        /usr/bin/grep -Fqx -- '-CONT -- -12' "$CMUX_TEST_SIGNALS" || exit 96
-        ! /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
-        ! /usr/bin/grep -Fqx -- '-CONT 102' "$CMUX_TEST_SIGNALS" || exit 94
+        /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 97
+        /usr/bin/grep -Fqx -- '-CONT 102' "$CMUX_TEST_SIGNALS" || exit 96
+        ! /usr/bin/grep -Fq -- '-CONT -- -' "$CMUX_TEST_SIGNALS" || exit 95
         """
 
         let result = try runShellCommand(
@@ -1776,7 +1775,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func rollbackUsesOneSnapshotAndDeduplicatesProcessGroups(shellPath: String) throws {
+    func rollbackUsesOneSnapshotAndResumesValidatedMembers(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-ssh-auth-rollback-snapshot-\(UUID().uuidString)",
@@ -1830,8 +1829,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           /usr/bin/tr -d '[:space:]')" -eq 1 || exit 98
         test ! -s "$CMUX_TEST_IDENTITY_CALLS" || exit 97
         test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | \\
-          /usr/bin/tr -d '[:space:]')" -eq 1 || exit 96
-        /usr/bin/grep -Fqx -- '-CONT -- -11' "$CMUX_TEST_SIGNALS" || exit 95
+          /usr/bin/tr -d '[:space:]')" -eq 1024 || exit 96
+        /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
+        /usr/bin/grep -Fqx -- '-CONT 1124' "$CMUX_TEST_SIGNALS" || exit 94
         """
 
         let result = try runShellCommand(

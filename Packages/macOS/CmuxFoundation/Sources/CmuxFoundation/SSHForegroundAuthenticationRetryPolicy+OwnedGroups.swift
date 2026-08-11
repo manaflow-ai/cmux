@@ -702,7 +702,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
                 split(cmux_key, cmux_fields, SUBSEP)
                 cmux_current_key = cmux_fields[2] SUBSEP cmux_fields[1] SUBSEP cmux_fields[3]
                 if (cmux_current_key in cmux_current) {
-                  cmux_resume_group[cmux_fields[1]] = 1
+                  cmux_resume_pid[cmux_fields[2]] = cmux_fields[1]
                 }
               }
               for (cmux_key in cmux_pid_witness) {
@@ -711,11 +711,8 @@ extension SSHForegroundAuthenticationRetryPolicy {
                   cmux_resume_pid[cmux_fields[1]] = cmux_fields[2]
                 }
               }
-              for (cmux_group in cmux_resume_group) print cmux_group > cmux_groups
               for (cmux_pid in cmux_resume_pid) {
-                if (!(cmux_resume_pid[cmux_pid] in cmux_resume_group)) {
-                  print cmux_pid > cmux_pids
-                }
+                print cmux_pid > cmux_pids
               }
             }
           ' "$cmux_ssh_auth_process_snapshot" \
@@ -729,24 +726,6 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
           cmux_ssh_auth_rollback_signal_count=0
           cmux_ssh_auth_rollback_signal_budget=0
-          while IFS= read -r cmux_ssh_auth_resume_group; do
-            case "$cmux_ssh_auth_resume_group" in ''|0|*[!0-9]*) continue ;; esac
-            if [ "$cmux_ssh_auth_rollback_signal_count" -ge 1024 ]; then return 1; fi
-            if [ "$cmux_ssh_auth_rollback_signal_budget" -le 0 ]; then
-              cmux_ssh_auth_rollback_now="$(cmux_ssh_auth_now_millis)" || return 1
-              if [ "$cmux_ssh_auth_rollback_now" -ge \
-                "$cmux_ssh_auth_rollback_deadline_millis" ]; then return 1; fi
-              cmux_ssh_auth_rollback_signal_budget=63
-            else
-              cmux_ssh_auth_rollback_signal_budget=$((
-                cmux_ssh_auth_rollback_signal_budget - 1
-              ))
-            fi
-            kill -CONT -- "-$cmux_ssh_auth_resume_group" >/dev/null 2>&1 || true
-            cmux_ssh_auth_rollback_signal_count=$((
-              cmux_ssh_auth_rollback_signal_count + 1
-            ))
-          done < "$cmux_ssh_auth_resume_groups"
           while IFS= read -r cmux_ssh_auth_pid; do
             case "$cmux_ssh_auth_pid" in ''|0|*[!0-9]*) continue ;; esac
             if [ "$cmux_ssh_auth_rollback_signal_count" -ge 1024 ]; then return 1; fi
