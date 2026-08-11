@@ -63,12 +63,10 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         return registration
     }
 
-    /// Updates the hierarchy proof before handing the borrowed child reference
-    /// to AppKit. SwiftUI may consume that reference during insertion, so the
-    /// swizzled boundary must not access it after the original implementation
-    /// returns. Unknown prebuilt subtrees fail closed, while a leaf under an
-    /// indexed no-split branch stays on the fast path.
-    static func prepareForInsertion(
+    /// Records an insertion after AppKit has attached the child. Unknown
+    /// prebuilt subtrees fail closed, while a leaf under an indexed no-split
+    /// branch stays on the fast path without a full cache rebuild.
+    static func recordInsertion(
         parentView: NSView,
         insertedView: NSView,
         previousWindow: NSWindow?
