@@ -22121,16 +22121,14 @@ mod tests {
         mux.surface_exited(surface);
 
         assert!(mux.terminal_exit_detaches.lock().unwrap().contains(TERMINAL));
+        mux.shutdown();
+        assert!(
+            mux.terminal_exit_detach_signal.wait_for_idle(Duration::from_secs(1)),
+            "detach retry did not stop after mux shutdown"
+        );
         let weak = Arc::downgrade(&mux);
         drop(mux);
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while weak.upgrade().is_some() {
-            assert!(
-                Instant::now() < deadline,
-                "detach retry retained the mux after its owner left"
-            );
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        assert!(weak.upgrade().is_none(), "stopped detach retry retained the mux owner");
     }
 
     #[cfg(unix)]
