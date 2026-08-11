@@ -28,6 +28,7 @@ struct DockControlDefinitionDecodingTests {
         return url
     }
 
+    @MainActor
     private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [
             "id": method,
