@@ -36,7 +36,15 @@ struct ViewportColumn: Decodable, Identifiable, Sendable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         columnID = try container.decode(String.self, forKey: .columnID)
-        width = try container.decode(Double.self, forKey: .width)
+        let decodedWidth = try container.decode(Double.self, forKey: .width)
+        guard decodedWidth.isFinite, (0.1...1.0).contains(decodedWidth) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .width,
+                in: container,
+                debugDescription: "Viewport column width must be finite from 0.1 through 1.0."
+            )
+        }
+        width = decodedWidth
         widthLabel = L10n.format("column.percent", "%d%%", Int(width * 100))
         root = try container.decode(LayoutNode.self, forKey: .root)
     }
@@ -80,10 +88,18 @@ indirect enum LayoutNode: Decodable, Sendable {
                 activeTabID: try container.decodeIfPresent(String.self, forKey: .activeTabID)
             )
         case "split":
+            let ratio = try container.decode(Double.self, forKey: .ratio)
+            guard ratio.isFinite, ratio > 0, ratio < 1 else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .ratio,
+                    in: container,
+                    debugDescription: "Split ratio must be finite and between zero and one."
+                )
+            }
             self = .split(
                 splitID: try container.decode(String.self, forKey: .splitID),
                 direction: try container.decode(SplitDirection.self, forKey: .direction),
-                ratio: try container.decode(Double.self, forKey: .ratio),
+                ratio: ratio,
                 first: try container.decode(LayoutNode.self, forKey: .first),
                 second: try container.decode(LayoutNode.self, forKey: .second)
             )
@@ -94,6 +110,13 @@ indirect enum LayoutNode: Decodable, Sendable {
             )
         case "viewport":
             let baseWidth = try container.decode(Double.self, forKey: .baseWidth)
+            guard baseWidth.isFinite, (0.1...1.0).contains(baseWidth) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .baseWidth,
+                    in: container,
+                    debugDescription: "Viewport base width must be finite from 0.1 through 1.0."
+                )
+            }
             self = .viewport(
                 baseWidth: baseWidth,
                 baseWidthLabel: L10n.format(

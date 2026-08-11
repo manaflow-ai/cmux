@@ -44,8 +44,9 @@
 "column.base_width" = "基準幅 %.2f";
 "pane.short_id" = "ペイン %@";
 "error.connection_closed" = "フロントエンド接続が閉じています。";
-"error.no_machine" = "デーモンからマシンが返されませんでした。";
-"error.no_session" = "デーモンからセッションが返されませんでした。";
+"error.no_machine" = "デーモンでマシンを1台に特定できませんでした。";
+"error.no_session" = "デーモンでセッションを1つに特定できませんでした。";
+"error.too_many_changes" = "待機中の変更が多すぎます。完了後にもう一度お試しください。";
 "error.session_event_stream_ended" = "セッションイベントストリームが終了しました。";
 "error.terminal_input_rejected" = "ターミナル入力が拒否されました。";
 "error.terminal_input_overloaded" = "ターミナル入力が混雑しています。もう一度お試しください。";

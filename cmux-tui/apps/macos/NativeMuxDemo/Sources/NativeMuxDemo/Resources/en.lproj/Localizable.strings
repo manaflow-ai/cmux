@@ -44,8 +44,9 @@
 "column.base_width" = "base width %.2f";
 "pane.short_id" = "Pane %@";
 "error.connection_closed" = "The frontend connection is closed.";
-"error.no_machine" = "The daemon reported no machine.";
-"error.no_session" = "The daemon reported no session.";
+"error.no_machine" = "The daemon did not identify exactly one machine.";
+"error.no_session" = "The daemon did not identify exactly one session.";
+"error.too_many_changes" = "Too many changes are waiting. Try again after they finish.";
 "error.session_event_stream_ended" = "The session event stream ended.";
 "error.terminal_input_rejected" = "Terminal input was rejected.";
 "error.terminal_input_overloaded" = "Terminal input is busy; try again.";
