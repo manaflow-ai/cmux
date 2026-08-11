@@ -2184,6 +2184,69 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func cleanupReturnsWhenPublisherDiesBeforeIdentityPublication(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-dead-publisher-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let publisherHold = root.appendingPathComponent("publisher.hold")
+        let publisherReady = root.appendingPathComponent("publisher.ready")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        \(lifecycleEventShellFunctions)
+        /usr/bin/mkfifo -m 600 "$CMUX_SSH_AUTH_GROUP_DIR/identity.ready" \
+          "$CMUX_TEST_PUBLISHER_HOLD" || exit 99
+        (
+          exec {cmux_test_publication_fd}<> \
+            "$CMUX_SSH_AUTH_GROUP_DIR/identity.ready" || exit 98
+          : > "$CMUX_TEST_PUBLISHER_READY"
+          IFS= read -r cmux_test_release < "$CMUX_TEST_PUBLISHER_HOLD"
+        ) &
+        cmux_test_publisher_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_publisher_pid" >/dev/null 2>&1 || true' EXIT
+        cmux_test_wait_path exists "$CMUX_TEST_PUBLISHER_READY" 3000 || exit 97
+        /bin/kill -KILL "$cmux_test_publisher_pid" 2>/dev/null || exit 96
+        wait "$cmux_test_publisher_pid" 2>/dev/null || true
+        trap - EXIT
+
+        cmux_ssh_terminate_owned_auth_group &
+        cmux_test_cleanup_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_cleanup_pid" >/dev/null 2>&1 || true' EXIT
+        cmux_test_wait_path exists "$CMUX_SSH_AUTH_GROUP_DIR/cancel" 1000 || exit 95
+        if ! cmux_test_wait_pid_exit "$cmux_test_cleanup_pid" 3000; then
+          /bin/kill -KILL "$cmux_test_cleanup_pid" 2>/dev/null || true
+          wait "$cmux_test_cleanup_pid" 2>/dev/null || true
+          exit 94
+        fi
+        wait "$cmux_test_cleanup_pid" || exit 93
+        trap - EXIT
+        test -e "$CMUX_SSH_AUTH_GROUP_DIR/cancel" || exit 92
+        test ! -e "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 91
+        test ! -e "$CMUX_SSH_AUTH_GROUP_DIR/publisher" || exit 90
+        test ! -d "$CMUX_SSH_AUTH_GROUP_DIR/cleanup.lock" || exit 89
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_PUBLISHER_HOLD": publisherHold.path,
+                "CMUX_TEST_PUBLISHER_READY": publisherReady.path,
+                "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func liveReparentedReaperRetainsItsOwnerLock(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
