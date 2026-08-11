@@ -508,6 +508,36 @@ extension SSHForegroundAuthenticationRetryPolicy {
           done < "$cmux_ssh_auth_ordered_processes"
 
           cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_poststop_snapshot" || return 1
+          # A group STOP also reaches members that joined after the first
+          # snapshot. Publish those stopped stable identities before any later
+          # validation can fail. The synthetic running state records that this
+          # transaction owns their STOP and must resume them on rollback.
+          /usr/bin/awk '
+            FILENAME == ARGV[1] && NF >= 5 {
+              cmux_key = $1 SUBSEP $2 SUBSEP $4
+              cmux_recorded[cmux_key] = 1
+              cmux_group[$1] = 1
+              cmux_count += 1
+              print
+              next
+            }
+            FILENAME == ARGV[2] && NF >= 5 && $3 in cmux_group &&
+                $4 ~ /T/ && $4 !~ /Z/ {
+              cmux_started = $5
+              if (NF >= 9) cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+              cmux_key = $3 SUBSEP $1 SUBSEP cmux_started
+              if (!(cmux_key in cmux_recorded)) {
+                cmux_count += 1
+                print $3, $1, $2, cmux_started, "S"
+              }
+              next
+            }
+            END { if (cmux_count > 1024) exit 1 }
+          ' "$cmux_ssh_auth_signaled_groups" \
+            "$cmux_ssh_auth_poststop_snapshot" \
+            > "$cmux_ssh_auth_next_owned_processes" || return 1
+          /bin/mv -f -- "$cmux_ssh_auth_next_owned_processes" \
+            "$cmux_ssh_auth_signaled_groups" || return 1
           /usr/bin/awk '
             FILENAME == ARGV[1] && NF >= 4 {
               cmux_key = $2 SUBSEP $1 SUBSEP $4
@@ -665,6 +695,8 @@ extension SSHForegroundAuthenticationRetryPolicy {
               cmux_start = $5
               if (NF >= 9) cmux_start = $5 "_" $6 "_" $7 "_" $8 "_" $9
               cmux_current[$1 SUBSEP $3 SUBSEP cmux_start] = 1
+              cmux_current_group[$1] = $3
+              cmux_current_parent[$1] = $2
               next
             }
             FILENAME == ARGV[2] {
@@ -703,6 +735,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
                 cmux_current_key = cmux_fields[2] SUBSEP cmux_fields[1] SUBSEP cmux_fields[3]
                 if (cmux_current_key in cmux_current) {
                   cmux_resume_pid[cmux_fields[2]] = cmux_fields[1]
+                  cmux_resume_tree[cmux_fields[2]] = cmux_fields[1]
                 }
               }
               for (cmux_key in cmux_pid_witness) {
@@ -711,6 +744,24 @@ extension SSHForegroundAuthenticationRetryPolicy {
                   cmux_resume_pid[cmux_fields[1]] = cmux_fields[2]
                 }
               }
+              # If the first post-STOP snapshot failed, recover stopped
+              # descendants from the rollback snapshot. A descendant must
+              # lead to an exact stable group witness and remain in that same
+              # group, so a later unrelated group joiner is not resumed.
+              do {
+                cmux_changed = 0
+                for (cmux_pid in cmux_current_group) {
+                  cmux_parent = cmux_current_parent[cmux_pid]
+                  cmux_group = cmux_current_group[cmux_pid]
+                  if (!(cmux_pid in cmux_resume_tree) &&
+                      cmux_parent in cmux_resume_tree &&
+                      cmux_resume_tree[cmux_parent] == cmux_group) {
+                    cmux_resume_tree[cmux_pid] = cmux_group
+                    cmux_resume_pid[cmux_pid] = cmux_group
+                    cmux_changed = 1
+                  }
+                }
+              } while (cmux_changed)
               for (cmux_pid in cmux_resume_pid) {
                 print cmux_pid > cmux_pids
               }
