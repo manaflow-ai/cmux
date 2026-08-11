@@ -1232,6 +1232,48 @@ fn machine_identity_is_state_root_global_and_survives_restart() {
 }
 
 #[test]
+fn journal_agent_rejected_wrong_session_open_does_not_advance_rebuild() {
+    let root = temp_root("wrong-session-rebuild");
+    let stored_session = "stored-session";
+    let requested_session = "requested-session";
+    drop(WorkspaceRegistry::open(&root, stored_session).unwrap());
+
+    let stored_dir = root.join(session_storage_component(stored_session));
+    let requested_dir = root.join(session_storage_component(requested_session));
+    fs::rename(&stored_dir, &requested_dir).unwrap();
+    let database = requested_dir.join(WORKSPACE_REGISTRY_FILE);
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DELETE FROM meta
+             WHERE key IN (
+               'agent_projection_journal_sequence_v1',
+               'agent_projection_journal_candidate_sequence_v1',
+               'agent_projection_journal_rebuild_target_sequence_v1'
+             );",
+        )
+        .unwrap();
+
+    let error = WorkspaceRegistry::open(&root, requested_session).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("workspace registry belongs to session \"stored-session\"")
+    );
+    let cursor_count = Connection::open(&database)
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM meta
+             WHERE key = 'agent_projection_journal_sequence_v1'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(cursor_count, 0, "a rejected open changed durable rebuild state");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn concurrent_first_open_converges_on_one_machine_identity() {
     let root = temp_root("machine-race");
     let barrier = Arc::new(std::sync::Barrier::new(12));
@@ -5126,7 +5168,26 @@ fn journal_agent_projection_rebuild_is_bounded_and_resumable() {
         .unwrap()
         .parse::<u64>()
         .unwrap();
-    assert_eq!(resumed_cursor, head_sequence);
+    assert!(resumed_cursor > first_cursor, "a reopened registry must resume bounded replay");
+    let mut complete = !reopened_again.agent_projection_rebuild_pending().unwrap();
+    for _ in 0..3 {
+        if complete {
+            break;
+        }
+        complete = reopened_again.continue_agent_projection_rebuild().unwrap();
+    }
+    assert!(complete, "bounded replay did not complete after the remaining fixed pages");
+    let final_cursor = reopened_again
+        .connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'agent_projection_journal_sequence_v1'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    assert_eq!(final_cursor, head_sequence);
     drop(reopened_again);
     fs::remove_dir_all(root).unwrap();
 }
@@ -6058,7 +6119,14 @@ fn journal_agent_legacy_upgrade_backfills_archived_agent_event_kinds() {
         })
         .unwrap();
     assert!(missing_kinds > 0, "open must defer archived segment decoding");
-    assert!(reopened.continue_agent_projection_rebuild().unwrap());
+    let mut complete = false;
+    for _ in 0..3 {
+        if reopened.continue_agent_projection_rebuild().unwrap() {
+            complete = true;
+            break;
+        }
+    }
+    assert!(complete, "archived kind backfill did not complete in its bounded turns");
     let agent = reopened.public_projections().unwrap().agents.remove(0);
     assert_eq!(agent.state, "working");
     assert_eq!(agent.source, "hook");
