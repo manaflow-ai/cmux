@@ -17,11 +17,13 @@ use cmux_remote::provider::{
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
 use cmux_terminal_host_protocol::{
-    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, SnapshotPayload,
-    decode_snapshot_payload, encode_frame,
+    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, SnapshotPayload, decode_snapshot_payload,
+    encode_frame,
 };
 #[cfg(test)]
-use cmux_terminal_host_protocol::{SnapshotKittyReplayState, encode_snapshot_payload};
+use cmux_terminal_host_protocol::{
+    PROTOCOL_VERSION, SnapshotKittyReplayState, encode_snapshot_payload,
+};
 #[cfg(feature = "text-renderer")]
 use ghostty_vt::{
     Callbacks, CellWidth, KeyAction, KeyEncoder, KittyGraphicsLimits, KittyImageAlias,
@@ -2437,14 +2439,11 @@ mod tests {
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
             assert!(
                 wait_for_client_update(&updates, deadline, || {
-                    let recovered = {
-                        let mut state = state.lock().unwrap();
-                        state.materialize_frame().unwrap();
-                        state.ready
-                            && state.resync_count == 1
-                            && state.frame_text.contains("second recovered")
-                    };
-                    recovered
+                    let mut state = state.lock().unwrap();
+                    state.materialize_frame().unwrap();
+                    state.ready
+                        && state.resync_count == 1
+                        && state.frame_text.contains("second recovered")
                 })
                 .await,
                 "renderer did not recover from ResyncRequired"
