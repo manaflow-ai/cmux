@@ -124,6 +124,12 @@ struct SSHConfiguredRemoteCommandHostTests {
             ),
             "Foreground authentication must schedule recovery after group creation and before authentication starts"
         )
+        #expect(
+            startupArtifact.contains(
+                "if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi; cmux_ssh_status=255; break"
+            ),
+            "Authentication group creation failure must preserve a pending termination signal"
+        )
         let configureParams = try #require(
             requests.first { $0["method"] as? String == "workspace.remote.configure" }?["params"] as? [String: Any]
         )
