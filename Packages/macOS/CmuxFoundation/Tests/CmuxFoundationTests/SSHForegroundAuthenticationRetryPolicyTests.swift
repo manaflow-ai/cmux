@@ -2131,6 +2131,52 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func unpublishedSetupFailureStillKillsStableRoot(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-unpublished-setup-failure-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent(
+            "cmux-ssh-auth-group.preallocated",
+            isDirectory: true
+        )
+        let signals = root.appendingPathComponent("signals")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_identity() {
+          test "$1" = 101 || return 1
+          printf '1|777|Thu_Jan_1_00:00:00_1970\n'
+        }
+        cmux_ssh_auth_publish_current_worker() { return 1; }
+        cmux_ssh_terminate_owned_auth_group() { :; }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        CMUX_SSH_AUTH_GROUP_DIR="$CMUX_TEST_GROUP_DIR"
+        export CMUX_SSH_AUTH_GROUP_DIR
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_terminate_auth_process_tree 101 1
+        /usr/bin/grep -Fqx -- '-KILL 101' "$CMUX_TEST_SIGNALS" || exit 99
+        test ! -e "$CMUX_SSH_AUTH_GROUP_DIR/rollback-only" || exit 98
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_GROUP_DIR": groupDirectory.path,
+                "CMUX_TEST_SIGNALS": signals.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func unpublishedAllocationFailureStillKillsDescendants(
         shellPath: String
     ) throws {
