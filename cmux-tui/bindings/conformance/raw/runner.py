@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the explicitly raw protocol-11 SDK conformance suite."""
+"""Run the explicitly raw protocol-12 SDK conformance suite."""
 
 from __future__ import annotations
 
@@ -401,7 +401,7 @@ class FakeServer:
             "version": "0.0.0-conformance",
             "build_commit": None,
             "ghostty_commit": None,
-            "protocol": 11,
+            "protocol": 12,
             "capabilities": [
                 "attach-initial-size",
                 "provider-managed-workspace-authority-v2",
@@ -520,7 +520,7 @@ class FakeServer:
                 "version": "0.0.0-conformance",
                 "build_commit": None,
                 "ghostty_commit": None,
-                "protocol": 11,
+                "protocol": 12,
             }
         elif command in (
             "browser-back",

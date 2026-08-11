@@ -2,7 +2,7 @@
 
 `cmux` exposes `cmux.protocol/2` as a noun-first CLI. The public command
 tree uses the same resource hierarchy and operation catalog as the handwritten
-SDKs. The private protocol-v11 command set is available only through the
+SDKs. The private protocol-v12 command set is available only through the
 explicit `raw command` escape.
 
 ## Process modes
@@ -321,7 +321,7 @@ cmux raw command --request-json <private-protocol-object>
 ```
 
 `raw operation` sends a generic `cmux.protocol/2` request. Known operations
-still use their catalog class. `raw command` sends a private protocol-v11
+still use their catalog class. `raw command` sends a private protocol-v12
 object and has no compatibility promise.
 
 The old action-first commands are removed. They fail locally with exit code 2
