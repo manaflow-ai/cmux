@@ -143,7 +143,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.resetUnfocusedKeyboardTracking()
+                self?.reconcileKeyboardTrackingAfterActivation()
             }
         }
         keyboardObservers.append(ChatKeyboardNotificationToken(didBecomeActiveObserver))
@@ -259,8 +259,14 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         )
     }
 
-    private func resetUnfocusedKeyboardTracking() {
-        guard !containsFirstResponder(in: composerHostingController.view) else { return }
+    private func reconcileKeyboardTrackingAfterActivation() {
+        view.layoutIfNeeded()
+        let keyboardTop = view.keyboardLayoutGuide.layoutFrame.minY
+        let safeAreaBottom = view.safeAreaLayoutGuide.layoutFrame.maxY
+        let hasVisibleDockedKeyboard = keyboardTop < safeAreaBottom - 0.5
+        guard !hasVisibleDockedKeyboard || !containsFirstResponder(in: composerHostingController.view) else {
+            return
+        }
         resetKeyboardTracking()
     }
 
