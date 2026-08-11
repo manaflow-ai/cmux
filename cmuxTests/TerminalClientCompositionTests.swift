@@ -2154,6 +2154,37 @@ struct TerminalClientCompositionTests {
         ])
     }
 
+    @Test @MainActor
+    func copyModeTogglesResolveInOrderAgainstConfirmedBackendState() async {
+        let client = RecordingPersistentTerminalBackendClient()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        defer { lease.detach() }
+
+        #expect(runtime.enqueue(.toggleCopyMode).accepted)
+        #expect(runtime.enqueue(.toggleCopyMode).accepted)
+        await client.waitForMutationCount(2)
+
+        #expect((await client.mutations()).map(\.mutation) == [
+            .copyMode(operation: .enter, adjustment: nil, count: 1),
+            .copyMode(operation: .exit, adjustment: nil, count: 1),
+        ])
+        #expect(!runtime.snapshot.copyModeActive)
+    }
+
     @Test
     func persistentIngressStateStormStaysBoundedAndConvergesAtCapacity() {
         func queued(
@@ -5403,6 +5434,14 @@ private actor RecordingPersistentTerminalBackendClient: TerminalBackendClient {
             }
         }
         var outcome = TerminalBackendMutationOutcome()
+        switch mutation {
+        case .copyMode(operation: .enter, adjustment: _, count: _):
+            outcome.copyModeActive = true
+        case .copyMode(operation: .exit, adjustment: _, count: _):
+            outcome.copyModeActive = false
+        default:
+            break
+        }
         if case .reparent(let workspaceID) = mutation {
             outcome.binding = TerminalBackendTerminalBinding(
                 authority: binding.authority,

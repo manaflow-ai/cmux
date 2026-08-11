@@ -154,7 +154,7 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(second.surface.terminalLifecycleId == surfaceID)
     }
 
-    @Test func externalCopyModeToggleUsesBackendSnapshotAuthority() {
+    @Test func externalCopyModeToggleDefersStateDecisionToRuntimeOwner() {
         let fixture = makeFixture()
         defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
         fixture.runtime.snapshot = TerminalExternalRuntimeSnapshot(
@@ -164,10 +164,9 @@ struct TerminalSurfaceExternalRuntimeTests {
         fixture.surface.setKeyboardCopyModeActive(false)
 
         #expect(fixture.surface.toggleKeyboardCopyMode())
+        #expect(fixture.surface.toggleKeyboardCopyMode())
 
-        #expect(fixture.runtime.mutations == [
-            .copyMode(operation: .exit, adjustment: nil, count: 1),
-        ])
+        #expect(fixture.runtime.mutations == [.toggleCopyMode, .toggleCopyMode])
         #expect(fixture.surface.keyboardCopyModeActive)
     }
 
