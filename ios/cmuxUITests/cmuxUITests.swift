@@ -405,15 +405,13 @@ final class cmuxUITests: XCTestCase {
     /// not expose Add Computer while the Tailscale-only method still does.
     @MainActor
     func testAddComputerIsAvailableOnlyForTailscaleConnectionMethod() throws {
-        let methodKey = "-dev.cmux.mobile.connectionMethod.v1"
         let migrationEnvironment = [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
         ]
         let app = launchApp(
             mockData: true,
-            environment: migrationEnvironment,
-            launchArguments: [methodKey, "automatic"]
+            environment: migrationEnvironment
         )
         defer { app.terminate() }
 
@@ -446,12 +444,28 @@ final class cmuxUITests: XCTestCase {
             app.descendants(matching: .any)["MobileSettingsView"]
                 .waitForNonExistence(timeout: 4)
         )
-        XCTAssertTrue(app.buttons["MobileShowAddDeviceButton"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
+        app.terminate()
 
-        tap(app.buttons["MobileShowAddDeviceButton"], in: app)
+        // The fixture uses one isolated defaults suite across relaunches. This
+        // proves the persisted Tailscale selection enables the ordinary shell
+        // affordances without relying on launch-argument defaults.
+        let tailscaleApp = launchApp(
+            mockData: true,
+            environment: migrationEnvironment
+        )
+        defer { tailscaleApp.terminate() }
         XCTAssertTrue(
-            app.descendants(matching: .any)["MobileAddDeviceForm"]
+            tailscaleApp.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
+                .waitForExistence(timeout: 12)
+        )
+        XCTAssertTrue(
+            tailscaleApp.buttons["MobileShowAddDeviceButton"].waitForExistence(timeout: 4)
+        )
+        XCTAssertTrue(tailscaleApp.buttons["MobileShowAddDeviceToolbarButton"].exists)
+
+        tap(tailscaleApp.buttons["MobileShowAddDeviceButton"], in: tailscaleApp)
+        XCTAssertTrue(
+            tailscaleApp.descendants(matching: .any)["MobileAddDeviceForm"]
                 .waitForExistence(timeout: 4)
         )
     }
