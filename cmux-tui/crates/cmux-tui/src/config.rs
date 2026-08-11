@@ -5919,11 +5919,6 @@ mod tests {
         })
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
-    fn shell_quote_path(path: &Path) -> String {
-        format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
-    }
-
     #[test]
     fn ghostty_config_helper_output_reader_drains_large_palette() {
         let mut output = String::new();
