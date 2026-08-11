@@ -151,7 +151,8 @@ func decodesEveryNativeLayoutShape() async throws {
     var sawTitle = false
     var sawTopology = false
     for change in delta.changes {
-        switch try #require(snapshot.apply(change)) {
+        let applied = snapshot.apply(change)
+        switch try #require(applied) {
         case .terminalTitle(let id, let title):
             sawTitle = id == "term_88888888888888888888888888888888"
                 && title == "updated"
