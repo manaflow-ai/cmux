@@ -1816,6 +1816,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C71510010000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71510020000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift */; };
 		E7A5F1A10000000000000001 /* SessionCustomSidebarPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A5F1A10000000000000002 /* SessionCustomSidebarPanelSnapshot.swift */; };
 		A74770010000000000000003 /* SessionDisplaySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000004 /* SessionDisplaySnapshot.swift */; };
+		992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230004 /* SessionEntryResumeLaunch.swift */; };
+		992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */; };
 		85000000000000000000002A /* SessionIndexEntryProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001A /* SessionIndexEntryProjection.swift */; };
 		850000000000000000000028 /* SessionIndexJSONLReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000018 /* SessionIndexJSONLReader.swift */; };
 		850000000000000000000004 /* SessionIndexJSONLReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000003 /* SessionIndexJSONLReaderTests.swift */; };
@@ -4488,6 +4490,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C71510020000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionContentWidthSettingsFileStoreTests.swift; sourceTree = "<group>"; };
 		E7A5F1A10000000000000002 /* SessionCustomSidebarPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCustomSidebarPanelSnapshot.swift; sourceTree = "<group>"; };
 		A74770010000000000000004 /* SessionDisplaySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDisplaySnapshot.swift; sourceTree = "<group>"; };
+		992300019923000199230004 /* SessionEntryResumeLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunch.swift; sourceTree = "<group>"; };
+		992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunchTests.swift; sourceTree = "<group>"; };
 		85000000000000000000001A /* SessionIndexEntryProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexEntryProjection.swift; sourceTree = "<group>"; };
 		850000000000000000000018 /* SessionIndexJSONLReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLReader.swift; sourceTree = "<group>"; };
 		850000000000000000000003 /* SessionIndexJSONLReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLReaderTests.swift; sourceTree = "<group>"; };
@@ -6387,6 +6391,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9090F0019090F0019090F001 /* AgentHibernationPanelState.swift */,
 				9090F0029090F0029090F002 /* AgentHibernationResumePreparation.swift */,
 				F0ACC0E0000000000000002 /* CachedAgentProcessIdentityValidator.swift */,
+				992300019923000199230004 /* SessionEntryResumeLaunch.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
 				F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */,
 				B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */,
@@ -7554,6 +7559,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				85FA9F7370322CC65A15774E /* AgentResumeLivenessTests.swift */,
 				8837A0020000000000000002 /* AgentResumeReturnShellStartupTests.swift */,
 				9200B0019200B0019200B002 /* ResumeLauncherCwdConsistencyTests.swift */,
+				992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */,
 				B714B27E46014592B9CB2D3A /* WorkspaceIsStaleAgentHookBindingTests.swift */,
 				D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 				842300000000000000000002 /* SurfaceResumeExitedAgentLivenessTests.swift */,
@@ -9725,6 +9731,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C71500040000000000000001 /* SessionContentWidthPresentation.swift in Sources */,
 				E7A5F1A10000000000000001 /* SessionCustomSidebarPanelSnapshot.swift in Sources */,
 				A74770010000000000000003 /* SessionDisplaySnapshot.swift in Sources */,
+				992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */,
 				85000000000000000000002A /* SessionIndexEntryProjection.swift in Sources */,
 				850000000000000000000028 /* SessionIndexJSONLReader.swift in Sources */,
 				850000000000000000000029 /* SessionIndexJSONLReadMetrics.swift in Sources */,
@@ -11062,6 +11069,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */,
 				3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */,
 				C71510010000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift in Sources */,
+				992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */,
 				850000000000000000000004 /* SessionIndexJSONLReaderTests.swift in Sources */,
 				850000000000000000000006 /* SessionIndexSnapshotLoaderTests.swift in Sources */,
 				850000000000000000000008 /* SessionIndexSyntheticCorpus.swift in Sources */,
