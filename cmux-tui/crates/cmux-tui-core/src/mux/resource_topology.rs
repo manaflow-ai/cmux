@@ -438,9 +438,9 @@ impl Drop for ResourceCreationActivity<'_> {
 }
 
 impl Mux {
-    /// Project only workspaces touched by a terminal detach. This keeps close
-    /// cost proportional to the affected topology and leaves unrelated
-    /// resources out of both the in-memory clone and the durable patch.
+    /// Project only panes, screens, and workspace ordering reached from the
+    /// target surface reverse indexes. Unrelated resources in the same
+    /// workspace never enter the durable patch.
     fn terminal_resource_effect_projection_locked(
         &self,
         registry: &WorkspaceRegistry,
@@ -452,38 +452,62 @@ impl Mux {
     ) -> anyhow::Result<ResourceEffectProjection> {
         let active_workspace =
             live.workspaces.get(live.active_workspace).map(|workspace| workspace.id);
-        let before_workspaces = live
-            .workspaces
-            .iter()
-            .filter(|workspace| workspace_ids.contains(&workspace.id))
-            .collect::<Vec<_>>();
-        let before_screens = before_workspaces
-            .iter()
-            .flat_map(|workspace| workspace.screens.iter())
-            .map(|screen| screen.public_id.clone())
-            .collect::<HashSet<_>>();
-        let before_panes = before_workspaces
-            .iter()
-            .flat_map(|workspace| &workspace.screens)
-            .flat_map(|screen| screen.root.pane_ids_vec())
-            .filter_map(|pane| live.panes.get(&pane).map(|pane| pane.public_id.clone()))
-            .collect::<HashSet<_>>();
         let target_tabs = target_surfaces
             .iter()
             .filter_map(|surface| live.resource_indexes.tab_ids.get(surface).cloned())
             .collect::<HashSet<_>>();
+        let mut affected_panes = target_surfaces
+            .iter()
+            .filter_map(|surface| live.resource_indexes.tab_pane.get(surface).copied())
+            .collect::<Vec<_>>();
+        affected_panes.sort_unstable();
+        affected_panes.dedup();
+        let before_panes = affected_panes
+            .iter()
+            .filter_map(|pane| live.resource_indexes.pane_ids.get(pane).cloned())
+            .collect::<HashSet<_>>();
+        let removed_panes = affected_panes
+            .iter()
+            .filter(|pane| !projected.resource_indexes.pane_ids.contains_key(pane))
+            .copied()
+            .collect::<HashSet<_>>();
+        let mut affected_screens = affected_panes
+            .iter()
+            .filter_map(|pane| live.resource_indexes.pane_screen.get(pane).copied())
+            .collect::<Vec<_>>();
+        affected_screens.sort_unstable();
+        affected_screens.dedup();
+        let mut changed_screens = removed_panes
+            .iter()
+            .filter_map(|pane| live.resource_indexes.pane_screen.get(pane).copied())
+            .collect::<Vec<_>>();
+        changed_screens.sort_unstable();
+        changed_screens.dedup();
+        let before_screens = changed_screens
+            .iter()
+            .filter_map(|screen| live.resource_indexes.screen_ids.get(screen).cloned())
+            .collect::<HashSet<_>>();
+        let affected_workspace_ids = affected_screens
+            .iter()
+            .filter_map(|screen| live.resource_indexes.screen_workspace.get(screen).copied())
+            .collect::<HashSet<_>>();
+        anyhow::ensure!(
+            affected_workspace_ids.iter().all(|workspace| workspace_ids.contains(workspace)),
+            "terminal projection escaped its workspace scope"
+        );
 
-        let mut live_screens = HashSet::new();
-        let mut live_panes = HashSet::new();
-        let mut live_tabs = HashSet::new();
         let mut patch = Vec::new();
         let mut public = Vec::new();
-        for workspace_id in live
-            .workspaces
+        let mut workspace_updates = changed_screens
             .iter()
-            .map(|workspace| workspace.id)
-            .filter(|workspace| workspace_ids.contains(workspace))
-        {
+            .filter(|screen| !projected.resource_indexes.screen_ids.contains_key(screen))
+            .filter_map(|screen| live.resource_indexes.screen_workspace.get(screen).copied())
+            .collect::<Vec<_>>();
+        workspace_updates.sort_by_key(|workspace| {
+            live.workspace_index(*workspace).unwrap_or(usize::MAX)
+        });
+        workspace_updates.dedup();
+        for workspace_id in workspace_updates {
             let workspace = projected
                 .workspace_by_id(workspace_id)
                 .with_context(|| format!("terminal scope lost workspace {workspace_id}"))?;
@@ -523,106 +547,146 @@ impl Mux {
                     "focused":active_workspace == Some(workspace.id),
                 }),
             ));
+        }
 
-            for (screen_index, screen) in workspace.screens.iter().enumerate() {
-                live_screens.insert(screen.public_id.clone());
-                let durable = resource_content::registry_screen_from_live(
-                    projected,
-                    &workspace.public_id,
-                    screen_index,
-                    screen,
-                )?;
-                let layout = resource_content::public_layout_from_registry(&durable, projected)?;
-                patch.push(ResourceChange::UpsertScreen(durable));
+        let mut screen_context = HashMap::new();
+        for screen_slot in &affected_screens {
+            let Some(workspace_id) = projected
+                .resource_indexes
+                .screen_workspace
+                .get(screen_slot)
+                .copied()
+            else {
+                continue;
+            };
+            let workspace = projected
+                .workspace_by_id(workspace_id)
+                .with_context(|| format!("terminal scope lost workspace {workspace_id}"))?;
+            let screen_index = workspace
+                .screens
+                .iter()
+                .position(|screen| screen.id == *screen_slot)
+                .with_context(|| format!("terminal scope lost screen {screen_slot}"))?;
+            screen_context.insert(*screen_slot, (workspace_id, screen_index));
+        }
+
+        let mut live_screens = HashSet::new();
+        for screen_slot in &changed_screens {
+            let Some((workspace_id, screen_index)) = screen_context.get(screen_slot).copied() else {
+                continue;
+            };
+            let workspace = projected
+                .workspace_by_id(workspace_id)
+                .with_context(|| format!("terminal scope lost workspace {workspace_id}"))?;
+            let screen = &workspace.screens[screen_index];
+            live_screens.insert(screen.public_id.clone());
+            let durable = resource_content::registry_screen_from_live(
+                projected,
+                &workspace.public_id,
+                screen_index,
+                screen,
+            )?;
+            let layout = resource_content::public_layout_from_registry(&durable, projected)?;
+            patch.push(ResourceChange::UpsertScreen(durable));
+            public.push((
+                "screen",
+                screen.public_id.to_string(),
+                json!({
+                    "id":screen.public_id,
+                    "workspace_id":workspace.public_id,
+                    "name":screen.name,
+                    "index":screen_index,
+                    "focused":active_workspace == Some(workspace.id)
+                        && workspace.active_screen == screen_index,
+                    "layout":layout,
+                }),
+            ));
+        }
+
+        let mut live_panes = HashSet::new();
+        for pane_slot in affected_panes {
+            let Some(pane) = projected.panes.get(&pane_slot) else { continue };
+            let screen_slot = projected
+                .resource_indexes
+                .pane_screen
+                .get(&pane_slot)
+                .copied()
+                .with_context(|| format!("terminal scope pane {pane_slot} lost its screen"))?;
+            let (workspace_id, screen_index) = screen_context
+                .get(&screen_slot)
+                .copied()
+                .with_context(|| format!("terminal scope lost screen {screen_slot}"))?;
+            let workspace = projected
+                .workspace_by_id(workspace_id)
+                .with_context(|| format!("terminal scope lost workspace {workspace_id}"))?;
+            let screen = &workspace.screens[screen_index];
+            live_panes.insert(pane.public_id.clone());
+            let active_tab = pane
+                .tabs
+                .get(pane.active_tab)
+                .and_then(|surface| projected.resource_indexes.tab_ids.get(surface))
+                .cloned();
+            patch.push(ResourceChange::UpsertPane(RegistryPane {
+                public_id: pane.public_id.clone(),
+                screen_id: screen.public_id.clone(),
+                name: pane.name.clone(),
+                active_tab,
+                creation_ordinal: pane.active_at,
+            }));
+            let mut tab_order = Vec::with_capacity(pane.tabs.len());
+            public.push((
+                "pane",
+                pane.public_id.to_string(),
+                json!({
+                    "id":pane.public_id,
+                    "screen_id":screen.public_id,
+                    "name":pane.name,
+                    "focused":active_workspace == Some(workspace.id)
+                        && workspace.active_screen == screen_index
+                        && screen.active_pane == pane.id,
+                    "zoomed":screen.zoomed_pane == Some(pane.id),
+                }),
+            ));
+            for (tab_index, surface_slot) in pane.tabs.iter().enumerate() {
+                let surface = projected.surfaces.get(surface_slot);
+                let identity = surface
+                    .and_then(|surface| surface.resource_identity().cloned())
+                    .or_else(|| {
+                        Some(TabResourceIdentity::new(
+                            projected.resource_indexes.tab_ids.get(surface_slot)?.clone(),
+                            projected.resource_indexes.content_ids.get(surface_slot)?.clone(),
+                        ))
+                    })
+                    .with_context(|| format!("terminal scope tab {surface_slot} has no identity"))?;
+                tab_order.push(identity.tab_id.clone());
+                let content_kind = match &identity.content_id {
+                    ContentPublicId::Terminal(_) => "terminal",
+                    ContentPublicId::Browser(_) => "browser",
+                };
                 public.push((
-                    "screen",
-                    screen.public_id.to_string(),
+                    "tab",
+                    identity.tab_id.to_string(),
                     json!({
-                        "id":screen.public_id,
-                        "workspace_id":workspace.public_id,
-                        "name":screen.name,
-                        "index":screen_index,
-                        "focused":active_workspace == Some(workspace.id)
-                            && workspace.active_screen == screen_index,
-                        "layout":layout,
+                        "id":identity.tab_id,
+                        "pane_id":pane.public_id,
+                        "index":tab_index,
+                        "name":surface.and_then(|surface| surface.name()),
+                        "focused":pane.active_tab == tab_index,
+                        "content_kind":content_kind,
+                        "content_id":identity.content_id.as_str(),
                     }),
                 ));
-
-                for pane_slot in screen.root.pane_ids_vec() {
-                    let pane = projected.panes.get(&pane_slot).with_context(|| {
-                        format!("terminal scope screen references missing pane {pane_slot}")
-                    })?;
-                    live_panes.insert(pane.public_id.clone());
-                    let active_tab = pane
-                        .tabs
-                        .get(pane.active_tab)
-                        .and_then(|surface| projected.resource_indexes.tab_ids.get(surface))
-                        .cloned();
-                    patch.push(ResourceChange::UpsertPane(RegistryPane {
-                        public_id: pane.public_id.clone(),
-                        screen_id: screen.public_id.clone(),
-                        name: pane.name.clone(),
-                        active_tab,
-                        creation_ordinal: pane.active_at,
-                    }));
-                    let mut tab_order = Vec::with_capacity(pane.tabs.len());
-                    public.push((
-                        "pane",
-                        pane.public_id.to_string(),
-                        json!({
-                            "id":pane.public_id,
-                            "screen_id":screen.public_id,
-                            "name":pane.name,
-                            "focused":active_workspace == Some(workspace.id)
-                                && workspace.active_screen == screen_index
-                                && screen.active_pane == pane.id,
-                            "zoomed":screen.zoomed_pane == Some(pane.id),
-                        }),
-                    ));
-                    for (tab_index, surface_slot) in pane.tabs.iter().enumerate() {
-                        let surface = projected.surfaces.get(surface_slot);
-                        let identity = surface
-                            .and_then(|surface| surface.resource_identity().cloned())
-                            .or_else(|| {
-                                Some(TabResourceIdentity::new(
-                                    projected.resource_indexes.tab_ids.get(surface_slot)?.clone(),
-                                    projected
-                                        .resource_indexes
-                                        .content_ids
-                                        .get(surface_slot)?
-                                        .clone(),
-                                ))
-                            })
-                            .with_context(|| {
-                                format!("terminal scope tab {surface_slot} has no identity")
-                            })?;
-                        live_tabs.insert(identity.tab_id.clone());
-                        tab_order.push(identity.tab_id.clone());
-                        let content_kind = match &identity.content_id {
-                            ContentPublicId::Terminal(_) => "terminal",
-                            ContentPublicId::Browser(_) => "browser",
-                        };
-                        public.push((
-                            "tab",
-                            identity.tab_id.to_string(),
-                            json!({
-                                "id":identity.tab_id,
-                                "pane_id":pane.public_id,
-                                "index":tab_index,
-                                "name":surface.and_then(|surface| surface.name()),
-                                "focused":pane.active_tab == tab_index,
-                                "content_kind":content_kind,
-                                "content_id":identity.content_id.as_str(),
-                            }),
-                        ));
-                    }
-                    patch.push(ResourceChange::SetTabOrder {
-                        pane_id: pane.public_id.clone(),
-                        tab_ids: tab_order,
-                    });
-                }
             }
+            patch.push(ResourceChange::SetTabOrder {
+                pane_id: pane.public_id.clone(),
+                tab_ids: tab_order,
+            });
         }
+        let live_tabs = target_tabs
+            .iter()
+            .filter(|tab| projected.resource_indexes.tabs.contains_key(*tab))
+            .cloned()
+            .collect::<HashSet<_>>();
         for tab_id in target_tabs.difference(&live_tabs) {
             patch.push(ResourceChange::TombstoneTab {
                 tab_id: tab_id.clone(),
@@ -3095,9 +3159,10 @@ impl Mux {
         );
         let workspace_ids = targets
             .iter()
-            .filter_map(|surface| state.pane_of(*surface))
-            .filter_map(|pane| state.screen_of(pane))
-            .map(|(workspace, _)| state.workspaces[workspace].id)
+            .filter_map(|surface| state.resource_indexes.tab_pane.get(surface))
+            .filter_map(|pane| state.resource_indexes.pane_screen.get(pane))
+            .filter_map(|screen| state.resource_indexes.screen_workspace.get(screen))
+            .copied()
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
         let target_surfaces = targets.iter().copied().collect::<HashSet<_>>();
@@ -3577,9 +3642,10 @@ impl Mux {
             ));
         let workspace_ids = surface_ids
             .iter()
-            .filter_map(|surface| state.pane_of(*surface))
-            .filter_map(|pane| state.screen_of(pane))
-            .map(|(workspace, _)| state.workspaces[workspace].id)
+            .filter_map(|surface| state.resource_indexes.tab_pane.get(surface))
+            .filter_map(|pane| state.resource_indexes.pane_screen.get(pane))
+            .filter_map(|screen| state.resource_indexes.screen_workspace.get(screen))
+            .copied()
             .collect::<HashSet<_>>();
         let catalog_public_ids = terminal_indexes.catalog_public_ids.clone();
         let mut closed_terminal_public_ids = if !terminal_public_ids.is_empty() {
