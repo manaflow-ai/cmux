@@ -16,6 +16,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         "publisher.new",
         "rollback-only",
         "unpublished.root",
+        "unpublished.root.new",
+        "handoff-pending",
+        "handoff-pending.new",
+        "handoff.owner",
+        "handoff.owner.new",
+        "handoff.accepted",
+        "handoff.failed",
+        "handoff.failed.new",
         "anchor",
         "cancel",
         "cleanup.owner",
@@ -179,9 +187,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         let publishedCleanup = terminatesPublishedGroup
             ? publishedAuthenticationCleanupShellCommand()
             : ":"
-        let recoveryEnqueue = "if { [ -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ] || [ -f \"$CMUX_SSH_AUTH_GROUP_DIR/rollback-only\" ]; } && command -v cmux_ssh_auth_recovery_enqueue >/dev/null 2>&1; then cmux_ssh_auth_recovery_enqueue \"$CMUX_SSH_AUTH_GROUP_DIR\" || true; fi"
+        let recoveryEnqueue = "if { [ -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ] || [ -f \"$CMUX_SSH_AUTH_GROUP_DIR/rollback-only\" ] || [ -f \"$CMUX_SSH_AUTH_GROUP_DIR/handoff-pending\" ]; } && command -v cmux_ssh_auth_recovery_enqueue >/dev/null 2>&1; then cmux_ssh_auth_recovery_enqueue \"$CMUX_SSH_AUTH_GROUP_DIR\" || true; fi"
         let recoverySchedule = "if command -v cmux_ssh_schedule_failed_auth_group_recovery >/dev/null 2>&1; then cmux_ssh_schedule_failed_auth_group_recovery; fi"
-        return "if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ] && [ ! -e \"$CMUX_SSH_AUTH_GROUP_DIR/cancel\" ] && [ ! -f \"$CMUX_SSH_AUTH_GROUP_DIR/rollback-only\" ]; then \(processGroupStateRemovalShellCommand()); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; \(recoveryEnqueue); fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; \(recoverySchedule);"
+        let liveHandoff = "{ command -v cmux_ssh_auth_recorded_process_is_live >/dev/null 2>&1 && cmux_ssh_auth_recorded_process_is_live \"$CMUX_SSH_AUTH_GROUP_DIR/handoff.owner\"; }"
+        return "if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ] && [ ! -e \"$CMUX_SSH_AUTH_GROUP_DIR/cancel\" ] && [ ! -f \"$CMUX_SSH_AUTH_GROUP_DIR/rollback-only\" ] && [ ! -f \"$CMUX_SSH_AUTH_GROUP_DIR/handoff-pending\" ] && ! \(liveHandoff); then \(processGroupStateRemovalShellCommand()); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; \(recoveryEnqueue); fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; \(recoverySchedule);"
     }
 
     private func publishedAuthenticationCleanupShellCommand() -> String {
@@ -460,6 +469,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_publisher_group_dir/cleanup.owner" || \
             cmux_ssh_auth_recorded_process_is_live \
               "$cmux_ssh_auth_publisher_group_dir/cleanup.owner.new" || \
+            cmux_ssh_auth_recorded_process_is_live \
+              "$cmux_ssh_auth_publisher_group_dir/handoff.owner" || \
+            cmux_ssh_auth_recorded_process_is_live \
+              "$cmux_ssh_auth_publisher_group_dir/handoff.owner.new" || \
             cmux_ssh_auth_recorded_process_is_live \
               "$cmux_ssh_auth_publisher_group_dir/publisher" || \
             cmux_ssh_auth_recorded_process_is_live \
@@ -1213,6 +1226,50 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           printf '%s\n' "$cmux_ssh_auth_create_dir"
         }
 
+        cmux_ssh_auth_resume_pending_handoff() (
+          cmux_ssh_auth_pending_group_dir="$1"
+          cmux_ssh_auth_recovery_configure_paths || exit 1
+          cmux_ssh_auth_recovery_group_path_is_valid \
+            "$cmux_ssh_auth_pending_group_dir" || exit 1
+          if [ ! -d "$cmux_ssh_auth_pending_group_dir" ] || \
+            [ -L "$cmux_ssh_auth_pending_group_dir" ] || \
+            [ ! -f "$cmux_ssh_auth_pending_group_dir/handoff-pending" ] || \
+            [ -L "$cmux_ssh_auth_pending_group_dir/handoff-pending" ] || \
+            [ ! -f "$cmux_ssh_auth_pending_group_dir/unpublished.root" ] || \
+            [ -L "$cmux_ssh_auth_pending_group_dir/unpublished.root" ]; then exit 1; fi
+          cmux_ssh_auth_pending_expected_identity="$(/usr/bin/id -u):700"
+          cmux_ssh_auth_pending_observed_identity=$(/usr/bin/stat -f '%u:%Lp' \
+            "$cmux_ssh_auth_pending_group_dir" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_pending_observed_identity" != \
+            "$cmux_ssh_auth_pending_expected_identity" ]; then exit 1; fi
+          if cmux_ssh_auth_group_publisher_is_live \
+            "$cmux_ssh_auth_pending_group_dir"; then exit 1; fi
+          IFS=' ' read -r cmux_ssh_auth_pending_root_pid \
+            cmux_ssh_auth_pending_root_parent cmux_ssh_auth_pending_root_group \
+            cmux_ssh_auth_pending_root_started cmux_ssh_auth_pending_root_extra \
+            < "$cmux_ssh_auth_pending_group_dir/unpublished.root" || exit 1
+          case "$cmux_ssh_auth_pending_root_pid" in ''|0|*[!0-9]*) exit 1 ;; esac
+          case "$cmux_ssh_auth_pending_root_parent" in ''|*[!0-9]*) exit 1 ;; esac
+          case "$cmux_ssh_auth_pending_root_group" in ''|0|*[!0-9]*) exit 1 ;; esac
+          case "$cmux_ssh_auth_pending_root_started" in
+            ''|*[!A-Za-z0-9_:]*) exit 1 ;;
+          esac
+          if [ -n "$cmux_ssh_auth_pending_root_extra" ]; then exit 1; fi
+          cmux_ssh_auth_force_unpublished_process_tree \
+            "$cmux_ssh_auth_pending_root_pid" \
+            "$cmux_ssh_auth_pending_root_parent" \
+            "$cmux_ssh_auth_pending_root_group" \
+            "$cmux_ssh_auth_pending_root_started" || exit 1
+          CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_pending_group_dir"
+          export CMUX_SSH_AUTH_GROUP_DIR
+          if [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
+            cmux_ssh_terminate_owned_auth_group
+            if [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then exit 1; fi
+          fi
+          \#(processGroupStateRemovalShellCommand())
+          /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || exit 1
+        )
+
         cmux_ssh_auth_resume_unpublished_rollback() (
           cmux_ssh_auth_rollback_group_dir="$1"
           cmux_ssh_auth_recovery_prepare || exit 1
@@ -1707,6 +1764,18 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "${CMUX_SSH_AUTH_GROUP_DIR:-}" ]; then
               printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
                 >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
+              continue
+            fi
+            if [ -L "$cmux_ssh_auth_recovery_group_dir/handoff-pending" ]; then
+              continue
+            elif [ -f "$cmux_ssh_auth_recovery_group_dir/handoff-pending" ]; then
+              if cmux_ssh_auth_group_publisher_is_live \
+                  "$cmux_ssh_auth_recovery_group_dir" || ! \
+                cmux_ssh_auth_resume_pending_handoff \
+                  "$cmux_ssh_auth_recovery_group_dir"; then
+                printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
+                  >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
+              fi
               continue
             fi
             if [ -L "$cmux_ssh_auth_recovery_group_dir/rollback-only" ]; then
@@ -2352,20 +2421,35 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           if [ -z "$cmux_ssh_auth_root_identity" ]; then exit 0; fi
           cmux_ssh_auth_durable_cleanup_pending=0
-          cmux_ssh_auth_preserve_unpublished_root() {
-            cmux_ssh_auth_preserve_deadline="${1:-}"
+          cmux_ssh_auth_select_secure_unpublished_state() {
             cmux_ssh_auth_recovery_configure_paths || return 1
             cmux_ssh_auth_preserve_state="${CMUX_SSH_AUTH_GROUP_DIR:-}"
             if [ -z "$cmux_ssh_auth_preserve_state" ] || \
               ! cmux_ssh_auth_recovery_group_path_is_valid \
                 "$cmux_ssh_auth_preserve_state" || \
               [ ! -d "$cmux_ssh_auth_preserve_state" ] || \
-              [ -L "$cmux_ssh_auth_preserve_state" ]; then return 1; fi
+              [ -L "$cmux_ssh_auth_preserve_state" ]; then
+              cmux_ssh_auth_preserve_state=$(cmux_ssh_auth_create_group_dir) || return 1
+              CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_preserve_state"
+              export CMUX_SSH_AUTH_GROUP_DIR
+            fi
             cmux_ssh_auth_preserve_expected="$(/usr/bin/id -u):700"
             cmux_ssh_auth_preserve_observed=$(/usr/bin/stat -f '%u:%Lp' \
               "$cmux_ssh_auth_preserve_state" 2>/dev/null || true)
             if [ "$cmux_ssh_auth_preserve_observed" != \
-              "$cmux_ssh_auth_preserve_expected" ]; then return 1; fi
+              "$cmux_ssh_auth_preserve_expected" ]; then
+              cmux_ssh_auth_preserve_state=$(cmux_ssh_auth_create_group_dir) || return 1
+              CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_preserve_state"
+              export CMUX_SSH_AUTH_GROUP_DIR
+              cmux_ssh_auth_preserve_observed=$(/usr/bin/stat -f '%u:%Lp' \
+                "$cmux_ssh_auth_preserve_state" 2>/dev/null || true)
+            fi
+            [ "$cmux_ssh_auth_preserve_observed" = \
+              "$cmux_ssh_auth_preserve_expected" ]
+          }
+          cmux_ssh_auth_preserve_unpublished_root() {
+            cmux_ssh_auth_preserve_deadline="${1:-}"
+            cmux_ssh_auth_select_secure_unpublished_state || return 1
             if [ -s "$cmux_ssh_auth_preserve_state/identity" ]; then
               cmux_ssh_terminate_owned_auth_group
               return 0
@@ -2447,6 +2531,28 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_schedule_failed_auth_group_recovery
             return 0
           }
+          cmux_ssh_auth_publish_pending_handoff() {
+            cmux_ssh_auth_select_secure_unpublished_state || return 1
+            if [ -s "$cmux_ssh_auth_preserve_state/identity" ]; then
+              cmux_ssh_terminate_owned_auth_group
+              return 0
+            fi
+            umask 077
+            printf '%s %s %s %s\n' "$cmux_ssh_auth_root_pid" \
+              "$cmux_ssh_auth_observed_parent" "$cmux_ssh_auth_root_group" \
+              "$cmux_ssh_auth_root_started" \
+              > "$cmux_ssh_auth_preserve_state/unpublished.root.new" || return 1
+            /bin/mv -f -- \
+              "$cmux_ssh_auth_preserve_state/unpublished.root.new" \
+              "$cmux_ssh_auth_preserve_state/unpublished.root" || return 1
+            : > "$cmux_ssh_auth_preserve_state/handoff-pending.new" || return 1
+            /bin/mv -f -- "$cmux_ssh_auth_preserve_state/handoff-pending.new" \
+              "$cmux_ssh_auth_preserve_state/handoff-pending" || return 1
+            cmux_ssh_auth_recovery_enqueue \
+              "$cmux_ssh_auth_preserve_state" >/dev/null 2>&1 || return 1
+            cmux_ssh_schedule_failed_auth_group_recovery
+            return 0
+          }
           if [ -z "${CMUX_SSH_AUTH_GROUP_DIR:-}" ] || \
             [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
             if cmux_ssh_terminate_unpublished_auth_process_tree \
@@ -2516,40 +2622,168 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                       /bin/sleep 1
                     fi
                   done
+                  # A completed journal is durable proof even if its first queue
+                  # append failed. The group cleanup retries that append and
+                  # keeps rollback-only state out of the removal path.
+                  if [ "$cmux_ssh_auth_durable_cleanup_pending" != 1 ] && \
+                    [ -n "${CMUX_SSH_AUTH_GROUP_DIR:-}" ] && \
+                    [ -f "$CMUX_SSH_AUTH_GROUP_DIR/rollback-only" ] && \
+                    [ -s "$CMUX_SSH_AUTH_GROUP_DIR/owned" ]; then
+                    cmux_ssh_auth_recovery_enqueue \
+                      "$CMUX_SSH_AUTH_GROUP_DIR" >/dev/null 2>&1 || true
+                    cmux_ssh_schedule_failed_auth_group_recovery
+                    cmux_ssh_auth_durable_cleanup_pending=1
+                  fi
+                  # If a complete descendant snapshot is not available, queue
+                  # the exact root for the dedicated bounded recovery path.
+                  if [ "$cmux_ssh_auth_durable_cleanup_pending" != 1 ] && \
+                    cmux_ssh_auth_publish_pending_handoff; then
+                    cmux_ssh_auth_durable_cleanup_pending=1
+                  fi
                   if [ "$cmux_ssh_auth_durable_cleanup_pending" != 1 ] && \
                     cmux_ssh_auth_current_root_identity=$(cmux_ssh_auth_identity \
                       "$cmux_ssh_auth_root_pid") && \
                     [ "$cmux_ssh_auth_current_root_identity" = \
-                      "$cmux_ssh_auth_root_identity" ]; then
-                    # If synchronous cleanup cannot transfer ownership, a
-                    # detached process retains it. It retries until the full
-                    # tree is gone or the validated durable journal is queued.
-                    (
-                      trap '' HUP INT TERM
-                      cmux_ssh_auth_background_retry_delay=1
+                      "$cmux_ssh_auth_root_identity" ] && \
+                    cmux_ssh_auth_select_secure_unpublished_state; then
+                    cmux_ssh_auth_handoff_state="$cmux_ssh_auth_preserve_state"
+                    cmux_ssh_auth_handoff_owner="$cmux_ssh_auth_handoff_state/handoff.owner"
+                    cmux_ssh_auth_handoff_accepted="$cmux_ssh_auth_handoff_state/handoff.accepted"
+                    if cmux_ssh_auth_recorded_process_is_live \
+                        "$cmux_ssh_auth_handoff_owner" && \
+                      : > "$cmux_ssh_auth_handoff_accepted" && \
+                      cmux_ssh_auth_recorded_process_is_live \
+                        "$cmux_ssh_auth_handoff_owner"; then
+                      cmux_ssh_auth_durable_cleanup_pending=1
+                    else
+                      /bin/rm -f -- "$cmux_ssh_auth_handoff_owner" \
+                        "$cmux_ssh_auth_handoff_owner.new" \
+                        "$cmux_ssh_auth_handoff_accepted" \
+                        "$cmux_ssh_auth_handoff_state/handoff.failed" 2>/dev/null || true
+                      # The detached owner publishes its exact stable identity
+                      # before the parent accepts the handoff. It has one fixed
+                      # retry budget and publishes the durable pending marker
+                      # before it can leave work to the per-user recovery owner.
+                      (
+                        trap '' HUP INT TERM
+                        cmux_ssh_auth_background_state="$cmux_ssh_auth_handoff_state"
+                        cmux_ssh_auth_background_owner="$cmux_ssh_auth_background_state/handoff.owner"
+                        cmux_ssh_auth_background_accepted="$cmux_ssh_auth_background_state/handoff.accepted"
+                        cmux_ssh_auth_publish_current_worker \
+                          "$cmux_ssh_auth_background_owner" || exit 1
+                        cmux_ssh_auth_background_accept_wait=0
+                        while [ ! -f "$cmux_ssh_auth_background_accepted" ] && \
+                          [ "$cmux_ssh_auth_background_accept_wait" -lt 100 ]; do
+                          /bin/sleep 0.01
+                          cmux_ssh_auth_background_accept_wait=$((
+                            cmux_ssh_auth_background_accept_wait + 1
+                          ))
+                        done
+                        if [ ! -f "$cmux_ssh_auth_background_accepted" ]; then exit 1; fi
+                        trap '/bin/rm -f -- \
+                          "$cmux_ssh_auth_background_owner" \
+                          "$cmux_ssh_auth_background_owner.new" \
+                          "$cmux_ssh_auth_background_accepted" 2>/dev/null || true' EXIT
+                        cmux_ssh_auth_background_retry_delay=1
+                        cmux_ssh_auth_background_attempt=0
+                        while [ "$cmux_ssh_auth_background_attempt" -lt 8 ]; do
+                          cmux_ssh_auth_background_attempt=$((
+                            cmux_ssh_auth_background_attempt + 1
+                          ))
+                          if cmux_ssh_auth_preserve_unpublished_root; then exit 0; fi
+                          if [ -n "${CMUX_SSH_AUTH_GROUP_DIR:-}" ] && \
+                            [ -f "$CMUX_SSH_AUTH_GROUP_DIR/rollback-only" ] && \
+                            [ -s "$CMUX_SSH_AUTH_GROUP_DIR/owned" ]; then
+                            cmux_ssh_auth_recovery_enqueue \
+                              "$CMUX_SSH_AUTH_GROUP_DIR" >/dev/null 2>&1 || true
+                            cmux_ssh_schedule_failed_auth_group_recovery
+                            exit 0
+                          fi
+                          if cmux_ssh_auth_publish_pending_handoff; then exit 0; fi
+                          if cmux_ssh_auth_force_unpublished_process_tree \
+                              "$cmux_ssh_auth_root_pid" \
+                              "$cmux_ssh_auth_observed_parent" \
+                              "$cmux_ssh_auth_root_group" \
+                              "$cmux_ssh_auth_root_started"; then
+                            /bin/rm -f -- \
+                              "$CMUX_SSH_AUTH_GROUP_DIR/handoff-pending" \
+                              "$CMUX_SSH_AUTH_GROUP_DIR/handoff-pending.new" \
+                              2>/dev/null || true
+                            if [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
+                              cmux_ssh_terminate_owned_auth_group
+                            fi
+                            if [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
+                              cmux_ssh_auth_recovery_enqueue \
+                                "$CMUX_SSH_AUTH_GROUP_DIR" >/dev/null 2>&1 || true
+                              cmux_ssh_schedule_failed_auth_group_recovery
+                            else
+                              \#(processGroupStateRemovalShellCommand())
+                              /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
+                            fi
+                            exit 0
+                          fi
+                          if [ "$cmux_ssh_auth_background_attempt" -lt 8 ]; then
+                            /bin/sleep "$cmux_ssh_auth_background_retry_delay"
+                            case "$cmux_ssh_auth_background_retry_delay" in
+                              1|2|4)
+                                cmux_ssh_auth_background_retry_delay=$((
+                                  cmux_ssh_auth_background_retry_delay * 2
+                                ))
+                                ;;
+                              *) cmux_ssh_auth_background_retry_delay=8 ;;
+                            esac
+                          fi
+                        done
+                        printf 'cleanup-incomplete attempts=%s\n' \
+                          "$cmux_ssh_auth_background_attempt" \
+                          > "$cmux_ssh_auth_background_state/handoff.failed.new" \
+                          2>/dev/null && \
+                          /bin/mv -f -- \
+                            "$cmux_ssh_auth_background_state/handoff.failed.new" \
+                            "$cmux_ssh_auth_background_state/handoff.failed" \
+                            2>/dev/null || true
+                        /usr/bin/logger -t cmux \
+                          "SSH authentication handoff stopped after bounded retries" \
+                          >/dev/null 2>&1 || true
+                        exit 1
+                      ) </dev/null >/dev/null 2>&1 &
+                      cmux_ssh_auth_background_owner_pid=$!
+                      cmux_ssh_auth_background_ack_started=$(cmux_ssh_auth_now_millis) || \
+                        cmux_ssh_auth_background_ack_started=0
+                      case "$cmux_ssh_auth_background_ack_started" in
+                        ''|*[!0-9]*) cmux_ssh_auth_background_ack_started=0 ;;
+                      esac
+                      cmux_ssh_auth_background_ack_deadline=$((
+                        cmux_ssh_auth_background_ack_started + 500
+                      ))
                       while :; do
-                        if cmux_ssh_auth_preserve_unpublished_root; then exit 0; fi
-                        if cmux_ssh_auth_force_unpublished_process_tree \
-                            "$cmux_ssh_auth_root_pid" \
-                            "$cmux_ssh_auth_observed_parent" \
-                            "$cmux_ssh_auth_root_group" \
-                            "$cmux_ssh_auth_root_started"; then exit 0; fi
-                        /bin/sleep "$cmux_ssh_auth_background_retry_delay"
-                        case "$cmux_ssh_auth_background_retry_delay" in
-                          1|2|4)
-                            cmux_ssh_auth_background_retry_delay=$((
-                              cmux_ssh_auth_background_retry_delay * 2
-                            ))
-                            ;;
-                          *) cmux_ssh_auth_background_retry_delay=8 ;;
+                        if cmux_ssh_auth_recorded_process_is_live \
+                            "$cmux_ssh_auth_handoff_owner" && \
+                          : > "$cmux_ssh_auth_handoff_accepted" && \
+                          cmux_ssh_auth_recorded_process_is_live \
+                            "$cmux_ssh_auth_handoff_owner"; then
+                          cmux_ssh_auth_durable_cleanup_pending=1
+                          break
+                        fi
+                        /bin/kill -0 "$cmux_ssh_auth_background_owner_pid" \
+                          >/dev/null 2>&1 || break
+                        cmux_ssh_auth_background_ack_now=$(cmux_ssh_auth_now_millis) || break
+                        case "$cmux_ssh_auth_background_ack_now" in
+                          ''|*[!0-9]*) break ;;
                         esac
+                        if [ "$cmux_ssh_auth_background_ack_now" -ge \
+                          "$cmux_ssh_auth_background_ack_deadline" ]; then break; fi
+                        /bin/sleep 0.01
                       done
-                    ) </dev/null >/dev/null 2>&1 &
-                    cmux_ssh_auth_background_owner_pid=$!
-                    case "$cmux_ssh_auth_background_owner_pid" in
-                      ''|0|*[!0-9]*) ;;
-                      *) cmux_ssh_auth_durable_cleanup_pending=1 ;;
-                    esac
+                      if [ "$cmux_ssh_auth_durable_cleanup_pending" != 1 ]; then
+                        /bin/kill -KILL "$cmux_ssh_auth_background_owner_pid" \
+                          >/dev/null 2>&1 || true
+                        wait "$cmux_ssh_auth_background_owner_pid" 2>/dev/null || true
+                        /bin/rm -f -- "$cmux_ssh_auth_handoff_owner" \
+                          "$cmux_ssh_auth_handoff_owner.new" \
+                          "$cmux_ssh_auth_handoff_accepted" 2>/dev/null || true
+                      fi
+                    fi
                   fi
                 fi
               fi
@@ -2619,7 +2853,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "    exec {cmux_ssh_auth_group_anchor_guard_fd}>&-",
             "    cmux_ssh_auth_group_anchor_guard_fd=",
             "  fi",
-            "  if [ -f \"$cmux_ssh_auth_group_dir/rollback-only\" ]; then",
+            "  if [ -f \"$cmux_ssh_auth_group_dir/rollback-only\" ] || [ -f \"$cmux_ssh_auth_group_dir/handoff-pending\" ]; then",
+            "    /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_publisher_publish_file\" \"$cmux_ssh_auth_group_anchor_fifo\" 2>/dev/null || true",
+            "    return",
+            "  fi",
+            "  if cmux_ssh_auth_recorded_process_is_live \"$cmux_ssh_auth_group_dir/handoff.owner\"; then",
             "    /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_publisher_publish_file\" \"$cmux_ssh_auth_group_anchor_fifo\" 2>/dev/null || true",
             "    return",
             "  fi",
