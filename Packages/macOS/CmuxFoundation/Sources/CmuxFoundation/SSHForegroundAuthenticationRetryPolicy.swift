@@ -1395,16 +1395,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             fi
             trap - EXIT HUP INT TERM
             if [ "$cmux_ssh_auth_recovery_sweep_reschedule" = 1 ]; then
-              cmux_ssh_auth_recovery_backoff=\
-                "$CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS"
+              cmux_ssh_auth_recovery_backoff="$CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS"
               /bin/sleep "$cmux_ssh_auth_recovery_backoff"
-              cmux_ssh_auth_recovery_next_backoff=\
-                $((cmux_ssh_auth_recovery_backoff * 2))
+              cmux_ssh_auth_recovery_next_backoff=$((cmux_ssh_auth_recovery_backoff * 2))
               if [ "$cmux_ssh_auth_recovery_next_backoff" -gt 60 ]; then
                 cmux_ssh_auth_recovery_next_backoff=60
               fi
-              CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS=\
-                "$cmux_ssh_auth_recovery_next_backoff"
+              CMUX_SSH_AUTH_RECOVERY_BACKOFF_SECONDS="$cmux_ssh_auth_recovery_next_backoff"
               cmux_ssh_schedule_failed_auth_group_recovery
             fi
           ) </dev/null >/dev/null 2>&1 &
