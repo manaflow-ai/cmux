@@ -5972,6 +5972,198 @@ fn journal_agent_socket_generation_rejects_late_superseded_session() {
 }
 
 #[test]
+fn journal_agent_generation_scopes_same_session_id_to_provider() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-provider-generation").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-provider-generation-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    for (revision, provider, state) in [
+        (1, "provider-a", "working"),
+        (2, "provider-a", "done"),
+        (3, "provider-b", "working"),
+        (4, "provider-b", "done"),
+    ] {
+        let result = json!({
+            "id":agent_resource(&terminal_id),
+            "session_id":registry.session_id(),
+            "terminal_id":terminal_id,
+            "state":state,
+            "source":"socket",
+            "updated_at_ms":revision.to_string(),
+            "source_session":"shared-provider-session",
+            "extra":{"provider":provider},
+        });
+        registry
+            .commit_agent_projection(
+                &WorkspaceMutation::new(
+                    format!("journal-agent-provider-generation-{revision}"),
+                    "socket-test",
+                )
+                .unwrap(),
+                &json!({"source_session":"shared-provider-session"}),
+                Some(revision),
+                &terminal_id,
+                &result,
+                &json!([]),
+            )
+            .unwrap();
+    }
+
+    let delayed = json!({
+        "id":agent_resource(&terminal_id),
+        "session_id":registry.session_id(),
+        "terminal_id":terminal_id,
+        "state":"working",
+        "source":"socket",
+        "updated_at_ms":"5",
+        "source_session":"shared-provider-session",
+        "extra":{"provider":"provider-a"},
+    });
+    let error = registry
+        .commit_agent_projection(
+            &WorkspaceMutation::new(
+                "journal-agent-provider-generation-delayed-a",
+                "socket-test",
+            )
+            .unwrap(),
+            &json!({"source_session":"shared-provider-session"}),
+            Some(5),
+            &terminal_id,
+            &delayed,
+            &json!([]),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("superseded generation"));
+
+    let stored: Value = registry
+        .connection
+        .query_row(
+            "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .map(|value| serde_json::from_str(&value).unwrap())
+        .unwrap();
+    assert_eq!(stored["state"], "done");
+    assert_eq!(stored["extra"]["provider"], "provider-b");
+}
+
+#[test]
+fn journal_agent_prejournal_migration_retires_older_hook_sessions() {
+    let root = temp_root("journal-agent-prejournal-hook-generations");
+    let session = "journal-agent-prejournal-hook-generations";
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(
+            &mut registry,
+            "journal-agent-prejournal-hook-generations-topology",
+        );
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "SessionStart",
+            Some(terminal_id.as_str()),
+            json!({"session_id":"older-hook-session"}),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_prejournal_hook_generations",
+                "journal_agent_prejournal_hook_generations_older",
+            )
+            .unwrap();
+
+        let current = canonical_json(&json!({
+            "id":agent_resource(&terminal_id),
+            "session_id":registry.session_id(),
+            "terminal_id":terminal_id,
+            "state":"working",
+            "source":"hook",
+            "updated_at_ms":"42",
+            "source_session":"current-hook-session",
+            "extra":{"provider":"pi"},
+        }))
+        .unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE resource_agent_projections
+                 SET result_json = ?1, committed_revision = 1
+                 WHERE terminal_id = ?2",
+                params![current, terminal_id.as_str()],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute("DELETE FROM resource_agent_session_generations", [])
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "DELETE FROM meta
+                 WHERE key IN (
+                   'agent_projection_journal_sequence_v1',
+                   'agent_projection_journal_candidate_sequence_v1',
+                   'agent_projection_journal_rebuild_target_sequence_v1'
+                 )",
+                [],
+            )
+            .unwrap();
+    }
+
+    let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    let end = crate::agent_hook_journal_ingress(
+        "pi",
+        "AgentEnd",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"current-hook-session"}),
+    )
+    .unwrap();
+    registry
+        .append_journal_ingress(
+            &end,
+            &validated,
+            "client_prejournal_hook_generations",
+            "journal_agent_prejournal_hook_generations_current_end",
+        )
+        .unwrap();
+
+    let delayed = crate::agent_hook_journal_ingress(
+        "pi",
+        "AgentStart",
+        Some(terminal_id.as_str()),
+        json!({"session_id":"older-hook-session"}),
+    )
+    .unwrap();
+    let error = registry
+        .append_journal_ingress(
+            &delayed,
+            &validated,
+            "client_prejournal_hook_generations",
+            "journal_agent_prejournal_hook_generations_delayed_older",
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("superseded generation"));
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "done");
+    assert_eq!(agent.source_session.as_deref(), Some("current-hook-session"));
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn journal_agent_socket_with_missing_session_preserves_hook_identity() {
     let mut registry =
         WorkspaceRegistry::in_memory("journal-agent-socket-missing-session").unwrap();
