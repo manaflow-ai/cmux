@@ -6924,6 +6924,62 @@ mod unix {
         }
 
         #[test]
+        fn public_renderer_mint_hides_the_private_host_identity() {
+            let (record_path, record, lease) = record_fixture("public-renderer-grant");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let private_terminal_id = record.terminal_id.clone();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let control_responses = Arc::new(ControlResponses::new());
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                smart_renderer: true,
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: control_responses.clone(),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+                launch_activation_pending: false,
+            };
+            let responder = thread::spawn(move || {
+                let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+                assert_eq!(request.kind, MessageKind::MintCapability);
+                let mut response = Frame::new(
+                    MessageKind::Capability,
+                    vec![0x5a; crate::terminal_host::CAPABILITY_TOKEN_LEN],
+                );
+                response.request_id = request.request_id;
+                assert!(control_responses.resolve(&response));
+            });
+
+            let grant = attachment
+                .mint_public_renderer_grant(Duration::from_secs(30))
+                .expect("protocol-v5 host did not mint a public renderer grant");
+            responder.join().unwrap();
+
+            assert_eq!(grant.terminal_id, TerminalId::UNSPECIFIED.to_hex());
+            assert_ne!(grant.terminal_id, private_terminal_id);
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
         fn terminate_waits_for_the_authoritative_host_receipt() {
             let (record_path, record, lease) = record_fixture("terminate-ack");
             let root = record_path.parent().unwrap().to_path_buf();
@@ -7467,6 +7523,13 @@ mod unix {
             assert!(attachment.is_smart_renderer());
             assert_eq!(attachment.snapshot.replay, b"protocol-four-live-state");
             assert!(attachment.supports_journal_detach_fence());
+            assert_eq!(
+                attachment
+                    .mint_public_renderer_grant(Duration::from_secs(30))
+                    .unwrap_err()
+                    .to_string(),
+                "Public renderer access is unavailable for this terminal."
+            );
             drop(attachment);
             assert!(fake_host.join().unwrap().unwrap());
 
