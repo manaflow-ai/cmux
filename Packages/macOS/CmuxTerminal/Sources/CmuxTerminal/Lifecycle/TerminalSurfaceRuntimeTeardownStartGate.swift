@@ -36,7 +36,7 @@ final class TerminalSurfaceRuntimeTeardownStartGate: @unchecked Sendable {
   }
 
   func start() {
-    let continuation = state.withLock { state in
+    let continuation: CheckedContinuation<Void, Never>? = state.withLock { state in
       switch state {
       case .pending:
         state = .started

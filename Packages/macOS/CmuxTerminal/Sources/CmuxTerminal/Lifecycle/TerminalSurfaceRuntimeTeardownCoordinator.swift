@@ -37,6 +37,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         TerminalSurfaceRuntimeTeardownSubmissionDrain
     private nonisolated let recoveryRescanScheduler:
         TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler
+    private nonisolated let recoveryFailureDrain:
+        TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain
 #if DEBUG
     // Readable at internal scope in DEBUG so the debug-only extension in
     // TerminalSurfaceRuntimeTeardownCoordinator+Debug.swift can report the
@@ -79,10 +81,16 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             maximumBufferedOperationCount:
                 Self.maximumRuntimeSurfaceOwnerCount
         )
-        runtimeOwnershipAdmission = TerminalSurfaceRuntimeOwnershipAdmission(
+        let runtimeOwnershipAdmission = TerminalSurfaceRuntimeOwnershipAdmission(
             maximumOwnerCount: Self.maximumRuntimeSurfaceOwnerCount,
             recoveryRescanScheduler: recoveryRescanScheduler
         )
+        self.runtimeOwnershipAdmission = runtimeOwnershipAdmission
+        recoveryFailureDrain =
+            TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain(
+                maximumFailureCount: Self.maximumRuntimeSurfaceOwnerCount,
+                admission: runtimeOwnershipAdmission
+            )
         self.recoveryRescanScheduler = recoveryRescanScheduler
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
@@ -107,10 +115,16 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             maximumBufferedOperationCount:
                 maximumRuntimeSurfaceOwnerCount
         )
-        runtimeOwnershipAdmission = TerminalSurfaceRuntimeOwnershipAdmission(
+        let runtimeOwnershipAdmission = TerminalSurfaceRuntimeOwnershipAdmission(
             maximumOwnerCount: maximumRuntimeSurfaceOwnerCount,
             recoveryRescanScheduler: recoveryRescanScheduler
         )
+        self.runtimeOwnershipAdmission = runtimeOwnershipAdmission
+        recoveryFailureDrain =
+            TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain(
+                maximumFailureCount: maximumRuntimeSurfaceOwnerCount,
+                admission: runtimeOwnershipAdmission
+            )
         self.recoveryRescanScheduler = recoveryRescanScheduler
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
@@ -629,11 +643,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         let failures = runtimeOwnershipAdmission
             .failRecoveriesForAllStalledCloseTeardowns()
         recoveryRescanScheduler.failPendingOverflowCreations()
-        Task { @MainActor in
-            for failure in failures {
-                failure()
-            }
-        }
+        recoveryFailureDrain.enqueue(failures)
     }
 
     private nonisolated func freeNativeSurface(

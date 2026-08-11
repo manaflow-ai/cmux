@@ -32,6 +32,10 @@ struct MobileSettingsView: View {
     /// The shell store, used for the live connection rows and the onboarding
     /// replay's connection state. `nil` in previews.
     var store: CMUXMobileShellStore?
+    /// An optional row that should be visible immediately on presentation.
+    var initialFocus: MobileSettingsFocus? = nil
+    /// Lets the root modal coordinator advance directly to queued content.
+    var dismissAction: (() -> Void)? = nil
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
 
     @Environment(\.dismiss) private var dismiss
@@ -60,6 +64,10 @@ struct MobileSettingsView: View {
         @Bindable var toasts = self.toasts
         return NavigationStack {
             Form {
+                if initialFocus == .connectionMethod {
+                    connectionMethodSettingsSection
+                }
+
                 MobileSettingsAccountSection(signOut: signOut)
 
                 // Stack team switcher. Only shown when the user belongs to more than
@@ -162,11 +170,8 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
-                if let connectionMethodStore {
-                    MobileConnectionMethodSection(
-                        store: connectionMethodStore,
-                        startPairingScanner: startPairingScanner
-                    )
+                if initialFocus != .connectionMethod {
+                    connectionMethodSettingsSection
                 }
 
                 if let irohSettingsController {
@@ -285,7 +290,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsToastGallery")
                     Button {
                         ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
-                        dismiss()
+                        requestDismissal()
                     } label: {
                         Label(
                             L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
@@ -513,7 +518,7 @@ struct MobileSettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.settings.done", defaultValue: "Done")) {
-                        dismiss()
+                        requestDismissal()
                     }
                     .accessibilityIdentifier("MobileSettingsDone")
                 }
@@ -565,6 +570,27 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    /// Closes through the owning modal coordinator when one is provided.
+    private func requestDismissal() {
+        if let dismissAction {
+            dismissAction()
+        } else {
+            dismiss()
+        }
+    }
+
+    /// Reuses one Connection Method section at its focused or ordinary position.
+    @ViewBuilder
+    private var connectionMethodSettingsSection: some View {
+        if let connectionMethodStore {
+            MobileConnectionMethodSection(
+                store: connectionMethodStore,
+                startPairingScanner: startPairingScanner
+            )
+            .id(MobileSettingsFocus.connectionMethod)
+        }
     }
 
     private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {

@@ -27408,7 +27408,7 @@ mod tests {
     }
 
     #[test]
-    fn bulk_surface_close_uses_one_shared_termination_deadline() {
+    fn server_shutdown_uses_bounded_parallel_termination_fanout() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -27428,7 +27428,10 @@ mod tests {
         }
 
         let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
-        let close = std::thread::spawn(move || result_tx.send(mux.close_pane(pane)).unwrap());
+        let close_mux = mux.clone();
+        let close = std::thread::spawn(move || {
+            result_tx.send(close_mux.close_all_surfaces_for_shutdown()).unwrap();
+        });
         assert!(
             shutdown_gate.wait_until_entered(
                 SHUTDOWN_FANOUT_WORKERS,
@@ -27437,8 +27440,18 @@ mod tests {
             "bulk close did not use the bounded parallel shutdown fanout"
         );
         shutdown_gate.release();
-        assert!(result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap());
+        let error = result_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .expect_err("gated terminal owners unexpectedly completed shutdown");
+        assert!(error.to_string().contains("could not terminate 64 surface process"));
         close.join().unwrap();
+
+        for surface in &surfaces {
+            surface.set_server_shutdown_failure_for_test(false);
+        }
+        mux.close_all_surfaces_for_shutdown().unwrap();
+        assert!(mux.shutdown_owners.is_empty());
     }
 
     #[cfg(unix)]
@@ -29588,6 +29601,91 @@ mod tests {
         assert_eq!(exited.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
         let _ = reopened.shutdown();
         drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detached_terminal_close_rejects_stale_cleanup_identity_before_commit() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        const TERMINAL: &str = "0000000000004000800000000000000d";
+        const INCARNATION: &str = "1000000000004000800000000000000d";
+        const OTHER_INCARNATION: &str = "1000000000004000800000000000000e";
+        let root = std::env::temp_dir().join(format!(
+            "cmux-mux-detached-cleanup-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let host_root = crate::terminal_host_runtime::terminal_host_root(&root, "detached-cleanup");
+        let options = SurfaceOptions {
+            terminal_host_root: Some(host_root.clone()),
+            ..SurfaceOptions::default()
+        };
+        let mux = Mux::new_for_test("detached-cleanup", options);
+        let workspace =
+            mux.create_empty_workspace(Some("detached-cleanup".into()), None, None).unwrap();
+        let surface =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let terminal =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+        assert!(
+            mux.persist_terminal_exit_for_test(
+                &terminal,
+                &TerminalExit {
+                    outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+                    exited_at_ms: 1,
+                },
+            )
+            .unwrap()
+        );
+        mux.surface_exited(surface);
+        let detached = mux.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(detached.surface, None);
+        assert_eq!(detached.terminal.lifecycle, TerminalLifecycle::Exited);
+
+        mux.terminal_adoption_coordinator.state.lock().unwrap().stopping = true;
+        std::fs::create_dir_all(&host_root).unwrap();
+        let uid = std::fs::metadata(&host_root).unwrap().uid();
+        let host_record = crate::terminal_host_runtime::TerminalHostRecord {
+            record_version: 1,
+            terminal_id: TERMINAL.into(),
+            incarnation: OTHER_INCARNATION.into(),
+            endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL}.sock"),
+            owner_token: "01".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+            host_pid: 0,
+            host_start_nonce: String::new(),
+            workspace_key: workspace.key,
+            supports_set_defaults: false,
+            supports_terminate_only: false,
+            supports_terminate_ack: false,
+            supports_clear_history: false,
+        };
+        let host_record_path = host_root.join(format!("{TERMINAL}.json"));
+        std::fs::write(&host_record_path, serde_json::to_vec(&host_record).unwrap()).unwrap();
+        let mut permissions = std::fs::metadata(&host_record_path).unwrap().permissions();
+        permissions.set_mode(0o600);
+        std::fs::set_permissions(&host_record_path, permissions).unwrap();
+
+        let error = mux
+            .close_terminal(TERMINAL, INCARNATION)
+            .expect_err("detached terminal close accepted a different host incarnation");
+        assert!(format!("{error:#}").contains("terminal-host incarnation changed"));
+        assert_eq!(
+            mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Exited,
+            "rejected host cleanup changed the detached terminal lifecycle"
+        );
+
+        std::fs::remove_file(host_record_path).unwrap();
+        let closed = mux.close_terminal(TERMINAL, INCARNATION).unwrap();
+        assert_eq!(closed.surface, None);
+        assert_eq!(
+            mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Tombstoned
+        );
+        mux.terminal_adoption_coordinator.state.lock().unwrap().stopping = false;
+        mux.shutdown().unwrap();
+        drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
 

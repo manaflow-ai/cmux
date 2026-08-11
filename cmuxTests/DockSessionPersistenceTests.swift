@@ -650,6 +650,71 @@ struct DockSessionPersistenceTests {
         #expect(store.hasAppliedConfigurationSeed)
     }
 
+    @Test("Window Dock unread survives a session snapshot and direct restore")
+    @MainActor
+    func windowDockUnreadSurvivesSessionRestore() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let notificationStore = TerminalNotificationStore.shared
+            let sourceWindowID = UUID()
+            let restoredWindowID = UUID()
+            let sourceDock = DockSplitStore(
+                workspaceId: sourceWindowID,
+                scope: .global,
+                baseDirectoryProvider: { nil }
+            )
+            let restoredDock = DockSplitStore(
+                workspaceId: restoredWindowID,
+                scope: .global,
+                baseDirectoryProvider: { nil }
+            )
+            sourceDock.notificationStore = notificationStore
+            restoredDock.notificationStore = notificationStore
+            AppDelegate.shared = appDelegate
+            defer {
+                sourceDock.closeAllPanels()
+                restoredDock.closeAllPanels()
+                notificationStore.markRead(forTabId: sourceWindowID)
+                notificationStore.markRead(forTabId: restoredWindowID)
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let sourcePane = try #require(
+                sourceDock.bonsplitController.allPaneIds.first
+            )
+            let sourcePanelID = try #require(sourceDock.newSurface(
+                kind: .terminal,
+                inPane: sourcePane,
+                focus: false
+            ))
+            notificationStore.markWindowDockSurfaceUnread(
+                windowId: sourceWindowID,
+                surfaceId: sourcePanelID
+            )
+
+            let snapshot = sourceDock.sessionSnapshot(includeScrollback: false)
+            let persistedPanel = try #require(
+                snapshot.panels.first { $0.id == sourcePanelID }
+            )
+            #expect(persistedPanel.isManuallyUnread)
+
+            let restoredPanelIDs = restoredDock.restoreSessionSnapshot(snapshot)
+            let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
+            #expect(notificationStore.hasManualUnread(
+                forTabId: restoredWindowID,
+                surfaceId: restoredPanelID
+            ))
+
+            let restoredSnapshot = restoredDock.sessionSnapshot(
+                includeScrollback: false
+            )
+            #expect(restoredSnapshot.panels.first {
+                $0.id == restoredPanelID
+            }?.isManuallyUnread == true)
+        }
+    }
+
     private func makeAppSnapshot(
         workspaceDock: SessionSplitContainerSnapshot?,
         windowDock: SessionSplitContainerSnapshot?

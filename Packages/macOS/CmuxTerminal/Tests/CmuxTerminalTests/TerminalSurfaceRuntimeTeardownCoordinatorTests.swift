@@ -179,6 +179,113 @@ private func requireTeardownTicket(
         #expect(weakCoordinator == nil)
     }
 
+    @Test func stalledCloseFailuresYieldMainActorAfterBoundedBatch() async throws {
+        let batchCount = 32
+        let failureCount = batchCount + 1
+        let clock = ManualTerminalSurfaceRuntimeTeardownClock()
+        let stalledSlots = AsyncStream<Int>.makeStream()
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: failureCount,
+            closeTeardownTimeout: .seconds(5),
+            closeTeardownClock: clock,
+            closeTeardownStalledObserver: { slot in
+                stalledSlots.continuation.yield(slot)
+            }
+        )
+        let pointers = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        let freeStarted = AsyncStream<Int>.makeStream()
+        let releaseFrees = (0..<2).map { _ in DispatchSemaphore(value: 0) }
+        let recordedFailureCount = OSAllocatedUnfairLock(initialState: 0)
+        let failureEvents = AsyncStream<Int>.makeStream()
+        let mainActorMarker = AsyncStream<Int>.makeStream()
+        defer {
+            for releaseFree in releaseFrees {
+                releaseFree.signal()
+            }
+            for pointer in pointers {
+                pointer.deallocate()
+            }
+            freeStarted.continuation.finish()
+            stalledSlots.continuation.finish()
+            failureEvents.continuation.finish()
+            mainActorMarker.continuation.finish()
+        }
+
+        let reservations = try (0..<2).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        let tickets = try pointers.enumerated().map { index, pointer in
+            try #require(
+                coordinator.enqueueRuntimeTeardown(
+                    id: UUID(),
+                    workspaceId: UUID(),
+                    reason: "test.stalledFailureBatch.\(index)",
+                    surface: pointer,
+                    callbackContext: nil,
+                    manualIOContext: nil,
+                    byteTeeLease: nil,
+                    runtimeOwnershipReservation: reservations[index],
+                    freeSurface: { _ in
+                        freeStarted.continuation.yield(index)
+                        releaseFrees[index].wait()
+                    }
+                )
+            )
+        }
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = try #require(await freeStartedIterator.next())
+        _ = try #require(await freeStartedIterator.next())
+        var registrationIterator = clock.registrations.makeAsyncIterator()
+        let firstWatchdog = try #require(await registrationIterator.next())
+        let secondWatchdog = try #require(await registrationIterator.next())
+
+        for _ in 0..<failureCount {
+            let result = coordinator.reserveRuntimeSurfaceOwnership(
+                recoveryID: UUID(),
+                onRecovery: { reservation in
+                    coordinator.cancelRuntimeSurfaceOwnership(reservation)
+                    Issue.record("stalled recovery unexpectedly received ownership")
+                },
+                onFailure: {
+                    let count = recordedFailureCount.withLock { count in
+                        count += 1
+                        return count
+                    }
+                    failureEvents.continuation.yield(count)
+                    if count == 1 {
+                        Task { @MainActor in
+                            mainActorMarker.continuation.yield(
+                                recordedFailureCount.withLock { $0 }
+                            )
+                        }
+                    }
+                }
+            )
+            #expect(result == .deferred)
+        }
+
+        var stalledSlotIterator = stalledSlots.stream.makeAsyncIterator()
+        clock.fire(firstWatchdog)
+        _ = try #require(await stalledSlotIterator.next())
+        clock.fire(secondWatchdog)
+        _ = try #require(await stalledSlotIterator.next())
+
+        var markerIterator = mainActorMarker.stream.makeAsyncIterator()
+        #expect(try #require(await markerIterator.next()) == batchCount)
+
+        var failureIterator = failureEvents.stream.makeAsyncIterator()
+        while try #require(await failureIterator.next()) < failureCount {}
+
+        for releaseFree in releaseFrees {
+            releaseFree.signal()
+        }
+        for ticket in tickets {
+            #expect(await ticket.wait(timeout: nil))
+        }
+    }
+
     @Test func enqueuedTeardownInvokesInjectedFreeWithTheSamePointer() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = FreedSurfaceRecorder()
