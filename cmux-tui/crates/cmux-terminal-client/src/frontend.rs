@@ -97,14 +97,12 @@ impl CmuxFrontendQueueCancellation {
         loop {
             let current = self.state.load(Ordering::Acquire);
             let (next, result) = match current {
-                QUEUE_STATE_QUEUED => (
-                    QUEUE_STATE_CANCELLED_BEFORE_EXECUTION,
-                    QUEUE_CANCEL_BEFORE_EXECUTION,
-                ),
-                QUEUE_STATE_RUNNING => (
-                    QUEUE_STATE_CANCELLED_DURING_EXECUTION,
-                    QUEUE_CANCEL_DURING_EXECUTION,
-                ),
+                QUEUE_STATE_QUEUED => {
+                    (QUEUE_STATE_CANCELLED_BEFORE_EXECUTION, QUEUE_CANCEL_BEFORE_EXECUTION)
+                }
+                QUEUE_STATE_RUNNING => {
+                    (QUEUE_STATE_CANCELLED_DURING_EXECUTION, QUEUE_CANCEL_DURING_EXECUTION)
+                }
                 QUEUE_STATE_CANCELLED_BEFORE_EXECUTION
                 | QUEUE_STATE_CANCELLED_DURING_EXECUTION
                 | QUEUE_STATE_COMPLETED => return QUEUE_CANCEL_NONE,
