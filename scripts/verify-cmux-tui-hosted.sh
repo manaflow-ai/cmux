@@ -184,24 +184,38 @@ exec 3<> "$watch_result_fifo"
   }
   trap stop_watcher TERM INT EXIT
 
-  set +e
-  gh run watch \
-    --repo "$REPO" \
-    "$run_id" \
-    --exit-status \
-    --interval 10 >&2 &
-  watcher_pid=$!
-  wait "$watcher_pid"
-  watch_status=$?
-  watcher_pid=""
-  set -e
+  while true; do
+    set +e
+    gh run watch \
+      --repo "$REPO" \
+      "$run_id" \
+      --exit-status \
+      --interval 10 >&2 &
+    watcher_pid=$!
+    wait "$watcher_pid"
+    watcher_pid=""
+    set -e
 
-  trap - TERM INT EXIT
-  printf '%s\n' "$watch_status" >&3
+    run_state=""
+    if run_state="$(
+      gh run view \
+        --repo "$REPO" \
+        "$run_id" \
+        --json status,conclusion \
+        --jq '[.status, .conclusion] | @tsv'
+    )"; then
+      IFS=$'\t' read -r run_status run_conclusion <<< "$run_state"
+      if [[ "$run_status" == "completed" ]]; then
+        trap - TERM INT EXIT
+        printf '%s\t%s\n' "$run_status" "$run_conclusion" >&3
+        exit 0
+      fi
+    fi
+  done
 ) &
 watch_owner_pid=$!
 
-if IFS= read -r -t "$timeout_seconds" watch_status <&3; then
+if IFS=$'\t' read -r -t "$timeout_seconds" run_status run_conclusion <&3; then
   wait "$watch_owner_pid"
 else
   kill "$watch_owner_pid" 2>/dev/null || true
@@ -211,19 +225,6 @@ else
   exit 1
 fi
 exec 3>&-
-
-run_state="$(
-  gh run view \
-    --repo "$REPO" \
-    "$run_id" \
-    --json status,conclusion \
-    --jq '[.status, .conclusion] | @tsv'
-)"
-IFS=$'\t' read -r run_status run_conclusion <<< "$run_state"
-if [[ "$run_status" != "completed" ]]; then
-  echo "error: hosted run watcher exited before completion: $run_url" >&2
-  exit 1
-fi
 
 if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2
