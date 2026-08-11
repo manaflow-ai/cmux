@@ -159,6 +159,8 @@ func copyFrontendCString(
 }
 
 actor FrontendService {
+  private static let requestTimeoutMilliseconds: UInt64 = 15_000
+
   private var raw: OpaquePointer?
   private let ffiQueue = SerialFFIExecutor(label: "cmux.native-frontend.ffi")
   private var updateSink: FrontendUpdateSink?
@@ -201,17 +203,23 @@ actor FrontendService {
       )
     }
     let paramsJSON = try params.encodedJSON()
-    let response: Result<String, DetachedRequestFailure> = await enqueue {
+    let requestCancellation = FrontendAttachCancellation()
+    let queueCancellation = FFICancellation(onCancel: requestCancellation.cancel)
+    let queuedResponse: Result<String, DetachedRequestFailure>? = await ffiQueue.runCancellable(
+      cancellation: queueCancellation
+    ) {
       var error = [CChar](repeating: 0, count: 4_096)
       let result = operation.withCString { operationPointer in
         paramsJSON.withCString { paramsPointer in
-          cmux_frontend_client_request(
+          cmux_frontend_client_request_cancellable(
             OpaquePointer(bitPattern: rawAddress)!,
             operationPointer,
             paramsPointer,
             mutation,
             &error,
-            error.count
+            error.count,
+            requestTimeoutMilliseconds,
+            requestCancellation.raw
           )
         }
       }
@@ -219,6 +227,8 @@ actor FrontendService {
       defer { cmux_frontend_string_free(result) }
       return .success(String(cString: result))
     }
+    guard let response = queuedResponse else { throw CancellationError() }
+    try Task.checkCancellation()
     let payload: String
     switch response {
     case .success(let value): payload = value
@@ -314,6 +324,13 @@ actor FrontendService {
     }
     if batch.hasMore { updateSink?.continuation.yield() }
     return batch
+  }
+
+  func discardResourceUpdates() async {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return }
+    await enqueue {
+      cmux_frontend_client_discard_resource_updates(OpaquePointer(bitPattern: rawAddress))
+    }
   }
 
   func stopUpdates(generation: UInt64? = nil) async {

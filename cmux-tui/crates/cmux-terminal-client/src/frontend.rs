@@ -410,7 +410,14 @@ fn classify_resource_request(operation: &str, mutation: bool) -> Lane {
 }
 
 impl CmuxFrontendClient {
-    fn request(&self, operation: &str, params: Value, mutation: bool) -> Result<Value, String> {
+    fn request(
+        &self,
+        operation: &str,
+        params: Value,
+        mutation: bool,
+        timeout: Duration,
+        cancellation: Option<&CmuxFrontendAttachCancellation>,
+    ) -> Result<Value, String> {
         if !params.is_object() {
             return Err("request params must be a JSON object".into());
         }
@@ -445,21 +452,27 @@ impl CmuxFrontendClient {
             .ok_or_else(|| "mux-control is unavailable".to_string())?;
         let (sender, response) = oneshot::channel();
         self.control_state.pending.lock().unwrap().insert(id.clone(), sender);
-        let send_result = self.runtime.block_on(async {
-            for packet in packets {
-                stream.send_on(lane, packet).await.map_err(|error| error.to_string())?;
-            }
-            Ok::<(), String>(())
-        });
-        if let Err(error) = send_result {
-            self.control_state.pending.lock().unwrap().remove(&id);
-            return Err(error);
-        }
         let response = self.runtime.block_on(async {
-            tokio::time::timeout(REQUEST_TIMEOUT, response)
-                .await
-                .map_err(|_| "resource request timed out".to_string())?
-                .map_err(|_| "resource response channel closed".to_string())?
+            let exchange = async {
+                for packet in packets {
+                    stream.send_on(lane, packet).await.map_err(|error| error.to_string())?;
+                }
+                response.await.map_err(|_| "resource response channel closed".to_string())?
+            };
+            let bounded = async {
+                tokio::time::timeout(timeout, exchange)
+                    .await
+                    .map_err(|_| "resource request timed out".to_string())?
+            };
+            match cancellation {
+                Some(cancellation) => {
+                    tokio::select! {
+                        result = bounded => result,
+                        _ = cancellation.cancelled() => Err("resource request canceled".into()),
+                    }
+                }
+                None => bounded.await,
+            }
         });
         if response.is_err() {
             self.control_state.pending.lock().unwrap().remove(&id);
@@ -638,7 +651,7 @@ pub unsafe extern "C" fn cmux_frontend_client_discard_resource_updates(
     client.control_state.discard_resource_updates();
 }
 
-/// Executes one public resource operation and returns allocated result JSON.
+/// Executes one public resource operation with the default deadline.
 ///
 /// # Safety
 ///
@@ -652,6 +665,38 @@ pub unsafe extern "C" fn cmux_frontend_client_request(
     mutation: bool,
     error_buffer: *mut c_char,
     error_capacity: usize,
+) -> *mut c_char {
+    unsafe {
+        cmux_frontend_client_request_cancellable(
+            client,
+            operation,
+            params_json,
+            mutation,
+            error_buffer,
+            error_capacity,
+            REQUEST_TIMEOUT.as_millis() as u64,
+            std::ptr::null(),
+        )
+    }
+}
+
+/// Executes one public resource operation with a deadline and cancellation.
+///
+/// # Safety
+///
+/// String pointers must be readable and NUL terminated. `cancellation` must be
+/// null or remain live until this function returns. The returned string must be
+/// released with `cmux_frontend_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_client_request_cancellable(
+    client: *mut CmuxFrontendClient,
+    operation: *const c_char,
+    params_json: *const c_char,
+    mutation: bool,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+    cancellation: *const CmuxFrontendAttachCancellation,
 ) -> *mut c_char {
     let Some(client) = (unsafe { client.as_ref() }) else {
         copy_utf8("frontend client is null", error_buffer, error_capacity);
@@ -681,7 +726,14 @@ pub unsafe extern "C" fn cmux_frontend_client_request(
             return std::ptr::null_mut();
         }
     };
-    match client.request(operation, params, mutation) {
+    let cancellation = unsafe { cancellation.as_ref() };
+    match client.request(
+        operation,
+        params,
+        mutation,
+        Duration::from_millis(timeout_milliseconds),
+        cancellation,
+    ) {
         Ok(result) => match serde_json::to_string(&result)
             .map_err(|error| error.to_string())
             .and_then(|result| CString::new(result).map_err(|error| error.to_string()))

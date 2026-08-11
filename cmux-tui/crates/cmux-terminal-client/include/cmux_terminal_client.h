@@ -82,6 +82,17 @@ char *cmux_frontend_client_request(
     bool mutation,
     char *error_buffer,
     size_t error_capacity);
+// cancellation may be NULL. Otherwise it must stay live until this function
+// returns. The deadline and cancellation cover both send and response waits.
+char *cmux_frontend_client_request_cancellable(
+    CmuxFrontendClient *client,
+    const char *operation,
+    const char *params_json,
+    bool mutation,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds,
+    const CmuxFrontendAttachCancellation *cancellation);
 void cmux_frontend_string_free(char *value);
 CmuxFrontendAttachCancellation *cmux_frontend_attach_cancellation_new(void);
 void cmux_frontend_attach_cancellation_cancel(

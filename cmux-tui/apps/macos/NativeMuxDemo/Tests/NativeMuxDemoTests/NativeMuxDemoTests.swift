@@ -299,14 +299,38 @@ func focusMutationTrackerRejectsStaleRollback() {
 }
 
 @Test @MainActor
-func terminalTitleLookupIsAnImmutableValueSnapshot() {
+func terminalTitleLookupKeepsObservationLocalToTheSelectedOwner() {
     let owner = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
     let lookup = TerminalTitleFn(owners: [owner.terminalID: owner])
 
     owner.replace(with: "after")
 
-    #expect(lookup("terminal-a") == "before")
-    #expect(TerminalTitleFn(owners: [owner.terminalID: owner])("terminal-a") == "after")
+    #expect(lookup("terminal-a")?.title == "after")
+    #expect(lookup("terminal-missing") == nil)
+}
+
+@Test
+func resourceGenerationRejectsAReplyAfterStreamStateAdvances() {
+    var generation = FrontendResourceGeneration()
+    let requestGeneration = generation.token
+
+    generation.advance()
+
+    #expect(!generation.matches(requestGeneration))
+    #expect(generation.matches(generation.token))
+}
+
+@Test
+func resourceRecoveryPolicyHasABoundedExponentialBackoff() {
+    let policy = FrontendRecoveryPolicy(
+        maximumAttempts: 3,
+        initialBackoffNanoseconds: 100
+    )
+
+    #expect(policy.maximumAttempts == 3)
+    #expect(policy.backoffNanoseconds(afterFailedAttempt: 0) == 100)
+    #expect(policy.backoffNanoseconds(afterFailedAttempt: 1) == 200)
+    #expect(policy.backoffNanoseconds(afterFailedAttempt: 2) == 400)
 }
 
 @Test
