@@ -5417,12 +5417,7 @@ fn journal_agent_live_session_events_wait_in_journal_for_pending_rebuild() {
         )
         .unwrap();
         reopened
-            .append_journal_ingress(
-                &ingress,
-                &validated,
-                "client_live_during_rebuild",
-                key,
-            )
+            .append_journal_ingress(&ingress, &validated, "client_live_during_rebuild", key)
             .unwrap();
     }
 
