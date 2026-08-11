@@ -127,7 +127,15 @@ extension DockSplitStore {
                excludingStableIdentities: excludingStableIdentities
            ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
-            if restoredPanelId == nil {
+            if let restoredPanelId {
+                sourceWorkspace.terminalStartupRestoreCoordinator.transferPendingRestore(
+                    panelID: restoredPanelId,
+                    to: terminalStartupRestoreCoordinator
+                )
+            } else {
+                sourceWorkspace.terminalStartupRestoreCoordinator.discardPendingRestore(
+                    panelID: detached.panelId
+                )
                 AgentHibernationController.shared.discardTrackingStateForClosedPanel(
                     workspaceId: detached.sourceWorkspaceId,
                     panelId: detached.panelId

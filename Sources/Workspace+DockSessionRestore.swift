@@ -20,6 +20,10 @@ extension Workspace {
         ) else {
             return nil
         }
-        return detachSurface(panelId: panelId)
+        guard let detached = detachSurface(panelId: panelId) else {
+            terminalStartupRestoreCoordinator.discardPendingRestore(panelID: panelId)
+            return nil
+        }
+        return detached
     }
 }

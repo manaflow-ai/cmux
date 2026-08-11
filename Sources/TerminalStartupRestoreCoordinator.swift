@@ -6,6 +6,22 @@ import Foundation
 /// Commits structured terminal restores after their owning topology is authoritative.
 @MainActor
 final class TerminalStartupRestoreCoordinator {
+    private struct PendingChatResumeBinding {
+        let sessionID: String
+        let source: String
+        let workingDirectory: String?
+
+        func intent(panelID: UUID, workspaceID: UUID) -> AgentChatResumeIntent {
+            AgentChatResumeIntent(
+                sessionID: sessionID,
+                source: source,
+                surfaceID: panelID.uuidString,
+                workspaceID: workspaceID.uuidString,
+                workingDirectory: workingDirectory
+            )
+        }
+    }
+
     private struct PendingRestore {
         let panel: TerminalPanel
         let snapshot: SessionRestorableAgentSnapshot?
@@ -13,7 +29,7 @@ final class TerminalStartupRestoreCoordinator {
         let willRunStartupCommand: Bool
         let willRunStartupInput: Bool
         let resumeWorkingDirectory: String?
-        let resumeIntent: AgentChatResumeIntent?
+        let chatResumeBinding: PendingChatResumeBinding?
 
         var willRunStartupWork: Bool {
             willRunStartupCommand || willRunStartupInput
@@ -93,14 +109,42 @@ final class TerminalStartupRestoreCoordinator {
             willRunStartupCommand: willRunStartupCommand,
             willRunStartupInput: willRunStartupInput,
             resumeWorkingDirectory: resumeWorkingDirectory,
-            resumeIntent: resumeIntent(
-                panelID: panel.id,
+            chatResumeBinding: chatResumeBinding(
                 snapshot: snapshot,
                 resumeBinding: resumeBinding,
                 workingDirectory: chatWorkingDirectory ?? resumeWorkingDirectory,
                 agentSessionAlreadyActive: agentSessionAlreadyActive
             )
         )
+    }
+
+    /// Moves one staged transaction to the topology owner adopting its terminal.
+    ///
+    /// The destination remains responsible for committing after it publishes
+    /// the transferred panel. Moving the transaction never admits the runtime.
+    ///
+    /// - Parameters:
+    ///   - panelID: Panel whose staged restore ownership is moving.
+    ///   - destination: Coordinator for the adopting topology.
+    /// - Returns: Whether a staged transaction moved or was already owned by the destination.
+    @discardableResult
+    func transferPendingRestore(
+        panelID: UUID,
+        to destination: TerminalStartupRestoreCoordinator
+    ) -> Bool {
+        if self === destination {
+            return pendingRestoresByPanelID[panelID] != nil
+        }
+        guard let pending = pendingRestoresByPanelID.removeValue(forKey: panelID) else {
+            return false
+        }
+        destination.pendingRestoresByPanelID[panelID] = pending
+        return true
+    }
+
+    /// Drops one staged transaction after its terminal fails to transfer.
+    func discardPendingRestore(panelID: UUID) {
+        pendingRestoresByPanelID.removeValue(forKey: panelID)
     }
 
     /// Atomically commits staged restore state before releasing terminal runtimes.
@@ -120,7 +164,11 @@ final class TerminalStartupRestoreCoordinator {
                 willRunStartupInput: pending.willRunStartupInput,
                 resumeWorkingDirectory: pending.resumeWorkingDirectory
             )
-            if let resumeIntent = pending.resumeIntent {
+            if let chatResumeBinding = pending.chatResumeBinding {
+                let resumeIntent = chatResumeBinding.intent(
+                    panelID: panelID,
+                    workspaceID: workspaceID
+                )
                 resumeIntentRecorder.record(resumeIntent)
 #if DEBUG
                 cmuxDebugLog(
@@ -142,13 +190,12 @@ final class TerminalStartupRestoreCoordinator {
         lifecycle.removeAllSessionRestores()
     }
 
-    private func resumeIntent(
-        panelID: UUID,
+    private func chatResumeBinding(
         snapshot: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?,
         workingDirectory: String?,
         agentSessionAlreadyActive: Bool
-    ) -> AgentChatResumeIntent? {
+    ) -> PendingChatResumeBinding? {
         guard !agentSessionAlreadyActive else { return nil }
 
         let session: (id: String, source: String)?
@@ -165,11 +212,9 @@ final class TerminalStartupRestoreCoordinator {
         }
         guard let session else { return nil }
 
-        return AgentChatResumeIntent(
+        return PendingChatResumeBinding(
             sessionID: session.id,
             source: session.source,
-            surfaceID: panelID.uuidString,
-            workspaceID: workspaceID.uuidString,
             workingDirectory: workingDirectory
         )
     }
