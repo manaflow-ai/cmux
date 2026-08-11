@@ -212,11 +212,13 @@ extension TerminalSurface {
     }
 
     func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+        portalLifecycleState == .live &&
+            !runtimeSurfaceSuspendedForAgentHibernation &&
+            startupRestoreAdmissionPhase != .awaitingAdmission
     }
 
     /// Whether the surface lifecycle currently permits creating a runtime
-    /// surface (portal live, not suspended for agent hibernation).
+    /// surface (portal live, admitted, and not suspended for agent hibernation).
     ///
     /// Background priming uses this to skip surfaces whose spawn can never
     /// complete instead of retaining a hidden mount slot for them forever.

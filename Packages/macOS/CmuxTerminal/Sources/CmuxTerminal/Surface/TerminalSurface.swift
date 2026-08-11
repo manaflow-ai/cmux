@@ -297,6 +297,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var runtimeSurfaceAdmissionOverflowSequence: UInt64?
     var runtimeSurfaceAdmissionCreationGeneration: UInt64 = 0
     var requiresRestoreSpawnPacing = false
+    var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var runtimeSurfaceSuspendedForAgentHibernation = false
     /// Bounded ownership of the live native surface. Transferred to the
     /// teardown coordinator with the pointer and released only after native
@@ -568,7 +569,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeFilesystem = dependencies.runtimeFilesystem
         self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
-        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
+        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
+        self.startupRestoreAdmissionPhase = runtimeSpawnPolicy.requiresStartupRestoreAdmission
+            ? .awaitingAdmission
+            : .unrestricted
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
