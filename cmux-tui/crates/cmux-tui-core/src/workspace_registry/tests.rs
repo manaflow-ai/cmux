@@ -1134,6 +1134,119 @@ fn reset_state_root_swap_after_guard_keeps_live_terminal_host_state() {
 
 #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
 #[test]
+fn reset_session_dir_swap_and_restore_after_writer_lock_keeps_original_state() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let _hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
+    let root = temp_root("reset-session-swap-restore-after-writer-lock");
+    let session = "reset-session-swap-restore-after-writer-lock";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let original = session_dir.with_file_name("session-original-before-writer-lock");
+    let replacement = session_dir.with_file_name("session-writer-lock-replacement");
+    let locked_replacement = session_dir.with_file_name("session-locked-replacement");
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::create_dir_all(&replacement).unwrap();
+    fs::set_permissions(&replacement, fs::Permissions::from_mode(0o700)).unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK.lock().unwrap() =
+        Some(ResetDirectorySwapRestore {
+            target: session_dir.clone(),
+            original: original.clone(),
+            replacement: replacement.clone(),
+            locked_replacement: locked_replacement.clone(),
+        });
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("reset directory changed while opening"), "{error:#}");
+    assert_eq!(fs::read(session_dir.join(WORKSPACE_REGISTRY_FILE)).unwrap(), b"db");
+    assert!(!original.exists());
+    assert!(!replacement.exists());
+    assert!(locked_replacement.join(SESSION_WRITER_LOCK_FILE).exists());
+    assert!(pending_session_reset_dirs(&root, session).unwrap().is_empty());
+
+    fs::remove_dir_all(locked_replacement).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
+fn reset_terminal_host_root_swap_and_restore_after_lock_keeps_live_state() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let _hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
+    let root = temp_root("reset-terminal-host-swap-restore-after-lock");
+    let session = "reset-terminal-host-swap-restore-after-lock";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    let original = host_root.with_file_name("terminal-host-original-before-lock");
+    let replacement = host_root.with_file_name("terminal-host-lock-replacement");
+    let locked_replacement = host_root.with_file_name("terminal-host-locked-replacement");
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let uid = fs::metadata(&host_root).unwrap().uid();
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: TERMINAL_ONE.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL_ONE}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: std::process::id(),
+        host_start_nonce: "02".repeat(32),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+        supports_terminate_ack: false,
+    };
+    let record_path = record.record_path(&host_root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    fs::create_dir_all(&replacement).unwrap();
+    fs::set_permissions(&replacement, fs::Permissions::from_mode(0o700)).unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK.lock().unwrap() =
+        Some(ResetDirectorySwapRestore {
+            target: host_root.clone(),
+            original: original.clone(),
+            replacement: replacement.clone(),
+            locked_replacement: locked_replacement.clone(),
+        });
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    *RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK.lock().unwrap() = None;
+
+    assert!(format!("{error:#}").contains("reset directory changed while opening"), "{error:#}");
+    assert!(host_root.join(record_path.file_name().unwrap()).exists());
+    assert!(host_root.join(live_path.file_name().unwrap()).exists());
+    assert!(!original.exists());
+    assert!(!replacement.exists());
+    assert!(locked_replacement.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE).exists());
+    assert!(pending_session_reset_dirs(&root, session).unwrap().is_empty());
+
+    drop(live_file);
+    fs::remove_dir_all(locked_replacement).unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[test]
 fn reset_rejects_hard_linked_session_guard_coordinator_before_chmod() {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
@@ -1217,15 +1330,7 @@ fn reset_session_dir_symlink_swap_does_not_write_outside_state() {
     let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
     *RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK.lock().unwrap() = None;
 
-    assert_eq!(
-        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
-        Some(if cfg!(any(target_os = "ios", target_os = "macos")) {
-            libc::ENOTDIR
-        } else {
-            libc::ELOOP
-        }),
-        "{error:#}"
-    );
+    assert_reset_symlink_rejection(&error);
     assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
     assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
     assert!(!outside.join(SESSION_WRITER_LOCK_FILE).exists());
@@ -1262,15 +1367,7 @@ fn reset_terminal_host_root_symlink_swap_does_not_write_outside_state() {
     let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
     *RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK.lock().unwrap() = None;
 
-    assert_eq!(
-        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error),
-        Some(if cfg!(any(target_os = "ios", target_os = "macos")) {
-            libc::ENOTDIR
-        } else {
-            libc::ELOOP
-        }),
-        "{error:#}"
-    );
+    assert_reset_symlink_rejection(&error);
     assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"outside");
     assert_eq!(fs::metadata(&outside).unwrap().mode() & 0o777, 0o755);
     assert!(!outside.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE).exists());
@@ -1280,6 +1377,20 @@ fn reset_terminal_host_root_symlink_swap_does_not_write_outside_state() {
     fs::remove_file(host_root).unwrap();
     fs::remove_dir_all(root).unwrap();
     fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+fn assert_reset_symlink_rejection(error: &anyhow::Error) {
+    let raw_os_error =
+        error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error);
+    if cfg!(any(target_os = "ios", target_os = "macos")) {
+        assert!(
+            matches!(raw_os_error, Some(code) if code == libc::ENOTDIR || code == libc::ELOOP),
+            "{error:#}"
+        );
+    } else {
+        assert_eq!(raw_os_error, Some(libc::ELOOP), "{error:#}");
+    }
 }
 
 #[test]

@@ -509,6 +509,14 @@ impl PersistentSessionStateResetter {
                 &terminal_host_root,
                 &RESET_REPLACE_TERMINAL_HOST_ROOT_BEFORE_LOCK,
             )?;
+            inject_reset_directory_swap_before_lock(
+                &session_dir,
+                &RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK,
+            )?;
+            inject_reset_directory_swap_before_lock(
+                &terminal_host_root,
+                &RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK,
+            )?;
         }
         if !lock_session_dir_exists
             && !lock_terminal_host_root_exists
@@ -534,6 +542,15 @@ impl PersistentSessionStateResetter {
         } else {
             Vec::new()
         };
+        #[cfg(all(unix, test))]
+        {
+            restore_reset_directory_after_lock(
+                &RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK,
+            )?;
+            restore_reset_directory_after_lock(
+                &RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK,
+            )?;
+        }
         let pending_reset_dirs =
             pending_session_reset_dirs_for_guard(&session_guard, root, session_name)?;
         let session_dir_exists =
@@ -5948,6 +5965,22 @@ static RESET_AFTER_GUARD_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new
 static RESET_REPLACE_SESSION_DIR_BEFORE_WRITER_LOCK: std::sync::Mutex<
     Option<(PathBuf, PathBuf, PathBuf)>,
 > = std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK: std::sync::Mutex<
+    Option<ResetDirectorySwapRestore>,
+> = std::sync::Mutex::new(None);
+#[cfg(all(unix, test))]
+static RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK: std::sync::Mutex<
+    Option<ResetDirectorySwapRestore>,
+> = std::sync::Mutex::new(None);
+
+#[cfg(all(unix, test))]
+struct ResetDirectorySwapRestore {
+    target: PathBuf,
+    original: PathBuf,
+    replacement: PathBuf,
+    locked_replacement: PathBuf,
+}
 
 struct SessionResetGuard {
     _lease: SessionLease,
@@ -6195,6 +6228,41 @@ fn inject_reset_path_replacement_before_write(
     std::os::unix::fs::symlink(&outside, &target).with_context(|| {
         format!("replace injected reset path {} with symbolic link", target.display())
     })?;
+    Ok(())
+}
+
+#[cfg(all(unix, test))]
+fn inject_reset_directory_swap_before_lock(
+    path: &Path,
+    hook: &std::sync::Mutex<Option<ResetDirectorySwapRestore>>,
+) -> anyhow::Result<()> {
+    let swap = hook.lock().unwrap();
+    let Some(swap) = swap.as_ref() else {
+        return Ok(());
+    };
+    if swap.target != path {
+        return Ok(());
+    }
+    fs::rename(&swap.target, &swap.original)
+        .with_context(|| format!("move injected reset path {}", swap.target.display()))?;
+    fs::rename(&swap.replacement, &swap.target).with_context(|| {
+        format!("install injected reset replacement {}", swap.target.display())
+    })?;
+    Ok(())
+}
+
+#[cfg(all(unix, test))]
+fn restore_reset_directory_after_lock(
+    hook: &std::sync::Mutex<Option<ResetDirectorySwapRestore>>,
+) -> anyhow::Result<()> {
+    let Some(swap) = hook.lock().unwrap().take() else {
+        return Ok(());
+    };
+    fs::rename(&swap.target, &swap.locked_replacement).with_context(|| {
+        format!("move injected locked reset replacement {}", swap.target.display())
+    })?;
+    fs::rename(&swap.original, &swap.target)
+        .with_context(|| format!("restore injected reset path {}", swap.target.display()))?;
     Ok(())
 }
 
