@@ -7421,9 +7421,13 @@ mod unix {
                         Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
                     snapshot_frame.version = 4;
                     write_frame(&mut stream, &snapshot_frame)?;
+                    let colors_state = TerminalColorOverrides {
+                        cursor_visual: Some((CursorShape::Block, false)),
+                        ..TerminalColorOverrides::default()
+                    };
                     let mut colors = Frame::new(
                         MessageKind::Colors,
-                        encode_terminal_color_overrides(&TerminalColorOverrides::default()),
+                        encode_terminal_color_overrides(&colors_state),
                     );
                     colors.version = 4;
                     write_frame(&mut stream, &colors)?;
