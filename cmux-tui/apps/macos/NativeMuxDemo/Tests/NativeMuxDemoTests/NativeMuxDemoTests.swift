@@ -362,14 +362,21 @@ func focusMutationTrackerRejectsStaleRollback() {
 }
 
 @Test @MainActor
-func terminalTitleLookupKeepsObservationLocalToTheSelectedOwner() {
-    let owner = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
+func terminalTitleLookupIsImmutableAndSignalsAValueRefresh() {
+    var refreshCount = 0
+    let owner = TerminalTitleOwner(
+        terminalID: "terminal-a",
+        title: "before",
+        onTitleChange: { refreshCount += 1 }
+    )
     let lookup = TerminalTitleFn(owners: [owner.terminalID: owner])
 
     owner.replace(with: "after")
 
-    #expect(lookup("terminal-a")?.title == "after")
+    #expect(lookup("terminal-a") == "before")
+    #expect(TerminalTitleFn(owners: [owner.terminalID: owner])("terminal-a") == "after")
     #expect(lookup("terminal-missing") == nil)
+    #expect(refreshCount == 1)
 }
 
 @Test
