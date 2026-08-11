@@ -1475,6 +1475,60 @@ final class cmuxUITests: XCTestCase {
         let automaticTileID = "MobileWorkspaceSortTile-automatic"
         let automaticTileLabel = "Last Opened"
 
+        func captureGroupedTransitionBurst(
+            _ prefix: String,
+            rootID: String,
+            samples: Int = 8
+        ) {
+            for sample in 1...samples {
+                XCTAssertTrue(
+                    element(alphaHeaderID).exists,
+                    "\(prefix) sample \(sample): Alpha header disappeared."
+                )
+                XCTAssertTrue(
+                    element(betaHeaderID).exists,
+                    "\(prefix) sample \(sample): Beta header disappeared."
+                )
+                let rootFrame = element(rootID).frame
+                XCTAssertGreaterThanOrEqual(
+                    element(alphaInactiveID).frame.minX,
+                    rootFrame.minX + 15,
+                    "\(prefix) sample \(sample): Alpha member flattened."
+                )
+                XCTAssertGreaterThanOrEqual(
+                    element(betaRecentID).frame.minX,
+                    rootFrame.minX + 15,
+                    "\(prefix) sample \(sample): Beta member flattened."
+                )
+                XCTAssertTrue(
+                    element(selectedProbeID).exists,
+                    "\(prefix) sample \(sample): selection identity disappeared."
+                )
+                capture("\(prefix)-\(String(format: "%02d", sample))")
+            }
+        }
+
+        func captureHeaderTransitionBurst(
+            _ prefix: String,
+            samples: Int = 8
+        ) {
+            for sample in 1...samples {
+                XCTAssertTrue(
+                    element(alphaHeaderID).exists,
+                    "\(prefix) sample \(sample): Alpha header disappeared."
+                )
+                XCTAssertTrue(
+                    element(betaHeaderID).exists,
+                    "\(prefix) sample \(sample): Beta header disappeared."
+                )
+                XCTAssertTrue(
+                    element(selectedProbeID).exists,
+                    "\(prefix) sample \(sample): selection identity disappeared."
+                )
+                capture("\(prefix)-\(String(format: "%02d", sample))")
+            }
+        }
+
         let workspaceList = element("MobileWorkspaceList")
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
         XCTAssertTrue(macPicker.waitForExistence(timeout: 8))
@@ -1536,12 +1590,20 @@ final class cmuxUITests: XCTestCase {
         // transitions, and Automatic restores the incoming grouped topology.
         tap(filterButton, in: app)
         tap(sortTile(recentTileID, label: recentTileLabel, in: app), in: app)
+        captureGroupedTransitionBurst(
+            "workspace-transition-recent-activity",
+            rootID: afterID
+        )
         XCTAssertTrue(element(selectedProbeID).exists)
         XCTAssertTrue(
             sortTile(recentTileID, label: recentTileLabel, in: app).isSelected
         )
         capture("workspace-groups-05-recent-activity-control")
         tap(sortTile(automaticTileID, label: automaticTileLabel, in: app), in: app)
+        captureGroupedTransitionBurst(
+            "workspace-transition-automatic",
+            rootID: beforeID
+        )
         XCTAssertTrue(element(selectedProbeID).exists)
         XCTAssertTrue(
             sortTile(automaticTileID, label: automaticTileLabel, in: app).isSelected
@@ -1647,6 +1709,7 @@ final class cmuxUITests: XCTestCase {
         let alphaDisclosure = element("MobileWorkspaceGroupDisclosure-mixed-alpha")
         XCTAssertEqual(alphaDisclosure.label, "Collapse group")
         tap(alphaDisclosure, in: app)
+        captureHeaderTransitionBurst("workspace-transition-collapse")
         let collapsedDisclosure = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label == %@", "Expand group"),
             object: alphaDisclosure
@@ -1708,6 +1771,7 @@ final class cmuxUITests: XCTestCase {
         capture("workspace-groups-15-cleared-search-restores-groups")
 
         tap(alphaDisclosure, in: app)
+        captureHeaderTransitionBurst("workspace-transition-expand")
         let expandedDisclosure = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label == %@", "Collapse group"),
             object: alphaDisclosure
