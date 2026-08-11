@@ -3,119 +3,6 @@ public import Foundation
 internal import CMUXAgentLaunch
 internal import Darwin
 
-/// Fixed app-bundle resources used while assembling terminal launches.
-///
-/// The bundle does not change during a normal process lifetime. Inspect these
-/// paths once, off the main thread, then share this immutable value across all
-/// terminal launch resolutions.
-public struct TerminalSurfaceLaunchResourceSnapshot: Sendable, Equatable {
-    public let wrapperDirectoryURL: URL?
-    public let cliBinPath: String?
-    public let bundledCLIPath: String?
-    public let ghosttyCLIPath: String?
-    public let shellIntegrationDirectoryPath: String?
-
-    public init(
-        wrapperDirectoryURL: URL?,
-        cliBinPath: String?,
-        bundledCLIPath: String?,
-        ghosttyCLIPath: String?,
-        shellIntegrationDirectoryPath: String?
-    ) {
-        self.wrapperDirectoryURL = wrapperDirectoryURL
-        self.cliBinPath = cliBinPath
-        self.bundledCLIPath = bundledCLIPath
-        self.ghosttyCLIPath = ghosttyCLIPath
-        self.shellIntegrationDirectoryPath = shellIntegrationDirectoryPath
-    }
-
-    public static let unavailable = Self(
-        wrapperDirectoryURL: nil,
-        cliBinPath: nil,
-        bundledCLIPath: nil,
-        ghosttyCLIPath: nil,
-        shellIntegrationDirectoryPath: nil
-    )
-
-    fileprivate nonisolated static func inspect(
-        resourceURL: URL?,
-        isExecutableFile: @Sendable (String) -> Bool,
-        directoryExists: @Sendable (String) -> Bool
-    ) -> Self {
-        guard let resourceURL else { return .unavailable }
-        let wrapperDirectoryURL = resourceURL.appendingPathComponent(
-            "bin",
-            isDirectory: true
-        )
-        let bundledCLIPath = wrapperDirectoryURL.appendingPathComponent("cmux").path
-        let ghosttyCLIPath = wrapperDirectoryURL.appendingPathComponent("ghostty").path
-        let shellIntegrationDirectoryPath = resourceURL.appendingPathComponent(
-            "shell-integration",
-            isDirectory: true
-        ).path
-        return Self(
-            wrapperDirectoryURL: wrapperDirectoryURL,
-            cliBinPath: wrapperDirectoryURL.path,
-            bundledCLIPath: isExecutableFile(bundledCLIPath) ? bundledCLIPath : nil,
-            ghosttyCLIPath: isExecutableFile(ghosttyCLIPath) ? ghosttyCLIPath : nil,
-            shellIntegrationDirectoryPath: directoryExists(shellIntegrationDirectoryPath)
-                ? shellIntegrationDirectoryPath
-                : nil
-        )
-    }
-}
-
-/// Starts one fixed bundle-resource inspection outside the main actor and
-/// shares its immutable result across terminal launches.
-public final class TerminalSurfaceLaunchResourceProvider: Sendable {
-    private actor State {
-        private var snapshot: TerminalSurfaceLaunchResourceSnapshot?
-
-        func install(_ snapshot: TerminalSurfaceLaunchResourceSnapshot) {
-            self.snapshot = snapshot
-        }
-
-        func current() -> TerminalSurfaceLaunchResourceSnapshot? {
-            snapshot
-        }
-    }
-
-    private let state: State
-    private let task: Task<TerminalSurfaceLaunchResourceSnapshot, Never>
-
-    public init(
-        resourceURL: URL?,
-        isExecutableFile: @escaping @Sendable (String) -> Bool,
-        directoryExists: @escaping @Sendable (String) -> Bool = { path in
-            var isDirectory: ObjCBool = false
-            return FileManager.default.fileExists(
-                atPath: path,
-                isDirectory: &isDirectory
-            ) && isDirectory.boolValue
-        }
-    ) {
-        let state = State()
-        self.state = state
-        task = Task.detached(priority: .utility) {
-            let snapshot = TerminalSurfaceLaunchResourceSnapshot.inspect(
-                resourceURL: resourceURL,
-                isExecutableFile: isExecutableFile,
-                directoryExists: directoryExists
-            )
-            await state.install(snapshot)
-            return snapshot
-        }
-    }
-
-    public func snapshot() async -> TerminalSurfaceLaunchResourceSnapshot {
-        await task.value
-    }
-
-    public func completedSnapshot() async -> TerminalSurfaceLaunchResourceSnapshot? {
-        await state.current()
-    }
-}
-
 /// Resolves one authoritative terminal launch for either process ownership model.
 @MainActor
 public final class TerminalSurfaceLaunchResolver {
@@ -185,7 +72,8 @@ public final class TerminalSurfaceLaunchResolver {
         self.launchResourceProvider = launchResourceProvider
             ?? TerminalSurfaceLaunchResourceProvider(
                 resourceURL: resourceURL,
-                isExecutableFile: runtimeFilesystem.isExecutableFile
+                isExecutableFile: runtimeFilesystem.isExecutableFile,
+                fileManager: .default
             )
         self.bundleIdentifier = bundleIdentifier
         self.ambientEnvironment = ambientEnvironment

@@ -5116,9 +5116,26 @@ struct CMUXCLI {
             }
 
         case "terminal-backend-diagnostics":
-            let reset = commandArgs.contains("--reset")
-            let unexpected = commandArgs.filter {
-                $0 != "--reset" && $0 != "--json" && $0 != "--"
+            var reset = false
+            var unexpected: [String] = []
+            var parsesOptions = true
+            for argument in commandArgs {
+                if parsesOptions && argument == "--" {
+                    parsesOptions = false
+                    continue
+                }
+                guard parsesOptions else {
+                    unexpected.append(argument)
+                    continue
+                }
+                switch argument {
+                case "--reset":
+                    reset = true
+                case "--json":
+                    break
+                default:
+                    unexpected.append(argument)
+                }
             }
             if let extra = unexpected.first {
                 throw CLIError(

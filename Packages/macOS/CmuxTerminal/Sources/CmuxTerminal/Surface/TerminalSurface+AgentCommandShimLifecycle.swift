@@ -1,10 +1,5 @@
 import Foundation
 
-struct TerminalSurfaceAgentCommandShimPreparation {
-    let commandShims: AgentCommandShimSet?
-    let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
-}
-
 extension TerminalSurface {
     @MainActor
     func agentCommandShimPreparationForSurface(
@@ -60,9 +55,7 @@ extension TerminalSurface {
                     installLease,
                     installResultGate
                 ] in
-                if let launchResourceProvider {
-                    _ = await launchResourceProvider.snapshot()
-                }
+                _ = await launchResourceProvider.snapshot()
                 guard !Task.isCancelled else { return nil }
                 guard let installToken = await installLease.acquire() else {
                     return nil
@@ -95,9 +88,7 @@ extension TerminalSurface {
                     installLease,
                     installResultGate
                 ] in
-                if let launchResourceProvider {
-                    _ = await launchResourceProvider.snapshot()
-                }
+                _ = await launchResourceProvider.snapshot()
                 guard !Task.isCancelled else { return nil }
                 guard let installToken = await installLease.acquire() else {
                     return nil
@@ -123,12 +114,7 @@ extension TerminalSurface {
             let installTask = Task.detached(priority: .utility, operation: installOperation)
             agentCommandShimInstallTask = installTask
             agentCommandShimCompletionTask = Task { @MainActor [weak self, weak view, runtimeFilesystem, launchResourceProvider] in
-                let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
-                if let launchResourceProvider {
-                    launchResourceSnapshot = await launchResourceProvider.snapshot()
-                } else {
-                    launchResourceSnapshot = .unavailable
-                }
+                let launchResourceSnapshot = await launchResourceProvider.snapshot()
                 let shims = await installTask.value
                 guard !Task.isCancelled else {
                     if let shims {
@@ -164,13 +150,8 @@ extension TerminalSurface {
             let clock = embeddedRuntime.agentCommandShimInstallDeadlineClock
             agentCommandShimDeadlineTask = Task { @MainActor [weak self, weak view, launchResourceProvider] in
                 try? await clock.sleep(for: deadline, tolerance: nil)
-                let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
-                if let launchResourceProvider {
-                    launchResourceSnapshot = await launchResourceProvider.completedSnapshot()
-                        ?? .unavailable
-                } else {
-                    launchResourceSnapshot = .unavailable
-                }
+                let launchResourceSnapshot = await launchResourceProvider.completedSnapshot()
+                    ?? .unavailable
                 guard !Task.isCancelled else { return }
                 guard let self, self.agentCommandShimPreparation == nil else { return }
                 guard self.agentCommandShimInstallResultGate?.expire() == true else {

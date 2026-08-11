@@ -434,7 +434,8 @@ class GhosttyApp {
     private static let terminalSurfaceLaunchResourceProvider =
         TerminalSurfaceLaunchResourceProvider(
             resourceURL: Bundle.main.resourceURL,
-            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
+            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) },
+            fileManager: .default
         )
 
     /// Capabilities that exist only in the legacy embedded ownership graph.

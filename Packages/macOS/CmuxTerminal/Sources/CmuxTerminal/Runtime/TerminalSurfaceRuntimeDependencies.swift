@@ -1,4 +1,5 @@
 public import CmuxTerminalCore
+internal import Foundation
 
 /// The font configuration values a presentation needs for durable lineage.
 ///
@@ -75,7 +76,8 @@ public struct TerminalSurfaceEmbeddedRuntimeDependencies {
     public let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     public let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     public let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
-    public let launchResourceProvider: TerminalSurfaceLaunchResourceProvider?
+    /// The single fixed app-bundle inspection shared by embedded launches.
+    public let launchResourceProvider: TerminalSurfaceLaunchResourceProvider
     public let agentCommandShimInstallDeadline: Duration
     public let agentCommandShimInstallDeadlineClock: any Clock<Duration>
     public let sessionPortBase: Int
@@ -101,6 +103,11 @@ public struct TerminalSurfaceEmbeddedRuntimeDependencies {
         self.restoreSpawnScheduler = restoreSpawnScheduler
         self.runtimeFilesystem = runtimeFilesystem
         self.launchResourceProvider = launchResourceProvider
+            ?? TerminalSurfaceLaunchResourceProvider(
+                resourceURL: Bundle.main.resourceURL,
+                isExecutableFile: runtimeFilesystem.isExecutableFile,
+                fileManager: .default
+            )
         self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock
         self.sessionPortBase = sessionPortBase
