@@ -229,6 +229,10 @@ pub struct InfrastructureMetadata {
     pub expected_supervisor_sha256: String,
     pub supervisor_sha256: String,
     pub supervisor_bytes: u64,
+    pub windows_account_launcher_binary: Option<String>,
+    pub expected_windows_account_launcher_sha256: Option<String>,
+    pub windows_account_launcher_sha256: Option<String>,
+    pub windows_account_launcher_bytes: Option<u64>,
     pub windows_bootstrap_binary: Option<String>,
     pub expected_windows_bootstrap_sha256: Option<String>,
     pub windows_bootstrap_sha256: Option<String>,
@@ -256,9 +260,23 @@ impl InfrastructureMetadata {
         evidence.validate(
             &args.sandbox_backend,
             &supervisor_sha256,
+            (!args.windows_account_launcher_sha256.is_empty())
+                .then_some(args.windows_account_launcher_sha256.as_str()),
             (!args.windows_bootstrap_sha256.is_empty())
                 .then_some(args.windows_bootstrap_sha256.as_str()),
         )?;
+        #[cfg(windows)]
+        let account_launcher = Some(fs::read(&args.windows_account_launcher_binary)?);
+        #[cfg(not(windows))]
+        let account_launcher: Option<Vec<u8>> = None;
+        let windows_account_launcher_sha256 =
+            account_launcher.as_ref().map(|bytes| format!("{:x}", Sha256::digest(bytes)));
+        #[cfg(windows)]
+        if windows_account_launcher_sha256.as_deref()
+            != Some(args.windows_account_launcher_sha256.as_str())
+        {
+            bail!("dedicated Windows account launcher changed after argument validation");
+        }
         #[cfg(windows)]
         let bootstrap = Some(fs::read(&args.windows_bootstrap_binary)?);
         #[cfg(not(windows))]
@@ -280,6 +298,16 @@ impl InfrastructureMetadata {
             expected_supervisor_sha256: args.supervisor_binary_sha256.clone(),
             supervisor_sha256,
             supervisor_bytes: supervisor.len() as u64,
+            windows_account_launcher_binary: account_launcher
+                .as_ref()
+                .map(|_| args.windows_account_launcher_binary.display().to_string()),
+            expected_windows_account_launcher_sha256: account_launcher
+                .as_ref()
+                .map(|_| args.windows_account_launcher_sha256.clone()),
+            windows_account_launcher_sha256,
+            windows_account_launcher_bytes: account_launcher
+                .as_ref()
+                .map(|bytes| bytes.len() as u64),
             windows_bootstrap_binary: bootstrap
                 .as_ref()
                 .map(|_| args.windows_bootstrap_binary.display().to_string()),
@@ -325,10 +353,34 @@ struct SandboxPreflightEvidence {
     windows_caller_se_impersonate_enabled: Option<bool>,
     windows_standard_handles_valid: Option<bool>,
     windows_explicit_handle_list: Option<bool>,
+    windows_account_launcher_sha256: Option<String>,
+    windows_account_launcher_config_consumed: Option<bool>,
+    windows_account_launcher_ready_before_bootstrap: Option<bool>,
+    windows_account_launcher_resume_previous_count: Option<u32>,
+    windows_account_launcher_create_no_window: Option<bool>,
+    windows_account_launcher_private_job_member: Option<bool>,
+    windows_account_launcher_handles_exact: Option<bool>,
+    windows_account_launcher_handle_inheritance_exact: Option<bool>,
+    windows_account_launcher_supervisor_target_exact: Option<bool>,
+    windows_account_launcher_se_increase_quota_present: Option<bool>,
+    windows_account_launcher_se_increase_quota_enabled: Option<bool>,
+    windows_account_launcher_token_session_id: Option<u32>,
     windows_bootstrap_sha256: Option<String>,
     windows_bootstrap_config_nonce: Option<String>,
     windows_bootstrap_config_consumed: Option<bool>,
     windows_bootstrap_resume_previous_count: Option<u32>,
+    windows_bootstrap_created_suspended: Option<bool>,
+    windows_bootstrap_created_with_create_process_as_user: Option<bool>,
+    windows_bootstrap_empty_desktop_selection: Option<bool>,
+    windows_bootstrap_process_id: Option<u32>,
+    windows_bootstrap_primary_thread_id: Option<u32>,
+    windows_bootstrap_remote_handles_adopted: Option<bool>,
+    windows_bootstrap_adoption_acknowledged_before_resume: Option<bool>,
+    windows_bootstrap_handle_types_exact: Option<bool>,
+    windows_bootstrap_image_identity_verified: Option<bool>,
+    windows_bootstrap_exact_job_before_resume: Option<bool>,
+    windows_bootstrap_account_token_identity_verified: Option<bool>,
+    windows_bootstrap_suspended_state_verified: Option<bool>,
     windows_bootstrap_ready_elapsed_ms: Option<u64>,
     windows_bootstrap_exact_job: Option<bool>,
     windows_bootstrap_trusted_path_write_denied: Option<bool>,
@@ -337,25 +389,22 @@ struct SandboxPreflightEvidence {
     windows_restricting_sid: Option<String>,
     windows_system_restricting_sid: Option<String>,
     windows_logon_sid: Option<String>,
-    windows_private_window_station: Option<String>,
-    windows_private_desktop: Option<String>,
-    windows_private_desktop_ready_before_resume: Option<bool>,
-    windows_private_window_station_logon_sid_dacl_proven: Option<bool>,
-    windows_private_desktop_logon_sid_dacl_proven: Option<bool>,
-    windows_supervisor_window_station_before: Option<String>,
-    windows_supervisor_desktop_before: Option<String>,
-    windows_supervisor_window_station_after_create: Option<String>,
-    windows_supervisor_desktop_after_create: Option<String>,
-    windows_supervisor_window_station_after_cleanup: Option<String>,
-    windows_supervisor_desktop_after_cleanup: Option<String>,
-    windows_supervisor_identity_unchanged_after_create: Option<bool>,
-    windows_supervisor_identity_unchanged_after_cleanup: Option<bool>,
-    windows_private_desktop_closed: Option<bool>,
-    windows_private_window_station_closed: Option<bool>,
+    windows_observed_window_station: Option<String>,
+    windows_observed_desktop: Option<String>,
+    windows_os_assigned_desktop_ready_before_resume: Option<bool>,
+    windows_window_station_noninteractive: Option<bool>,
+    windows_desktop_noninteractive_default: Option<bool>,
+    windows_window_station_logon_sid_dacl_proven: Option<bool>,
+    windows_desktop_logon_sid_dacl_proven: Option<bool>,
     windows_bootstrap_create_no_window: Option<bool>,
     windows_broker_authentication_id: Option<String>,
     windows_restricted_authentication_id: Option<String>,
     windows_product_authentication_id: Option<String>,
+    windows_account_token_session_id: Option<u32>,
+    windows_bootstrap_token_session_id: Option<u32>,
+    windows_restricted_token_session_id: Option<u32>,
+    windows_product_token_session_id: Option<u32>,
+    windows_token_session_ids_match: Option<bool>,
     windows_restricted_authentication_matches_broker: Option<bool>,
     windows_product_authentication_matches_broker: Option<bool>,
     windows_se_increase_quota_present: Option<bool>,
@@ -367,11 +416,11 @@ struct SandboxPreflightEvidence {
     windows_restricted_token_logon_sid_match: Option<bool>,
     windows_restricted_token_low_integrity: Option<bool>,
     windows_restricted_token_no_enabled_privileges: Option<bool>,
-    windows_window_station_dacl_proven: Option<bool>,
-    windows_desktop_dacl_proven: Option<bool>,
     windows_window_station_low_integrity: Option<bool>,
     windows_desktop_low_integrity: Option<bool>,
     windows_restricted_desktop_access_proven: Option<bool>,
+    windows_job_ui_restriction_mask: Option<u32>,
+    windows_job_ui_restrictions_exact_before_resume: Option<bool>,
     windows_product_write_restricted: Option<bool>,
     windows_product_restricting_sid_match: Option<bool>,
     windows_product_system_restricting_sid_match: Option<bool>,
@@ -379,7 +428,9 @@ struct SandboxPreflightEvidence {
     windows_product_low_integrity: Option<bool>,
     windows_product_no_enabled_privileges: Option<bool>,
     windows_product_exact_job: Option<bool>,
-    windows_product_private_desktop: Option<bool>,
+    windows_product_desktop_assignment_match: Option<bool>,
+    windows_product_window_station_low_integrity: Option<bool>,
+    windows_product_desktop_low_integrity: Option<bool>,
     windows_product_create_no_window: Option<bool>,
     windows_product_resume_previous_count: Option<u32>,
     supervisor_ready: bool,
@@ -392,9 +443,10 @@ impl SandboxPreflightEvidence {
         &self,
         backend: &str,
         supervisor_sha256: &str,
+        windows_account_launcher_sha256: Option<&str>,
         windows_bootstrap_sha256: Option<&str>,
     ) -> Result<()> {
-        if self.schema_version != 9
+        if self.schema_version != 11
             || self.backend != backend
             || self.policy != "fixture-root-only-write"
             || self.handshake != "nonce-bound-ready-arm-with-pre-exec-t0"
@@ -438,12 +490,36 @@ impl SandboxPreflightEvidence {
                     && self.windows_caller_se_impersonate_enabled == Some(true)
                     && self.windows_standard_handles_valid == Some(true)
                     && self.windows_explicit_handle_list == Some(true)
+                    && self.windows_account_launcher_sha256.as_deref()
+                        == windows_account_launcher_sha256
+                    && self.windows_account_launcher_config_consumed == Some(true)
+                    && self.windows_account_launcher_ready_before_bootstrap == Some(true)
+                    && self.windows_account_launcher_resume_previous_count == Some(1)
+                    && self.windows_account_launcher_create_no_window == Some(true)
+                    && self.windows_account_launcher_private_job_member == Some(true)
+                    && self.windows_account_launcher_handles_exact == Some(true)
+                    && self.windows_account_launcher_handle_inheritance_exact == Some(true)
+                    && self.windows_account_launcher_supervisor_target_exact == Some(true)
+                    && self.windows_account_launcher_se_increase_quota_present == Some(true)
+                    && self.windows_account_launcher_se_increase_quota_enabled == Some(true)
                     && self.windows_bootstrap_sha256.as_deref() == windows_bootstrap_sha256
                     && self.windows_bootstrap_config_nonce.as_deref().is_some_and(|value| {
                         value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
                     })
                     && self.windows_bootstrap_config_consumed == Some(true)
                     && self.windows_bootstrap_resume_previous_count == Some(1)
+                    && self.windows_bootstrap_created_suspended == Some(true)
+                    && self.windows_bootstrap_created_with_create_process_as_user == Some(true)
+                    && self.windows_bootstrap_empty_desktop_selection == Some(true)
+                    && self.windows_bootstrap_process_id.is_some_and(|value| value != 0)
+                    && self.windows_bootstrap_primary_thread_id.is_some_and(|value| value != 0)
+                    && self.windows_bootstrap_remote_handles_adopted == Some(true)
+                    && self.windows_bootstrap_adoption_acknowledged_before_resume == Some(true)
+                    && self.windows_bootstrap_handle_types_exact == Some(true)
+                    && self.windows_bootstrap_image_identity_verified == Some(true)
+                    && self.windows_bootstrap_exact_job_before_resume == Some(true)
+                    && self.windows_bootstrap_account_token_identity_verified == Some(true)
+                    && self.windows_bootstrap_suspended_state_verified == Some(true)
                     && self
                         .windows_bootstrap_ready_elapsed_ms
                         .is_some_and(|elapsed| elapsed <= 30_000)
@@ -465,38 +541,20 @@ impl SandboxPreflightEvidence {
                         .as_ref()
                         .is_some_and(|value| value.starts_with("S-1-5-5-") && value.len() <= 184)
                     && self
-                        .windows_bootstrap_config_nonce
+                        .windows_observed_window_station
                         .as_ref()
-                        .and_then(|nonce| {
-                            cmux_startup_bootstrap::windows_private_desktop_identity(nonce).ok()
-                        })
+                        .zip(self.windows_observed_desktop.as_ref())
                         .is_some_and(|(station, desktop)| {
-                            self.windows_private_window_station.as_ref() == Some(&station)
-                                && self.windows_private_desktop.as_ref() == Some(&desktop)
+                            cmux_startup_bootstrap::validate_os_assigned_desktop_identity(
+                                station, desktop,
+                            )
+                            .is_ok()
                         })
-                    && self.windows_private_desktop_ready_before_resume == Some(true)
-                    && self.windows_private_window_station_logon_sid_dacl_proven == Some(true)
-                    && self.windows_private_desktop_logon_sid_dacl_proven == Some(true)
-                    && self.windows_supervisor_window_station_before
-                        == self.windows_supervisor_window_station_after_create
-                    && self.windows_supervisor_window_station_before
-                        == self.windows_supervisor_window_station_after_cleanup
-                    && self.windows_supervisor_desktop_before
-                        == self.windows_supervisor_desktop_after_create
-                    && self.windows_supervisor_desktop_before
-                        == self.windows_supervisor_desktop_after_cleanup
-                    && self
-                        .windows_supervisor_window_station_before
-                        .as_ref()
-                        .is_some_and(|name| !name.is_empty())
-                    && self
-                        .windows_supervisor_desktop_before
-                        .as_ref()
-                        .is_some_and(|name| !name.is_empty())
-                    && self.windows_supervisor_identity_unchanged_after_create == Some(true)
-                    && self.windows_supervisor_identity_unchanged_after_cleanup == Some(true)
-                    && self.windows_private_desktop_closed == Some(true)
-                    && self.windows_private_window_station_closed == Some(true)
+                    && self.windows_os_assigned_desktop_ready_before_resume == Some(true)
+                    && self.windows_window_station_noninteractive == Some(true)
+                    && self.windows_desktop_noninteractive_default == Some(true)
+                    && self.windows_window_station_logon_sid_dacl_proven == Some(true)
+                    && self.windows_desktop_logon_sid_dacl_proven == Some(true)
                     && self.windows_bootstrap_create_no_window == Some(true)
                     && self.windows_broker_authentication_id.as_ref().is_some_and(|value| {
                         value.len() == 16 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -505,6 +563,16 @@ impl SandboxPreflightEvidence {
                         == self.windows_broker_authentication_id
                     && self.windows_product_authentication_id
                         == self.windows_broker_authentication_id
+                    && self.windows_account_token_session_id
+                        == self.windows_bootstrap_token_session_id
+                    && self.windows_account_token_session_id
+                        == self.windows_account_launcher_token_session_id
+                    && self.windows_account_token_session_id
+                        == self.windows_restricted_token_session_id
+                    && self.windows_account_token_session_id
+                        == self.windows_product_token_session_id
+                    && self.windows_account_token_session_id.is_some()
+                    && self.windows_token_session_ids_match == Some(true)
                     && self.windows_restricted_authentication_matches_broker == Some(true)
                     && self.windows_product_authentication_matches_broker == Some(true)
                     && self.windows_se_increase_quota_present == Some(true)
@@ -516,11 +584,12 @@ impl SandboxPreflightEvidence {
                     && self.windows_restricted_token_logon_sid_match == Some(true)
                     && self.windows_restricted_token_low_integrity == Some(true)
                     && self.windows_restricted_token_no_enabled_privileges == Some(true)
-                    && self.windows_window_station_dacl_proven == Some(true)
-                    && self.windows_desktop_dacl_proven == Some(true)
                     && self.windows_window_station_low_integrity == Some(true)
                     && self.windows_desktop_low_integrity == Some(true)
                     && self.windows_restricted_desktop_access_proven == Some(true)
+                    && self.windows_job_ui_restriction_mask
+                        == Some(cmux_startup_bootstrap::WINDOWS_JOB_UI_RESTRICTION_MASK)
+                    && self.windows_job_ui_restrictions_exact_before_resume == Some(true)
                     && self.windows_product_write_restricted == Some(true)
                     && self.windows_product_restricting_sid_match == Some(true)
                     && self.windows_product_system_restricting_sid_match == Some(true)
@@ -528,7 +597,9 @@ impl SandboxPreflightEvidence {
                     && self.windows_product_low_integrity == Some(true)
                     && self.windows_product_no_enabled_privileges == Some(true)
                     && self.windows_product_exact_job == Some(true)
-                    && self.windows_product_private_desktop == Some(true)
+                    && self.windows_product_desktop_assignment_match == Some(true)
+                    && self.windows_product_window_station_low_integrity == Some(true)
+                    && self.windows_product_desktop_low_integrity == Some(true)
                     && self.windows_product_create_no_window == Some(true)
                     && self.windows_product_resume_previous_count == Some(1)
             }
@@ -550,10 +621,34 @@ impl SandboxPreflightEvidence {
             && self.windows_caller_se_impersonate_enabled.is_none()
             && self.windows_standard_handles_valid.is_none()
             && self.windows_explicit_handle_list.is_none()
+            && self.windows_account_launcher_sha256.is_none()
+            && self.windows_account_launcher_config_consumed.is_none()
+            && self.windows_account_launcher_ready_before_bootstrap.is_none()
+            && self.windows_account_launcher_resume_previous_count.is_none()
+            && self.windows_account_launcher_create_no_window.is_none()
+            && self.windows_account_launcher_private_job_member.is_none()
+            && self.windows_account_launcher_handles_exact.is_none()
+            && self.windows_account_launcher_handle_inheritance_exact.is_none()
+            && self.windows_account_launcher_supervisor_target_exact.is_none()
+            && self.windows_account_launcher_se_increase_quota_present.is_none()
+            && self.windows_account_launcher_se_increase_quota_enabled.is_none()
+            && self.windows_account_launcher_token_session_id.is_none()
             && self.windows_bootstrap_sha256.is_none()
             && self.windows_bootstrap_config_nonce.is_none()
             && self.windows_bootstrap_config_consumed.is_none()
             && self.windows_bootstrap_resume_previous_count.is_none()
+            && self.windows_bootstrap_created_suspended.is_none()
+            && self.windows_bootstrap_created_with_create_process_as_user.is_none()
+            && self.windows_bootstrap_empty_desktop_selection.is_none()
+            && self.windows_bootstrap_process_id.is_none()
+            && self.windows_bootstrap_primary_thread_id.is_none()
+            && self.windows_bootstrap_remote_handles_adopted.is_none()
+            && self.windows_bootstrap_adoption_acknowledged_before_resume.is_none()
+            && self.windows_bootstrap_handle_types_exact.is_none()
+            && self.windows_bootstrap_image_identity_verified.is_none()
+            && self.windows_bootstrap_exact_job_before_resume.is_none()
+            && self.windows_bootstrap_account_token_identity_verified.is_none()
+            && self.windows_bootstrap_suspended_state_verified.is_none()
             && self.windows_bootstrap_ready_elapsed_ms.is_none()
             && self.windows_bootstrap_exact_job.is_none()
             && self.windows_bootstrap_trusted_path_write_denied.is_none()
@@ -562,25 +657,22 @@ impl SandboxPreflightEvidence {
             && self.windows_restricting_sid.is_none()
             && self.windows_system_restricting_sid.is_none()
             && self.windows_logon_sid.is_none()
-            && self.windows_private_window_station.is_none()
-            && self.windows_private_desktop.is_none()
-            && self.windows_private_desktop_ready_before_resume.is_none()
-            && self.windows_private_window_station_logon_sid_dacl_proven.is_none()
-            && self.windows_private_desktop_logon_sid_dacl_proven.is_none()
-            && self.windows_supervisor_window_station_before.is_none()
-            && self.windows_supervisor_desktop_before.is_none()
-            && self.windows_supervisor_window_station_after_create.is_none()
-            && self.windows_supervisor_desktop_after_create.is_none()
-            && self.windows_supervisor_window_station_after_cleanup.is_none()
-            && self.windows_supervisor_desktop_after_cleanup.is_none()
-            && self.windows_supervisor_identity_unchanged_after_create.is_none()
-            && self.windows_supervisor_identity_unchanged_after_cleanup.is_none()
-            && self.windows_private_desktop_closed.is_none()
-            && self.windows_private_window_station_closed.is_none()
+            && self.windows_observed_window_station.is_none()
+            && self.windows_observed_desktop.is_none()
+            && self.windows_os_assigned_desktop_ready_before_resume.is_none()
+            && self.windows_window_station_noninteractive.is_none()
+            && self.windows_desktop_noninteractive_default.is_none()
+            && self.windows_window_station_logon_sid_dacl_proven.is_none()
+            && self.windows_desktop_logon_sid_dacl_proven.is_none()
             && self.windows_bootstrap_create_no_window.is_none()
             && self.windows_broker_authentication_id.is_none()
             && self.windows_restricted_authentication_id.is_none()
             && self.windows_product_authentication_id.is_none()
+            && self.windows_account_token_session_id.is_none()
+            && self.windows_bootstrap_token_session_id.is_none()
+            && self.windows_restricted_token_session_id.is_none()
+            && self.windows_product_token_session_id.is_none()
+            && self.windows_token_session_ids_match.is_none()
             && self.windows_restricted_authentication_matches_broker.is_none()
             && self.windows_product_authentication_matches_broker.is_none()
             && self.windows_se_increase_quota_present.is_none()
@@ -592,11 +684,11 @@ impl SandboxPreflightEvidence {
             && self.windows_restricted_token_logon_sid_match.is_none()
             && self.windows_restricted_token_low_integrity.is_none()
             && self.windows_restricted_token_no_enabled_privileges.is_none()
-            && self.windows_window_station_dacl_proven.is_none()
-            && self.windows_desktop_dacl_proven.is_none()
             && self.windows_window_station_low_integrity.is_none()
             && self.windows_desktop_low_integrity.is_none()
             && self.windows_restricted_desktop_access_proven.is_none()
+            && self.windows_job_ui_restriction_mask.is_none()
+            && self.windows_job_ui_restrictions_exact_before_resume.is_none()
             && self.windows_product_write_restricted.is_none()
             && self.windows_product_restricting_sid_match.is_none()
             && self.windows_product_system_restricting_sid_match.is_none()
@@ -604,7 +696,9 @@ impl SandboxPreflightEvidence {
             && self.windows_product_low_integrity.is_none()
             && self.windows_product_no_enabled_privileges.is_none()
             && self.windows_product_exact_job.is_none()
-            && self.windows_product_private_desktop.is_none()
+            && self.windows_product_desktop_assignment_match.is_none()
+            && self.windows_product_window_station_low_integrity.is_none()
+            && self.windows_product_desktop_low_integrity.is_none()
             && self.windows_product_create_no_window.is_none()
             && self.windows_product_resume_previous_count.is_none()
     }

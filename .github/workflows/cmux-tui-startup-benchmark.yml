@@ -762,7 +762,7 @@ jobs:
           New-NetFirewallRule -Name "$rule-in" -DisplayName "$rule inbound" -Direction Inbound -Action Block -Profile Any -LocalUser $localUser | Out-Null
           "inbound_rule=$rule-in" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
 
-      - name: Build trusted native MSVC startup bootstrap
+      - name: Build trusted native MSVC account launcher and startup bootstrap
         if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -778,11 +778,14 @@ jobs:
           Import-Module (Join-Path $installation "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
           Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
           $source = Join-Path $env:TRUSTED_SOURCE "cmux-tui\crates\cmux-startup-bootstrap\native\windows_bootstrap.c"
+          $launcherSource = Join-Path $env:TRUSTED_SOURCE "cmux-tui\crates\cmux-startup-bootstrap\native\windows_account_launcher.c"
           $targetRoot = Join-Path $env:RUNNER_TEMP "cmux-startup-bootstrap-msvc"
           $outDir = Join-Path $targetRoot "x86_64-pc-windows-msvc\release"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
           $bootstrap = Join-Path $outDir "cmux-startup-bootstrap.exe"
           $object = Join-Path $outDir "cmux-startup-bootstrap.obj"
+          $launcher = Join-Path $outDir "cmux-startup-account-launcher.exe"
+          $launcherObject = Join-Path $outDir "cmux-startup-account-launcher.obj"
           & cl.exe /nologo /O2 /Oi /W4 /WX /GS /guard:cf /utf-8 /Zl `
             /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0A00 /TC $source `
             "/Fo$object" "/Fe$bootstrap" `
@@ -791,10 +794,21 @@ jobs:
             /OPT:REF /OPT:ICF kernel32.lib advapi32.lib bcrypt.lib user32.lib `
             libcmt.lib libvcruntime.lib
           if ($LASTEXITCODE -ne 0) { throw "trusted native MSVC startup bootstrap build failed" }
+          & cl.exe /nologo /O2 /Oi /W4 /WX /GS /guard:cf /utf-8 /Zl `
+            /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0A00 /TC $launcherSource `
+            "/Fo$launcherObject" "/Fe$launcher" `
+            /link /ENTRY:launcher_entry /NODEFAULTLIB /INCREMENTAL:NO `
+            /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /GUARD:CF `
+            /OPT:REF /OPT:ICF kernel32.lib advapi32.lib bcrypt.lib `
+            libcmt.lib libvcruntime.lib
+          if ($LASTEXITCODE -ne 0) { throw "trusted native MSVC account launcher build failed" }
           if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
             throw "trusted native MSVC startup bootstrap is missing"
           }
-          Remove-Item -LiteralPath $object -Force
+          if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+            throw "trusted native MSVC account launcher is missing"
+          }
+          Remove-Item -LiteralPath $object,$launcherObject -Force
           $accountSid = (Get-LocalUser $env:CMUX_BENCH_WINDOWS_USER).Sid.Value
           $runnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
           & icacls.exe $outDir /inheritance:r /grant:r `
@@ -805,7 +819,12 @@ jobs:
             "*S-1-5-18:(F)" "*S-1-5-32-544:(F)" `
             "*${runnerSid}:(F)" "*${accountSid}:(RX)"
           if ($LASTEXITCODE -ne 0) { throw "trusted bootstrap file ACL failed" }
+          & icacls.exe $launcher /inheritance:r /grant:r `
+            "*S-1-5-18:(F)" "*S-1-5-32-544:(F)" `
+            "*${runnerSid}:(F)" "*${accountSid}:(RX)"
+          if ($LASTEXITCODE -ne 0) { throw "trusted account launcher file ACL failed" }
           $sha256 = (Get-FileHash -LiteralPath $bootstrap -Algorithm SHA256).Hash.ToLowerInvariant()
+          $launcherSha256 = (Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant()
           $dumpbin = Get-Command dumpbin.exe -ErrorAction Stop
           $imports = @(& $dumpbin.Source /DEPENDENTS $bootstrap | ForEach-Object {
             if ($_ -match '^\s+([A-Za-z0-9._-]+\.dll)\s*$') { $Matches[1] }
@@ -833,6 +852,37 @@ jobs:
           }
           $importEvidence | ConvertTo-Json -Depth 3 |
             Set-Content -Encoding utf8 (Join-Path $env:ARTIFACT_DIR "windows-bootstrap-imports.json")
+          $launcherImports = @(& $dumpbin.Source /DEPENDENTS $launcher | ForEach-Object {
+            if ($_ -match '^\s+([A-Za-z0-9._-]+\.dll)\s*$') { $Matches[1] }
+          } | Sort-Object -Unique)
+          if ($LASTEXITCODE -ne 0 -or $launcherImports.Count -eq 0) {
+            throw "trusted minimal MSVC account launcher import audit failed"
+          }
+          foreach ($dll in $launcherImports) {
+            $apiSet = $dll -match '^(?i:(api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)$'
+            $physical = $dll.ToLowerInvariant()
+            if (-not $apiSet -and $physical -notin @("advapi32.dll", "bcrypt.dll", "kernel32.dll")) {
+              throw "account launcher dependency is not approved: $dll"
+            }
+            if ($physical -in @("user32.dll", "gdi32.dll", "win32u.dll")) {
+              throw "account launcher crosses the GUI import boundary: $dll"
+            }
+            if (-not $apiSet -and -not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dll") -PathType Leaf)) {
+              throw "approved account launcher dependency is not a System32 DLL: $dll"
+            }
+            if (Test-Path -LiteralPath (Join-Path (Split-Path $launcher) $dll)) {
+              throw "account launcher has a local DLL dependency override: $dll"
+            }
+          }
+          $launcherImportEvidence = [ordered]@{
+            schema_version = 1
+            launcher_sha256 = $launcherSha256
+            dependencies = $launcherImports
+          }
+          $launcherImportEvidence | ConvertTo-Json -Depth 3 |
+            Set-Content -Encoding utf8 (Join-Path $env:ARTIFACT_DIR "windows-account-launcher-imports.json")
+          "WINDOWS_ACCOUNT_LAUNCHER_BINARY=$launcher" | Add-Content -Encoding utf8 $env:GITHUB_ENV
+          "WINDOWS_ACCOUNT_LAUNCHER_SHA256=$launcherSha256" | Add-Content -Encoding utf8 $env:GITHUB_ENV
           "WINDOWS_BOOTSTRAP_BINARY=$bootstrap" | Add-Content -Encoding utf8 $env:GITHUB_ENV
           "WINDOWS_BOOTSTRAP_SHA256=$sha256" | Add-Content -Encoding utf8 $env:GITHUB_ENV
 
@@ -1259,8 +1309,11 @@ jobs:
               --backend "$SANDBOX_BACKEND"
             )
             if [[ "$RUNNER_OS" == "Windows" ]]; then
+              test -f "$WINDOWS_ACCOUNT_LAUNCHER_BINARY"
               test -f "$WINDOWS_BOOTSTRAP_BINARY"
               args+=(
+                --windows-account-launcher-binary "$WINDOWS_ACCOUNT_LAUNCHER_BINARY"
+                --windows-account-launcher-sha256 "$WINDOWS_ACCOUNT_LAUNCHER_SHA256"
                 --windows-bootstrap-binary "$WINDOWS_BOOTSTRAP_BINARY"
                 --windows-bootstrap-sha256 "$WINDOWS_BOOTSTRAP_SHA256"
               )
@@ -1308,6 +1361,8 @@ jobs:
           preflight_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$evidence")"
           test "$supervisor_sha256" = "$EXPECTED_SUPERVISOR_SHA256"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            launcher_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$WINDOWS_ACCOUNT_LAUNCHER_BINARY")"
+            test "$launcher_sha256" = "$WINDOWS_ACCOUNT_LAUNCHER_SHA256"
             bootstrap_sha256="$("$PYTHON_CMD" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$WINDOWS_BOOTSTRAP_BINARY")"
             test "$bootstrap_sha256" = "$WINDOWS_BOOTSTRAP_SHA256"
           fi
@@ -1435,6 +1490,13 @@ jobs:
               "profile_attribution": pathlib.Path(os.environ["ARTIFACT_DIR"]) / "profile-attribution.json",
           }
           if os.environ["RUNNER_OS"] == "Windows":
+              paths["trusted_windows_account_launcher"] = pathlib.Path(
+                  os.environ["WINDOWS_ACCOUNT_LAUNCHER_BINARY"]
+              )
+              paths["trusted_windows_account_launcher_imports"] = (
+                  pathlib.Path(os.environ["ARTIFACT_DIR"])
+                  / "windows-account-launcher-imports.json"
+              )
               paths["trusted_windows_bootstrap"] = pathlib.Path(
                   os.environ["WINDOWS_BOOTSTRAP_BINARY"]
               )
@@ -1492,6 +1554,7 @@ jobs:
           fi
           export CMUX_BENCH_TEST_SUPERVISOR="$trusted_release/startup_benchmark_supervisor$BINARY_SUFFIX"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            export CMUX_BENCH_TEST_WINDOWS_ACCOUNT_LAUNCHER="$WINDOWS_ACCOUNT_LAUNCHER_BINARY"
             export CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP="$WINDOWS_BOOTSTRAP_BINARY"
           fi
           args=(rustup run "$TRUSTED_RUST_TOOLCHAIN" cargo test -p cmux-tui --example startup_benchmark --release --locked)
@@ -1540,8 +1603,11 @@ jobs:
           test -f "$supervisor"
           bootstrap_args=()
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            test -f "$WINDOWS_ACCOUNT_LAUNCHER_BINARY"
             test -f "$WINDOWS_BOOTSTRAP_BINARY"
             bootstrap_args=(
+              --windows-account-launcher-binary "$WINDOWS_ACCOUNT_LAUNCHER_BINARY"
+              --windows-account-launcher-sha256 "$WINDOWS_ACCOUNT_LAUNCHER_SHA256"
               --windows-bootstrap-binary "$WINDOWS_BOOTSTRAP_BINARY"
               --windows-bootstrap-sha256 "$WINDOWS_BOOTSTRAP_SHA256"
             )
@@ -1886,6 +1952,8 @@ jobs:
             "--trusted-source", $env:TRUSTED_SOURCE,
             "--supervisor-binary", $supervisor,
             "--supervisor-binary-sha256", $env:SUPERVISOR_BINARY_SHA256,
+            "--windows-account-launcher-binary", $env:WINDOWS_ACCOUNT_LAUNCHER_BINARY,
+            "--windows-account-launcher-sha256", $env:WINDOWS_ACCOUNT_LAUNCHER_SHA256,
             "--windows-bootstrap-binary", $env:WINDOWS_BOOTSTRAP_BINARY,
             "--windows-bootstrap-sha256", $env:WINDOWS_BOOTSTRAP_SHA256,
             "--sandbox-backend", $env:SANDBOX_BACKEND,

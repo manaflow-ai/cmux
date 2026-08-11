@@ -11,10 +11,14 @@ use std::process::{Command, ExitStatus};
 use anyhow::{Context, Result, bail};
 #[cfg(windows)]
 use cmux_startup_bootstrap::{
+    ACCOUNT_LAUNCHER_SCHEMA_VERSION, AccountLauncherConfig, AuthenticationId,
     BOOTSTRAP_SCHEMA_VERSION, BootstrapChildStage, BootstrapConfig, BootstrapLaunchEvidence,
     BootstrapMessage, BootstrapProductLaunch, NativeEntryCheckpointStage,
-    WINDOWS_WRITE_RESTRICTED_CODE_SID, decode_native_entry_checkpoint, encode_arm, encode_config,
-    read_event, windows_private_desktop_identity,
+    WINDOWS_ACCOUNT_LAUNCHER_STAGE_MARKER, WINDOWS_JOB_UI_RESTRICTION_MASK,
+    WINDOWS_NATIVE_BOOTSTRAP_STAGE_MARKER, WINDOWS_WRITE_RESTRICTED_CODE_SID,
+    decode_native_entry_checkpoint, encode_account_launcher_adopted,
+    encode_account_launcher_config, encode_arm, encode_config, read_event,
+    validate_account_launcher_ready_message,
 };
 use cmux_tui_core::platform::transport;
 #[cfg(any(target_os = "linux", windows))]
@@ -43,6 +47,8 @@ struct Launch {
     target: PathBuf,
     target_sha256: String,
     supervisor_sha256: String,
+    windows_account_launcher_binary: PathBuf,
+    windows_account_launcher_sha256: String,
     windows_bootstrap_binary: PathBuf,
     windows_bootstrap_sha256: String,
     product_args: Vec<String>,
@@ -148,6 +154,8 @@ fn parse_args(values: impl Iterator<Item = String>) -> Result<Launch> {
         target: PathBuf::new(),
         target_sha256: String::new(),
         supervisor_sha256: String::new(),
+        windows_account_launcher_binary: PathBuf::new(),
+        windows_account_launcher_sha256: String::new(),
         windows_bootstrap_binary: PathBuf::new(),
         windows_bootstrap_sha256: String::new(),
         product_args: Vec::new(),
@@ -178,6 +186,13 @@ fn parse_args(values: impl Iterator<Item = String>) -> Result<Launch> {
             }
             "--windows-bootstrap-sha256" => {
                 launch.windows_bootstrap_sha256 = required_value(&mut values, &argument)?;
+            }
+            "--windows-account-launcher-binary" => {
+                launch.windows_account_launcher_binary =
+                    required_value(&mut values, &argument)?.into();
+            }
+            "--windows-account-launcher-sha256" => {
+                launch.windows_account_launcher_sha256 = required_value(&mut values, &argument)?;
             }
             _ => bail!("unknown supervisor argument {argument}"),
         }
@@ -226,10 +241,20 @@ fn validate_launch(launch: &Launch) -> Result<()> {
     }
     #[cfg(windows)]
     {
+        if !launch.windows_account_launcher_binary.is_file() {
+            bail!("dedicated Windows account launcher must be one trusted external file");
+        }
         if !launch.windows_bootstrap_binary.is_file() {
             bail!("dedicated Windows bootstrap must be one trusted external file");
         }
+        let account_launcher = launch.windows_account_launcher_binary.canonicalize()?;
         let bootstrap = launch.windows_bootstrap_binary.canonicalize()?;
+        if account_launcher == bootstrap {
+            bail!("Windows account launcher and native bootstrap must be distinct files");
+        }
+        if account_launcher.starts_with(&fixture_root) {
+            bail!("dedicated Windows account launcher must be outside the writable fixture root");
+        }
         if bootstrap.starts_with(&fixture_root) {
             bail!("dedicated Windows bootstrap must be outside the writable fixture root");
         }
@@ -238,9 +263,26 @@ fn validate_launch(launch: &Launch) -> Result<()> {
         {
             bail!("Windows bootstrap SHA-256 must be 64 hexadecimal characters");
         }
-        if bootstrap == env::current_exe()?.canonicalize()? {
+        if launch.windows_account_launcher_sha256.len() != 64
+            || !launch.windows_account_launcher_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            bail!("Windows account launcher SHA-256 must be 64 hexadecimal characters");
+        }
+        if launch.windows_account_launcher_sha256 == launch.windows_bootstrap_sha256 {
+            bail!("Windows account launcher and native bootstrap hashes must be distinct");
+        }
+        let current_exe = env::current_exe()?.canonicalize()?;
+        if bootstrap == current_exe {
             bail!("Windows bootstrap must be the dedicated minimal executable");
         }
+        if account_launcher == current_exe {
+            bail!("Windows account launcher must be the dedicated minimal executable");
+        }
+        verify_file_sha256(
+            &launch.windows_account_launcher_binary,
+            &launch.windows_account_launcher_sha256,
+            "dedicated Windows account launcher",
+        )?;
         verify_file_sha256(
             &launch.windows_bootstrap_binary,
             &launch.windows_bootstrap_sha256,
@@ -918,19 +960,18 @@ mod platform {
         WAIT_OBJECT_0, WAIT_TIMEOUT,
     };
     use windows_sys::Win32::Security::Authorization::{
-        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
-        ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
-        GetSecurityInfo, NO_MULTIPLE_TRUSTEE, SDDL_REVISION_1, SE_FILE_OBJECT, SE_WINDOW_OBJECT,
-        SetEntriesInAclW, SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+        ConvertSidToStringSidW, ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS,
+        GetNamedSecurityInfoW, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, SetEntriesInAclW,
+        SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
     };
     use windows_sys::Win32::Security::{
-        ACCESS_ALLOWED_ACE, ACL, AdjustTokenPrivileges, DACL_SECURITY_INFORMATION, EqualSid,
-        GetAce, GetTokenInformation, LABEL_SECURITY_INFORMATION, LOGON32_LOGON_INTERACTIVE,
-        LOGON32_PROVIDER_DEFAULT, LUID_AND_ATTRIBUTES, LogonUserW, LookupPrivilegeValueW,
-        PRIVILEGE_SET, PSECURITY_DESCRIPTOR, PSID, PrivilegeCheck, SE_IMPERSONATE_NAME,
-        SE_PRIVILEGE_ENABLED, SE_SECURITY_NAME, SECURITY_ATTRIBUTES, SID_AND_ATTRIBUTES,
-        SUB_CONTAINERS_AND_OBJECTS_INHERIT, SYSTEM_MANDATORY_LABEL_ACE, TOKEN_ADJUST_PRIVILEGES,
-        TOKEN_GROUPS, TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_USER, TokenGroups, TokenUser,
+        ACL, AdjustTokenPrivileges, DACL_SECURITY_INFORMATION, GetTokenInformation,
+        LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, LUID_AND_ATTRIBUTES, LogonUserW,
+        LookupPrivilegeValueW, PRIVILEGE_SET, PSECURITY_DESCRIPTOR, PSID, PrivilegeCheck,
+        SE_IMPERSONATE_NAME, SE_PRIVILEGE_ENABLED, SE_SECURITY_NAME, SID_AND_ATTRIBUTES,
+        SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_ADJUST_PRIVILEGES, TOKEN_GROUPS,
+        TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_STATISTICS, TOKEN_USER, TokenGroups, TokenSessionId,
+        TokenStatistics, TokenUser,
     };
     use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_UNKNOWN, GetFileType};
     use windows_sys::Win32::System::Console::{
@@ -938,36 +979,29 @@ mod platform {
     };
     use windows_sys::Win32::System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus};
     use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-        JOBOBJECT_ASSOCIATE_COMPLETION_PORT, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JobObjectAssociateCompletionPortInformation, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, TerminateJobObject,
+        AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_ASSOCIATE_COMPLETION_PORT,
+        JOBOBJECT_BASIC_UI_RESTRICTIONS, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectAssociateCompletionPortInformation, JobObjectBasicUIRestrictions,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
+        TerminateJobObject,
     };
     use windows_sys::Win32::System::Pipes::CreatePipe;
-    use windows_sys::Win32::System::StationsAndDesktops::{
-        CloseDesktop, CloseWindowStation, CreateDesktopW, CreateWindowStationW,
-        GetProcessWindowStation, GetThreadDesktop, GetUserObjectInformationW,
-        SetProcessWindowStation, SetThreadDesktop, UOI_NAME,
-    };
     use windows_sys::Win32::System::SystemServices::{
-        ACCESS_ALLOWED_ACE_TYPE, JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY,
-        PRIVILEGE_SET_ALL_NECESSARY, SE_GROUP_LOGON_ID, SYSTEM_MANDATORY_LABEL_ACE_TYPE,
-        SYSTEM_MANDATORY_LABEL_NO_WRITE_UP,
+        JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY, PRIVILEGE_SET_ALL_NECESSARY,
+        SE_GROUP_LOGON_ID,
     };
     use windows_sys::Win32::System::Threading::{
-        CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithTokenW,
-        GetCurrentProcess, GetCurrentThreadId, GetExitCodeProcess, INFINITE, OpenProcessToken,
-        PROCESS_INFORMATION, ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
+        CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateEventW,
+        CreateProcessWithTokenW, GetCurrentProcess, GetCurrentThreadId, GetExitCodeProcess,
+        GetProcessId, GetProcessIdOfThread, GetThreadId, INFINITE, OpenProcessToken,
+        PROCESS_DUP_HANDLE, PROCESS_INFORMATION, QueryFullProcessImageNameW, ResumeThread,
+        STARTUPINFOW, STILL_ACTIVE, SuspendThread, TerminateProcess, WaitForSingleObject,
     };
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{CWF_CREATE_ONLY, WINSTA_ALL_ACCESS};
 
     use super::*;
-    use crate::startup_benchmark_protocol::{
-        BootstrapHangArtifactReference, BootstrapTerminal,
-        WINDOWS_DESKTOP_LIFECYCLE_SCHEMA_VERSION, WindowsDesktopLifecycleEvidence,
-        windows_desktop_lifecycle_evidence_path,
-    };
+    use crate::startup_benchmark_protocol::{BootstrapHangArtifactReference, BootstrapTerminal};
     use crate::startup_benchmark_windows_diagnostic::{self, CaptureRequest};
 
     const MAX_BOOTSTRAP_CHECKPOINT_BYTES: usize = 64 * 1024;
@@ -1019,7 +1053,7 @@ mod platform {
                 );
             }
         };
-        if let Err(mut error) = bootstrap.wait_ready(&launch.nonce, &mut trace) {
+        if let Err(mut error) = bootstrap.wait_ready(&launch.nonce, &owner, &mut trace) {
             if trace.terminal == Some(BootstrapTerminal::BootstrapTimeout) {
                 if let Err(diagnostic) = bootstrap.capture_hang_snapshot(&owner, launch) {
                     error = error.context(format!(
@@ -1129,405 +1163,6 @@ mod platform {
         }
     }
 
-    const READ_CONTROL_ACCESS: u32 = 0x0002_0000;
-    const PRIVATE_DESKTOP_ALL_ACCESS: u32 = 0x000f_01ff;
-    const LOGON_ID_ATTRIBUTES: u32 = SE_GROUP_LOGON_ID as u32;
-
-    struct SupervisorDesktopIdentity {
-        process_station: HANDLE,
-        thread_desktop: HANDLE,
-        thread_id: u32,
-        process_station_name: String,
-        thread_desktop_name: String,
-    }
-
-    impl SupervisorDesktopIdentity {
-        fn capture() -> Result<Self> {
-            // CreateWindowStationW changes the calling process association. Capture both
-            // supervisor objects before that call so all later paths can restore them exactly.
-            let process_station = unsafe { GetProcessWindowStation() };
-            if process_station.is_null() {
-                return Err(std::io::Error::last_os_error())
-                    .context("get original supervisor window station");
-            }
-            let thread_id = unsafe { GetCurrentThreadId() };
-            let thread_desktop = unsafe { GetThreadDesktop(thread_id) };
-            if thread_desktop.is_null() {
-                return Err(std::io::Error::last_os_error())
-                    .context("get original supervisor thread desktop");
-            }
-            Ok(Self {
-                process_station,
-                thread_desktop,
-                thread_id,
-                process_station_name: user_object_name(
-                    process_station,
-                    "original supervisor window station",
-                )?,
-                thread_desktop_name: user_object_name(
-                    thread_desktop,
-                    "original supervisor thread desktop",
-                )?,
-            })
-        }
-
-        fn restore(&self) -> Result<(String, String)> {
-            // SetThreadDesktop requires its target to belong to the current process station.
-            // Restore the station first, and do not make an invalid desktop call if that fails.
-            if let Err(error) = check(
-                unsafe { SetProcessWindowStation(self.process_station) },
-                "restore original supervisor window station",
-            ) {
-                return Err(error.context(
-                    "original thread desktop restore was not attempted because its window station was not current",
-                ));
-            }
-            check(
-                unsafe { SetThreadDesktop(self.thread_desktop) },
-                "restore original supervisor thread desktop",
-            )?;
-            self.prove_current("after private desktop creation")
-        }
-
-        fn prove_current(&self, phase: &str) -> Result<(String, String)> {
-            let thread_id = unsafe { GetCurrentThreadId() };
-            if thread_id != self.thread_id {
-                bail!("supervisor desktop lifecycle moved to a different thread {phase}");
-            }
-            let process_station = unsafe { GetProcessWindowStation() };
-            let thread_desktop = unsafe { GetThreadDesktop(thread_id) };
-            if process_station != self.process_station || thread_desktop != self.thread_desktop {
-                bail!("supervisor station or desktop handle changed {phase}");
-            }
-            let process_station_name =
-                user_object_name(process_station, &format!("supervisor window station {phase}"))?;
-            let thread_desktop_name =
-                user_object_name(thread_desktop, &format!("supervisor thread desktop {phase}"))?;
-            if process_station_name != self.process_station_name
-                || thread_desktop_name != self.thread_desktop_name
-            {
-                bail!("supervisor station or desktop name changed {phase}");
-            }
-            Ok((process_station_name, thread_desktop_name))
-        }
-    }
-
-    fn user_object_name(handle: HANDLE, description: &str) -> Result<String> {
-        let mut bytes = 0_u32;
-        unsafe { GetUserObjectInformationW(handle, UOI_NAME, null_mut(), 0, &mut bytes) };
-        if bytes < 2 || bytes % 2 != 0 {
-            return Err(std::io::Error::last_os_error())
-                .with_context(|| format!("measure {description} name"));
-        }
-        let mut value = vec![0_u16; usize::try_from(bytes / 2)?];
-        check(
-            unsafe {
-                GetUserObjectInformationW(
-                    handle,
-                    UOI_NAME,
-                    value.as_mut_ptr().cast(),
-                    bytes,
-                    &mut bytes,
-                )
-            },
-            &format!("read {description} name"),
-        )?;
-        let end = value.iter().position(|unit| *unit == 0).unwrap_or(value.len());
-        let name = String::from_utf16(&value[..end])?;
-        if name.is_empty() {
-            bail!("{description} name was empty");
-        }
-        Ok(name)
-    }
-
-    struct PrivateDesktopOwner {
-        _desktop: OwnedDesktop,
-        _station: OwnedWindowStation,
-        station_name: String,
-        desktop_name: String,
-        qualified_wide: Vec<u16>,
-        account_sid: String,
-        logon_sid: String,
-        restricting_sid: String,
-        supervisor_identity: SupervisorDesktopIdentity,
-        supervisor_station_after_create: String,
-        supervisor_desktop_after_create: String,
-    }
-
-    impl PrivateDesktopOwner {
-        fn create(
-            account_sid: &str,
-            logon_sid: &str,
-            restricting_sid: &str,
-            nonce: &str,
-            deadline: Instant,
-            trace: &mut BootstrapStartupTrace,
-        ) -> Result<Self> {
-            let (station_name, qualified_name) = windows_private_desktop_identity(nonce)?;
-            let desktop_name = qualified_name
-                .strip_prefix(&format!("{station_name}\\"))
-                .context("private desktop identity did not contain its window station")?
-                .to_string();
-            let account_sid = OwnedSid::from_string(account_sid)?;
-            let logon_sid = OwnedSid::from_string(logon_sid)?;
-            let restricting_sid = OwnedSid::from_string(restricting_sid)?;
-            let system_restricting_sid = OwnedSid::from_string(WINDOWS_WRITE_RESTRICTED_CODE_SID)?;
-            let low_integrity_sid = OwnedSid::from_string("S-1-16-4096")?;
-            let station_access = u32::try_from(WINSTA_ALL_ACCESS)? | READ_CONTROL_ACCESS;
-            let station_security = PrivateObjectSecurity::new(
-                account_sid.0,
-                logon_sid.0,
-                restricting_sid.0,
-                system_restricting_sid.0,
-                station_access,
-            )?;
-            let desktop_security = PrivateObjectSecurity::new(
-                account_sid.0,
-                logon_sid.0,
-                restricting_sid.0,
-                system_restricting_sid.0,
-                PRIVATE_DESKTOP_ALL_ACCESS,
-            )?;
-            let supervisor_identity = SupervisorDesktopIdentity::capture()?;
-            let station_wide = wide(std::ffi::OsStr::new(&station_name));
-            let station_attributes = station_security.attributes()?;
-            let desktop_wide = wide(std::ffi::OsStr::new(&desktop_name));
-            let desktop_attributes = desktop_security.attributes()?;
-            check_security_deadline(deadline, trace, "prepare private desktop creation")?;
-            // SAFETY: the name and security descriptor remain live for this call.
-            let station_raw = unsafe {
-                CreateWindowStationW(
-                    station_wide.as_ptr(),
-                    CWF_CREATE_ONLY,
-                    station_access,
-                    &station_attributes,
-                )
-            };
-            if station_raw.is_null() {
-                return Err(std::io::Error::last_os_error())
-                    .context("create nonce-bound private window station");
-            }
-            // Own every successful handle before any fallible restore operation. Windows has
-            // already associated this process with the new station at this point.
-            let station = OwnedWindowStation(station_raw);
-            // SAFETY: the new private station is current and all pointed-to values remain live.
-            let desktop_raw = unsafe {
-                CreateDesktopW(
-                    desktop_wide.as_ptr(),
-                    null(),
-                    null(),
-                    0,
-                    PRIVATE_DESKTOP_ALL_ACCESS,
-                    &desktop_attributes,
-                )
-            };
-            let desktop = if desktop_raw.is_null() {
-                Err(std::io::Error::last_os_error()).context("create nonce-bound private desktop")
-            } else {
-                Ok(OwnedDesktop(desktop_raw))
-            };
-            // CreateDesktopW associates the new desktop with this thread. Restore both original
-            // associations before any return, including a desktop creation error.
-            let restore = supervisor_identity.restore();
-            let (desktop, (supervisor_station_after_create, supervisor_desktop_after_create)) =
-                match (desktop, restore) {
-                    (Ok(desktop), Ok(identity)) => (desktop, identity),
-                    (Err(error), Ok(_)) => return Err(error),
-                    (Ok(_), Err(restore)) => return Err(restore),
-                    (Err(error), Err(restore)) => {
-                        return Err(error.context(format!(
-                            "also restore original supervisor station and desktop: {restore:#}"
-                        )));
-                    }
-                };
-            check_security_deadline(deadline, trace, "restore supervisor desktop identity")?;
-            prove_private_object_security(
-                station.0,
-                account_sid.0,
-                logon_sid.0,
-                restricting_sid.0,
-                system_restricting_sid.0,
-                low_integrity_sid.0,
-                station_access,
-                "private window station",
-            )?;
-            prove_private_object_security(
-                desktop.0,
-                account_sid.0,
-                logon_sid.0,
-                restricting_sid.0,
-                system_restricting_sid.0,
-                low_integrity_sid.0,
-                PRIVATE_DESKTOP_ALL_ACCESS,
-                "private desktop",
-            )?;
-            complete_security_stage(
-                deadline,
-                trace,
-                BootstrapStage::PrivateDesktopReady,
-                "prove private window station and desktop",
-            )?;
-            let qualified_wide = wide(std::ffi::OsStr::new(&qualified_name));
-            Ok(Self {
-                _desktop: desktop,
-                _station: station,
-                station_name,
-                desktop_name,
-                qualified_wide,
-                account_sid: sid_string(account_sid.0)?,
-                logon_sid: sid_string(logon_sid.0)?,
-                restricting_sid: sid_string(restricting_sid.0)?,
-                supervisor_identity,
-                supervisor_station_after_create,
-                supervisor_desktop_after_create,
-            })
-        }
-
-        fn close(mut self, nonce: &str) -> Result<WindowsDesktopLifecycleEvidence> {
-            let before_cleanup =
-                self.supervisor_identity.prove_current("before private desktop cleanup");
-            let desktop = self._desktop.close();
-            let station = self._station.close();
-            let after_cleanup =
-                self.supervisor_identity.prove_current("after private desktop cleanup");
-            let mut errors = Vec::new();
-            if let Err(error) = &before_cleanup {
-                errors.push(format!("supervisor identity before cleanup: {error:#}"));
-            }
-            if let Err(error) = &desktop {
-                errors.push(format!("close private desktop: {error:#}"));
-            }
-            if let Err(error) = &station {
-                errors.push(format!("close private window station: {error:#}"));
-            }
-            if let Err(error) = &after_cleanup {
-                errors.push(format!("supervisor identity after cleanup: {error:#}"));
-            }
-            if !errors.is_empty() {
-                bail!("{}", errors.join("; "));
-            }
-            let (supervisor_window_station_after_cleanup, supervisor_desktop_after_cleanup) =
-                after_cleanup?;
-            Ok(WindowsDesktopLifecycleEvidence {
-                schema_version: WINDOWS_DESKTOP_LIFECYCLE_SCHEMA_VERSION,
-                nonce: nonce.to_string(),
-                private_window_station: self.station_name.clone(),
-                private_desktop: format!("{}\\{}", self.station_name, self.desktop_name),
-                account_sid: self.account_sid,
-                logon_sid: self.logon_sid,
-                restricting_sid: self.restricting_sid,
-                system_restricting_sid: WINDOWS_WRITE_RESTRICTED_CODE_SID.into(),
-                private_window_station_logon_sid_dacl_proven: true,
-                private_desktop_logon_sid_dacl_proven: true,
-                supervisor_window_station_before: self
-                    .supervisor_identity
-                    .process_station_name
-                    .clone(),
-                supervisor_desktop_before: self.supervisor_identity.thread_desktop_name.clone(),
-                supervisor_window_station_after_create: self.supervisor_station_after_create,
-                supervisor_desktop_after_create: self.supervisor_desktop_after_create,
-                supervisor_window_station_after_cleanup,
-                supervisor_desktop_after_cleanup,
-                supervisor_identity_unchanged_after_create: true,
-                supervisor_identity_unchanged_after_cleanup: true,
-                private_desktop_closed: true,
-                private_window_station_closed: true,
-            })
-        }
-    }
-
-    struct PrivateObjectSecurity(PSECURITY_DESCRIPTOR);
-
-    impl PrivateObjectSecurity {
-        fn new(
-            account_sid: PSID,
-            logon_sid: PSID,
-            restricting_sid: PSID,
-            system_restricting_sid: PSID,
-            access: u32,
-        ) -> Result<Self> {
-            let account = sid_string(account_sid)?;
-            let logon = sid_string(logon_sid)?;
-            let restricting = sid_string(restricting_sid)?;
-            let system = sid_string(system_restricting_sid)?;
-            let sddl = format!(
-                "D:P(A;;0x{access:08x};;;OW)(A;;0x{access:08x};;;{account})(A;;0x{access:08x};;;{logon})(A;;0x{access:08x};;;{restricting})(A;;0x{access:08x};;;{system})S:(ML;;NW;;;LW)"
-            );
-            let sddl = wide(std::ffi::OsStr::new(&sddl));
-            let mut descriptor = null_mut();
-            check(
-                unsafe {
-                    ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                        sddl.as_ptr(),
-                        SDDL_REVISION_1,
-                        &mut descriptor,
-                        null_mut(),
-                    )
-                },
-                "build private window-object security descriptor",
-            )?;
-            Ok(Self(descriptor))
-        }
-
-        fn attributes(&self) -> Result<SECURITY_ATTRIBUTES> {
-            Ok(SECURITY_ATTRIBUTES {
-                nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())?,
-                lpSecurityDescriptor: self.0,
-                bInheritHandle: 0,
-            })
-        }
-    }
-
-    impl Drop for PrivateObjectSecurity {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                unsafe { LocalFree(self.0.cast()) };
-            }
-        }
-    }
-
-    struct OwnedWindowStation(HANDLE);
-
-    impl OwnedWindowStation {
-        fn close(&mut self) -> Result<()> {
-            if self.0.is_null() {
-                return Ok(());
-            }
-            check(unsafe { CloseWindowStation(self.0) }, "close private window station")?;
-            self.0 = null_mut();
-            Ok(())
-        }
-    }
-
-    impl Drop for OwnedWindowStation {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                unsafe { CloseWindowStation(self.0) };
-            }
-        }
-    }
-
-    struct OwnedDesktop(HANDLE);
-
-    impl OwnedDesktop {
-        fn close(&mut self) -> Result<()> {
-            if self.0.is_null() {
-                return Ok(());
-            }
-            check(unsafe { CloseDesktop(self.0) }, "close private desktop")?;
-            self.0 = null_mut();
-            Ok(())
-        }
-    }
-
-    impl Drop for OwnedDesktop {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                unsafe { CloseDesktop(self.0) };
-            }
-        }
-    }
-
     fn token_user_sid_string(token: HANDLE) -> Result<String> {
         let mut bytes = 0_u32;
         unsafe { GetTokenInformation(token, TokenUser, null_mut(), 0, &mut bytes) };
@@ -1543,6 +1178,52 @@ mod platform {
         )?;
         let user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
         sid_string(user.User.Sid)
+    }
+
+    fn token_session_id(token: HANDLE) -> Result<u32> {
+        let mut session_id = 0_u32;
+        let mut bytes = 0_u32;
+        check(
+            unsafe {
+                GetTokenInformation(
+                    token,
+                    TokenSessionId,
+                    std::ptr::addr_of_mut!(session_id).cast(),
+                    u32::try_from(size_of::<u32>())?,
+                    &mut bytes,
+                )
+            },
+            "read benchmark account token session ID",
+        )?;
+        if bytes != u32::try_from(size_of::<u32>())? {
+            bail!("account token session ID had the wrong size");
+        }
+        Ok(session_id)
+    }
+
+    fn token_authentication_id(token: HANDLE) -> Result<AuthenticationId> {
+        // SAFETY: zero is a valid initial state for TOKEN_STATISTICS.
+        let mut statistics: TOKEN_STATISTICS = unsafe { zeroed() };
+        let mut bytes = 0_u32;
+        check(
+            unsafe {
+                GetTokenInformation(
+                    token,
+                    TokenStatistics,
+                    std::ptr::addr_of_mut!(statistics).cast(),
+                    u32::try_from(size_of::<TOKEN_STATISTICS>())?,
+                    &mut bytes,
+                )
+            },
+            "read benchmark account token authentication ID",
+        )?;
+        if bytes != u32::try_from(size_of::<TOKEN_STATISTICS>())? {
+            bail!("account token statistics had the wrong size");
+        }
+        Ok(AuthenticationId {
+            low_part: statistics.AuthenticationId.LowPart,
+            high_part: statistics.AuthenticationId.HighPart,
+        })
     }
 
     fn single_logon_group_index(attributes: &[u32]) -> Result<usize> {
@@ -1640,105 +1321,9 @@ mod platform {
             .context("formatted security SID was invalid UTF-16")
     }
 
-    fn prove_private_object_security(
-        object: HANDLE,
-        account_sid: PSID,
-        logon_sid: PSID,
-        restricting_sid: PSID,
-        system_restricting_sid: PSID,
-        low_integrity_sid: PSID,
-        required_access: u32,
-        object_name: &str,
-    ) -> Result<()> {
-        let mut dacl = null_mut();
-        let mut sacl = null_mut();
-        let mut descriptor = null_mut();
-        let status = unsafe {
-            GetSecurityInfo(
-                object,
-                SE_WINDOW_OBJECT,
-                DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION,
-                null_mut(),
-                null_mut(),
-                &mut dacl,
-                &mut sacl,
-                &mut descriptor,
-            )
-        };
-        check_windows_error(status, &format!("read {object_name} security descriptor"))?;
-        let _descriptor = OwnedLocalDescriptor(descriptor);
-        let dacl_valid = unsafe {
-            acl_grants_sid(dacl, account_sid, required_access)
-                && acl_grants_sid(dacl, logon_sid, required_access)
-                && acl_grants_sid(dacl, restricting_sid, required_access)
-                && acl_grants_sid(dacl, system_restricting_sid, required_access)
-        };
-        let low_label_valid = unsafe { acl_has_low_integrity_label(sacl, low_integrity_sid) };
-        if !dacl_valid || !low_label_valid {
-            bail!("{object_name} DACL or low-integrity label proof failed");
-        }
-        Ok(())
-    }
-
-    unsafe fn acl_grants_sid(acl: *mut ACL, sid: PSID, required_access: u32) -> bool {
-        if acl.is_null() || sid.is_null() {
-            return false;
-        }
-        for index in 0..unsafe { (*acl).AceCount } {
-            let mut raw = null_mut();
-            if unsafe { GetAce(acl, u32::from(index), &mut raw) } == 0 || raw.is_null() {
-                return false;
-            }
-            let ace = raw.cast::<ACCESS_ALLOWED_ACE>();
-            if u32::from(unsafe { (*ace).Header.AceType }) != ACCESS_ALLOWED_ACE_TYPE {
-                continue;
-            }
-            let ace_sid = unsafe { std::ptr::addr_of_mut!((*ace).SidStart).cast() };
-            if unsafe { EqualSid(ace_sid, sid) } != 0
-                && unsafe { (*ace).Mask } & required_access == required_access
-            {
-                return true;
-            }
-        }
-        false
-    }
-
-    unsafe fn acl_has_low_integrity_label(acl: *mut ACL, low_integrity_sid: PSID) -> bool {
-        if acl.is_null() || low_integrity_sid.is_null() {
-            return false;
-        }
-        for index in 0..unsafe { (*acl).AceCount } {
-            let mut raw = null_mut();
-            if unsafe { GetAce(acl, u32::from(index), &mut raw) } == 0 || raw.is_null() {
-                return false;
-            }
-            let ace = raw.cast::<SYSTEM_MANDATORY_LABEL_ACE>();
-            if u32::from(unsafe { (*ace).Header.AceType }) != SYSTEM_MANDATORY_LABEL_ACE_TYPE {
-                continue;
-            }
-            let ace_sid = unsafe { std::ptr::addr_of_mut!((*ace).SidStart).cast() };
-            if unsafe { EqualSid(ace_sid, low_integrity_sid) } != 0
-                && unsafe { (*ace).Mask } & SYSTEM_MANDATORY_LABEL_NO_WRITE_UP != 0
-            {
-                return true;
-            }
-        }
-        false
-    }
-
     struct OwnedLocalWide(*mut u16);
 
     impl Drop for OwnedLocalWide {
-        fn drop(&mut self) {
-            if !self.0.is_null() {
-                unsafe { LocalFree(self.0.cast()) };
-            }
-        }
-    }
-
-    struct OwnedLocalDescriptor(PSECURITY_DESCRIPTOR);
-
-    impl Drop for OwnedLocalDescriptor {
         fn drop(&mut self) {
             if !self.0.is_null() {
                 unsafe { LocalFree(self.0.cast()) };
@@ -1751,14 +1336,14 @@ mod platform {
         job: OwnedHandle,
         query_job: Option<OwnedHandle>,
         completion_port: OwnedHandle,
-        private_desktop: Option<PrivateDesktopOwner>,
-        desktop_lifecycle_evidence_path: PathBuf,
-        nonce: String,
         // Keep the profile after all Job handles so field-drop fallback closes the containment
         // boundary before it tries to unload a profile after an error.
         profile: Option<LoadedProfile>,
         account_sid_text: String,
         logon_sid_text: String,
+        account_token_session_id: u32,
+        account_authentication_id: AuthenticationId,
+        job_ui_restriction_mask: u32,
         restricting_sid_text: String,
         broker_assigned: bool,
     }
@@ -1888,16 +1473,8 @@ mod platform {
                 .context("Windows account token owner is missing")?;
             let account_sid_text = token_user_sid_string(account_token_handle)?;
             let logon_sid_text = token_logon_sid_string(account_token_handle)?;
-            let private_desktop = PrivateDesktopOwner::create(
-                &account_sid_text,
-                &logon_sid_text,
-                &sid_text,
-                &launch.nonce,
-                security_deadline,
-                trace,
-            )?;
-            let desktop_lifecycle_evidence_path =
-                windows_desktop_lifecycle_evidence_path(&launch.fixture_root, &launch.nonce)?;
+            let account_token_session_id = token_session_id(account_token_handle)?;
+            let account_authentication_id = token_authentication_id(account_token_handle)?;
             configure_fixture_acl(
                 &launch.fixture_root,
                 &user,
@@ -1905,7 +1482,7 @@ mod platform {
                 security_deadline,
                 trace,
             )?;
-            let (job, query_job, completion_port) =
+            let (job, query_job, completion_port, job_ui_restriction_mask) =
                 create_non_breakaway_job(security_deadline, trace)?;
             complete_security_stage(
                 security_deadline,
@@ -1919,11 +1496,11 @@ mod platform {
                 job,
                 query_job,
                 completion_port,
-                private_desktop: Some(private_desktop),
-                desktop_lifecycle_evidence_path,
-                nonce: launch.nonce.clone(),
                 account_sid_text,
                 logon_sid_text,
+                account_token_session_id,
+                account_authentication_id,
+                job_ui_restriction_mask,
                 restricting_sid_text: sid_text,
                 broker_assigned: false,
             })
@@ -1942,13 +1519,22 @@ mod platform {
             launch: &Launch,
             trace: &mut BootstrapStartupTrace,
         ) -> Result<BootstrapSession> {
+            let account_launcher_binary = launch.windows_account_launcher_binary.canonicalize()?;
             let bootstrap_binary = launch.windows_bootstrap_binary.canonicalize()?;
             let fixture_root = launch.fixture_root.canonicalize()?;
             let timing = launch.timing.canonicalize()?;
             let target = launch.target.canonicalize()?;
-            let config_path = fixture_root.join(format!("bootstrap-{}.bin", &launch.nonce[..16]));
+            let launcher_config_path =
+                fixture_root.join(format!("launcher-{}.bin", &launch.nonce[..16]));
+            let bootstrap_config_path =
+                fixture_root.join(format!("bootstrap-{}.bin", &launch.nonce[..16]));
             let entry_checkpoint_path =
                 fixture_root.join(format!("bootstrap-entry-{}.bin", &launch.nonce[..16]));
+            verify_file_sha256(
+                &account_launcher_binary,
+                &launch.windows_account_launcher_sha256,
+                "dedicated Windows account launcher before launch",
+            )?;
             verify_file_sha256(
                 &bootstrap_binary,
                 &launch.windows_bootstrap_sha256,
@@ -1956,36 +1542,26 @@ mod platform {
             )?;
             let trusted_probe = TrustedPathProbe::create(launch)?;
             let trusted_path_probe = trusted_probe.path.canonicalize()?;
-            let application = wide(bootstrap_binary.as_os_str());
+            let application = wide(account_launcher_binary.as_os_str());
             let current_directory = wide(fixture_root.as_os_str());
             let mut command_line = wide(std::ffi::OsStr::new(&windows_command_line(
-                &bootstrap_binary,
-                &[
-                    config_path.to_string_lossy().into_owned(),
-                    entry_checkpoint_path.to_string_lossy().into_owned(),
-                    launch.nonce.clone(),
-                ],
+                &account_launcher_binary,
+                &[launcher_config_path.to_string_lossy().into_owned(), launch.nonce.clone()],
             )));
             // SAFETY: zero is a valid initial state for these Win32 structs.
             let mut startup: STARTUPINFOW = unsafe { zeroed() };
             startup.cb = u32::try_from(size_of::<STARTUPINFOW>())?;
-            let private_desktop = self
-                .private_desktop
-                .as_ref()
-                .context("private window station and desktop owner is missing")?;
-            startup.lpDesktop = private_desktop.qualified_wide.as_ptr().cast_mut();
-            let private_window_station = private_desktop.station_name.clone();
-            let private_desktop_name = private_desktop.desktop_name.clone();
+            // The USER32-free account launcher can safely inherit the runner desktop. It uses
+            // CreateProcessAsUserW with an empty desktop string for the native bootstrap.
+            startup.lpDesktop = null_mut();
             // SAFETY: zero is a valid initial state for PROCESS_INFORMATION.
             let mut process: PROCESS_INFORMATION = unsafe { zeroed() };
-            let mut environment =
-                bootstrap_environment_block(&entry_checkpoint_path, &launch.nonce);
-            let target_cmux_bench_environment_filtered =
-                bootstrap_environment_has_only_entry_identity(&environment);
+            let mut environment = vec![0_u16, 0_u16];
+            let target_cmux_bench_environment_filtered = environment == [0_u16, 0_u16];
             if !target_cmux_bench_environment_filtered {
-                bail!("restricted bootstrap environment retained a CMUX_BENCH secret");
+                bail!("account launcher environment retained a CMUX_BENCH secret");
             }
-            let bootstrap_creation_flags =
+            let launcher_creation_flags =
                 CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT;
             // SAFETY: all strings are NUL-terminated and output storage remains live.
             check(
@@ -1995,14 +1571,14 @@ mod platform {
                         0,
                         application.as_ptr(),
                         command_line.as_mut_ptr(),
-                        bootstrap_creation_flags,
+                        launcher_creation_flags,
                         environment.as_mut_ptr().cast::<c_void>(),
                         current_directory.as_ptr(),
                         &startup,
                         &mut process,
                     )
                 },
-                "create suspended account-owned bootstrap",
+                "create suspended account-owned native launcher",
             )?;
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ProcessCreatedSuspended));
             let process_handle = OwnedHandle(process.hProcess);
@@ -2014,22 +1590,29 @@ mod platform {
                 let _ = unsafe { TerminateProcess(process_handle.0, 125) };
                 // SAFETY: process_handle remains live until the end of this scope.
                 let _ = unsafe { WaitForSingleObject(process_handle.0, INFINITE) };
-                return Err(error).context("assign bootstrap to non-breakaway job");
+                return Err(error).context("assign account launcher to non-breakaway job");
             }
             self.broker_assigned = true;
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::JobAssigned));
             let pipes = BootstrapPipes::create()?;
+            // SAFETY: null security attributes and name create an unnamed manual-reset event.
+            let launcher_gate = unsafe { CreateEventW(null(), 1, 0, null()) };
+            if launcher_gate.is_null() {
+                return Err(std::io::Error::last_os_error())
+                    .context("create account launcher native-bootstrap gate");
+            }
+            let launcher_gate = OwnedHandle(launcher_gate);
             let control_read = duplicate_into_process(
                 pipes.bootstrap_read.0,
                 process_handle.0,
-                false,
-                "bootstrap control read",
+                true,
+                "account launcher control read",
             )?;
             let control_write = duplicate_into_process(
                 pipes.bootstrap_write.0,
                 process_handle.0,
-                false,
-                "bootstrap control write",
+                true,
+                "account launcher control write",
             )?;
             let standard_handles = [
                 duplicate_standard_handle(STD_INPUT_HANDLE, process_handle.0, "stdin")?,
@@ -2040,12 +1623,31 @@ mod platform {
                 .query_job
                 .as_ref()
                 .map(|handle| {
-                    duplicate_into_process(handle.0, process_handle.0, false, "private Job query")
+                    duplicate_into_process(
+                        handle.0,
+                        process_handle.0,
+                        true,
+                        "account launcher private Job query",
+                    )
                 })
                 .transpose()?;
+            let launcher_gate_value = duplicate_into_process(
+                launcher_gate.0,
+                process_handle.0,
+                true,
+                "account launcher native-bootstrap gate",
+            )?;
+            let supervisor_process = duplicate_into_process_with_access(
+                unsafe { GetCurrentProcess() },
+                process_handle.0,
+                PROCESS_DUP_HANDLE,
+                false,
+                "account launcher supervisor duplicate-handle target",
+            )?;
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::HandlesDuplicated));
-            let (config_bytes, config_sha256) = write_bootstrap_config(
-                &config_path,
+            let query_job = query_job.context("private Job query handle is required")?;
+            let (bootstrap_config_bytes, bootstrap_config_sha256) = write_bootstrap_config(
+                &bootstrap_config_path,
                 &BootstrapConfig {
                     schema_version: BOOTSTRAP_SCHEMA_VERSION,
                     nonce: launch.nonce.clone(),
@@ -2059,26 +1661,70 @@ mod platform {
                         expected_bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
                         restricting_sid: self.restricting_sid_text.clone(),
                         logon_sid: self.logon_sid_text.clone(),
-                        private_window_station,
-                        private_desktop: private_desktop_name,
+                        account_token_session_id: self.account_token_session_id,
+                        job_ui_restriction_mask: self.job_ui_restriction_mask,
                     },
                     control_read,
                     control_write,
                     standard_handles,
-                    query_job: query_job.context("private Job query handle is required")?,
+                    query_job,
+                    launcher_gate: launcher_gate_value,
                 },
             )?;
-            trace.record_config(config_bytes, config_sha256);
+            let launcher_config = AccountLauncherConfig {
+                schema_version: ACCOUNT_LAUNCHER_SCHEMA_VERSION,
+                nonce: launch.nonce.clone(),
+                launcher_stage_marker: WINDOWS_ACCOUNT_LAUNCHER_STAGE_MARKER,
+                bootstrap_stage_marker: WINDOWS_NATIVE_BOOTSTRAP_STAGE_MARKER,
+                launcher: account_launcher_binary.clone(),
+                launcher_sha256: launch.windows_account_launcher_sha256.clone(),
+                bootstrap: bootstrap_binary.clone(),
+                bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
+                bootstrap_config: bootstrap_config_path.clone(),
+                bootstrap_config_sha256,
+                bootstrap_entry_checkpoint: entry_checkpoint_path.clone(),
+                account_token_session_id: self.account_token_session_id,
+                job_ui_restriction_mask: self.job_ui_restriction_mask,
+                control_read,
+                control_write,
+                standard_handles,
+                query_job,
+                launcher_gate: launcher_gate_value,
+                supervisor_process,
+                supervisor_process_id: std::process::id(),
+            };
+            launcher_config.validate_identity(&launcher_config_path)?;
+            let launcher_config_bytes = encode_account_launcher_config(&launcher_config)?;
+            let launcher_config_sha256 = format!("{:x}", Sha256::digest(&launcher_config_bytes));
+            let mut launcher_config_file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&launcher_config_path)
+                .with_context(|| {
+                    format!(
+                        "create Windows account launcher config {}",
+                        launcher_config_path.display()
+                    )
+                })?;
+            launcher_config_file.write_all(&launcher_config_bytes)?;
+            launcher_config_file.flush()?;
+            drop(launcher_config_file);
+            trace.record_config(
+                u64::try_from(launcher_config_bytes.len())?
+                    .checked_add(bootstrap_config_bytes)
+                    .context("combined native config byte count overflow")?,
+                launcher_config_sha256,
+            );
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ConfigWritten));
             // SAFETY: thread_handle is the suspended primary thread.
             let resume_previous_count = unsafe { ResumeThread(thread_handle.0) };
             if resume_previous_count != 1 {
                 if resume_previous_count == u32::MAX {
                     return Err(std::io::Error::last_os_error())
-                        .context("resume restricted bootstrap");
+                        .context("resume account-owned native launcher");
                 }
                 bail!(
-                    "restricted bootstrap primary thread had suspend count {resume_previous_count}, expected 1"
+                    "account launcher primary thread had suspend count {resume_previous_count}, expected 1"
                 );
             }
             let resumed_at = Instant::now();
@@ -2088,9 +1734,12 @@ mod platform {
                 thread_handle,
                 pipes,
                 BootstrapIdentity {
-                    config_path,
+                    launcher_config_path,
+                    bootstrap_config_path,
                     entry_checkpoint_path,
                     trusted_probe,
+                    account_launcher_binary,
+                    account_launcher_sha256: launch.windows_account_launcher_sha256.clone(),
                     bootstrap_binary,
                     bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
                     fixture_root,
@@ -2098,13 +1747,15 @@ mod platform {
                     resumed_at,
                     resume_previous_count,
                     process_id: process.dwProcessId,
-                    primary_thread_id: process.dwThreadId,
                     target_cmux_bench_environment_filtered,
                     account_sid: self.account_sid_text.clone(),
                     restricting_sid: self.restricting_sid_text.clone(),
                     logon_sid: self.logon_sid_text.clone(),
-                    private_desktop_ready_before_resume: true,
-                    bootstrap_create_no_window: bootstrap_creation_flags & CREATE_NO_WINDOW != 0,
+                    account_token_session_id: self.account_token_session_id,
+                    account_authentication_id: self.account_authentication_id,
+                    job_ui_restrictions_exact_before_resume: self.job_ui_restriction_mask
+                        == WINDOWS_JOB_UI_RESTRICTION_MASK,
+                    launcher_create_no_window: launcher_creation_flags & CREATE_NO_WINDOW != 0,
                 },
             )?;
             Ok(session)
@@ -2115,16 +1766,7 @@ mod platform {
                 self.terminate_descendants_and_wait_empty(deadline)?;
                 self.broker_assigned = false;
             }
-            let desktop_cleanup = match self.private_desktop.take() {
-                Some(private_desktop) => private_desktop.close(&self.nonce).and_then(|evidence| {
-                    persist_windows_desktop_lifecycle_evidence(
-                        &self.desktop_lifecycle_evidence_path,
-                        &evidence,
-                    )
-                }),
-                None => Ok(()),
-            };
-            let profile_cleanup = if Instant::now() >= deadline {
+            if Instant::now() >= deadline {
                 Err(anyhow::anyhow!(
                     "Windows containment cleanup deadline expired before profile cleanup"
                 ))
@@ -2132,13 +1774,6 @@ mod platform {
                 match self.profile.as_mut() {
                     Some(profile) => profile.cleanup(),
                     None => Ok(()),
-                }
-            };
-            match (desktop_cleanup, profile_cleanup) {
-                (Ok(()), Ok(())) => Ok(()),
-                (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-                (Err(desktop), Err(profile)) => {
-                    Err(desktop.context(format!("also unload benchmark profile: {profile:#}")))
                 }
             }
         }
@@ -2193,14 +1828,21 @@ mod platform {
 
     struct BootstrapSession {
         process: OwnedHandle,
-        primary_thread: OwnedHandle,
+        _primary_thread: OwnedHandle,
         writer: Option<File>,
         receiver: mpsc::Receiver<BootstrapEvent>,
+        sender: mpsc::Sender<BootstrapEvent>,
         reader: Option<thread::JoinHandle<()>>,
-        status: Option<thread::JoinHandle<()>>,
-        config_path: PathBuf,
+        launcher_status: Option<thread::JoinHandle<()>>,
+        bootstrap_status: Option<thread::JoinHandle<()>>,
+        bootstrap_process: Option<OwnedHandle>,
+        bootstrap_primary_thread: Option<OwnedHandle>,
+        launcher_config_path: PathBuf,
+        bootstrap_config_path: PathBuf,
         entry_checkpoint_path: PathBuf,
         trusted_probe: TrustedPathProbe,
+        account_launcher_binary: PathBuf,
+        account_launcher_sha256: String,
         bootstrap_binary: PathBuf,
         bootstrap_sha256: String,
         fixture_root: PathBuf,
@@ -2211,20 +1853,48 @@ mod platform {
         hang_diagnostic: Option<BootstrapHangArtifactReference>,
         hang_diagnostic_error: Option<String>,
         process_id: u32,
-        primary_thread_id: u32,
         target_cmux_bench_environment_filtered: bool,
         account_sid: String,
         restricting_sid: String,
         logon_sid: String,
-        private_desktop_ready_before_resume: bool,
-        bootstrap_create_no_window: bool,
+        account_token_session_id: u32,
+        account_authentication_id: AuthenticationId,
+        job_ui_restrictions_exact_before_resume: bool,
+        launcher_create_no_window: bool,
+        launcher_ready: bool,
+        launcher_bootstrap_process_id: Option<u32>,
+        launcher_ready_evidence: Option<AccountLauncherReadyEvidence>,
         product_started_relayed: bool,
     }
 
+    struct AccountLauncherReadyEvidence {
+        launcher_token_session_id: u32,
+        bootstrap_token_session_id: u32,
+        bootstrap_process_id: u32,
+        bootstrap_primary_thread_id: u32,
+        bootstrap_resume_previous_count: Option<u32>,
+        bootstrap_handles_adopted: bool,
+        adoption_acknowledged: bool,
+        config_consumed: bool,
+        handles_exact: bool,
+        handle_inheritance_exact: bool,
+        supervisor_target_exact: bool,
+        private_job_member: bool,
+        se_increase_quota_present: bool,
+        se_increase_quota_enabled: bool,
+        bootstrap_created_suspended: bool,
+        empty_desktop_selection: bool,
+        create_no_window: bool,
+        handle_list_exact: bool,
+    }
+
     struct BootstrapIdentity {
-        config_path: PathBuf,
+        launcher_config_path: PathBuf,
+        bootstrap_config_path: PathBuf,
         entry_checkpoint_path: PathBuf,
         trusted_probe: TrustedPathProbe,
+        account_launcher_binary: PathBuf,
+        account_launcher_sha256: String,
         bootstrap_binary: PathBuf,
         bootstrap_sha256: String,
         fixture_root: PathBuf,
@@ -2232,20 +1902,22 @@ mod platform {
         resumed_at: Instant,
         resume_previous_count: u32,
         process_id: u32,
-        primary_thread_id: u32,
         target_cmux_bench_environment_filtered: bool,
         account_sid: String,
         restricting_sid: String,
         logon_sid: String,
-        private_desktop_ready_before_resume: bool,
-        bootstrap_create_no_window: bool,
+        account_token_session_id: u32,
+        account_authentication_id: AuthenticationId,
+        job_ui_restrictions_exact_before_resume: bool,
+        launcher_create_no_window: bool,
     }
 
     enum BootstrapEvent {
         Message(BootstrapMessage),
         PipeEof,
         ProtocolError(String),
-        ProcessExited(std::result::Result<u32, String>),
+        LauncherExited(std::result::Result<u32, String>),
+        BootstrapExited(std::result::Result<u32, String>),
     }
 
     impl BootstrapSession {
@@ -2256,9 +1928,12 @@ mod platform {
             identity: BootstrapIdentity,
         ) -> Result<Self> {
             let BootstrapIdentity {
-                config_path,
+                launcher_config_path,
+                bootstrap_config_path,
                 entry_checkpoint_path,
                 trusted_probe,
+                account_launcher_binary,
+                account_launcher_sha256,
                 bootstrap_binary,
                 bootstrap_sha256,
                 fixture_root,
@@ -2266,13 +1941,14 @@ mod platform {
                 resumed_at,
                 resume_previous_count,
                 process_id,
-                primary_thread_id,
                 target_cmux_bench_environment_filtered,
                 account_sid,
                 restricting_sid,
                 logon_sid,
-                private_desktop_ready_before_resume,
-                bootstrap_create_no_window,
+                account_token_session_id,
+                account_authentication_id,
+                job_ui_restrictions_exact_before_resume,
+                launcher_create_no_window,
             } = identity;
             let wait_handle =
                 duplicate_current_process_handle(process.0, "restricted bootstrap status wait")?;
@@ -2299,21 +1975,29 @@ mod platform {
                     }
                 }
             });
-            let status = thread::spawn(move || {
+            let status_sender = sender.clone();
+            let launcher_status = thread::spawn(move || {
                 let handle = OwnedHandle(wait_handle as HANDLE);
                 let result = wait_process_exit_code(&handle).map_err(|error| format!("{error:#}"));
-                let _ = sender.send(BootstrapEvent::ProcessExited(result));
+                let _ = status_sender.send(BootstrapEvent::LauncherExited(result));
             });
             Ok(Self {
                 process,
-                primary_thread,
+                _primary_thread: primary_thread,
                 writer: Some(writer),
                 receiver,
+                sender,
                 reader: Some(reader),
-                status: Some(status),
-                config_path,
+                launcher_status: Some(launcher_status),
+                bootstrap_status: None,
+                bootstrap_process: None,
+                bootstrap_primary_thread: None,
+                launcher_config_path,
+                bootstrap_config_path,
                 entry_checkpoint_path,
                 trusted_probe,
+                account_launcher_binary,
+                account_launcher_sha256,
                 bootstrap_binary,
                 bootstrap_sha256,
                 fixture_root,
@@ -2329,8 +2013,13 @@ mod platform {
                 account_sid,
                 restricting_sid,
                 logon_sid,
-                private_desktop_ready_before_resume,
-                bootstrap_create_no_window,
+                account_token_session_id,
+                account_authentication_id,
+                job_ui_restrictions_exact_before_resume,
+                launcher_create_no_window,
+                launcher_ready: false,
+                launcher_bootstrap_process_id: None,
+                launcher_ready_evidence: None,
                 product_started_relayed: false,
             })
         }
@@ -2340,11 +2029,23 @@ mod platform {
             owner: &WindowsLaunchOwner,
             launch: &Launch,
         ) -> Result<()> {
+            let process = self
+                .bootstrap_process
+                .as_ref()
+                .context("native bootstrap process handle was not adopted")?;
+            let primary_thread = self
+                .bootstrap_primary_thread
+                .as_ref()
+                .context("native bootstrap primary-thread handle was not adopted")?;
+            let launcher = self
+                .launcher_ready_evidence
+                .as_ref()
+                .context("account launcher READY evidence is missing")?;
             match startup_benchmark_windows_diagnostic::capture(CaptureRequest {
-                process: self.process.0,
-                primary_thread: self.primary_thread.0,
-                process_id: self.process_id,
-                primary_thread_id: self.primary_thread_id,
+                process: process.0,
+                primary_thread: primary_thread.0,
+                process_id: launcher.bootstrap_process_id,
+                primary_thread_id: launcher.bootstrap_primary_thread_id,
                 private_job: owner.job.0,
                 fixture_root: &self.fixture_root,
                 nonce: &self.nonce,
@@ -2362,7 +2063,112 @@ mod platform {
             }
         }
 
-        fn wait_ready(&mut self, nonce: &str, trace: &mut BootstrapStartupTrace) -> Result<()> {
+        fn adopt_bootstrap_handles(
+            &mut self,
+            owner: &WindowsLaunchOwner,
+            process_id: u32,
+            primary_thread_id: u32,
+            process_handle: u64,
+            primary_thread_handle: u64,
+        ) -> Result<()> {
+            let process = owned_adopted_handle(process_handle, "native bootstrap process")?;
+            if process_handle == primary_thread_handle {
+                bail!("native bootstrap adoption reused one handle value");
+            }
+            let primary_thread =
+                owned_adopted_handle(primary_thread_handle, "native bootstrap primary thread")?;
+            if self.bootstrap_process.is_some() || self.bootstrap_primary_thread.is_some() {
+                bail!("account launcher sent an extra native bootstrap adoption record");
+            }
+            if unsafe { GetProcessId(process.0) } != process_id
+                || unsafe { GetThreadId(primary_thread.0) } != primary_thread_id
+                || unsafe { GetProcessIdOfThread(primary_thread.0) } != process_id
+            {
+                bail!("native bootstrap adopted handle type or identity changed");
+            }
+            let observed_path = query_process_image_path(process.0)?;
+            let expected_path = self.bootstrap_binary.canonicalize()?;
+            if !observed_path
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&expected_path.to_string_lossy())
+            {
+                bail!(
+                    "native bootstrap adopted image changed: expected {}, observed {}",
+                    expected_path.display(),
+                    observed_path.display()
+                );
+            }
+            verify_file_sha256(
+                &observed_path,
+                &self.bootstrap_sha256,
+                "adopted native bootstrap before resume",
+            )?;
+            let mut in_job = 0;
+            check(
+                unsafe { IsProcessInJob(process.0, owner.job.0, &mut in_job) },
+                "verify adopted native bootstrap Job membership",
+            )?;
+            if in_job == 0 {
+                bail!("adopted native bootstrap was outside the private Job");
+            }
+            let mut token = null_mut();
+            check(
+                unsafe { OpenProcessToken(process.0, TOKEN_QUERY, &mut token) },
+                "open adopted native bootstrap token",
+            )?;
+            let token = OwnedHandle(token);
+            if token_user_sid_string(token.0)? != self.account_sid
+                || token_logon_sid_string(token.0)? != self.logon_sid
+                || token_session_id(token.0)? != self.account_token_session_id
+                || token_authentication_id(token.0)? != self.account_authentication_id
+            {
+                bail!("adopted native bootstrap account token identity changed");
+            }
+            let mut exit_code = 0_u32;
+            check(
+                unsafe { GetExitCodeProcess(process.0, &mut exit_code) },
+                "query adopted native bootstrap state",
+            )?;
+            if exit_code != STILL_ACTIVE {
+                bail!("adopted native bootstrap exited before adoption");
+            }
+            let previous_count = unsafe { SuspendThread(primary_thread.0) };
+            if previous_count == u32::MAX {
+                return Err(std::io::Error::last_os_error())
+                    .context("probe adopted native bootstrap suspended state");
+            }
+            let restored_count = unsafe { ResumeThread(primary_thread.0) };
+            if restored_count == u32::MAX {
+                return Err(std::io::Error::last_os_error())
+                    .context("restore adopted native bootstrap suspended state");
+            }
+            if previous_count != 1 || restored_count != 2 {
+                bail!(
+                    "adopted native bootstrap suspend count changed: before {previous_count}, restore {restored_count}"
+                );
+            }
+            let wait_handle = duplicate_current_process_handle(
+                process.0,
+                "adopted native bootstrap status wait",
+            )?;
+            let sender = self.sender.clone();
+            let status = thread::spawn(move || {
+                let handle = OwnedHandle(wait_handle as HANDLE);
+                let result = wait_process_exit_code(&handle).map_err(|error| format!("{error:#}"));
+                let _ = sender.send(BootstrapEvent::BootstrapExited(result));
+            });
+            self.bootstrap_process = Some(process);
+            self.bootstrap_primary_thread = Some(primary_thread);
+            self.bootstrap_status = Some(status);
+            Ok(())
+        }
+
+        fn wait_ready(
+            &mut self,
+            nonce: &str,
+            owner: &WindowsLaunchOwner,
+            trace: &mut BootstrapStartupTrace,
+        ) -> Result<()> {
             let deadline = self
                 .resumed_at
                 .checked_add(BOOTSTRAP_STARTUP_TIMEOUT)
@@ -2388,8 +2194,175 @@ mod platform {
                     }
                 };
                 match event {
+                    BootstrapEvent::Message(BootstrapMessage::AccountLauncherReady {
+                        nonce: observed,
+                        launcher_sha256,
+                        bootstrap_sha256,
+                        config_consumed,
+                        self_hash_match,
+                        bootstrap_hash_match,
+                        handles_exact,
+                        handle_inheritance_exact,
+                        private_job_member,
+                        job_ui_restrictions_match,
+                        se_increase_quota_present,
+                        se_increase_quota_enabled,
+                        session_match,
+                        bootstrap_created_suspended,
+                        bootstrap_private_job_member,
+                        bootstrap_session_match,
+                        empty_desktop_selection,
+                        create_no_window,
+                        handle_list_exact,
+                        supervisor_target_exact,
+                        bootstrap_handles_duplicated,
+                        account_token_session_id,
+                        launcher_token_session_id,
+                        bootstrap_token_session_id,
+                        job_ui_restriction_mask,
+                        bootstrap_process_id,
+                        bootstrap_primary_thread_id,
+                        supervisor_process_id,
+                        launcher_process_id,
+                        bootstrap_process_handle,
+                        bootstrap_primary_thread_handle,
+                    }) => {
+                        let readiness = BootstrapMessage::AccountLauncherReady {
+                            nonce: observed.clone(),
+                            launcher_sha256: launcher_sha256.clone(),
+                            bootstrap_sha256: bootstrap_sha256.clone(),
+                            config_consumed,
+                            self_hash_match,
+                            bootstrap_hash_match,
+                            handles_exact,
+                            handle_inheritance_exact,
+                            private_job_member,
+                            job_ui_restrictions_match,
+                            se_increase_quota_present,
+                            se_increase_quota_enabled,
+                            session_match,
+                            bootstrap_created_suspended,
+                            bootstrap_private_job_member,
+                            bootstrap_session_match,
+                            empty_desktop_selection,
+                            create_no_window,
+                            handle_list_exact,
+                            supervisor_target_exact,
+                            bootstrap_handles_duplicated,
+                            account_token_session_id,
+                            launcher_token_session_id,
+                            bootstrap_token_session_id,
+                            job_ui_restriction_mask,
+                            bootstrap_process_id,
+                            bootstrap_primary_thread_id,
+                            supervisor_process_id,
+                            launcher_process_id,
+                            bootstrap_process_handle,
+                            bootstrap_primary_thread_handle,
+                        };
+                        let metadata_valid = !self.launcher_ready
+                            && validate_account_launcher_ready_message(
+                                &readiness,
+                                nonce,
+                                &self.account_launcher_sha256,
+                                &self.bootstrap_sha256,
+                                self.account_token_session_id,
+                                std::process::id(),
+                                self.process_id,
+                            )
+                            .is_ok();
+                        if !metadata_valid {
+                            close_unadopted_handles(
+                                bootstrap_process_handle,
+                                bootstrap_primary_thread_handle,
+                            )?;
+                            bail!("account launcher READY or adoption evidence mismatch");
+                        }
+                        if self.launcher_config_path.exists() {
+                            close_unadopted_handles(
+                                bootstrap_process_handle,
+                                bootstrap_primary_thread_handle,
+                            )?;
+                            trace.observe(BootstrapObservedEvent::Error);
+                            bail!("account launcher did not consume its launch config");
+                        }
+                        self.adopt_bootstrap_handles(
+                            owner,
+                            bootstrap_process_id,
+                            bootstrap_primary_thread_id,
+                            bootstrap_process_handle,
+                            bootstrap_primary_thread_handle,
+                        )?;
+                        let writer = self
+                            .writer
+                            .as_mut()
+                            .context("Windows account launcher command pipe is closed")?;
+                        writer.write_all(&encode_account_launcher_adopted(nonce)?)?;
+                        writer.flush()?;
+                        self.launcher_ready = true;
+                        self.launcher_bootstrap_process_id = Some(bootstrap_process_id);
+                        self.launcher_ready_evidence = Some(AccountLauncherReadyEvidence {
+                            launcher_token_session_id,
+                            bootstrap_token_session_id,
+                            bootstrap_process_id,
+                            bootstrap_primary_thread_id,
+                            bootstrap_resume_previous_count: None,
+                            bootstrap_handles_adopted: true,
+                            adoption_acknowledged: false,
+                            config_consumed,
+                            handles_exact,
+                            handle_inheritance_exact,
+                            supervisor_target_exact,
+                            private_job_member,
+                            se_increase_quota_present,
+                            se_increase_quota_enabled,
+                            bootstrap_created_suspended,
+                            empty_desktop_selection,
+                            create_no_window,
+                            handle_list_exact,
+                        });
+                        trace.observe(BootstrapObservedEvent::Stage(
+                            BootstrapStage::AccountLauncherReady,
+                        ));
+                        trace.observe(BootstrapObservedEvent::Stage(
+                            BootstrapStage::BootstrapHandlesAdopted,
+                        ));
+                    }
+                    BootstrapEvent::Message(BootstrapMessage::AccountLauncherResumed {
+                        nonce: observed,
+                        bootstrap_resume_previous_count,
+                        bootstrap_process_id,
+                        adoption_acknowledged,
+                    }) if observed == nonce
+                        && self.launcher_ready
+                        && adoption_acknowledged
+                        && bootstrap_resume_previous_count == 1
+                        && self.launcher_bootstrap_process_id == Some(bootstrap_process_id)
+                        && self.launcher_ready_evidence.as_ref().is_some_and(|launcher| {
+                            launcher.bootstrap_resume_previous_count.is_none()
+                        }) =>
+                    {
+                        self.launcher_ready_evidence
+                            .as_mut()
+                            .context("account launcher READY evidence is missing")?
+                            .bootstrap_resume_previous_count =
+                            Some(bootstrap_resume_previous_count);
+                        self.launcher_ready_evidence
+                            .as_mut()
+                            .context("account launcher READY evidence is missing")?
+                            .adoption_acknowledged = true;
+                        trace.observe(BootstrapObservedEvent::Stage(
+                            BootstrapStage::AccountLauncherResumed,
+                        ));
+                    }
                     BootstrapEvent::Message(BootstrapMessage::Stage { nonce: observed, stage })
-                        if observed == nonce =>
+                        if observed == nonce
+                            && self.launcher_ready
+                            && self
+                                .launcher_ready_evidence
+                                .as_ref()
+                                .and_then(|launcher| launcher.bootstrap_resume_previous_count)
+                                == Some(1) =>
                     {
                         trace.observe(BootstrapObservedEvent::Stage(map_minimal_stage(stage)));
                     }
@@ -2411,21 +2384,38 @@ mod platform {
                         restricting_sid_match,
                         write_restricted_created,
                         system_restricting_sid_match,
-                        private_window_station,
-                        private_desktop,
-                        window_station_dacl,
-                        desktop_dacl,
+                        os_assigned_window_station,
+                        os_assigned_desktop,
+                        window_station_noninteractive,
+                        desktop_noninteractive_default,
                         window_station_low_integrity,
                         desktop_low_integrity,
                         restricted_desktop_access,
                         restricted_logon_sid_match,
                         window_station_logon_sid_dacl,
                         desktop_logon_sid_dacl,
+                        token_session_match,
+                        job_ui_restrictions_match,
                         broker_authentication_id,
                         restricted_authentication_id,
+                        account_token_session_id,
+                        bootstrap_token_session_id,
+                        restricted_token_session_id,
+                        job_ui_restriction_mask,
                         restricting_sid,
                         logon_sid,
+                        observed_window_station,
+                        observed_desktop,
                     }) if observed == nonce
+                        && self.launcher_ready
+                        && self
+                            .launcher_ready_evidence
+                            .as_ref()
+                            .and_then(|launcher| launcher.bootstrap_resume_previous_count)
+                            == Some(1)
+                        && self.launcher_ready_evidence.as_ref().is_some_and(|launcher| {
+                            launcher.bootstrap_handles_adopted && launcher.adoption_acknowledged
+                        })
                         && bootstrap_sha256 == self.bootstrap_sha256
                         && config_consumed
                         && standard_handles_valid
@@ -2442,21 +2432,35 @@ mod platform {
                         && restricting_sid_match
                         && write_restricted_created
                         && system_restricting_sid_match
-                        && private_window_station
-                        && private_desktop
-                        && window_station_dacl
-                        && desktop_dacl
+                        && os_assigned_window_station
+                        && os_assigned_desktop
+                        && window_station_noninteractive
+                        && desktop_noninteractive_default
                         && window_station_low_integrity
                         && desktop_low_integrity
                         && restricted_desktop_access
                         && restricted_logon_sid_match
                         && window_station_logon_sid_dacl
                         && desktop_logon_sid_dacl
+                        && token_session_match
+                        && job_ui_restrictions_match
+                        && account_token_session_id == self.account_token_session_id
+                        && bootstrap_token_session_id == self.account_token_session_id
+                        && bootstrap_token_session_id
+                            == self
+                                .launcher_ready_evidence
+                                .as_ref()
+                                .map(|launcher| launcher.bootstrap_token_session_id)
+                                .unwrap_or(u32::MAX)
+                        && restricted_token_session_id == self.account_token_session_id
+                        && job_ui_restriction_mask == WINDOWS_JOB_UI_RESTRICTION_MASK
                         && restricting_sid == self.restricting_sid
                         && logon_sid == self.logon_sid =>
                     {
-                        let (private_window_station_name, private_desktop_name) =
-                            windows_private_desktop_identity(&observed)?;
+                        cmux_startup_bootstrap::validate_os_assigned_desktop_identity(
+                            &observed_window_station,
+                            &observed_desktop,
+                        )?;
                         if self.record_native_entry_checkpoint(trace)?
                             != Some(NativeEntryCheckpointStage::ConfigConsumed)
                         {
@@ -2465,16 +2469,52 @@ mod platform {
                                 "restricted bootstrap did not publish its consumed config checkpoint"
                             );
                         }
-                        if self.config_path.exists() {
+                        if self.bootstrap_config_path.exists() {
                             trace.observe(BootstrapObservedEvent::Error);
                             bail!("restricted bootstrap did not consume its launch config");
                         }
+                        let launcher = self
+                            .launcher_ready_evidence
+                            .as_ref()
+                            .context("account launcher READY evidence is missing")?;
                         self.evidence = Some(BootstrapLaunchEvidence {
                             schema_version: BOOTSTRAP_SCHEMA_VERSION,
+                            account_launcher_sha256: self.account_launcher_sha256.clone(),
                             bootstrap_sha256,
                             config_nonce: observed,
                             config_consumed,
-                            resume_previous_count: self.resume_previous_count,
+                            account_launcher_config_consumed: launcher.config_consumed,
+                            account_launcher_ready_before_bootstrap: self.launcher_ready,
+                            account_launcher_resume_previous_count: self.resume_previous_count,
+                            bootstrap_resume_previous_count: launcher
+                                .bootstrap_resume_previous_count
+                                .context("native bootstrap resume evidence is missing")?,
+                            account_launcher_create_no_window: self.launcher_create_no_window,
+                            account_launcher_private_job_member: launcher.private_job_member,
+                            account_launcher_handles_exact: launcher.handles_exact,
+                            account_launcher_handle_inheritance_exact: launcher
+                                .handle_inheritance_exact,
+                            account_launcher_supervisor_target_exact: launcher
+                                .supervisor_target_exact,
+                            account_launcher_se_increase_quota_present: launcher
+                                .se_increase_quota_present,
+                            account_launcher_se_increase_quota_enabled: launcher
+                                .se_increase_quota_enabled,
+                            account_launcher_token_session_id: launcher.launcher_token_session_id,
+                            bootstrap_created_suspended: launcher.bootstrap_created_suspended,
+                            bootstrap_created_with_create_process_as_user: true,
+                            bootstrap_empty_desktop_selection: launcher.empty_desktop_selection,
+                            bootstrap_explicit_handle_list: launcher.handle_list_exact,
+                            bootstrap_process_id: launcher.bootstrap_process_id,
+                            bootstrap_primary_thread_id: launcher.bootstrap_primary_thread_id,
+                            bootstrap_remote_handles_adopted: launcher.bootstrap_handles_adopted,
+                            bootstrap_adoption_acknowledged_before_resume: launcher
+                                .adoption_acknowledged,
+                            bootstrap_handle_types_exact: true,
+                            bootstrap_image_identity_verified: true,
+                            bootstrap_exact_job_before_resume: true,
+                            bootstrap_account_token_identity_verified: true,
+                            bootstrap_suspended_state_verified: true,
                             ready_elapsed_ms: u64::try_from(self.resumed_at.elapsed().as_millis())
                                 .unwrap_or(u64::MAX),
                             exact_job_proof: private_job_member,
@@ -2484,15 +2524,21 @@ mod platform {
                             restricting_sid,
                             system_restricting_sid: WINDOWS_WRITE_RESTRICTED_CODE_SID.into(),
                             logon_sid,
-                            private_window_station: private_window_station_name,
-                            private_desktop: private_desktop_name,
-                            private_desktop_ready_before_resume: self
-                                .private_desktop_ready_before_resume,
-                            bootstrap_create_no_window: self.bootstrap_create_no_window,
+                            observed_window_station,
+                            observed_desktop,
+                            os_assigned_desktop_ready_before_resume: true,
+                            window_station_noninteractive,
+                            desktop_noninteractive_default,
+                            bootstrap_create_no_window: launcher.create_no_window,
                             broker_authentication_id: broker_authentication_id.evidence_value(),
                             restricted_authentication_id: restricted_authentication_id
                                 .evidence_value(),
                             product_authentication_id: String::new(),
+                            account_token_session_id,
+                            bootstrap_token_session_id,
+                            restricted_token_session_id,
+                            product_token_session_id: 0,
+                            token_session_ids_match: token_session_match,
                             restricted_authentication_matches_broker:
                                 restricted_authentication_match,
                             product_authentication_matches_broker: false,
@@ -2509,13 +2555,14 @@ mod platform {
                             restricted_token_low_integrity: restricted_low_integrity,
                             restricted_token_no_enabled_privileges:
                                 restricted_no_enabled_privileges,
-                            window_station_dacl_proven: window_station_dacl,
-                            desktop_dacl_proven: desktop_dacl,
                             window_station_logon_sid_dacl_proven: window_station_logon_sid_dacl,
                             desktop_logon_sid_dacl_proven: desktop_logon_sid_dacl,
                             window_station_low_integrity,
                             desktop_low_integrity,
                             restricted_desktop_access_proven: restricted_desktop_access,
+                            job_ui_restriction_mask,
+                            job_ui_restrictions_exact_before_resume: self
+                                .job_ui_restrictions_exact_before_resume,
                             product_write_restricted: false,
                             product_restricting_sid_match: false,
                             product_system_restricting_sid_match: false,
@@ -2523,7 +2570,9 @@ mod platform {
                             product_low_integrity: false,
                             product_no_enabled_privileges: false,
                             product_exact_job: false,
-                            product_private_desktop: false,
+                            product_desktop_assignment_match: false,
+                            product_window_station_low_integrity: false,
+                            product_desktop_low_integrity: false,
                             product_create_no_window: false,
                             product_resume_previous_count: 0,
                         });
@@ -2547,15 +2596,47 @@ mod platform {
                             "restricted bootstrap failed before READY at native stage {stage} with Windows error {windows_error}"
                         )
                     }
-                    BootstrapEvent::ProcessExited(Ok(code)) => {
+                    BootstrapEvent::Message(BootstrapMessage::AccountLauncherError {
+                        nonce: observed,
+                        windows_error,
+                        stage,
+                    }) if observed == nonce => {
+                        self.record_native_entry_checkpoint(trace)?;
+                        trace.observe(BootstrapObservedEvent::Error);
+                        bail!(
+                            "account launcher failed before bootstrap READY at launcher stage {stage} with Windows error {windows_error}"
+                        )
+                    }
+                    BootstrapEvent::Message(BootstrapMessage::AccountLauncherExit {
+                        nonce: observed,
+                        bootstrap_exit_code,
+                        bootstrap_resume_previous_count,
+                        bootstrap_process_id,
+                    }) if observed == nonce => {
+                        trace.observe(BootstrapObservedEvent::Exit(bootstrap_exit_code));
+                        bail!(
+                            "native bootstrap exited before READY through account launcher: code {bootstrap_exit_code} ({bootstrap_exit_code:#010x}), resume count {bootstrap_resume_previous_count}, process {bootstrap_process_id}"
+                        )
+                    }
+                    BootstrapEvent::BootstrapExited(Ok(code)) => {
                         self.record_native_entry_checkpoint(trace)?;
                         trace.observe(BootstrapObservedEvent::Exit(code));
                         bail!("restricted bootstrap exited before READY with code {code}")
                     }
-                    BootstrapEvent::ProcessExited(Err(error)) => {
+                    BootstrapEvent::BootstrapExited(Err(error)) => {
                         self.record_native_entry_checkpoint(trace)?;
                         trace.observe(BootstrapObservedEvent::Error);
                         bail!("read restricted bootstrap exit state: {error}")
+                    }
+                    BootstrapEvent::LauncherExited(Ok(code)) => {
+                        self.record_native_entry_checkpoint(trace)?;
+                        trace.observe(BootstrapObservedEvent::Exit(code));
+                        bail!("account launcher exited before bootstrap READY with code {code}")
+                    }
+                    BootstrapEvent::LauncherExited(Err(error)) => {
+                        self.record_native_entry_checkpoint(trace)?;
+                        trace.observe(BootstrapObservedEvent::Error);
+                        bail!("read account launcher exit state: {error}")
                     }
                     BootstrapEvent::PipeEof => {
                         self.record_native_entry_checkpoint(trace)?;
@@ -2566,13 +2647,15 @@ mod platform {
                             deadline,
                             "read restricted bootstrap exit after READY pipe EOF",
                         ) {
-                            Ok(BootstrapEvent::ProcessExited(Ok(code))) => {
+                            Ok(BootstrapEvent::BootstrapExited(Ok(code)))
+                            | Ok(BootstrapEvent::LauncherExited(Ok(code))) => {
                                 trace.observe(BootstrapObservedEvent::Exit(code));
                                 bail!(
                                     "restricted bootstrap event pipe closed before READY; process exited with code {code} ({code:#010x})"
                                 )
                             }
-                            Ok(BootstrapEvent::ProcessExited(Err(error))) => {
+                            Ok(BootstrapEvent::BootstrapExited(Err(error)))
+                            | Ok(BootstrapEvent::LauncherExited(Err(error))) => {
                                 trace.observe(BootstrapObservedEvent::Error);
                                 bail!(
                                     "restricted bootstrap event pipe closed before READY; read process exit state: {error}"
@@ -2652,8 +2735,20 @@ mod platform {
                 .checked_add(CONTROL_TIMEOUT)
                 .context("restricted product status deadline overflow")?;
             let mut product_started = false;
+            let mut bootstrap_exit = None;
             let (code, contained) = loop {
                 match self.receive_until(deadline, "wait for restricted product status")? {
+                    BootstrapEvent::Message(BootstrapMessage::AccountLauncherReady {
+                        bootstrap_process_handle,
+                        bootstrap_primary_thread_handle,
+                        ..
+                    }) => {
+                        close_unadopted_handles(
+                            bootstrap_process_handle,
+                            bootstrap_primary_thread_handle,
+                        )?;
+                        bail!("account launcher sent a late native bootstrap adoption record");
+                    }
                     BootstrapEvent::Message(BootstrapMessage::ProductStarted {
                         nonce: observed,
                         private_job_descendant_contained,
@@ -2664,10 +2759,14 @@ mod platform {
                         product_no_enabled_privileges,
                         product_restricting_sid_match,
                         product_system_restricting_sid_match,
-                        product_private_desktop,
+                        product_desktop_assignment_match,
                         product_create_no_window,
                         product_logon_sid_match,
+                        product_session_id_match,
+                        product_window_station_low_integrity,
+                        product_desktop_low_integrity,
                         product_authentication_id,
+                        product_token_session_id,
                         resume_previous_count,
                     }) if observed == nonce => {
                         if product_started
@@ -2679,9 +2778,13 @@ mod platform {
                             || !product_no_enabled_privileges
                             || !product_restricting_sid_match
                             || !product_system_restricting_sid_match
-                            || !product_private_desktop
+                            || !product_desktop_assignment_match
                             || !product_create_no_window
                             || !product_logon_sid_match
+                            || !product_session_id_match
+                            || !product_window_station_low_integrity
+                            || !product_desktop_low_integrity
+                            || product_token_session_id != self.account_token_session_id
                             || resume_previous_count != 1
                         {
                             bail!("restricted bootstrap product-started evidence mismatch");
@@ -2705,7 +2808,13 @@ mod platform {
                         evidence.product_low_integrity = product_low_integrity;
                         evidence.product_no_enabled_privileges = product_no_enabled_privileges;
                         evidence.product_exact_job = private_job_descendant_contained;
-                        evidence.product_private_desktop = product_private_desktop;
+                        evidence.product_desktop_assignment_match =
+                            product_desktop_assignment_match;
+                        evidence.product_window_station_low_integrity =
+                            product_window_station_low_integrity;
+                        evidence.product_desktop_low_integrity = product_desktop_low_integrity;
+                        evidence.product_token_session_id = product_token_session_id;
+                        evidence.token_session_ids_match = product_session_id_match;
                         evidence.product_create_no_window = product_create_no_window;
                         evidence.product_resume_previous_count = resume_previous_count;
                         evidence.validate(&self.nonce, &self.bootstrap_sha256)?;
@@ -2727,10 +2836,14 @@ mod platform {
                         product_no_enabled_privileges,
                         product_restricting_sid_match,
                         product_system_restricting_sid_match,
-                        product_private_desktop,
+                        product_desktop_assignment_match,
                         product_create_no_window,
                         product_logon_sid_match,
+                        product_session_id_match,
+                        product_window_station_low_integrity,
+                        product_desktop_low_integrity,
                         product_authentication_id,
+                        product_token_session_id,
                     }) if observed == nonce => {
                         let evidence = self
                             .evidence
@@ -2745,15 +2858,44 @@ mod platform {
                             || !product_no_enabled_privileges
                             || !product_restricting_sid_match
                             || !product_system_restricting_sid_match
-                            || !product_private_desktop
+                            || !product_desktop_assignment_match
                             || !product_create_no_window
                             || !product_logon_sid_match
+                            || !product_session_id_match
+                            || !product_window_station_low_integrity
+                            || !product_desktop_low_integrity
+                            || product_token_session_id != evidence.product_token_session_id
                             || product_authentication_id.evidence_value()
                                 != evidence.product_authentication_id
                         {
                             bail!("restricted bootstrap exit evidence changed after product start");
                         }
-                        break (code, private_job_descendant_contained);
+                        bootstrap_exit = Some((code, private_job_descendant_contained));
+                    }
+                    BootstrapEvent::Message(BootstrapMessage::AccountLauncherExit {
+                        nonce: observed,
+                        bootstrap_exit_code,
+                        bootstrap_resume_previous_count,
+                        bootstrap_process_id,
+                    }) if observed == nonce => {
+                        let (code, contained) = bootstrap_exit
+                            .context("account launcher exited before native bootstrap evidence")?;
+                        let launcher = self
+                            .launcher_ready_evidence
+                            .as_ref()
+                            .context("account launcher READY evidence is missing")?;
+                        if bootstrap_exit_code != code
+                            || bootstrap_resume_previous_count
+                                != launcher
+                                    .bootstrap_resume_previous_count
+                                    .context("native bootstrap resume evidence is missing")?
+                            || bootstrap_process_id != launcher.bootstrap_process_id
+                        {
+                            bail!(
+                                "account launcher exit evidence changed native bootstrap identity"
+                            );
+                        }
+                        break (code, contained);
                     }
                     BootstrapEvent::Message(BootstrapMessage::Error {
                         nonce: observed,
@@ -2764,11 +2906,22 @@ mod platform {
                             "restricted bootstrap product launch failed at native stage {stage} with Windows error {windows_error}"
                         )
                     }
-                    BootstrapEvent::ProcessExited(Ok(_)) => {
+                    BootstrapEvent::Message(BootstrapMessage::AccountLauncherError {
+                        nonce: observed,
+                        windows_error,
+                        stage,
+                    }) if observed == nonce => {
+                        bail!(
+                            "account launcher failed after native bootstrap start at launcher stage {stage} with Windows error {windows_error}"
+                        )
+                    }
+                    BootstrapEvent::BootstrapExited(Ok(_))
+                    | BootstrapEvent::LauncherExited(Ok(_)) => {
                         // The event-pipe line can arrive after the process signal. Keep the one
                         // absolute deadline while the reader drains the already-written status.
                     }
-                    BootstrapEvent::ProcessExited(Err(error)) => {
+                    BootstrapEvent::BootstrapExited(Err(error))
+                    | BootstrapEvent::LauncherExited(Err(error)) => {
                         bail!("read restricted bootstrap product exit state: {error}")
                     }
                     BootstrapEvent::PipeEof => {
@@ -2785,7 +2938,13 @@ mod platform {
                     "restricted bootstrap did not prove its surviving descendant in the private Job"
                 );
             }
-            wait_process(&self.process, CONTROL_TIMEOUT, "restricted bootstrap exit")?;
+            wait_process(
+                self.bootstrap_process
+                    .as_ref()
+                    .context("native bootstrap process handle was not adopted")?,
+                CONTROL_TIMEOUT,
+                "restricted bootstrap exit",
+            )?;
             Ok(ExitStatus::from_raw(code))
         }
 
@@ -2805,18 +2964,34 @@ mod platform {
 
         fn finish(&mut self, deadline: Instant) -> Result<()> {
             self.writer.take();
-            wait_process_until(&self.process, deadline, "restricted bootstrap cleanup")?;
+            if let Some(process) = self.bootstrap_process.as_ref() {
+                wait_process_until(process, deadline, "restricted bootstrap cleanup")?;
+            }
+            wait_process_until(&self.process, deadline, "account launcher cleanup")?;
             if let Some(reader) = self.reader.take() {
                 reader.join().map_err(|_| anyhow::anyhow!("bootstrap reader thread panicked"))?;
             }
-            if let Some(status) = self.status.take() {
+            if let Some(status) = self.bootstrap_status.take() {
                 status.join().map_err(|_| anyhow::anyhow!("bootstrap status thread panicked"))?;
             }
+            if let Some(status) = self.launcher_status.take() {
+                status
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("account launcher status thread panicked"))?;
+            }
+            verify_file_sha256(
+                &self.account_launcher_binary,
+                &self.account_launcher_sha256,
+                "dedicated Windows account launcher after containment cleanup",
+            )?;
             verify_file_sha256(
                 &self.bootstrap_binary,
                 &self.bootstrap_sha256,
                 "dedicated Windows bootstrap after containment cleanup",
             )?;
+            if self.launcher_config_path.exists() || self.bootstrap_config_path.exists() {
+                bail!("native Windows launch config survived successful containment cleanup");
+            }
             match fs::remove_file(&self.entry_checkpoint_path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -2864,9 +3039,7 @@ mod platform {
             BootstrapChildStage::RestrictedProductTokenReady => {
                 BootstrapStage::RestrictedProductTokenReady
             }
-            BootstrapChildStage::RestrictedDesktopAccessReady => {
-                BootstrapStage::RestrictedDesktopAccessReady
-            }
+            BootstrapChildStage::OsAssignedDesktopReady => BootstrapStage::OsAssignedDesktopSecured,
         }
     }
 
@@ -3057,6 +3230,31 @@ mod platform {
         Ok(target as usize)
     }
 
+    fn duplicate_into_process_with_access(
+        source: HANDLE,
+        process: HANDLE,
+        access: u32,
+        inheritable: bool,
+        name: &str,
+    ) -> Result<usize> {
+        let mut target = null_mut();
+        check(
+            unsafe {
+                DuplicateHandle(
+                    GetCurrentProcess(),
+                    source,
+                    process,
+                    &mut target,
+                    access,
+                    i32::from(inheritable),
+                    0,
+                )
+            },
+            &format!("duplicate Windows {name} handle with exact access"),
+        )?;
+        Ok(target as usize)
+    }
+
     fn duplicate_current_process_handle(source: HANDLE, name: &str) -> Result<usize> {
         let mut target = null_mut();
         check(
@@ -3076,6 +3274,41 @@ mod platform {
         Ok(target as usize)
     }
 
+    fn owned_adopted_handle(value: u64, name: &str) -> Result<OwnedHandle> {
+        let value = usize::try_from(value)? as HANDLE;
+        if value.is_null() || value == INVALID_HANDLE_VALUE {
+            bail!("Windows {name} adoption value is invalid");
+        }
+        Ok(OwnedHandle(value))
+    }
+
+    fn close_unadopted_handles(process: u64, primary_thread: u64) -> Result<()> {
+        let process_value = process;
+        let process = owned_adopted_handle(process, "unadopted native bootstrap process")?;
+        if process_value == primary_thread {
+            bail!("unadopted native bootstrap reused one handle value");
+        }
+        let primary_thread =
+            owned_adopted_handle(primary_thread, "unadopted native bootstrap primary thread")?;
+        drop(primary_thread);
+        drop(process);
+        Ok(())
+    }
+
+    fn query_process_image_path(process: HANDLE) -> Result<PathBuf> {
+        let mut buffer = vec![0_u16; 32_768];
+        let mut length = u32::try_from(buffer.len())?;
+        check(
+            unsafe { QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut length) },
+            "query adopted native bootstrap image path",
+        )?;
+        let length = usize::try_from(length)?;
+        if length == 0 || length >= buffer.len() {
+            bail!("adopted native bootstrap image path exceeded its bound");
+        }
+        Ok(PathBuf::from(String::from_utf16(&buffer[..length])?))
+    }
+
     fn bootstrap_config_path(launch: &Launch) -> PathBuf {
         launch.fixture_root.join(format!("bootstrap-{}.bin", &launch.nonce[..16]))
     }
@@ -3093,25 +3326,6 @@ mod platform {
         file.flush()?;
         drop(file);
         Ok((u64::try_from(bytes.len())?, digest))
-    }
-
-    fn persist_windows_desktop_lifecycle_evidence(
-        path: &Path,
-        evidence: &WindowsDesktopLifecycleEvidence,
-    ) -> Result<()> {
-        evidence.validate(&evidence.nonce)?;
-        let bytes = serde_json::to_vec_pretty(evidence)?;
-        if bytes.len() > MAX_BOOTSTRAP_CHECKPOINT_BYTES {
-            bail!("Windows desktop lifecycle evidence exceeded its file bound");
-        }
-        let mut file =
-            fs::OpenOptions::new().write(true).create_new(true).open(path).with_context(|| {
-                format!("create Windows desktop lifecycle evidence {}", path.display())
-            })?;
-        file.write_all(&bytes)?;
-        file.write_all(b"\n")?;
-        file.sync_all()?;
-        Ok(())
     }
 
     fn wait_process(process: &OwnedHandle, timeout: Duration, operation: &str) -> Result<()> {
@@ -3307,7 +3521,7 @@ mod platform {
     fn create_non_breakaway_job(
         deadline: Instant,
         trace: &mut BootstrapStartupTrace,
-    ) -> Result<(OwnedHandle, Option<OwnedHandle>, OwnedHandle)> {
+    ) -> Result<(OwnedHandle, Option<OwnedHandle>, OwnedHandle, u32)> {
         // SAFETY: null security attributes and name request an unnamed private job.
         let job = unsafe { CreateJobObjectW(null(), null()) };
         if job.is_null() {
@@ -3350,6 +3564,40 @@ mod platform {
             "configure kill-on-close non-breakaway job",
         )?;
         check_security_deadline(deadline, trace, "configure containment Job limits")?;
+        let ui_restrictions = JOBOBJECT_BASIC_UI_RESTRICTIONS {
+            UIRestrictionsClass: WINDOWS_JOB_UI_RESTRICTION_MASK,
+        };
+        check(
+            unsafe {
+                SetInformationJobObject(
+                    job.0,
+                    JobObjectBasicUIRestrictions,
+                    (&ui_restrictions as *const JOBOBJECT_BASIC_UI_RESTRICTIONS).cast(),
+                    u32::try_from(size_of::<JOBOBJECT_BASIC_UI_RESTRICTIONS>())?,
+                )
+            },
+            "configure Job Object UI restrictions",
+        )?;
+        let mut observed_ui_restrictions = JOBOBJECT_BASIC_UI_RESTRICTIONS::default();
+        let mut returned = 0_u32;
+        check(
+            unsafe {
+                QueryInformationJobObject(
+                    job.0,
+                    JobObjectBasicUIRestrictions,
+                    (&mut observed_ui_restrictions as *mut JOBOBJECT_BASIC_UI_RESTRICTIONS).cast(),
+                    u32::try_from(size_of::<JOBOBJECT_BASIC_UI_RESTRICTIONS>())?,
+                    &mut returned,
+                )
+            },
+            "query Job Object UI restrictions",
+        )?;
+        if returned != u32::try_from(size_of::<JOBOBJECT_BASIC_UI_RESTRICTIONS>())?
+            || observed_ui_restrictions.UIRestrictionsClass != WINDOWS_JOB_UI_RESTRICTION_MASK
+        {
+            bail!("Job Object UI restriction mask did not match the exact required mask");
+        }
+        check_security_deadline(deadline, trace, "prove Job Object UI restrictions")?;
         // SAFETY: INVALID_HANDLE_VALUE requests a new completion port.
         let completion_port =
             unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, null_mut(), 0, 1) };
@@ -3376,7 +3624,7 @@ mod platform {
             "associate Job Object completion port",
         )?;
         check_security_deadline(deadline, trace, "associate Job completion port")?;
-        Ok((job, query_job, completion_port))
+        Ok((job, query_job, completion_port, observed_ui_restrictions.UIRestrictionsClass))
     }
 
     fn configure_fixture_acl(

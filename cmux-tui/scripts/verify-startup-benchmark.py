@@ -127,13 +127,37 @@ if hashlib.sha256(preflight_bytes).hexdigest() != get(
 ):
     raise SystemExit("sandbox preflight file does not match its attested SHA-256")
 preflight = json.loads(preflight_bytes)
-if not isinstance(preflight, dict) or preflight.get("schema_version") != 9:
+if not isinstance(preflight, dict) or preflight.get("schema_version") != 11:
     raise SystemExit("sandbox preflight evidence has the wrong schema")
 windows_preflight_fields = (
+    "windows_account_launcher_sha256",
+    "windows_account_launcher_config_consumed",
+    "windows_account_launcher_ready_before_bootstrap",
+    "windows_account_launcher_resume_previous_count",
+    "windows_account_launcher_create_no_window",
+    "windows_account_launcher_private_job_member",
+    "windows_account_launcher_handles_exact",
+    "windows_account_launcher_handle_inheritance_exact",
+    "windows_account_launcher_supervisor_target_exact",
+    "windows_account_launcher_se_increase_quota_present",
+    "windows_account_launcher_se_increase_quota_enabled",
+    "windows_account_launcher_token_session_id",
     "windows_bootstrap_sha256",
     "windows_bootstrap_config_nonce",
     "windows_bootstrap_config_consumed",
     "windows_bootstrap_resume_previous_count",
+    "windows_bootstrap_created_suspended",
+    "windows_bootstrap_created_with_create_process_as_user",
+    "windows_bootstrap_empty_desktop_selection",
+    "windows_bootstrap_process_id",
+    "windows_bootstrap_primary_thread_id",
+    "windows_bootstrap_remote_handles_adopted",
+    "windows_bootstrap_adoption_acknowledged_before_resume",
+    "windows_bootstrap_handle_types_exact",
+    "windows_bootstrap_image_identity_verified",
+    "windows_bootstrap_exact_job_before_resume",
+    "windows_bootstrap_account_token_identity_verified",
+    "windows_bootstrap_suspended_state_verified",
     "windows_bootstrap_ready_elapsed_ms",
     "windows_bootstrap_exact_job",
     "windows_bootstrap_trusted_path_write_denied",
@@ -142,25 +166,22 @@ windows_preflight_fields = (
     "windows_restricting_sid",
     "windows_system_restricting_sid",
     "windows_logon_sid",
-    "windows_private_window_station",
-    "windows_private_desktop",
-    "windows_private_desktop_ready_before_resume",
-    "windows_private_window_station_logon_sid_dacl_proven",
-    "windows_private_desktop_logon_sid_dacl_proven",
-    "windows_supervisor_window_station_before",
-    "windows_supervisor_desktop_before",
-    "windows_supervisor_window_station_after_create",
-    "windows_supervisor_desktop_after_create",
-    "windows_supervisor_window_station_after_cleanup",
-    "windows_supervisor_desktop_after_cleanup",
-    "windows_supervisor_identity_unchanged_after_create",
-    "windows_supervisor_identity_unchanged_after_cleanup",
-    "windows_private_desktop_closed",
-    "windows_private_window_station_closed",
+    "windows_observed_window_station",
+    "windows_observed_desktop",
+    "windows_os_assigned_desktop_ready_before_resume",
+    "windows_window_station_noninteractive",
+    "windows_desktop_noninteractive_default",
+    "windows_window_station_logon_sid_dacl_proven",
+    "windows_desktop_logon_sid_dacl_proven",
     "windows_bootstrap_create_no_window",
     "windows_broker_authentication_id",
     "windows_restricted_authentication_id",
     "windows_product_authentication_id",
+    "windows_account_token_session_id",
+    "windows_bootstrap_token_session_id",
+    "windows_restricted_token_session_id",
+    "windows_product_token_session_id",
+    "windows_token_session_ids_match",
     "windows_restricted_authentication_matches_broker",
     "windows_product_authentication_matches_broker",
     "windows_se_increase_quota_present",
@@ -172,11 +193,11 @@ windows_preflight_fields = (
     "windows_restricted_token_restricting_sid_match",
     "windows_restricted_token_system_restricting_sid_match",
     "windows_restricted_token_logon_sid_match",
-    "windows_window_station_dacl_proven",
-    "windows_desktop_dacl_proven",
     "windows_window_station_low_integrity",
     "windows_desktop_low_integrity",
     "windows_restricted_desktop_access_proven",
+    "windows_job_ui_restriction_mask",
+    "windows_job_ui_restrictions_exact_before_resume",
     "windows_product_write_restricted",
     "windows_product_low_integrity",
     "windows_product_no_enabled_privileges",
@@ -184,7 +205,9 @@ windows_preflight_fields = (
     "windows_product_system_restricting_sid_match",
     "windows_product_logon_sid_match",
     "windows_product_exact_job",
-    "windows_product_private_desktop",
+    "windows_product_desktop_assignment_match",
+    "windows_product_window_station_low_integrity",
+    "windows_product_desktop_low_integrity",
     "windows_product_create_no_window",
     "windows_product_resume_previous_count",
 )
@@ -196,7 +219,29 @@ windows_bootstrap_fields = (
     "infrastructure.windows_bootstrap_sha256",
     "infrastructure.windows_bootstrap_bytes",
 )
+windows_account_launcher_fields = (
+    "infrastructure.windows_account_launcher_binary",
+    "infrastructure.expected_windows_account_launcher_sha256",
+    "infrastructure.windows_account_launcher_sha256",
+    "infrastructure.windows_account_launcher_bytes",
+)
 if os.environ["RUNNER_OS"] == "Windows":
+    launcher_binary = get(windows_account_launcher_fields[0])
+    expected_launcher_sha256 = get(windows_account_launcher_fields[1])
+    launcher_sha256 = get(windows_account_launcher_fields[2])
+    launcher_bytes = get(windows_account_launcher_fields[3])
+    if not isinstance(launcher_binary, str) or not launcher_binary:
+        raise SystemExit("benchmark evidence has no trusted Windows account launcher path")
+    if expected_launcher_sha256 != os.environ["WINDOWS_ACCOUNT_LAUNCHER_SHA256"]:
+        raise SystemExit("benchmark evidence has the wrong Windows account launcher SHA-256")
+    if launcher_sha256 != expected_launcher_sha256:
+        raise SystemExit("trusted Windows account launcher changed after exact build attestation")
+    if (
+        not isinstance(launcher_bytes, int)
+        or isinstance(launcher_bytes, bool)
+        or launcher_bytes <= 0
+    ):
+        raise SystemExit("benchmark evidence has an invalid Windows account launcher size")
     bootstrap_binary = get(windows_bootstrap_fields[0])
     expected_bootstrap_sha256 = get(windows_bootstrap_fields[1])
     bootstrap_sha256 = get(windows_bootstrap_fields[2])
@@ -213,7 +258,7 @@ if os.environ["RUNNER_OS"] == "Windows":
         or bootstrap_bytes <= 0
     ):
         raise SystemExit("benchmark evidence has an invalid trusted Windows bootstrap size")
-    for dotted in windows_bootstrap_fields[1:3]:
+    for dotted in windows_account_launcher_fields[1:3] + windows_bootstrap_fields[1:3]:
         value = get(dotted)
         if len(value) != 64 or any(
             character not in "0123456789abcdef" for character in value
@@ -253,20 +298,63 @@ if os.environ["RUNNER_OS"] == "Windows":
         for dependency in dependencies
     ):
         raise SystemExit("trusted Windows bootstrap imports an unapproved DLL")
+    launcher_import_evidence = json.loads(
+        (path.parent / "windows-account-launcher-imports.json").read_text(
+            encoding="utf-8-sig"
+        )
+    )
+    if set(launcher_import_evidence) != {
+        "schema_version",
+        "launcher_sha256",
+        "dependencies",
+    }:
+        raise SystemExit("trusted Windows account launcher import evidence has unknown fields")
+    launcher_dependencies = launcher_import_evidence["dependencies"]
+    if (
+        launcher_import_evidence["schema_version"] != 1
+        or launcher_import_evidence["launcher_sha256"] != launcher_sha256
+        or not isinstance(launcher_dependencies, list)
+        or not launcher_dependencies
+        or len(launcher_dependencies) != len(set(launcher_dependencies))
+        or any(
+            not isinstance(dependency, str)
+            or re.fullmatch(r"[A-Za-z0-9._-]+\.dll", dependency) is None
+            for dependency in launcher_dependencies
+        )
+    ):
+        raise SystemExit("trusted Windows account launcher import evidence is invalid")
+    launcher_physical_dependencies = {"advapi32.dll", "bcrypt.dll", "kernel32.dll"}
+    if any(
+        dependency.lower() not in launcher_physical_dependencies
+        and api_set_pattern.fullmatch(dependency) is None
+        for dependency in launcher_dependencies
+    ):
+        raise SystemExit("trusted Windows account launcher imports an unapproved DLL")
+    if {"user32.dll", "gdi32.dll", "win32u.dll"}.intersection(
+        dependency.lower() for dependency in launcher_dependencies
+    ):
+        raise SystemExit("trusted Windows account launcher crosses the GUI import boundary")
     ready_elapsed_ms = preflight["windows_bootstrap_ready_elapsed_ms"]
     restricting_sid = preflight["windows_restricting_sid"]
     account_sid = preflight["windows_account_sid"]
     logon_sid = preflight["windows_logon_sid"]
     broker_authentication_id = preflight["windows_broker_authentication_id"]
-    nonce = preflight["windows_bootstrap_config_nonce"]
-    private_window_station = f"cmux-ws-{nonce[:32]}" if isinstance(nonce, str) else ""
-    private_desktop = (
-        f"{private_window_station}\\cmux-desk-{nonce[32:]}"
-        if isinstance(nonce, str)
-        else ""
-    )
+    observed_station = preflight["windows_observed_window_station"]
+    observed_desktop = preflight["windows_observed_desktop"]
+    account_session_id = preflight["windows_account_token_session_id"]
     if (
-        preflight["windows_bootstrap_sha256"] != bootstrap_sha256
+        preflight["windows_account_launcher_sha256"] != launcher_sha256
+        or preflight["windows_account_launcher_config_consumed"] is not True
+        or preflight["windows_account_launcher_ready_before_bootstrap"] is not True
+        or preflight["windows_account_launcher_resume_previous_count"] != 1
+        or preflight["windows_account_launcher_create_no_window"] is not True
+        or preflight["windows_account_launcher_private_job_member"] is not True
+        or preflight["windows_account_launcher_handles_exact"] is not True
+        or preflight["windows_account_launcher_handle_inheritance_exact"] is not True
+        or preflight["windows_account_launcher_supervisor_target_exact"] is not True
+        or preflight["windows_account_launcher_se_increase_quota_present"] is not True
+        or preflight["windows_account_launcher_se_increase_quota_enabled"] is not True
+        or preflight["windows_bootstrap_sha256"] != bootstrap_sha256
         or not isinstance(preflight["windows_bootstrap_config_nonce"], str)
         or re.fullmatch(
             r"[0-9a-fA-F]{64}", preflight["windows_bootstrap_config_nonce"]
@@ -274,6 +362,22 @@ if os.environ["RUNNER_OS"] == "Windows":
         is None
         or preflight["windows_bootstrap_config_consumed"] is not True
         or preflight["windows_bootstrap_resume_previous_count"] != 1
+        or preflight["windows_bootstrap_created_suspended"] is not True
+        or preflight["windows_bootstrap_created_with_create_process_as_user"] is not True
+        or preflight["windows_bootstrap_empty_desktop_selection"] is not True
+        or not isinstance(preflight["windows_bootstrap_process_id"], int)
+        or isinstance(preflight["windows_bootstrap_process_id"], bool)
+        or preflight["windows_bootstrap_process_id"] <= 0
+        or not isinstance(preflight["windows_bootstrap_primary_thread_id"], int)
+        or isinstance(preflight["windows_bootstrap_primary_thread_id"], bool)
+        or preflight["windows_bootstrap_primary_thread_id"] <= 0
+        or preflight["windows_bootstrap_remote_handles_adopted"] is not True
+        or preflight["windows_bootstrap_adoption_acknowledged_before_resume"] is not True
+        or preflight["windows_bootstrap_handle_types_exact"] is not True
+        or preflight["windows_bootstrap_image_identity_verified"] is not True
+        or preflight["windows_bootstrap_exact_job_before_resume"] is not True
+        or preflight["windows_bootstrap_account_token_identity_verified"] is not True
+        or preflight["windows_bootstrap_suspended_state_verified"] is not True
         or not isinstance(ready_elapsed_ms, int)
         or isinstance(ready_elapsed_ms, bool)
         or not 0 <= ready_elapsed_ms <= 30_000
@@ -290,27 +394,17 @@ if os.environ["RUNNER_OS"] == "Windows":
         or not isinstance(logon_sid, str)
         or len(logon_sid) > 184
         or re.fullmatch(r"S-1-5-5-\d+-\d+", logon_sid) is None
-        or preflight["windows_private_window_station"] != private_window_station
-        or preflight["windows_private_desktop"] != private_desktop
-        or preflight["windows_private_desktop_ready_before_resume"] is not True
-        or preflight["windows_private_window_station_logon_sid_dacl_proven"] is not True
-        or preflight["windows_private_desktop_logon_sid_dacl_proven"] is not True
-        or not isinstance(preflight["windows_supervisor_window_station_before"], str)
-        or not preflight["windows_supervisor_window_station_before"]
-        or preflight["windows_supervisor_window_station_after_create"]
-        != preflight["windows_supervisor_window_station_before"]
-        or preflight["windows_supervisor_window_station_after_cleanup"]
-        != preflight["windows_supervisor_window_station_before"]
-        or not isinstance(preflight["windows_supervisor_desktop_before"], str)
-        or not preflight["windows_supervisor_desktop_before"]
-        or preflight["windows_supervisor_desktop_after_create"]
-        != preflight["windows_supervisor_desktop_before"]
-        or preflight["windows_supervisor_desktop_after_cleanup"]
-        != preflight["windows_supervisor_desktop_before"]
-        or preflight["windows_supervisor_identity_unchanged_after_create"] is not True
-        or preflight["windows_supervisor_identity_unchanged_after_cleanup"] is not True
-        or preflight["windows_private_desktop_closed"] is not True
-        or preflight["windows_private_window_station_closed"] is not True
+        or not isinstance(observed_station, str)
+        or not observed_station
+        or observed_station.lower() == "winsta0"
+        or "\\" in observed_station
+        or not isinstance(observed_desktop, str)
+        or observed_desktop.lower() != "default"
+        or preflight["windows_os_assigned_desktop_ready_before_resume"] is not True
+        or preflight["windows_window_station_noninteractive"] is not True
+        or preflight["windows_desktop_noninteractive_default"] is not True
+        or preflight["windows_window_station_logon_sid_dacl_proven"] is not True
+        or preflight["windows_desktop_logon_sid_dacl_proven"] is not True
         or preflight["windows_bootstrap_create_no_window"] is not True
         or not isinstance(broker_authentication_id, str)
         or re.fullmatch(r"[0-9a-fA-F]{16}", broker_authentication_id) is None
@@ -318,6 +412,13 @@ if os.environ["RUNNER_OS"] == "Windows":
         != broker_authentication_id
         or preflight["windows_product_authentication_id"]
         != broker_authentication_id
+        or not isinstance(account_session_id, int)
+        or isinstance(account_session_id, bool)
+        or preflight["windows_bootstrap_token_session_id"] != account_session_id
+        or preflight["windows_account_launcher_token_session_id"] != account_session_id
+        or preflight["windows_restricted_token_session_id"] != account_session_id
+        or preflight["windows_product_token_session_id"] != account_session_id
+        or preflight["windows_token_session_ids_match"] is not True
         or preflight["windows_restricted_authentication_matches_broker"] is not True
         or preflight["windows_product_authentication_matches_broker"] is not True
         or preflight["windows_se_increase_quota_present"] is not True
@@ -329,11 +430,11 @@ if os.environ["RUNNER_OS"] == "Windows":
         or preflight["windows_restricted_token_restricting_sid_match"] is not True
         or preflight["windows_restricted_token_system_restricting_sid_match"] is not True
         or preflight["windows_restricted_token_logon_sid_match"] is not True
-        or preflight["windows_window_station_dacl_proven"] is not True
-        or preflight["windows_desktop_dacl_proven"] is not True
         or preflight["windows_window_station_low_integrity"] is not True
         or preflight["windows_desktop_low_integrity"] is not True
         or preflight["windows_restricted_desktop_access_proven"] is not True
+        or preflight["windows_job_ui_restriction_mask"] != 0xFF
+        or preflight["windows_job_ui_restrictions_exact_before_resume"] is not True
         or preflight["windows_product_write_restricted"] is not True
         or preflight["windows_product_low_integrity"] is not True
         or preflight["windows_product_no_enabled_privileges"] is not True
@@ -341,12 +442,17 @@ if os.environ["RUNNER_OS"] == "Windows":
         or preflight["windows_product_system_restricting_sid_match"] is not True
         or preflight["windows_product_logon_sid_match"] is not True
         or preflight["windows_product_exact_job"] is not True
-        or preflight["windows_product_private_desktop"] is not True
+        or preflight["windows_product_desktop_assignment_match"] is not True
+        or preflight["windows_product_window_station_low_integrity"] is not True
+        or preflight["windows_product_desktop_low_integrity"] is not True
         or preflight["windows_product_create_no_window"] is not True
         or preflight["windows_product_resume_previous_count"] != 1
     ):
         raise SystemExit("sandbox preflight has invalid native Windows bootstrap proof")
-elif any(get(dotted) is not None for dotted in windows_bootstrap_fields):
+elif any(
+    get(dotted) is not None
+    for dotted in windows_account_launcher_fields + windows_bootstrap_fields
+):
     raise SystemExit("non-Windows evidence contains Windows bootstrap identity")
 elif any(preflight[field] is not None for field in windows_preflight_fields):
     raise SystemExit("non-Windows preflight contains Windows bootstrap proof")

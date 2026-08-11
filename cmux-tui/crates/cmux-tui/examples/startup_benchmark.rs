@@ -65,6 +65,10 @@ fn target_from_args(args: &Args, kind: TargetKind) -> Result<Target> {
         supervisor_binary: args.supervisor_binary.clone(),
         supervisor_binary_sha256: args.supervisor_binary_sha256.clone(),
         #[cfg(windows)]
+        windows_account_launcher_binary: args.windows_account_launcher_binary.clone(),
+        #[cfg(windows)]
+        windows_account_launcher_sha256: args.windows_account_launcher_sha256.clone(),
+        #[cfg(windows)]
         windows_bootstrap_binary: args.windows_bootstrap_binary.clone(),
         #[cfg(windows)]
         windows_bootstrap_sha256: args.windows_bootstrap_sha256.clone(),

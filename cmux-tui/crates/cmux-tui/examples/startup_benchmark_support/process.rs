@@ -58,6 +58,10 @@ pub struct Target {
     pub supervisor_binary: PathBuf,
     pub supervisor_binary_sha256: String,
     #[cfg(windows)]
+    pub windows_account_launcher_binary: PathBuf,
+    #[cfg(windows)]
+    pub windows_account_launcher_sha256: String,
+    #[cfg(windows)]
     pub windows_bootstrap_binary: PathBuf,
     #[cfg(windows)]
     pub windows_bootstrap_sha256: String,
@@ -76,6 +80,10 @@ impl Target {
             launcher,
             supervisor_binary,
             supervisor_binary_sha256,
+            #[cfg(windows)]
+            windows_account_launcher_binary,
+            #[cfg(windows)]
+            windows_account_launcher_sha256,
             #[cfg(windows)]
             windows_bootstrap_binary,
             #[cfg(windows)]
@@ -107,6 +115,16 @@ impl Target {
             );
         }
         #[cfg(windows)]
+        if windows_account_launcher_binary == windows_bootstrap_binary
+            || windows_account_launcher_sha256 == windows_bootstrap_sha256
+        {
+            bail!("trusted Windows account launcher and bootstrap identities must differ");
+        }
+        #[cfg(windows)]
+        if binary_sha256(&windows_account_launcher_binary)? != windows_account_launcher_sha256 {
+            bail!("trusted Windows account launcher SHA-256 mismatch before execution");
+        }
+        #[cfg(windows)]
         if binary_sha256(&windows_bootstrap_binary)? != windows_bootstrap_sha256 {
             bail!("trusted Windows bootstrap SHA-256 mismatch before execution");
         }
@@ -134,6 +152,10 @@ impl Target {
             launcher,
             supervisor_binary,
             supervisor_binary_sha256,
+            #[cfg(windows)]
+            windows_account_launcher_binary,
+            #[cfg(windows)]
+            windows_account_launcher_sha256,
             #[cfg(windows)]
             windows_bootstrap_binary,
             #[cfg(windows)]
@@ -190,6 +212,12 @@ impl Target {
             bail!("trusted supervisor changed after execution");
         }
         #[cfg(windows)]
+        if binary_sha256(&self.windows_account_launcher_binary)?
+            != self.windows_account_launcher_sha256
+        {
+            bail!("trusted Windows account launcher changed after execution");
+        }
+        #[cfg(windows)]
         if binary_sha256(&self.windows_bootstrap_binary)? != self.windows_bootstrap_sha256 {
             bail!("trusted Windows bootstrap changed after execution");
         }
@@ -206,6 +234,10 @@ pub struct TargetInput {
     pub launcher: Vec<String>,
     pub supervisor_binary: PathBuf,
     pub supervisor_binary_sha256: String,
+    #[cfg(windows)]
+    pub windows_account_launcher_binary: PathBuf,
+    #[cfg(windows)]
+    pub windows_account_launcher_sha256: String,
     #[cfg(windows)]
     pub windows_bootstrap_binary: PathBuf,
     #[cfg(windows)]
@@ -970,6 +1002,10 @@ impl Common {
         ];
         #[cfg(windows)]
         args.extend([
+            "--windows-account-launcher-binary".into(),
+            self.target.windows_account_launcher_binary.to_string_lossy().into_owned(),
+            "--windows-account-launcher-sha256".into(),
+            self.target.windows_account_launcher_sha256.clone(),
             "--windows-bootstrap-binary".into(),
             self.target.windows_bootstrap_binary.to_string_lossy().into_owned(),
             "--windows-bootstrap-sha256".into(),
@@ -3010,6 +3046,8 @@ mod tests {
     const START_MARKER_PATH_ENV: &str = "CMUX_STARTUP_TEST_START_MARKER_PATH";
     const SUPERVISOR_PATH_ENV: &str = "CMUX_BENCH_TEST_SUPERVISOR";
     #[cfg(windows)]
+    const ACCOUNT_LAUNCHER_PATH_ENV: &str = "CMUX_BENCH_TEST_WINDOWS_ACCOUNT_LAUNCHER";
+    #[cfg(windows)]
     const BOOTSTRAP_PATH_ENV: &str = "CMUX_BENCH_TEST_WINDOWS_BOOTSTRAP";
     const FIXTURE_PARENT_ENV: &str = "CMUX_BENCH_TEST_FIXTURE_PARENT";
 
@@ -3022,6 +3060,14 @@ mod tests {
         );
         let supervisor_binary_sha256 =
             binary_sha256(&supervisor_binary).expect("hash trusted test supervisor");
+        #[cfg(windows)]
+        let windows_account_launcher_binary = PathBuf::from(
+            env::var_os(ACCOUNT_LAUNCHER_PATH_ENV)
+                .expect("CMUX_BENCH_TEST_WINDOWS_ACCOUNT_LAUNCHER must name the account launcher"),
+        );
+        #[cfg(windows)]
+        let windows_account_launcher_sha256 = binary_sha256(&windows_account_launcher_binary)
+            .expect("hash trusted test account launcher");
         #[cfg(windows)]
         let windows_bootstrap_binary = PathBuf::from(
             env::var_os(BOOTSTRAP_PATH_ENV)
@@ -3045,6 +3091,10 @@ mod tests {
             launcher: Vec::new(),
             supervisor_binary,
             supervisor_binary_sha256,
+            #[cfg(windows)]
+            windows_account_launcher_binary,
+            #[cfg(windows)]
+            windows_account_launcher_sha256,
             #[cfg(windows)]
             windows_bootstrap_binary,
             #[cfg(windows)]

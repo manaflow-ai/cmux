@@ -13,12 +13,12 @@
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "user32.lib")
 
-#define SCHEMA_VERSION 5u
+#define SCHEMA_VERSION 8u
 #define MAX_CONFIG_BYTES (64u * 1024u)
 #define MAX_WIDE_CHARS 32767u
-#define CONFIG_HEADER_BYTES 104u
+#define CONFIG_HEADER_BYTES 120u
 #define RECORD_HEADER_BYTES 56u
-#define CONFIG_FIELD_COUNT 10u
+#define CONFIG_FIELD_COUNT 8u
 #define EVENT_STAGE 1u
 #define EVENT_READY 2u
 #define EVENT_EXIT 3u
@@ -39,16 +39,18 @@
 #define READY_RESTRICTING_SID_MATCH (1u << 12)
 #define READY_WRITE_RESTRICTED_CREATED (1u << 13)
 #define READY_SYSTEM_RESTRICTING_SID_MATCH (1u << 14)
-#define READY_PRIVATE_WINDOW_STATION (1u << 15)
-#define READY_PRIVATE_DESKTOP (1u << 16)
-#define READY_WINDOW_STATION_DACL (1u << 17)
-#define READY_DESKTOP_DACL (1u << 18)
+#define READY_OS_ASSIGNED_WINDOW_STATION (1u << 15)
+#define READY_OS_ASSIGNED_DESKTOP (1u << 16)
+#define READY_WINDOW_STATION_NONINTERACTIVE (1u << 17)
+#define READY_DESKTOP_NONINTERACTIVE_DEFAULT (1u << 18)
 #define READY_WINDOW_STATION_LOW_INTEGRITY (1u << 19)
 #define READY_DESKTOP_LOW_INTEGRITY (1u << 20)
 #define READY_RESTRICTED_DESKTOP_ACCESS (1u << 21)
 #define READY_RESTRICTED_LOGON_SID_MATCH (1u << 22)
 #define READY_WINDOW_STATION_LOGON_SID_DACL (1u << 23)
 #define READY_DESKTOP_LOGON_SID_DACL (1u << 24)
+#define READY_TOKEN_SESSION_MATCH (1u << 25)
+#define READY_JOB_UI_RESTRICTIONS_MATCH (1u << 26)
 #define EXIT_CREATE_PROCESS_AS_USER_SUCCEEDED (1u << 0)
 #define EXIT_PRODUCT_AUTHENTICATION_MATCH (1u << 1)
 #define EXIT_PRODUCT_LOW_INTEGRITY (1u << 2)
@@ -56,17 +58,20 @@
 #define EXIT_PRODUCT_NO_ENABLED_PRIVILEGES (1u << 4)
 #define EXIT_PRODUCT_RESTRICTING_SID_MATCH (1u << 5)
 #define EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH (1u << 6)
-#define EXIT_PRODUCT_PRIVATE_DESKTOP (1u << 7)
+#define EXIT_PRODUCT_DESKTOP_ASSIGNMENT_MATCH (1u << 7)
 #define EXIT_PRODUCT_CREATE_NO_WINDOW (1u << 8)
 #define EXIT_PRODUCT_LOGON_SID_MATCH (1u << 9)
+#define EXIT_PRODUCT_SESSION_ID_MATCH (1u << 10)
+#define EXIT_PRODUCT_WINDOW_STATION_LOW_INTEGRITY (1u << 11)
+#define EXIT_PRODUCT_DESKTOP_LOW_INTEGRITY (1u << 12)
 #define MAX_RESTRICTING_SID_BYTES 184u
-#define PRIVATE_OBJECT_NAME_CHARS 96u
-#define PRIVATE_DESKTOP_ALL_ACCESS 0x000f01ffu
-#if PRIVATE_DESKTOP_ALL_ACCESS != (STANDARD_RIGHTS_REQUIRED \
+#define USER_OBJECT_NAME_CHARS 96u
+#define ASSIGNED_DESKTOP_ALL_ACCESS 0x000f01ffu
+#if ASSIGNED_DESKTOP_ALL_ACCESS != (STANDARD_RIGHTS_REQUIRED \
     | DESKTOP_READOBJECTS | DESKTOP_CREATEWINDOW | DESKTOP_CREATEMENU \
     | DESKTOP_HOOKCONTROL | DESKTOP_JOURNALRECORD | DESKTOP_JOURNALPLAYBACK \
     | DESKTOP_ENUMERATE | DESKTOP_WRITEOBJECTS | DESKTOP_SWITCHDESKTOP)
-#error "private desktop access mask does not match Windows desktop rights"
+#error "assigned desktop access mask does not match Windows desktop rights"
 #endif
 #define STAGE_CONFIG_CONSUMED 1u
 #define STAGE_LAUNCH_VALIDATED 2u
@@ -75,7 +80,7 @@
 #define STAGE_NATIVE_ENTRY_REACHED 5u
 #define STAGE_NATIVE_CONFIG_READ_STARTED 6u
 #define STAGE_RESTRICTED_PRODUCT_TOKEN_READY 7u
-#define STAGE_RESTRICTED_DESKTOP_ACCESS_READY 8u
+#define STAGE_OS_ASSIGNED_DESKTOP_READY 8u
 #define ENTRY_STAGE_REACHED 1u
 #define ENTRY_STAGE_CONFIG_READ_STARTED 2u
 #define ENTRY_STAGE_CONFIG_CONSUMED 3u
@@ -101,6 +106,7 @@ typedef struct BootstrapConfig {
     HANDLE control_write;
     HANDLE standard_handles[3];
     HANDLE query_job;
+    HANDLE launcher_gate;
     WCHAR *timing;
     WCHAR *fixture_root;
     WCHAR *target;
@@ -109,8 +115,8 @@ typedef struct BootstrapConfig {
     char bootstrap_sha256[65];
     char restricting_sid[MAX_RESTRICTING_SID_BYTES + 1u];
     char logon_sid[MAX_RESTRICTING_SID_BYTES + 1u];
-    WCHAR *private_window_station;
-    WCHAR *private_desktop;
+    uint32_t account_token_session_id;
+    uint32_t job_ui_restriction_mask;
     WCHAR **arguments;
     uint32_t argument_count;
 } BootstrapConfig;
@@ -128,20 +134,22 @@ typedef struct TimingPage {
     unsigned char nonce[32];
 } TimingPage;
 
-typedef struct PrivateDesktop {
-    HWINSTA station;
-    HDESK desktop;
-    WCHAR station_name[PRIVATE_OBJECT_NAME_CHARS];
-    WCHAR desktop_name[PRIVATE_OBJECT_NAME_CHARS];
-    WCHAR qualified_name[PRIVATE_OBJECT_NAME_CHARS * 2u];
-    int station_dacl_proven;
-    int desktop_dacl_proven;
+typedef struct AssignedDesktop {
+    WCHAR station_name[USER_OBJECT_NAME_CHARS];
+    WCHAR desktop_name[USER_OBJECT_NAME_CHARS];
+    WCHAR qualified_name[USER_OBJECT_NAME_CHARS * 2u];
+    char station_name_utf8[USER_OBJECT_NAME_CHARS * 3u];
+    char desktop_name_utf8[USER_OBJECT_NAME_CHARS * 3u];
+    int os_assigned_station;
+    int os_assigned_desktop;
+    int station_noninteractive;
+    int desktop_noninteractive_default;
     int station_low_integrity_proven;
     int desktop_low_integrity_proven;
     int restricted_access_proven;
     int station_logon_sid_dacl_proven;
     int desktop_logon_sid_dacl_proven;
-} PrivateDesktop;
+} AssignedDesktop;
 
 typedef struct EntryArguments {
     WCHAR *config_path;
@@ -421,8 +429,6 @@ static void free_config(BootstrapConfig *config) {
     heap_release(config->fixture_root);
     heap_release(config->target);
     heap_release(config->trusted_probe);
-    heap_release(config->private_window_station);
-    heap_release(config->private_desktop);
     if (config->arguments != NULL) {
         for (index = 0; index < config->argument_count; ++index) {
             heap_release(config->arguments[index]);
@@ -451,9 +457,14 @@ static int parse_config(const unsigned char *bytes, SIZE_T length, BootstrapConf
     config->standard_handles[1] = (HANDLE)(uintptr_t)read_u64(bytes + 80);
     config->standard_handles[2] = (HANDLE)(uintptr_t)read_u64(bytes + 88);
     config->query_job = (HANDLE)(uintptr_t)read_u64(bytes + 96);
+    config->launcher_gate = (HANDLE)(uintptr_t)read_u64(bytes + 104);
+    config->account_token_session_id = read_u32(bytes + 112);
+    config->job_ui_restriction_mask = read_u32(bytes + 116);
     if (config->control_read == NULL || config->control_write == NULL
         || config->standard_handles[0] == NULL || config->standard_handles[1] == NULL
-        || config->standard_handles[2] == NULL || config->query_job == NULL) return 0;
+        || config->standard_handles[2] == NULL || config->query_job == NULL
+        || config->launcher_gate == NULL
+        || config->job_ui_restriction_mask != 0xffu) return 0;
     cursor.bytes = bytes;
     cursor.length = length;
     cursor.offset = CONFIG_HEADER_BYTES;
@@ -470,12 +481,6 @@ static int parse_config(const unsigned char *bytes, SIZE_T length, BootstrapConf
         || !take_sid(&cursor, config->restricting_sid)
         || !take_sid(&cursor, config->logon_sid)
         || !logon_sid_text_valid(config->logon_sid)) {
-        free_config(config);
-        return 0;
-    }
-    config->private_window_station = take_utf16(&cursor);
-    config->private_desktop = take_utf16(&cursor);
-    if (config->private_window_station == NULL || config->private_desktop == NULL) {
         free_config(config);
         return 0;
     }
@@ -804,17 +809,38 @@ cleanup:
 }
 
 static int validate_handles(const BootstrapConfig *config, int *all_inheritable) {
+    HANDLE handles[7];
     unsigned int index;
+    unsigned int other;
+    handles[0] = config->control_read;
+    handles[1] = config->control_write;
+    handles[2] = config->standard_handles[0];
+    handles[3] = config->standard_handles[1];
+    handles[4] = config->standard_handles[2];
+    handles[5] = config->query_job;
+    handles[6] = config->launcher_gate;
     *all_inheritable = 1;
-    for (index = 0; index < 3; ++index) {
+    for (index = 0; index < 7u; ++index) {
         DWORD flags = 0;
+        if (handles[index] == NULL || !GetHandleInformation(handles[index], &flags)) return 0;
+        if ((flags & HANDLE_FLAG_INHERIT) == 0u) *all_inheritable = 0;
+        for (other = 0; other < index; ++other) {
+            if (handles[index] == handles[other]) {
+                SetLastError(ERROR_INVALID_HANDLE);
+                return 0;
+            }
+        }
+    }
+    for (index = 0; index < 3u; ++index) {
         SetLastError(ERROR_SUCCESS);
         if (GetFileType(config->standard_handles[index]) == FILE_TYPE_UNKNOWN
             && GetLastError() != ERROR_SUCCESS) return 0;
-        if (!GetHandleInformation(config->standard_handles[index], &flags)) return 0;
-        if ((flags & HANDLE_FLAG_INHERIT) == 0) *all_inheritable = 0;
     }
-    return 1;
+    return *all_inheritable
+        && SetHandleInformation(config->control_read, HANDLE_FLAG_INHERIT, 0)
+        && SetHandleInformation(config->control_write, HANDLE_FLAG_INHERIT, 0)
+        && SetHandleInformation(config->query_job, HANDLE_FLAG_INHERIT, 0)
+        && SetHandleInformation(config->launcher_gate, HANDLE_FLAG_INHERIT, 0);
 }
 
 static int open_timing(const BootstrapConfig *config, TimingPage *timing) {
@@ -952,6 +978,7 @@ static WCHAR *product_command_line(const BootstrapConfig *config) {
 
 typedef struct TokenProof {
     LUID authentication_id;
+    DWORD session_id;
     int low_integrity;
     int no_enabled_privileges;
     int restricted;
@@ -977,7 +1004,10 @@ typedef struct ProductProof {
     TokenProof token;
     int created_with_create_process_as_user;
     int contained;
-    int private_desktop;
+    int desktop_assignment_match;
+    int window_station_low_integrity;
+    int desktop_low_integrity;
+    int session_id_match;
     int create_no_window;
     DWORD resume_previous_count;
 } ProductProof;
@@ -1021,8 +1051,13 @@ static uint32_t product_proof_flags(
         flags |= EXIT_PRODUCT_SYSTEM_RESTRICTING_SID_MATCH;
     }
     if (proof->token.logon_sid_match) flags |= EXIT_PRODUCT_LOGON_SID_MATCH;
-    if (proof->private_desktop) flags |= EXIT_PRODUCT_PRIVATE_DESKTOP;
+    if (proof->desktop_assignment_match) flags |= EXIT_PRODUCT_DESKTOP_ASSIGNMENT_MATCH;
     if (proof->create_no_window) flags |= EXIT_PRODUCT_CREATE_NO_WINDOW;
+    if (proof->session_id_match) flags |= EXIT_PRODUCT_SESSION_ID_MATCH;
+    if (proof->window_station_low_integrity) {
+        flags |= EXIT_PRODUCT_WINDOW_STATION_LOW_INTEGRITY;
+    }
+    if (proof->desktop_low_integrity) flags |= EXIT_PRODUCT_DESKTOP_LOW_INTEGRITY;
     return flags;
 }
 
@@ -1038,6 +1073,7 @@ static int token_proof(
     TOKEN_PRIVILEGES *privileges = NULL;
     TOKEN_GROUPS *restricted_sids = NULL;
     TOKEN_GROUPS *groups = NULL;
+    DWORD *session_id = NULL;
     DWORD index;
     UCHAR *subauthority_count;
     DWORD *integrity_rid;
@@ -1048,11 +1084,13 @@ static int token_proof(
     privileges = (TOKEN_PRIVILEGES *)token_information(token, TokenPrivileges);
     restricted_sids = (TOKEN_GROUPS *)token_information(token, TokenRestrictedSids);
     groups = (TOKEN_GROUPS *)token_information(token, TokenGroups);
+    session_id = (DWORD *)token_information(token, TokenSessionId);
     if (statistics == NULL || label == NULL || privileges == NULL || restricted_sids == NULL
-        || groups == NULL) {
+        || groups == NULL || session_id == NULL) {
         goto cleanup;
     }
     proof->authentication_id = statistics->AuthenticationId;
+    proof->session_id = *session_id;
     subauthority_count = GetSidSubAuthorityCount(label->Label.Sid);
     if (subauthority_count == NULL || *subauthority_count == 0u) goto cleanup;
     integrity_rid = GetSidSubAuthority(label->Label.Sid, (DWORD)*subauthority_count - 1u);
@@ -1111,6 +1149,7 @@ cleanup:
     heap_release(privileges);
     heap_release(restricted_sids);
     heap_release(groups);
+    heap_release(session_id);
     return result;
 }
 
@@ -1182,26 +1221,6 @@ static int disable_all_privileges(HANDLE token) {
     return result;
 }
 
-static int nonce_object_name(
-    const WCHAR *prefix,
-    const unsigned char *nonce,
-    SIZE_T nonce_bytes,
-    WCHAR *output,
-    SIZE_T output_chars
-) {
-    static const WCHAR HEX[] = L"0123456789abcdef";
-    SIZE_T prefix_chars = wide_length(prefix);
-    SIZE_T index;
-    if (prefix_chars == SIZE_MAX || prefix_chars + nonce_bytes * 2u + 1u > output_chars) return 0;
-    memory_copy(output, prefix, prefix_chars * sizeof(WCHAR));
-    for (index = 0; index < nonce_bytes; ++index) {
-        output[prefix_chars + index * 2u] = HEX[nonce[index] >> 4];
-        output[prefix_chars + index * 2u + 1u] = HEX[nonce[index] & 0x0f];
-    }
-    output[prefix_chars + nonce_bytes * 2u] = L'\0';
-    return 1;
-}
-
 static int qualified_desktop_name(
     const WCHAR *station,
     const WCHAR *desktop,
@@ -1253,9 +1272,80 @@ static int acl_has_low_mandatory_label(PACL acl, PSID low_sid) {
     return 0;
 }
 
+static int apply_object_security(
+    HANDLE object,
+    PSID logon_sid,
+    PSID restricting_sid,
+    PSID system_restricting_sid,
+    DWORD required_access
+) {
+    PSID sids[3];
+    EXPLICIT_ACCESS_W entries[3];
+    PSECURITY_DESCRIPTOR descriptor = NULL;
+    PACL old_dacl = NULL;
+    PACL new_dacl = NULL;
+    PACL label_acl = NULL;
+    PSID low_sid = NULL;
+    DWORD label_bytes;
+    DWORD status;
+    DWORD index;
+    int result = 0;
+    sids[0] = logon_sid;
+    sids[1] = restricting_sid;
+    sids[2] = system_restricting_sid;
+    memory_zero(entries, sizeof(entries));
+    for (index = 0; index < 3u; ++index) {
+        entries[index].grfAccessPermissions = required_access;
+        entries[index].grfAccessMode = GRANT_ACCESS;
+        entries[index].grfInheritance = NO_INHERITANCE;
+        entries[index].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        entries[index].Trustee.TrusteeType = TRUSTEE_IS_UNKNOWN;
+        entries[index].Trustee.ptstrName = (LPWSTR)sids[index];
+    }
+    status = GetSecurityInfo(
+        object, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION,
+        NULL, NULL, &old_dacl, NULL, &descriptor);
+    if (status != ERROR_SUCCESS) goto cleanup;
+    status = SetEntriesInAclW(3u, entries, old_dacl, &new_dacl);
+    if (status != ERROR_SUCCESS) goto cleanup;
+    status = SetSecurityInfo(
+        object, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION,
+        NULL, NULL, new_dacl, NULL);
+    if (status != ERROR_SUCCESS) goto cleanup;
+    if (!ConvertStringSidToSidW(L"S-1-16-4096", &low_sid)) {
+        status = GetLastError();
+        goto cleanup;
+    }
+    label_bytes = (DWORD)sizeof(ACL) + (DWORD)sizeof(SYSTEM_MANDATORY_LABEL_ACE)
+        - (DWORD)sizeof(DWORD) + GetLengthSid(low_sid);
+    label_acl = (PACL)LocalAlloc(LPTR, label_bytes);
+    if (label_acl == NULL) {
+        status = ERROR_OUTOFMEMORY;
+        goto cleanup;
+    }
+    if (!InitializeAcl(label_acl, label_bytes, ACL_REVISION)
+        || !AddMandatoryAce(
+            label_acl, ACL_REVISION, 0,
+            SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, low_sid)) {
+        status = GetLastError();
+        goto cleanup;
+    }
+    status = SetSecurityInfo(
+        object, SE_WINDOW_OBJECT, LABEL_SECURITY_INFORMATION,
+        NULL, NULL, NULL, label_acl);
+    if (status != ERROR_SUCCESS) goto cleanup;
+    result = 1;
+cleanup:
+    if (descriptor != NULL) LocalFree(descriptor);
+    if (new_dacl != NULL) LocalFree(new_dacl);
+    if (label_acl != NULL) LocalFree(label_acl);
+    if (low_sid != NULL) LocalFree(low_sid);
+    if (!result) SetLastError(status == ERROR_SUCCESS ? ERROR_ACCESS_DENIED : status);
+    return result;
+}
+
 static int object_security_proof(
     HANDLE object,
-    PSID account_sid,
     PSID logon_sid,
     PSID restricting_sid,
     PSID system_restricting_sid,
@@ -1283,8 +1373,7 @@ static int object_security_proof(
         SetLastError(status);
         return 0;
     }
-    *dacl_proven = acl_grants_sid(dacl, account_sid, required_access)
-        && acl_grants_sid(dacl, logon_sid, required_access)
+    *dacl_proven = acl_grants_sid(dacl, logon_sid, required_access)
         && acl_grants_sid(dacl, restricting_sid, required_access)
         && acl_grants_sid(dacl, system_restricting_sid, required_access);
     *low_integrity_proven = acl_has_low_mandatory_label(sacl, low_sid);
@@ -1298,7 +1387,7 @@ static int object_security_proof(
 
 static int restricted_desktop_access_proof(
     const BrokerSecurity *security,
-    const PrivateDesktop *desktop
+    const AssignedDesktop *desktop
 ) {
     HWINSTA opened_station = NULL;
     HDESK opened_desktop = NULL;
@@ -1309,7 +1398,7 @@ static int restricted_desktop_access_proof(
     impersonating = 1;
     opened_station = OpenWindowStationW(desktop->station_name, FALSE, WINSTA_ALL_ACCESS);
     opened_desktop = OpenDesktopW(
-        desktop->desktop_name, 0, FALSE, PRIVATE_DESKTOP_ALL_ACCESS
+        desktop->desktop_name, 0, FALSE, ASSIGNED_DESKTOP_ALL_ACCESS
     );
     result = opened_station != NULL && opened_desktop != NULL;
 cleanup:
@@ -1330,23 +1419,17 @@ cleanup:
     return result;
 }
 
-static int wide_equal(const WCHAR *left, const WCHAR *right) {
-    SIZE_T index = 0;
-    if (left == NULL || right == NULL) return 0;
-    while (left[index] != L'\0' && right[index] != L'\0') {
-        if (left[index] != right[index]) return 0;
-        ++index;
-    }
-    return left[index] == right[index];
-}
-
-static int user_object_name_matches(HANDLE object, const WCHAR *expected) {
+static int user_object_name(
+    HANDLE object,
+    WCHAR *output,
+    SIZE_T output_chars
+) {
     WCHAR *name = NULL;
     DWORD bytes = 0;
     DWORD error = ERROR_SUCCESS;
     int result = 0;
     GetUserObjectInformationW(object, UOI_NAME, NULL, 0, &bytes);
-    if (bytes < sizeof(WCHAR) || bytes > PRIVATE_OBJECT_NAME_CHARS * 2u * sizeof(WCHAR)) {
+    if (bytes < sizeof(WCHAR) || bytes > USER_OBJECT_NAME_CHARS * 2u * sizeof(WCHAR)) {
         SetLastError(ERROR_INVALID_DATA);
         return 0;
     }
@@ -1359,75 +1442,114 @@ static int user_object_name_matches(HANDLE object, const WCHAR *expected) {
         error = GetLastError();
         goto cleanup;
     }
-    result = wide_equal(name, expected);
+    if ((SIZE_T)bytes > output_chars * sizeof(WCHAR)) {
+        error = ERROR_INSUFFICIENT_BUFFER;
+        goto cleanup;
+    }
+    memory_copy(output, name, bytes);
+    result = 1;
 cleanup:
     heap_release(name);
     if (!result) SetLastError(error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error);
     return result;
 }
 
-static int prepare_private_desktop(
-    const BootstrapConfig *config,
+static int wide_to_utf8(const WCHAR *value, char *output, int output_bytes) {
+    int result = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, value, -1, output, output_bytes, NULL, NULL);
+    return result > 1;
+}
+
+static int prepare_os_assigned_desktop(
     const BrokerSecurity *security,
-    PrivateDesktop *desktop
+    AssignedDesktop *desktop
 ) {
-    TOKEN_USER *account = NULL;
+    HWINSTA process_station;
+    HDESK thread_desktop;
+    HWINSTA station_access = NULL;
+    HDESK desktop_access = NULL;
     PSID low_sid = NULL;
-    WCHAR expected_station[PRIVATE_OBJECT_NAME_CHARS];
-    WCHAR expected_desktop[PRIVATE_OBJECT_NAME_CHARS];
+    int station_dacl = 0;
+    int desktop_dacl = 0;
+    const DWORD station_rights = WINSTA_ALL_ACCESS;
+    const DWORD desktop_rights = ASSIGNED_DESKTOP_ALL_ACCESS;
     DWORD error = ERROR_SUCCESS;
     int result = 0;
     memory_zero(desktop, sizeof(*desktop));
-    memory_zero(expected_station, sizeof(expected_station));
-    memory_zero(expected_desktop, sizeof(expected_desktop));
-    account = (TOKEN_USER *)token_information(security->primary_token, TokenUser);
-    if (account == NULL
-        || !ConvertStringSidToSidW(L"S-1-16-4096", &low_sid)
-        || !nonce_object_name(L"cmux-ws-", config->nonce, 16u,
-            expected_station, PRIVATE_OBJECT_NAME_CHARS)
-        || !nonce_object_name(L"cmux-desk-", config->nonce + 16u, 16u,
-            expected_desktop, PRIVATE_OBJECT_NAME_CHARS)
-        || !wide_equal(config->private_window_station, expected_station)
-        || !wide_equal(config->private_desktop, expected_desktop)) {
-        goto cleanup;
-    }
-    desktop->station = GetProcessWindowStation();
-    desktop->desktop = GetThreadDesktop(GetCurrentThreadId());
-    if (desktop->station == NULL || desktop->desktop == NULL
-        || !user_object_name_matches((HANDLE)desktop->station, config->private_window_station)
-        || !user_object_name_matches((HANDLE)desktop->desktop, config->private_desktop)
-        || !nonce_object_name(L"cmux-ws-", config->nonce, 16u,
-            desktop->station_name, PRIVATE_OBJECT_NAME_CHARS)
-        || !nonce_object_name(L"cmux-desk-", config->nonce + 16u, 16u,
-            desktop->desktop_name, PRIVATE_OBJECT_NAME_CHARS)
+    process_station = GetProcessWindowStation();
+    thread_desktop = GetThreadDesktop(GetCurrentThreadId());
+    if (process_station == NULL || thread_desktop == NULL
+        || !user_object_name((HANDLE)process_station,
+            desktop->station_name, USER_OBJECT_NAME_CHARS)
+        || !user_object_name((HANDLE)thread_desktop,
+            desktop->desktop_name, USER_OBJECT_NAME_CHARS)
+        || wide_equal_ignore_case(desktop->station_name, L"WinSta0")
+        || !wide_equal_ignore_case(desktop->desktop_name, L"Default")
         || !qualified_desktop_name(desktop->station_name, desktop->desktop_name,
-            desktop->qualified_name, PRIVATE_OBJECT_NAME_CHARS * 2u)
-        || !object_security_proof((HANDLE)desktop->station, account->User.Sid,
-            security->logon_sid,
+            desktop->qualified_name, USER_OBJECT_NAME_CHARS * 2u)
+        || !wide_to_utf8(desktop->station_name, desktop->station_name_utf8,
+            (int)sizeof(desktop->station_name_utf8))
+        || !wide_to_utf8(desktop->desktop_name, desktop->desktop_name_utf8,
+            (int)sizeof(desktop->desktop_name_utf8))) goto cleanup;
+    desktop->os_assigned_station = 1;
+    desktop->os_assigned_desktop = 1;
+    desktop->station_noninteractive = 1;
+    desktop->desktop_noninteractive_default = 1;
+    station_access = OpenWindowStationW(
+        desktop->station_name, FALSE,
+        station_rights | READ_CONTROL | WRITE_DAC | WRITE_OWNER);
+    desktop_access = OpenDesktopW(
+        desktop->desktop_name, 0, FALSE,
+        desktop_rights | READ_CONTROL | WRITE_DAC | WRITE_OWNER);
+    if (station_access == NULL || desktop_access == NULL
+        || !apply_object_security(
+            (HANDLE)station_access, security->logon_sid,
+            security->restricting_sid, security->system_restricting_sid, station_rights)
+        || !apply_object_security(
+            (HANDLE)desktop_access, security->logon_sid,
+            security->restricting_sid, security->system_restricting_sid, desktop_rights)
+        || !ConvertStringSidToSidW(L"S-1-16-4096", &low_sid)
+        || !object_security_proof((HANDLE)station_access, security->logon_sid,
             security->restricting_sid, security->system_restricting_sid, low_sid,
-            WINSTA_ALL_ACCESS, &desktop->station_dacl_proven,
+            station_rights, &station_dacl,
             &desktop->station_low_integrity_proven)
-        || !object_security_proof((HANDLE)desktop->desktop, account->User.Sid,
-            security->logon_sid,
+        || !object_security_proof((HANDLE)desktop_access, security->logon_sid,
             security->restricting_sid, security->system_restricting_sid, low_sid,
-            PRIVATE_DESKTOP_ALL_ACCESS, &desktop->desktop_dacl_proven,
+            desktop_rights, &desktop_dacl,
             &desktop->desktop_low_integrity_proven)
         || !restricted_desktop_access_proof(security, desktop)) {
         goto cleanup;
     }
-    desktop->station_logon_sid_dacl_proven = 1;
-    desktop->desktop_logon_sid_dacl_proven = 1;
+    desktop->station_logon_sid_dacl_proven = station_dacl;
+    desktop->desktop_logon_sid_dacl_proven = desktop_dacl;
     desktop->restricted_access_proven = 1;
     result = 1;
 cleanup:
     if (!result) error = GetLastError();
+    if (desktop_access != NULL) CloseDesktop(desktop_access);
+    if (station_access != NULL) CloseWindowStation(station_access);
     if (low_sid != NULL) LocalFree(low_sid);
-    heap_release(account);
     if (!result) {
         memory_zero(desktop, sizeof(*desktop));
         SetLastError(error == ERROR_SUCCESS ? ERROR_ACCESS_DENIED : error);
     }
     return result;
+}
+
+static int query_job_ui_restrictions(HANDLE job, DWORD expected, DWORD *observed) {
+    JOBOBJECT_BASIC_UI_RESTRICTIONS restrictions;
+    DWORD returned = 0;
+    memory_zero(&restrictions, sizeof(restrictions));
+    if (!QueryInformationJobObject(
+            job, JobObjectBasicUIRestrictions,
+            &restrictions, (DWORD)sizeof(restrictions), &returned)
+        || returned != (DWORD)sizeof(restrictions)) return 0;
+    *observed = restrictions.UIRestrictionsClass;
+    if (*observed != expected) {
+        SetLastError(ERROR_INVALID_DATA);
+        return 0;
+    }
+    return 1;
 }
 
 static void close_broker_security(BrokerSecurity *security) {
@@ -1499,6 +1621,8 @@ static int prepare_broker_security(const BootstrapConfig *config, BrokerSecurity
         || !luid_equal(
             security->broker.authentication_id,
             security->restricted.authentication_id)
+        || security->broker.session_id != config->account_token_session_id
+        || security->restricted.session_id != config->account_token_session_id
         || !security->restricted.restricted
         || !security->restricted.low_integrity
         || !security->restricted.no_enabled_privileges
@@ -1522,7 +1646,7 @@ static int create_product(
     const BootstrapConfig *config,
     TimingPage *timing,
     const BrokerSecurity *security,
-    const PrivateDesktop *desktop,
+    const AssignedDesktop *desktop,
     DWORD *exit_code,
     ProductProof *proof
 ) {
@@ -1534,7 +1658,7 @@ static int create_product(
     WCHAR *command_line = NULL;
     DWORD resume_count;
     HANDLE product_token = NULL;
-    unsigned char payload[16];
+    unsigned char payload[20];
     uint32_t flags;
     DWORD error;
     const DWORD creation_flags =
@@ -1562,11 +1686,17 @@ static int create_product(
     startup.StartupInfo.hStdError = handles[2];
     startup.StartupInfo.lpDesktop = (LPWSTR)desktop->qualified_name;
     startup.lpAttributeList = attributes;
-    proof->private_desktop = desktop->station_dacl_proven
-        && desktop->desktop_dacl_proven
+    proof->desktop_assignment_match = desktop->os_assigned_station
+        && desktop->os_assigned_desktop
+        && desktop->station_noninteractive
+        && desktop->desktop_noninteractive_default
+        && desktop->station_logon_sid_dacl_proven
+        && desktop->desktop_logon_sid_dacl_proven
         && desktop->station_low_integrity_proven
         && desktop->desktop_low_integrity_proven
         && desktop->restricted_access_proven;
+    proof->window_station_low_integrity = desktop->station_low_integrity_proven;
+    proof->desktop_low_integrity = desktop->desktop_low_integrity_proven;
     proof->create_no_window = (creation_flags & CREATE_NO_WINDOW) != 0u;
     if (!record_t0(timing)) goto cleanup;
     if (!CreateProcessAsUserW(security->restricted_token, config->target, command_line, NULL, NULL, TRUE,
@@ -1585,13 +1715,15 @@ static int create_product(
         || !proof->token.restricting_sid_match
         || !proof->token.system_restricting_sid_match
         || !proof->token.logon_sid_match
-        || !proof->private_desktop
+        || proof->token.session_id != config->account_token_session_id
+        || !proof->desktop_assignment_match
         || !proof->create_no_window) {
         if (!proof->contained) SetLastError(ERROR_ACCESS_DENIED);
         TerminateProcess(process.hProcess, 125);
         WaitForSingleObject(process.hProcess, INFINITE);
         goto process_cleanup;
     }
+    proof->session_id_match = 1;
     resume_count = ResumeThread(process.hThread);
     if (resume_count != 1u) {
         if (resume_count != (DWORD)-1) SetLastError(ERROR_INVALID_PARAMETER);
@@ -1605,7 +1737,8 @@ static int create_product(
     write_u32(payload + 4, proof->token.authentication_id.LowPart);
     write_u32(payload + 8, (uint32_t)proof->token.authentication_id.HighPart);
     write_u32(payload + 12, proof->resume_previous_count);
-    if (!send_event(config->control_write, config->nonce, EVENT_PRODUCT_STARTED, flags, payload, 16)) {
+    write_u32(payload + 16, proof->token.session_id);
+    if (!send_event(config->control_write, config->nonce, EVENT_PRODUCT_STARTED, flags, payload, 20)) {
         error = GetLastError();
         TerminateProcess(process.hProcess, 125);
         WaitForSingleObject(process.hProcess, INFINITE);
@@ -1759,19 +1892,20 @@ static int bootstrap_run(const EntryArguments *entry) {
     int trusted_denied = 0;
     int bootstrap_write_denied = 0;
     BrokerSecurity security;
-    PrivateDesktop private_desktop;
+    AssignedDesktop assigned_desktop;
     ProductProof product;
     TimingPage timing;
     DWORD exit_code = 125;
     unsigned char payload[512];
     uint32_t flags;
     DWORD query_handle_flags = 0;
+    DWORD job_ui_restriction_mask = 0;
     DWORD error;
     uint32_t stage = 0;
     int result = 0;
     memory_zero(&config, sizeof(config));
     memory_zero(&security, sizeof(security));
-    memory_zero(&private_desktop, sizeof(private_desktop));
+    memory_zero(&assigned_desktop, sizeof(assigned_desktop));
     memory_zero(&product, sizeof(product));
     memory_zero(&timing, sizeof(timing));
     if (!write_entry_checkpoint(entry->checkpoint_path, entry->nonce,
@@ -1787,6 +1921,7 @@ static int bootstrap_run(const EntryArguments *entry) {
         || !DeleteFileW(entry->config_path)
         || !write_entry_checkpoint(entry->checkpoint_path, entry->nonce,
             ENTRY_STAGE_CONFIG_CONSUMED, OPEN_EXISTING)) goto failure;
+    if (WaitForSingleObject(config.launcher_gate, INFINITE) != WAIT_OBJECT_0) goto failure;
     if (!send_stage(config.control_write, config.nonce, STAGE_NATIVE_ENTRY_REACHED)
         || !send_stage(config.control_write, config.nonce, STAGE_NATIVE_CONFIG_READ_STARTED)) {
         goto failure;
@@ -1807,7 +1942,13 @@ static int bootstrap_run(const EntryArguments *entry) {
         || !GetHandleInformation(config.query_job, &query_handle_flags)
         || (query_handle_flags & HANDLE_FLAG_INHERIT) != 0
         || !IsProcessInJob(GetCurrentProcess(), config.query_job, &bootstrap_in_job)
-        || !bootstrap_in_job) goto failure;
+        || !bootstrap_in_job
+        || !query_job_ui_restrictions(
+            config.query_job, config.job_ui_restriction_mask, &job_ui_restriction_mask)) {
+        goto failure;
+    }
+    CloseHandle(config.launcher_gate);
+    config.launcher_gate = NULL;
     stage = STAGE_STANDARD_HANDLES_VALIDATED;
     if (!send_stage(config.control_write, config.nonce, stage)) goto failure;
     if (!open_timing(&config, &timing)) goto failure;
@@ -1816,8 +1957,8 @@ static int bootstrap_run(const EntryArguments *entry) {
     stage = STAGE_RESTRICTED_PRODUCT_TOKEN_READY;
     if (!prepare_broker_security(&config, &security)) goto failure;
     if (!send_stage(config.control_write, config.nonce, stage)) goto failure;
-    stage = STAGE_RESTRICTED_DESKTOP_ACCESS_READY;
-    if (!prepare_private_desktop(&config, &security, &private_desktop)) goto failure;
+    stage = STAGE_OS_ASSIGNED_DESKTOP_READY;
+    if (!prepare_os_assigned_desktop(&security, &assigned_desktop)) goto failure;
     if (!send_stage(config.control_write, config.nonce, stage)) goto failure;
     flags = READY_CONFIG_CONSUMED | READY_HANDLES_VALID | READY_HANDLES_INHERITABLE
         | READY_PRIVATE_JOB_MEMBER | READY_TRUSTED_PATH_DENIED | READY_BOOTSTRAP_WRITE_DENIED;
@@ -1837,22 +1978,31 @@ static int bootstrap_run(const EntryArguments *entry) {
         flags |= READY_SYSTEM_RESTRICTING_SID_MATCH;
     }
     if (security.restricted.logon_sid_match) flags |= READY_RESTRICTED_LOGON_SID_MATCH;
-    if (private_desktop.station != NULL) flags |= READY_PRIVATE_WINDOW_STATION;
-    if (private_desktop.desktop != NULL) flags |= READY_PRIVATE_DESKTOP;
-    if (private_desktop.station_dacl_proven) flags |= READY_WINDOW_STATION_DACL;
-    if (private_desktop.desktop_dacl_proven) flags |= READY_DESKTOP_DACL;
-    if (private_desktop.station_low_integrity_proven) {
+    if (assigned_desktop.os_assigned_station) flags |= READY_OS_ASSIGNED_WINDOW_STATION;
+    if (assigned_desktop.os_assigned_desktop) flags |= READY_OS_ASSIGNED_DESKTOP;
+    if (assigned_desktop.station_noninteractive) flags |= READY_WINDOW_STATION_NONINTERACTIVE;
+    if (assigned_desktop.desktop_noninteractive_default) {
+        flags |= READY_DESKTOP_NONINTERACTIVE_DEFAULT;
+    }
+    if (assigned_desktop.station_low_integrity_proven) {
         flags |= READY_WINDOW_STATION_LOW_INTEGRITY;
     }
-    if (private_desktop.desktop_low_integrity_proven) {
+    if (assigned_desktop.desktop_low_integrity_proven) {
         flags |= READY_DESKTOP_LOW_INTEGRITY;
     }
-    if (private_desktop.restricted_access_proven) flags |= READY_RESTRICTED_DESKTOP_ACCESS;
-    if (private_desktop.station_logon_sid_dacl_proven) {
+    if (assigned_desktop.restricted_access_proven) flags |= READY_RESTRICTED_DESKTOP_ACCESS;
+    if (assigned_desktop.station_logon_sid_dacl_proven) {
         flags |= READY_WINDOW_STATION_LOGON_SID_DACL;
     }
-    if (private_desktop.desktop_logon_sid_dacl_proven) {
+    if (assigned_desktop.desktop_logon_sid_dacl_proven) {
         flags |= READY_DESKTOP_LOGON_SID_DACL;
+    }
+    if (security.broker.session_id == config.account_token_session_id
+        && security.restricted.session_id == config.account_token_session_id) {
+        flags |= READY_TOKEN_SESSION_MATCH;
+    }
+    if (job_ui_restriction_mask == config.job_ui_restriction_mask) {
+        flags |= READY_JOB_UI_RESTRICTIONS_MATCH;
     }
     {
         SIZE_T index;
@@ -1873,26 +2023,46 @@ static int bootstrap_run(const EntryArguments *entry) {
     {
         SIZE_T sid_length = 0;
         SIZE_T logon_sid_length = 0;
+        SIZE_T station_length = 0;
+        SIZE_T desktop_length = 0;
         while (sid_length <= MAX_RESTRICTING_SID_BYTES
             && config.restricting_sid[sid_length] != '\0') ++sid_length;
         while (logon_sid_length <= MAX_RESTRICTING_SID_BYTES
             && config.logon_sid[logon_sid_length] != '\0') ++logon_sid_length;
+        while (station_length < sizeof(assigned_desktop.station_name_utf8)
+            && assigned_desktop.station_name_utf8[station_length] != '\0') ++station_length;
+        while (desktop_length < sizeof(assigned_desktop.desktop_name_utf8)
+            && assigned_desktop.desktop_name_utf8[desktop_length] != '\0') ++desktop_length;
         if (sid_length == 0u || sid_length > MAX_RESTRICTING_SID_BYTES
             || logon_sid_length == 0u || logon_sid_length > MAX_RESTRICTING_SID_BYTES
-            || 56u + sid_length + logon_sid_length > sizeof(payload)) goto failure;
-        write_u32(payload + 48, (uint32_t)sid_length);
-        write_u32(payload + 52, (uint32_t)logon_sid_length);
-        memory_copy(payload + 56, config.restricting_sid, sid_length);
-        memory_copy(payload + 56 + sid_length, config.logon_sid, logon_sid_length);
+            || station_length == 0u || station_length >= sizeof(assigned_desktop.station_name_utf8)
+            || desktop_length == 0u || desktop_length >= sizeof(assigned_desktop.desktop_name_utf8)
+            || 80u + sid_length + logon_sid_length + station_length + desktop_length
+                > sizeof(payload)) goto failure;
+        write_u32(payload + 48, config.account_token_session_id);
+        write_u32(payload + 52, security.broker.session_id);
+        write_u32(payload + 56, security.restricted.session_id);
+        write_u32(payload + 60, job_ui_restriction_mask);
+        write_u32(payload + 64, (uint32_t)sid_length);
+        write_u32(payload + 68, (uint32_t)logon_sid_length);
+        write_u32(payload + 72, (uint32_t)station_length);
+        write_u32(payload + 76, (uint32_t)desktop_length);
+        memory_copy(payload + 80, config.restricting_sid, sid_length);
+        memory_copy(payload + 80 + sid_length, config.logon_sid, logon_sid_length);
+        memory_copy(payload + 80 + sid_length + logon_sid_length,
+            assigned_desktop.station_name_utf8, station_length);
+        memory_copy(payload + 80 + sid_length + logon_sid_length + station_length,
+            assigned_desktop.desktop_name_utf8, desktop_length);
         if (!send_event(config.control_write, config.nonce, EVENT_READY, flags,
-            payload, (uint32_t)(56u + sid_length + logon_sid_length))) goto failure;
+            payload, (uint32_t)(80u + sid_length + logon_sid_length
+                + station_length + desktop_length))) goto failure;
     }
     if (!read_arm(config.control_read, config.nonce)) goto failure;
     if (!create_product(
             &config,
             &timing,
             &security,
-            &private_desktop,
+            &assigned_desktop,
             &exit_code,
             &product)) goto failure;
     flags = product_proof_flags(&security, &product);
@@ -1900,7 +2070,8 @@ static int bootstrap_run(const EntryArguments *entry) {
     write_u32(payload + 4, product.contained ? 1u : 0u);
     write_u32(payload + 8, product.token.authentication_id.LowPart);
     write_u32(payload + 12, (uint32_t)product.token.authentication_id.HighPart);
-    if (!send_event(config.control_write, config.nonce, EVENT_EXIT, flags, payload, 16)) goto failure;
+    write_u32(payload + 16, product.token.session_id);
+    if (!send_event(config.control_write, config.nonce, EVENT_EXIT, flags, payload, 20)) goto failure;
     result = (int)exit_code;
     goto cleanup;
 failure:
@@ -1916,6 +2087,7 @@ cleanup:
     if (config.standard_handles[1] != NULL) CloseHandle(config.standard_handles[1]);
     if (config.standard_handles[2] != NULL) CloseHandle(config.standard_handles[2]);
     if (config.query_job != NULL) CloseHandle(config.query_job);
+    if (config.launcher_gate != NULL) CloseHandle(config.launcher_gate);
     free_config(&config);
     return result;
 }

@@ -16,6 +16,8 @@ pub struct Args {
     pub trusted_source: PathBuf,
     pub supervisor_binary: PathBuf,
     pub supervisor_binary_sha256: String,
+    pub windows_account_launcher_binary: PathBuf,
+    pub windows_account_launcher_sha256: String,
     pub windows_bootstrap_binary: PathBuf,
     pub windows_bootstrap_sha256: String,
     pub sandbox_backend: String,
@@ -49,6 +51,8 @@ impl Args {
             trusted_source: PathBuf::new(),
             supervisor_binary: PathBuf::new(),
             supervisor_binary_sha256: String::new(),
+            windows_account_launcher_binary: PathBuf::new(),
+            windows_account_launcher_sha256: String::new(),
             windows_bootstrap_binary: PathBuf::new(),
             windows_bootstrap_sha256: String::new(),
             sandbox_backend: String::new(),
@@ -84,6 +88,12 @@ impl Args {
                 }
                 "--windows-bootstrap-binary" => {
                     args.windows_bootstrap_binary = parser.path(&key, inline)?;
+                }
+                "--windows-account-launcher-binary" => {
+                    args.windows_account_launcher_binary = parser.path(&key, inline)?;
+                }
+                "--windows-account-launcher-sha256" => {
+                    args.windows_account_launcher_sha256 = parser.value(&key, inline)?;
                 }
                 "--windows-bootstrap-sha256" => {
                     args.windows_bootstrap_sha256 = parser.value(&key, inline)?;
@@ -150,15 +160,31 @@ impl Args {
         validate_sha256(&self.supervisor_binary_sha256, "--supervisor-binary-sha256")?;
         #[cfg(windows)]
         {
+            self.windows_account_launcher_binary = canonical_file(
+                &self.windows_account_launcher_binary,
+                "--windows-account-launcher-binary",
+            )?;
             self.windows_bootstrap_binary =
                 canonical_file(&self.windows_bootstrap_binary, "--windows-bootstrap-binary")?;
+            if self.windows_account_launcher_binary == self.windows_bootstrap_binary {
+                bail!("Windows account launcher and native bootstrap must be distinct files");
+            }
+            validate_sha256(
+                &self.windows_account_launcher_sha256,
+                "--windows-account-launcher-sha256",
+            )?;
             validate_sha256(&self.windows_bootstrap_sha256, "--windows-bootstrap-sha256")?;
+            if self.windows_account_launcher_sha256 == self.windows_bootstrap_sha256 {
+                bail!("Windows account launcher and native bootstrap hashes must differ");
+            }
         }
         #[cfg(not(windows))]
-        if !self.windows_bootstrap_binary.as_os_str().is_empty()
+        if !self.windows_account_launcher_binary.as_os_str().is_empty()
+            || !self.windows_account_launcher_sha256.is_empty()
+            || !self.windows_bootstrap_binary.as_os_str().is_empty()
             || !self.windows_bootstrap_sha256.is_empty()
         {
-            bail!("Windows bootstrap options are invalid on this platform");
+            bail!("Windows native launcher options are invalid on this platform");
         }
         validate_sha256(&self.sandbox_preflight_sha256, "--sandbox-preflight-sha256")?;
         if self.sandbox_backend != expected_sandbox_backend() {
