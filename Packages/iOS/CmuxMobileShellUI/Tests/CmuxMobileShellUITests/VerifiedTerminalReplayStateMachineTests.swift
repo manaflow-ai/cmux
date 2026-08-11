@@ -238,7 +238,12 @@ struct VerifiedTerminalReplayStateMachineTests {
     @Test("a viewport transition with no replacement replay releases the retained frame")
     func unchangedViewportCancelsPrearmedFreeze() throws {
         let machine = VerifiedTerminalReplayStateMachine()
-        let frame = try frame(renderRevision: 30, stateSeq: 7, text: "stable frame")
+        let frame = try frame(
+            renderRevision: 30,
+            stateSeq: 7,
+            columns: 41,
+            text: "stable frame"
+        )
         commit(frame, to: machine)
 
         let transactionID = machine.beginViewportTransition()
