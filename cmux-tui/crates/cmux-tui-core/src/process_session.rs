@@ -2222,14 +2222,17 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_process_identity_survives_unavailable_task_name_access() {
+    fn macos_child_process_identity_survives_unavailable_task_name_access() {
+        let mut child = spawn_session_child();
         let _failure = force_task_name_for_pid_failure_for_test();
-        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
 
         let process = StableProcessHandle::capture(pid).unwrap().unwrap();
 
         assert!(process.matches_current().unwrap());
         assert!(process.signal(0).unwrap());
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     #[cfg(target_os = "macos")]
