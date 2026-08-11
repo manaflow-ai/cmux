@@ -6,6 +6,7 @@
 //! little-endian so non-Rust clients can implement it without sharing a
 //! serializer or ABI.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,8 +18,24 @@ pub const HEADER_LEN: usize = 32;
 pub const PROTOCOL_VERSION: u16 = 3;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
 pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
+/// Maximum retained terminal replay bytes in one snapshot.
+///
+/// This is the existing terminal producer limit. The complete encoded payload
+/// must also fit within [`MAX_FRAME_PAYLOAD`].
+pub const MAX_SNAPSHOT_REPLAY_BYTES: usize = 15_692_632;
+/// Maximum UTF-8 bytes in one snapshot command argument or working directory.
+pub const MAX_SNAPSHOT_STRING_BYTES: usize = 256 * 1024;
+/// Maximum command arguments in one snapshot.
+pub const MAX_SNAPSHOT_ARGUMENTS: usize = 256;
 pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
 pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
+/// Cell size used when decoding a version-1 snapshot, which did not send it.
+pub const DEFAULT_SNAPSHOT_CELL_PIXELS: (u16, u16) = (8, 16);
+/// Disabled Kitty image-id cursor used by snapshots before version 3.
+pub const DEFAULT_SNAPSHOT_NEXT_IMAGE_ID: u32 = 2_147_483_647;
+const LEGACY_PROTOCOL_VERSION: u16 = 1;
+const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 const EXIT_PAYLOAD_VERSION: u16 = 1;
 const EXIT_PAYLOAD_HEADER_LEN: usize = 12;
 const EXIT_PAYLOAD_STATUS_LEN: usize = EXIT_PAYLOAD_HEADER_LEN + 4;
@@ -67,6 +84,417 @@ pub const CLEAR_HISTORY_ACK_AMBIGUOUS: u8 = 5;
 /// `ClearHistoryAck` status: the PTY accepted no fallback bytes before the
 /// bounded write deadline expired.
 pub const CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT: u8 = 6;
+
+/// Version-3 Kitty graphics state needed to replay a terminal snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotKittyReplayState {
+    /// Image bytes, in-flight bytes, image count, and placement count limits.
+    pub limits: (u64, u64, u64, u64),
+    /// Byte offset at which Kitty graphics replay starts.
+    pub replay_cursor_offset: u32,
+    /// Primary and alternate image-id cursors at the replay boundary.
+    pub replay_next_image_ids: (u32, u32),
+    /// Primary and alternate image-id cursors after the retained replay.
+    pub next_image_ids: (u32, u32),
+}
+
+impl SnapshotKittyReplayState {
+    /// Returns the state used when a protocol version has no Kitty replay fields.
+    pub const fn disabled() -> Self {
+        Self {
+            limits: (0, 0, 0, 0),
+            replay_cursor_offset: 0,
+            replay_next_image_ids: (DEFAULT_SNAPSHOT_NEXT_IMAGE_ID, DEFAULT_SNAPSHOT_NEXT_IMAGE_ID),
+            next_image_ids: (DEFAULT_SNAPSHOT_NEXT_IMAGE_ID, DEFAULT_SNAPSHOT_NEXT_IMAGE_ID),
+        }
+    }
+}
+
+/// Owned snapshot fields decoded from the versioned terminal-host wire payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotPayload {
+    /// Grid columns. Decoding requires a nonzero value within the protocol limit.
+    pub cols: u16,
+    /// Grid rows. Decoding requires a nonzero value within the protocol limit.
+    pub rows: u16,
+    /// Cell width and height in pixels. Version 1 uses [`DEFAULT_SNAPSHOT_CELL_PIXELS`].
+    pub cell_pixels: (u16, u16),
+    /// Retained VT bytes used to restore parser state.
+    pub replay: Vec<u8>,
+    /// Version-2 Kitty image-id to image-number aliases, unique and nonzero.
+    pub kitty_image_aliases: Vec<(u32, u32)>,
+    /// Version-3 Kitty graphics replay state.
+    pub kitty_state: SnapshotKittyReplayState,
+    /// Terminal process ID. A zero wire value decodes as `None`.
+    pub pid: Option<u32>,
+    /// Terminal process command and arguments.
+    pub command: Vec<String>,
+    /// Terminal working directory.
+    pub cwd: Option<String>,
+}
+
+impl SnapshotPayload {
+    /// Borrows this payload for encoding without cloning replay bytes or strings.
+    pub fn view(&self) -> SnapshotPayloadRef<'_> {
+        SnapshotPayloadRef {
+            cols: self.cols,
+            rows: self.rows,
+            cell_pixels: self.cell_pixels,
+            replay: &self.replay,
+            kitty_image_aliases: &self.kitty_image_aliases,
+            kitty_state: self.kitty_state,
+            pid: self.pid,
+            command: &self.command,
+            cwd: self.cwd.as_deref(),
+        }
+    }
+}
+
+/// Borrowed current-version snapshot fields accepted by [`encode_snapshot_payload`].
+#[derive(Debug, Clone, Copy)]
+pub struct SnapshotPayloadRef<'a> {
+    /// Grid columns. Encoding clamps this value to the supported dimension range.
+    pub cols: u16,
+    /// Grid rows. Encoding clamps this value to the supported dimension range.
+    pub rows: u16,
+    /// Cell width and height in pixels. Encoding changes zero values to one.
+    pub cell_pixels: (u16, u16),
+    /// Retained VT bytes used to restore parser state.
+    pub replay: &'a [u8],
+    /// Kitty image-id to image-number aliases, which must be unique and nonzero.
+    pub kitty_image_aliases: &'a [(u32, u32)],
+    /// Kitty graphics replay state for the current protocol version.
+    pub kitty_state: SnapshotKittyReplayState,
+    /// Terminal process ID. `None` encodes as the zero sentinel.
+    pub pid: Option<u32>,
+    /// Terminal process command and arguments.
+    pub command: &'a [String],
+    /// Terminal working directory.
+    pub cwd: Option<&'a str>,
+}
+
+/// Validation or decoding failure for a terminal snapshot payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotCodecError(String);
+
+impl SnapshotCodecError {
+    fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
+impl fmt::Display for SnapshotCodecError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SnapshotCodecError {}
+
+/// Encodes a current-version snapshot after enforcing protocol bounds.
+///
+/// Grid dimensions are clamped to the supported per-dimension range, zero cell
+/// pixel values become one, and `None` process IDs use the zero wire sentinel.
+pub fn encode_snapshot_payload(
+    snapshot: SnapshotPayloadRef<'_>,
+) -> Result<Vec<u8>, SnapshotCodecError> {
+    let (cols, rows) = normalize_snapshot_geometry(snapshot.cols, snapshot.rows)?;
+    validate_snapshot_cell_pixels(cols, rows, snapshot.cell_pixels)?;
+    validate_snapshot_aliases(snapshot.kitty_image_aliases)?;
+    validate_snapshot_kitty_state(snapshot.kitty_state, snapshot.replay.len())?;
+    if snapshot.command.len() > MAX_SNAPSHOT_ARGUMENTS {
+        return Err(SnapshotCodecError::new("terminal snapshot has too many command arguments"));
+    }
+
+    let mut output = Vec::new();
+    output.extend_from_slice(&cols.to_le_bytes());
+    output.extend_from_slice(&rows.to_le_bytes());
+    output.extend_from_slice(&snapshot.pid.unwrap_or(0).to_le_bytes());
+    put_snapshot_bytes(&mut output, snapshot.replay, MAX_SNAPSHOT_REPLAY_BYTES)?;
+    put_snapshot_optional_string(&mut output, snapshot.cwd)?;
+    output.extend_from_slice(&(snapshot.command.len() as u16).to_le_bytes());
+    for argument in snapshot.command {
+        put_snapshot_string(&mut output, argument)?;
+    }
+    output.extend_from_slice(&(snapshot.kitty_image_aliases.len() as u16).to_le_bytes());
+    for (image_id, image_number) in snapshot.kitty_image_aliases {
+        output.extend_from_slice(&image_id.to_le_bytes());
+        output.extend_from_slice(&image_number.to_le_bytes());
+    }
+    output.extend_from_slice(&snapshot.cell_pixels.0.max(1).to_le_bytes());
+    output.extend_from_slice(&snapshot.cell_pixels.1.max(1).to_le_bytes());
+    for limit in [
+        snapshot.kitty_state.limits.0,
+        snapshot.kitty_state.limits.1,
+        snapshot.kitty_state.limits.2,
+        snapshot.kitty_state.limits.3,
+    ] {
+        output.extend_from_slice(&limit.to_le_bytes());
+    }
+    output.extend_from_slice(&snapshot.kitty_state.replay_cursor_offset.to_le_bytes());
+    output.extend_from_slice(&snapshot.kitty_state.replay_next_image_ids.0.to_le_bytes());
+    output.extend_from_slice(&snapshot.kitty_state.next_image_ids.0.to_le_bytes());
+    output.extend_from_slice(&snapshot.kitty_state.replay_next_image_ids.1.to_le_bytes());
+    output.extend_from_slice(&snapshot.kitty_state.next_image_ids.1.to_le_bytes());
+    if output.len() > MAX_FRAME_PAYLOAD {
+        return Err(SnapshotCodecError::new("terminal snapshot payload is too large"));
+    }
+    Ok(output)
+}
+
+/// Decodes a complete snapshot payload for protocol versions 1 through 3.
+///
+/// Versions before 2 receive default cell pixels and no Kitty aliases. Versions
+/// before 3 receive disabled Kitty replay state. Invalid dimensions, bounds,
+/// sentinels, UTF-8, or trailing bytes cause an error.
+pub fn decode_snapshot_payload(
+    payload: &[u8],
+    protocol_version: u16,
+) -> Result<SnapshotPayload, SnapshotCodecError> {
+    if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
+        return Err(SnapshotCodecError::new(format!(
+            "unsupported terminal snapshot protocol {protocol_version}"
+        )));
+    }
+    let mut decoder = SnapshotDecoder::new(payload);
+    let cols = decoder.u16()?;
+    let rows = decoder.u16()?;
+    validate_snapshot_geometry(cols, rows)?;
+    let pid = match decoder.u32()? {
+        0 => None,
+        pid => Some(pid),
+    };
+    let replay = decoder.bytes(MAX_SNAPSHOT_REPLAY_BYTES)?.to_vec();
+    let cwd = decoder.optional_string()?;
+    let argument_count = decoder.u16()? as usize;
+    if argument_count > MAX_SNAPSHOT_ARGUMENTS {
+        return Err(SnapshotCodecError::new("terminal snapshot has too many command arguments"));
+    }
+    let mut command = Vec::with_capacity(argument_count);
+    for _ in 0..argument_count {
+        command.push(decoder.string()?);
+    }
+    let kitty_image_aliases = if protocol_version >= 2 {
+        let count = decoder.u16()? as usize;
+        if count > MAX_KITTY_IMAGE_ALIASES {
+            return Err(SnapshotCodecError::new(
+                "terminal snapshot has too many Kitty image aliases",
+            ));
+        }
+        let mut aliases = Vec::with_capacity(count);
+        for _ in 0..count {
+            aliases.push((decoder.u32()?, decoder.u32()?));
+        }
+        validate_snapshot_aliases(&aliases)?;
+        aliases
+    } else {
+        Vec::new()
+    };
+    let cell_pixels = if protocol_version >= 2 {
+        (decoder.u16()?.max(1), decoder.u16()?.max(1))
+    } else {
+        DEFAULT_SNAPSHOT_CELL_PIXELS
+    };
+    validate_snapshot_cell_pixels(cols, rows, cell_pixels)?;
+    let kitty_state = if protocol_version >= 3 {
+        let limits = (decoder.u64()?, decoder.u64()?, decoder.u64()?, decoder.u64()?);
+        let replay_cursor_offset = decoder.u32()?;
+        let primary_replay_next_image_id = decoder.u32()?;
+        let primary_next_image_id = decoder.u32()?;
+        let alternate_replay_next_image_id = decoder.u32()?;
+        let alternate_next_image_id = decoder.u32()?;
+        let state = SnapshotKittyReplayState {
+            limits,
+            replay_cursor_offset,
+            replay_next_image_ids: (primary_replay_next_image_id, alternate_replay_next_image_id),
+            next_image_ids: (primary_next_image_id, alternate_next_image_id),
+        };
+        validate_snapshot_kitty_state(state, replay.len())?;
+        state
+    } else {
+        SnapshotKittyReplayState::disabled()
+    };
+    decoder.finish()?;
+    Ok(SnapshotPayload {
+        cols,
+        rows,
+        cell_pixels,
+        replay,
+        kitty_image_aliases,
+        kitty_state,
+        pid,
+        command,
+        cwd,
+    })
+}
+
+fn normalize_snapshot_geometry(cols: u16, rows: u16) -> Result<(u16, u16), SnapshotCodecError> {
+    let cols = cols.clamp(1, TERMINAL_DIMENSION_MAX);
+    let rows = rows.clamp(1, TERMINAL_DIMENSION_MAX);
+    validate_snapshot_geometry(cols, rows)?;
+    Ok((cols, rows))
+}
+
+fn validate_snapshot_geometry(cols: u16, rows: u16) -> Result<(), SnapshotCodecError> {
+    if cols == 0 || rows == 0 {
+        return Err(SnapshotCodecError::new("terminal snapshot dimensions must be nonzero"));
+    }
+    if cols > TERMINAL_DIMENSION_MAX || rows > TERMINAL_DIMENSION_MAX {
+        return Err(SnapshotCodecError::new(format!(
+            "terminal geometry {cols}x{rows} exceeds the dimension limit"
+        )));
+    }
+    if u64::from(cols) * u64::from(rows) > TERMINAL_CELL_AREA_MAX {
+        return Err(SnapshotCodecError::new(format!(
+            "terminal geometry {cols}x{rows} exceeds the {TERMINAL_CELL_AREA_MAX}-cell limit"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_snapshot_cell_pixels(
+    cols: u16,
+    rows: u16,
+    cell_pixels: (u16, u16),
+) -> Result<(), SnapshotCodecError> {
+    cols.checked_mul(cell_pixels.0.max(1)).ok_or_else(|| {
+        SnapshotCodecError::new("terminal snapshot pixel width exceeds the protocol limit")
+    })?;
+    rows.checked_mul(cell_pixels.1.max(1)).ok_or_else(|| {
+        SnapshotCodecError::new("terminal snapshot pixel height exceeds the protocol limit")
+    })?;
+    Ok(())
+}
+
+fn validate_snapshot_aliases(aliases: &[(u32, u32)]) -> Result<(), SnapshotCodecError> {
+    if aliases.len() > MAX_KITTY_IMAGE_ALIASES {
+        return Err(SnapshotCodecError::new("terminal snapshot has too many Kitty image aliases"));
+    }
+    let mut image_ids = HashSet::with_capacity(aliases.len());
+    for (image_id, image_number) in aliases {
+        if *image_id == 0 || *image_number == 0 || !image_ids.insert(*image_id) {
+            return Err(SnapshotCodecError::new(
+                "terminal snapshot has invalid Kitty image aliases",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_snapshot_kitty_state(
+    state: SnapshotKittyReplayState,
+    replay_length: usize,
+) -> Result<(), SnapshotCodecError> {
+    if state.replay_cursor_offset as usize > replay_length
+        || state.replay_next_image_ids.0 == 0
+        || state.replay_next_image_ids.1 == 0
+        || state.next_image_ids.0 == 0
+        || state.next_image_ids.1 == 0
+    {
+        return Err(SnapshotCodecError::new("terminal snapshot has invalid Kitty replay state"));
+    }
+    Ok(())
+}
+
+fn put_snapshot_bytes(
+    output: &mut Vec<u8>,
+    value: &[u8],
+    maximum: usize,
+) -> Result<(), SnapshotCodecError> {
+    if value.len() > maximum || value.len() > u32::MAX as usize {
+        return Err(SnapshotCodecError::new("terminal snapshot field is too large"));
+    }
+    output.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    output.extend_from_slice(value);
+    Ok(())
+}
+
+fn put_snapshot_string(output: &mut Vec<u8>, value: &str) -> Result<(), SnapshotCodecError> {
+    put_snapshot_bytes(output, value.as_bytes(), MAX_SNAPSHOT_STRING_BYTES)
+}
+
+fn put_snapshot_optional_string(
+    output: &mut Vec<u8>,
+    value: Option<&str>,
+) -> Result<(), SnapshotCodecError> {
+    match value {
+        Some(value) => {
+            output.push(1);
+            put_snapshot_string(output, value)
+        }
+        None => {
+            output.push(0);
+            Ok(())
+        }
+    }
+}
+
+struct SnapshotDecoder<'a> {
+    payload: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> SnapshotDecoder<'a> {
+    fn new(payload: &'a [u8]) -> Self {
+        Self { payload, offset: 0 }
+    }
+
+    fn take(&mut self, length: usize) -> Result<&'a [u8], SnapshotCodecError> {
+        let end = self
+            .offset
+            .checked_add(length)
+            .filter(|end| *end <= self.payload.len())
+            .ok_or_else(|| SnapshotCodecError::new("truncated terminal snapshot"))?;
+        let bytes = &self.payload[self.offset..end];
+        self.offset = end;
+        Ok(bytes)
+    }
+
+    fn u8(&mut self) -> Result<u8, SnapshotCodecError> {
+        Ok(self.take(1)?[0])
+    }
+
+    fn u16(&mut self) -> Result<u16, SnapshotCodecError> {
+        Ok(u16::from_le_bytes(self.take(2)?.try_into().expect("fixed u16 slice")))
+    }
+
+    fn u32(&mut self) -> Result<u32, SnapshotCodecError> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().expect("fixed u32 slice")))
+    }
+
+    fn u64(&mut self) -> Result<u64, SnapshotCodecError> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().expect("fixed u64 slice")))
+    }
+
+    fn bytes(&mut self, maximum: usize) -> Result<&'a [u8], SnapshotCodecError> {
+        let length = self.u32()? as usize;
+        if length > maximum {
+            return Err(SnapshotCodecError::new("terminal snapshot field is too large"));
+        }
+        self.take(length)
+    }
+
+    fn string(&mut self) -> Result<String, SnapshotCodecError> {
+        std::str::from_utf8(self.bytes(MAX_SNAPSHOT_STRING_BYTES)?)
+            .map(str::to_owned)
+            .map_err(|_| SnapshotCodecError::new("terminal snapshot string is not UTF-8"))
+    }
+
+    fn optional_string(&mut self) -> Result<Option<String>, SnapshotCodecError> {
+        match self.u8()? {
+            0 => Ok(None),
+            1 => self.string().map(Some),
+            _ => Err(SnapshotCodecError::new("terminal snapshot has an invalid optional string")),
+        }
+    }
+
+    fn finish(self) -> Result<(), SnapshotCodecError> {
+        if self.offset != self.payload.len() {
+            return Err(SnapshotCodecError::new("terminal snapshot has trailing bytes"));
+        }
+        Ok(())
+    }
+}
 
 /// Authoritative process completion as retained by the terminal host.
 ///
@@ -929,5 +1357,89 @@ mod tests {
             Err(ProtocolError::PayloadTooLarge { len, max })
                 if len == MAX_FRAME_PAYLOAD + 1 && max == MAX_FRAME_PAYLOAD
         ));
+    }
+
+    #[test]
+    fn current_snapshot_codec_owns_the_kitty_cursor_order() {
+        let snapshot = SnapshotPayload {
+            cols: 80,
+            rows: 24,
+            cell_pixels: (9, 18),
+            replay: b"snapshot".to_vec(),
+            kitty_image_aliases: vec![(41, 77)],
+            kitty_state: SnapshotKittyReplayState {
+                limits: (1024, 2048, 32, 64),
+                replay_cursor_offset: 3,
+                replay_next_image_ids: (11, 13),
+                next_image_ids: (12, 14),
+            },
+            pid: Some(123),
+            command: vec!["/bin/sh".into(), "-l".into()],
+            cwd: Some("/tmp".into()),
+        };
+
+        let encoded = encode_snapshot_payload(snapshot.view()).unwrap();
+        let version_three_fixture = [
+            0x50, 0x00, // columns
+            0x18, 0x00, // rows
+            0x7b, 0x00, 0x00, 0x00, // pid
+            0x08, 0x00, 0x00, 0x00, b's', b'n', b'a', b'p', b's', b'h', b'o', b't', // replay
+            0x01, 0x04, 0x00, 0x00, 0x00, b'/', b't', b'm', b'p', // cwd
+            0x02, 0x00, // argument count
+            0x07, 0x00, 0x00, 0x00, b'/', b'b', b'i', b'n', b'/', b's', b'h', // argument 0
+            0x02, 0x00, 0x00, 0x00, b'-', b'l', // argument 1
+            0x01, 0x00, // Kitty alias count
+            0x29, 0x00, 0x00, 0x00, // image id
+            0x4d, 0x00, 0x00, 0x00, // image number
+            0x09, 0x00, 0x12, 0x00, // cell pixels
+            0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // image-byte limit
+            0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // inflight-byte limit
+            0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // image limit
+            0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // placement limit
+            0x03, 0x00, 0x00, 0x00, // replay cursor offset
+            0x0b, 0x00, 0x00, 0x00, // primary replay image id
+            0x0c, 0x00, 0x00, 0x00, // primary next image id
+            0x0d, 0x00, 0x00, 0x00, // alternate replay image id
+            0x0e, 0x00, 0x00, 0x00, // alternate next image id
+        ];
+        assert_eq!(encoded, version_three_fixture);
+        assert_eq!(decode_snapshot_payload(&encoded, PROTOCOL_VERSION).unwrap(), snapshot);
+        assert_eq!(
+            decode_snapshot_payload(&version_three_fixture, 3).unwrap(),
+            snapshot,
+            "version 3 keeps the original producer cursor layout",
+        );
+        for dimension_offset in [0, 2] {
+            let mut invalid = version_three_fixture;
+            invalid[dimension_offset..dimension_offset + 2].fill(0);
+            assert_eq!(
+                decode_snapshot_payload(&invalid, 3).unwrap_err().to_string(),
+                "terminal snapshot dimensions must be nonzero",
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_codec_accepts_the_existing_replay_range_above_the_old_client_limit() {
+        let replay_len = 8 * 1024 * 1024 + 1;
+        let snapshot = SnapshotPayload {
+            cols: 80,
+            rows: 24,
+            cell_pixels: DEFAULT_SNAPSHOT_CELL_PIXELS,
+            replay: vec![b'x'; replay_len],
+            kitty_image_aliases: Vec::new(),
+            kitty_state: SnapshotKittyReplayState::disabled(),
+            pid: None,
+            command: Vec::new(),
+            cwd: None,
+        };
+
+        let encoded = encode_snapshot_payload(snapshot.view()).unwrap();
+        assert!(encoded.len() <= MAX_FRAME_PAYLOAD);
+        drop(snapshot);
+        assert_eq!(
+            decode_snapshot_payload(&encoded, PROTOCOL_VERSION).unwrap().replay.len(),
+            replay_len,
+        );
     }
 }

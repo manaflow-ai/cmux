@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{CStr, c_char, c_void};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -17,8 +17,12 @@ use cmux_remote::provider::{
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
 use cmux_terminal_host_protocol::{
-    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
+    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, SnapshotPayload, decode_snapshot_payload,
     encode_frame,
+};
+#[cfg(test)]
+use cmux_terminal_host_protocol::{
+    PROTOCOL_VERSION, SnapshotKittyReplayState, encode_snapshot_payload,
 };
 #[cfg(feature = "text-renderer")]
 use ghostty_vt::{
@@ -35,9 +39,6 @@ mod frontend;
 const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
 const MAX_NATIVE_RENDER_EVENT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_NATIVE_RENDER_EVENTS: usize = 4096;
-const MAX_SNAPSHOT_REPLAY_BYTES: usize = 8 * 1024 * 1024;
-const MAX_SNAPSHOT_STRING_BYTES: usize = 256 * 1024;
-const MAX_SNAPSHOT_ARGUMENTS: usize = 256;
 
 #[derive(Clone)]
 struct TerminalPublicId(String);
@@ -67,167 +68,11 @@ impl std::fmt::Display for TerminalPublicId {
     }
 }
 
-struct RendererSnapshot {
-    cols: u16,
-    rows: u16,
-    cell_pixels: (u16, u16),
-    replay: Vec<u8>,
-    kitty_image_aliases: Vec<(u32, u32)>,
-    kitty_state: RendererKittyState,
-}
-
-#[derive(Clone, Copy)]
-struct RendererKittyState {
-    limits: (u64, u64, u64, u64),
-    replay_cursor_offset: u32,
-    replay_next_image_ids: (u32, u32),
-    next_image_ids: (u32, u32),
-}
-
-impl RendererKittyState {
-    const DEFAULT_NEXT_IMAGE_ID: u32 = 2_147_483_647;
-
-    const fn disabled() -> Self {
-        Self {
-            limits: (0, 0, 0, 0),
-            replay_cursor_offset: 0,
-            replay_next_image_ids: (Self::DEFAULT_NEXT_IMAGE_ID, Self::DEFAULT_NEXT_IMAGE_ID),
-            next_image_ids: (Self::DEFAULT_NEXT_IMAGE_ID, Self::DEFAULT_NEXT_IMAGE_ID),
-        }
-    }
-}
-
-struct SnapshotDecoder<'a> {
-    payload: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> SnapshotDecoder<'a> {
-    fn new(payload: &'a [u8]) -> Self {
-        Self { payload, offset: 0 }
-    }
-
-    fn take(&mut self, length: usize) -> Result<&'a [u8], String> {
-        let end = self
-            .offset
-            .checked_add(length)
-            .filter(|end| *end <= self.payload.len())
-            .ok_or_else(|| "truncated terminal snapshot".to_string())?;
-        let bytes = &self.payload[self.offset..end];
-        self.offset = end;
-        Ok(bytes)
-    }
-
-    fn u8(&mut self) -> Result<u8, String> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u16(&mut self) -> Result<u16, String> {
-        Ok(u16::from_le_bytes(self.take(2)?.try_into().expect("fixed u16 slice")))
-    }
-
-    fn u32(&mut self) -> Result<u32, String> {
-        Ok(u32::from_le_bytes(self.take(4)?.try_into().expect("fixed u32 slice")))
-    }
-
-    fn u64(&mut self) -> Result<u64, String> {
-        Ok(u64::from_le_bytes(self.take(8)?.try_into().expect("fixed u64 slice")))
-    }
-
-    fn bytes(&mut self, maximum: usize) -> Result<&'a [u8], String> {
-        let length = self.u32()? as usize;
-        if length > maximum {
-            return Err("terminal snapshot field is too large".into());
-        }
-        self.take(length)
-    }
-
-    fn string(&mut self) -> Result<(), String> {
-        std::str::from_utf8(self.bytes(MAX_SNAPSHOT_STRING_BYTES)?)
-            .map(|_| ())
-            .map_err(|_| "terminal snapshot string is not UTF-8".into())
-    }
-
-    fn finish(self) -> Result<(), String> {
-        if self.offset != self.payload.len() {
-            return Err("terminal snapshot has trailing bytes".into());
-        }
-        Ok(())
-    }
-}
-
 fn decode_renderer_snapshot(
     payload: &[u8],
     protocol_version: u16,
-) -> Result<RendererSnapshot, String> {
-    if !(1..=PROTOCOL_VERSION).contains(&protocol_version) {
-        return Err(format!("unsupported terminal snapshot protocol {protocol_version}"));
-    }
-    let mut decoder = SnapshotDecoder::new(payload);
-    let cols = decoder.u16()?;
-    let rows = decoder.u16()?;
-    if cols == 0 || rows == 0 {
-        return Err("terminal snapshot dimensions must be nonzero".into());
-    }
-    let _pid = decoder.u32()?;
-    let replay = decoder.bytes(MAX_SNAPSHOT_REPLAY_BYTES)?.to_vec();
-    match decoder.u8()? {
-        0 => {}
-        1 => decoder.string()?,
-        _ => return Err("terminal snapshot has an invalid optional string".into()),
-    }
-    let argument_count = decoder.u16()? as usize;
-    if argument_count > MAX_SNAPSHOT_ARGUMENTS {
-        return Err("terminal snapshot has too many command arguments".into());
-    }
-    for _ in 0..argument_count {
-        decoder.string()?;
-    }
-    let kitty_image_aliases = if protocol_version >= 2 {
-        let count = decoder.u16()? as usize;
-        if count > MAX_KITTY_IMAGE_ALIASES {
-            return Err("terminal snapshot has too many Kitty image aliases".into());
-        }
-        let mut image_ids = HashSet::with_capacity(count);
-        let mut aliases = Vec::with_capacity(count);
-        for _ in 0..count {
-            let image_id = decoder.u32()?;
-            let image_number = decoder.u32()?;
-            if image_id == 0 || image_number == 0 || !image_ids.insert(image_id) {
-                return Err("terminal snapshot has invalid Kitty image aliases".into());
-            }
-            aliases.push((image_id, image_number));
-        }
-        aliases
-    } else {
-        Vec::new()
-    };
-    let cell_pixels = if protocol_version >= 2 {
-        (decoder.u16()?.max(1), decoder.u16()?.max(1))
-    } else {
-        (8, 16)
-    };
-    let kitty_state = if protocol_version >= 3 {
-        let state = RendererKittyState {
-            limits: (decoder.u64()?, decoder.u64()?, decoder.u64()?, decoder.u64()?),
-            replay_cursor_offset: decoder.u32()?,
-            replay_next_image_ids: (decoder.u32()?, decoder.u32()?),
-            next_image_ids: (decoder.u32()?, decoder.u32()?),
-        };
-        if state.replay_cursor_offset as usize > replay.len()
-            || state.replay_next_image_ids.0 == 0
-            || state.replay_next_image_ids.1 == 0
-            || state.next_image_ids.0 == 0
-            || state.next_image_ids.1 == 0
-        {
-            return Err("terminal snapshot has invalid Kitty replay state".into());
-        }
-        state
-    } else {
-        RendererKittyState::disabled()
-    };
-    decoder.finish()?;
-    Ok(RendererSnapshot { cols, rows, cell_pixels, replay, kitty_image_aliases, kitty_state })
+) -> Result<SnapshotPayload, String> {
+    decode_snapshot_payload(payload, protocol_version).map_err(|error| error.to_string())
 }
 
 fn decode_terminal_color_state_as_vt(payload: &[u8]) -> Result<Vec<u8>, String> {
@@ -354,9 +199,22 @@ struct UpdateCallbackRegistration {
     context: usize,
 }
 
-#[derive(Default)]
 struct ClientUpdates {
     callback: Mutex<Option<UpdateCallbackRegistration>>,
+    #[cfg(test)]
+    revision: tokio::sync::watch::Sender<u64>,
+}
+
+impl Default for ClientUpdates {
+    fn default() -> Self {
+        #[cfg(test)]
+        let (revision, _) = tokio::sync::watch::channel(0);
+        Self {
+            callback: Mutex::new(None),
+            #[cfg(test)]
+            revision,
+        }
+    }
 }
 
 impl ClientUpdates {
@@ -372,12 +230,21 @@ impl ClientUpdates {
     }
 
     fn notify(&self) {
-        let registered = self.callback.lock().unwrap();
-        if let Some(registered) = *registered {
-            // SAFETY: set_callback documents the context lifetime contract and
-            // holds this same mutex across invocation and synchronous removal.
-            unsafe { (registered.callback)(registered.context as *mut c_void) };
+        {
+            let registered = self.callback.lock().unwrap();
+            if let Some(registered) = *registered {
+                // SAFETY: set_callback documents the context lifetime contract and
+                // holds this same mutex across invocation and synchronous removal.
+                unsafe { (registered.callback)(registered.context as *mut c_void) };
+            }
         }
+        #[cfg(test)]
+        self.revision.send_modify(|revision| *revision = (*revision).wrapping_add(1));
+    }
+
+    #[cfg(test)]
+    fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.revision.subscribe()
     }
 }
 
@@ -1207,6 +1074,7 @@ async fn supervise_terminal_stream(
         }
         if outcome == StreamOutcome::Stop {
             closed.store(true, Ordering::Release);
+            updates.notify();
             return;
         }
         if closed.load(Ordering::Acquire) {
@@ -1995,16 +1863,46 @@ mod tests {
         )
     }
 
+    async fn wait_for_client_update(
+        updates: &ClientUpdates,
+        deadline: tokio::time::Instant,
+        mut predicate: impl FnMut() -> bool,
+    ) -> bool {
+        let mut revision = updates.subscribe();
+        loop {
+            if predicate() {
+                return true;
+            }
+            match tokio::time::timeout_at(deadline, revision.changed()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(_) => return false,
+            }
+        }
+    }
+
     fn test_snapshot_payload(replay: &[u8]) -> Vec<u8> {
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&80u16.to_le_bytes());
-        payload.extend_from_slice(&24u16.to_le_bytes());
-        payload.extend_from_slice(&0u32.to_le_bytes());
-        payload.extend_from_slice(&(replay.len() as u32).to_le_bytes());
-        payload.extend_from_slice(replay);
-        payload.push(0);
-        payload.extend_from_slice(&0u16.to_le_bytes());
-        payload
+        let snapshot = SnapshotPayload {
+            cols: 80,
+            rows: 24,
+            cell_pixels: (8, 16),
+            replay: replay.to_vec(),
+            kitty_image_aliases: Vec::new(),
+            kitty_state: SnapshotKittyReplayState::disabled(),
+            pid: None,
+            command: Vec::new(),
+            cwd: None,
+        };
+        encode_snapshot_payload(snapshot.view()).unwrap()
+    }
+
+    #[test]
+    fn current_snapshot_fixture_matches_the_protocol_version() {
+        let snapshot =
+            decode_renderer_snapshot(&test_snapshot_payload(b"current protocol"), PROTOCOL_VERSION)
+                .expect("the current snapshot fixture must use the current wire schema");
+
+        assert_eq!((snapshot.cols, snapshot.rows), (80, 24));
+        assert_eq!(snapshot.replay, b"current protocol");
     }
 
     fn test_colors_payload() -> Vec<u8> {
@@ -2528,32 +2426,28 @@ mod tests {
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
             ));
+            let updates = Arc::new(ClientUpdates::default());
             let active = start_terminal_tasks(
                 runtime.handle(),
                 stream,
                 client.clone(),
                 terminal_id,
                 state.clone(),
-                Arc::new(ClientUpdates::default()),
+                updates.clone(),
             );
 
-            tokio::time::timeout(std::time::Duration::from_secs(3), async {
-                loop {
-                    let recovered = {
-                        let mut state = state.lock().unwrap();
-                        state.materialize_frame().unwrap();
-                        state.ready
-                            && state.resync_count == 1
-                            && state.frame_text.contains("second recovered")
-                    };
-                    if recovered {
-                        break;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                }
-            })
-            .await
-            .expect("renderer did not recover from ResyncRequired");
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+            assert!(
+                wait_for_client_update(&updates, deadline, || {
+                    let mut state = state.lock().unwrap();
+                    state.materialize_frame().unwrap();
+                    state.ready
+                        && state.resync_count == 1
+                        && state.frame_text.contains("second recovered")
+                })
+                .await,
+                "renderer did not recover from ResyncRequired"
+            );
 
             active.close().await;
             daemon_task.await.unwrap();
@@ -2601,22 +2495,24 @@ mod tests {
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
             ));
+            let updates = Arc::new(ClientUpdates::default());
             let active = start_terminal_tasks(
                 runtime.handle(),
                 stream,
                 client.clone(),
                 terminal_id,
                 state.clone(),
-                Arc::new(ClientUpdates::default()),
+                updates.clone(),
             );
 
-            tokio::time::timeout(std::time::Duration::from_secs(3), async {
-                while !active.closed.load(Ordering::Acquire) {
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                }
-            })
-            .await
-            .expect("terminal exit did not close the smart client input path");
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+            assert!(
+                wait_for_client_update(&updates, deadline, || {
+                    active.closed.load(Ordering::Acquire)
+                })
+                .await,
+                "terminal exit did not close the smart client input path"
+            );
             {
                 let state = state.lock().unwrap();
                 assert_eq!(state.status, "exited");
