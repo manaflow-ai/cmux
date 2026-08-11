@@ -37,8 +37,9 @@ func terminalGeometry(width: CGFloat, height: CGFloat) -> TerminalGeometry {
 @MainActor
 @Observable
 final class NativeTerminalModel {
+  private static let maxRenderBatchesPerPass = 4
+
   let terminalID: String
-  private(set) var diagnostics = ""
   private(set) var errorMessage = ""
   private(set) var isAttached = false
   private(set) var didExit = false
@@ -181,8 +182,13 @@ final class NativeTerminalModel {
     guard drainTask == nil else { return }
     drainTask = Task { [weak self, weak handle] in
       guard let self, let handle else { return }
-      defer { drainTask = nil }
-      while !Task.isCancelled, !isShuttingDown {
+      defer {
+        let shouldContinue = drainRequested && !isShuttingDown && !Task.isCancelled
+        drainTask = nil
+        if shouldContinue { requestRenderDrain(from: handle) }
+      }
+      for _ in 0..<Self.maxRenderBatchesPerPass {
+        guard !Task.isCancelled, !isShuttingDown else { return }
         drainRequested = false
         let batch = await handle.drainRenderEvents()
         guard !Task.isCancelled, !isShuttingDown else { return }
@@ -190,15 +196,9 @@ final class NativeTerminalModel {
         if let rendererError = surfaceView.initializationError {
           errorMessage = rendererError
         }
-        if let next = await handle.snapshot() {
-          guard !Task.isCancelled, !isShuttingDown else { return }
-          diagnostics = next.diagnostics
-          didExit = next.didExit
-        }
-        if batch.hasMore {
-          await Task.yield()
-          continue
-        }
+        didExit = await handle.hasExited()
+        guard !Task.isCancelled, !isShuttingDown else { return }
+        if batch.hasMore { drainRequested = true }
         if !drainRequested { return }
       }
     }

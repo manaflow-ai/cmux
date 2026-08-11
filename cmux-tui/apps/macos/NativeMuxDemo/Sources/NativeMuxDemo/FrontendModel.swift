@@ -21,6 +21,61 @@ struct DemoLaunchConfiguration: Sendable {
 
 @MainActor
 @Observable
+final class TerminalTitleOwner {
+    let terminalID: String
+    private(set) var title: String
+
+    @ObservationIgnored private var pendingTitle: String?
+    @ObservationIgnored private var deliveryTask: Task<Void, Never>?
+
+    init(terminalID: String, title: String) {
+        self.terminalID = terminalID
+        self.title = title
+    }
+
+    func submit(_ nextTitle: String) {
+        pendingTitle = nextTitle
+        guard deliveryTask == nil else { return }
+        deliveryTask = Task { [weak self] in
+            await Task.yield()
+            guard let self, !Task.isCancelled else { return }
+            let latest = pendingTitle
+            pendingTitle = nil
+            deliveryTask = nil
+            if let latest, latest != title { title = latest }
+            if pendingTitle != nil { submit(pendingTitle ?? title) }
+        }
+    }
+
+    func replace(with nextTitle: String) {
+        deliveryTask?.cancel()
+        deliveryTask = nil
+        pendingTitle = nil
+        if title != nextTitle { title = nextTitle }
+    }
+
+    func cancel() {
+        deliveryTask?.cancel()
+        deliveryTask = nil
+        pendingTitle = nil
+    }
+}
+
+@MainActor
+struct TerminalTitleFn {
+    private let lookup: (String) -> String?
+
+    init(owners: [String: TerminalTitleOwner]) {
+        lookup = { owners[$0]?.title }
+    }
+
+    func callAsFunction(_ terminalID: String) -> String? {
+        lookup(terminalID)
+    }
+}
+
+@MainActor
+@Observable
 final class FrontendModel {
     var invitation: String
     private(set) var snapshot: ResourceSnapshot?
@@ -36,6 +91,7 @@ final class FrontendModel {
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var refreshRequested = false
     @ObservationIgnored private var terminalControllers: [String: NativeTerminalModel] = [:]
+    @ObservationIgnored private var terminalTitles: [String: TerminalTitleOwner] = [:]
     @ObservationIgnored private var terminalRetirementTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private lazy var ghosttyRuntime = NativeGhosttyRuntime()
     @ObservationIgnored private let shouldAutoConnect: Bool
@@ -43,6 +99,7 @@ final class FrontendModel {
     @ObservationIgnored private var isShuttingDown = false
     @ObservationIgnored private var machineID: String?
     @ObservationIgnored private var sessionID: String?
+    @ObservationIgnored private var resourceRevision: String?
     @ObservationIgnored private var focusMutations = FocusMutationTracker()
 
     init(configuration: DemoLaunchConfiguration = .processEnvironment()) {
@@ -141,10 +198,13 @@ final class FrontendModel {
         refreshTask?.cancel()
         refreshRequested = false
         let controllers = Array(terminalControllers.values)
+        let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
         terminalControllers.removeAll()
+        terminalTitles.removeAll()
         terminalRetirementTasks.removeAll()
         snapshot = nil
+        resourceRevision = nil
         machineID = nil
         sessionID = nil
         focusMutations = FocusMutationTracker()
@@ -153,6 +213,7 @@ final class FrontendModel {
         for controller in controllers {
             await controller.shutdownAndWait()
         }
+        for title in titles { title.cancel() }
         for retirement in retirements {
             await retirement.value
         }
@@ -254,28 +315,25 @@ final class FrontendModel {
               let revision = item["revision"] as? String,
               let previous = item["previous_revision"] as? String,
               revision != previous else { return false }
-        guard var next = snapshot else { return false }
-        guard next.cursor.revision == previous else { return false }
+        guard resourceRevision == previous else { return false }
+        var terminalUpdates: [TerminalSnapshot] = []
+        terminalUpdates.reserveCapacity(changes.count)
         for change in changes {
             guard let resource = change["resource"] as? String,
                   let kind = change["kind"] as? String,
                   let id = change["id"] as? String else { return false }
-            guard resource == "terminal" else { return false }
-            if kind == "delete" {
-                next.removeTerminal(id: id)
-            } else if kind == "upsert",
-                      let value = change["value"],
-                      JSONSerialization.isValidJSONObject(value),
-                      let encoded = try? JSONSerialization.data(withJSONObject: value),
-                      let terminal = try? JSONDecoder().decode(TerminalSnapshot.self, from: encoded) {
-                next.upsertTerminal(terminal)
-            } else {
-                return false
-            }
+            guard resource == "terminal", kind == "upsert", terminalTitles[id] != nil,
+                  let value = change["value"],
+                  JSONSerialization.isValidJSONObject(value),
+                  let encoded = try? JSONSerialization.data(withJSONObject: value),
+                  let terminal = try? JSONDecoder().decode(TerminalSnapshot.self, from: encoded),
+                  terminal.id == id else { return false }
+            terminalUpdates.append(terminal)
         }
-        next.setRevision(revision)
-        snapshot = next
-        reconcileTerminalControllers(next)
+        resourceRevision = revision
+        for terminal in terminalUpdates {
+            terminalTitles[terminal.id]?.submit(terminal.title)
+        }
         return true
     }
 
@@ -304,7 +362,9 @@ final class FrontendModel {
             sessionID: sessionID
         )
         snapshot = next
+        resourceRevision = next.cursor.revision
         reconcileSelection(next)
+        reconcileTerminalTitles(next)
         reconcileTerminalControllers(next)
     }
 
@@ -367,6 +427,23 @@ final class FrontendModel {
         }
     }
 
+    private func reconcileTerminalTitles(_ next: ResourceSnapshot) {
+        let live = Set(next.terminals.map(\.id))
+        for id in Array(terminalTitles.keys) where !live.contains(id) {
+            terminalTitles.removeValue(forKey: id)?.cancel()
+        }
+        for terminal in next.terminals {
+            if let owner = terminalTitles[terminal.id] {
+                owner.replace(with: terminal.title)
+            } else {
+                terminalTitles[terminal.id] = TerminalTitleOwner(
+                    terminalID: terminal.id,
+                    title: terminal.title
+                )
+            }
+        }
+    }
+
     private func retireTerminalController(_ controller: NativeTerminalModel) {
         let retirementID = UUID()
         terminalRetirementTasks[retirementID] = Task { [weak self] in
@@ -377,6 +454,10 @@ final class FrontendModel {
 
     func terminalViewStates() -> [String: NativeTerminalViewState] {
         terminalControllers.mapValues(\.viewState)
+    }
+
+    func terminalTitleLookup() -> TerminalTitleFn {
+        TerminalTitleFn(owners: terminalTitles)
     }
 
     func selectWorkspace(_ workspace: WorkspaceSnapshot) {
@@ -703,15 +784,19 @@ final class FrontendModel {
         refreshRequested = false
         focusMutations = FocusMutationTracker()
         let controllers = Array(terminalControllers.values)
+        let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
         terminalControllers.removeAll()
+        terminalTitles.removeAll()
         terminalRetirementTasks.removeAll()
         let ownedService = service
         service = nil
         snapshot = nil
+        resourceRevision = nil
         for controller in controllers {
             await controller.shutdownAndWait()
         }
+        for title in titles { title.cancel() }
         for retirement in retirements {
             await retirement.value
         }

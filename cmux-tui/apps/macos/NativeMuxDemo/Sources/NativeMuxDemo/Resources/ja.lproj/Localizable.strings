@@ -21,6 +21,9 @@
 "terminal.connecting" = "ターミナルに接続中…";
 "terminal.exited" = "プロセスが終了しました";
 "browser.invalid_url" = "このブラウザタブには有効な URL がありません。";
+"browser.manual_load" = "開くまで、このタブはリモートコンテンツを読み込みません。";
+"browser.open_external" = "ブラウザで開く";
+"browser.remote_content" = "リモートブラウザコンテンツ";
 "error.title" = "フロントエンドエラー";
 "layout.empty" = "このスペースにはペインがありません。";
 "transport.ready" = "Iroh · ローカル libghostty";

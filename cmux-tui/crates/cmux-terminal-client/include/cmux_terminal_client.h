@@ -12,6 +12,7 @@ extern "C" {
 typedef struct CmuxTerminalClient CmuxTerminalClient;
 typedef struct CmuxFrontendClient CmuxFrontendClient;
 typedef struct CmuxFrontendTerminal CmuxFrontendTerminal;
+typedef struct CmuxFrontendAttachCancellation CmuxFrontendAttachCancellation;
 typedef void (*CmuxTerminalClientUpdateCallback)(void *context);
 
 typedef enum {
@@ -80,12 +81,26 @@ char *cmux_frontend_client_request(
     char *error_buffer,
     size_t error_capacity);
 void cmux_frontend_string_free(char *value);
+CmuxFrontendAttachCancellation *cmux_frontend_attach_cancellation_new(void);
+void cmux_frontend_attach_cancellation_cancel(
+    const CmuxFrontendAttachCancellation *cancellation);
+void cmux_frontend_attach_cancellation_free(
+    CmuxFrontendAttachCancellation *cancellation);
 CmuxFrontendTerminal *cmux_frontend_client_attach_terminal(
     CmuxFrontendClient *client,
     const char *terminal_id,
     char *error_buffer,
     size_t error_capacity,
     uint64_t timeout_milliseconds);
+// cancellation may be NULL. Otherwise it must stay live until this function
+// returns. Canceling interrupts an in-progress open or handshake.
+CmuxFrontendTerminal *cmux_frontend_client_attach_terminal_cancellable(
+    CmuxFrontendClient *client,
+    const char *terminal_id,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds,
+    const CmuxFrontendAttachCancellation *cancellation);
 size_t cmux_frontend_client_copy_diagnostics(
     const CmuxFrontendClient *client,
     char *buffer,

@@ -11,6 +11,7 @@ struct PaneView: View {
     let snapshot: ResourceSnapshot
     let paneID: String
     let terminalStates: [String: NativeTerminalViewState]
+    let terminalTitle: TerminalTitleFn
 
     private var pane: PaneSnapshot? { snapshot.pane(paneID) }
     private var tabs: [TabSnapshot] { snapshot.tabs(in: paneID) }
@@ -120,11 +121,10 @@ struct PaneView: View {
     @ViewBuilder
     private var tabContent: some View {
         if let activeTab, activeTab.contentKind == "terminal",
-            let terminal = snapshot.terminal(for: activeTab),
-            let state = terminalStates[terminal.id]
+            let state = terminalStates[activeTab.contentID]
         {
             TerminalSurfaceView(state: state)
-                .id(terminal.id)
+                .id(activeTab.contentID)
         } else if let activeTab, activeTab.contentKind == "browser",
             let browser = snapshot.browser(for: activeTab)
         {
@@ -143,8 +143,8 @@ struct PaneView: View {
             return L10n.format("pane.short_id", "Pane %@", String(paneID.suffix(5)))
         }
         if let name = activeTab.name, !name.isEmpty { return name }
-        if let terminal = snapshot.terminal(for: activeTab), !terminal.title.isEmpty {
-            return terminal.title
+        if let title = terminalTitle(activeTab.contentID), !title.isEmpty {
+            return title
         }
         if let browser = snapshot.browser(for: activeTab), !browser.title.isEmpty {
             return browser.title

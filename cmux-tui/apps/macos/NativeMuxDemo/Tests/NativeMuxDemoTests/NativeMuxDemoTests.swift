@@ -162,6 +162,42 @@ func terminalHandleFFIQueuePreservesFIFOAndDisconnectDrain() async {
 }
 
 @Test
+func canceledQueuedFFIOperationDoesNotExecute() async {
+    let executor = SerialFFIExecutor(label: "test.native-terminal.cancel")
+    let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let first = Task {
+        await executor.run {
+            firstStarted.continuation.yield()
+            releaseFirst.wait()
+            return true
+        }
+    }
+    for await _ in firstStarted.stream { break }
+
+    let queued = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let operations = EventLog()
+    let cancellation = FFICancellation {}
+    let second = Task {
+        await executor.runCancellable(
+            cancellation: cancellation,
+            { operations.append("canceled"); return true },
+            onEnqueued: { queued.continuation.yield() }
+        )
+    }
+    for await _ in queued.stream { break }
+    second.cancel()
+    releaseFirst.signal()
+
+    _ = await first.value
+    let secondResult = await second.value
+    firstStarted.continuation.finish()
+    queued.continuation.finish()
+    #expect(secondResult == nil)
+    #expect(operations.snapshot.isEmpty)
+}
+
+@Test
 func resizeQueueKeepsOnlyNewestPendingGeometry() {
     var queue = NewestResizeQueue()
     let firstStarts = queue.submit(TerminalGeometry(cols: 80, rows: 24))

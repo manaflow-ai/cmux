@@ -75,6 +75,70 @@ final class SerialFFIExecutor: @unchecked Sendable {
       onEnqueued?()
     }
   }
+
+  func runCancellable<T: Sendable>(
+    cancellation: FFICancellation,
+    _ operation: @escaping @Sendable () -> T,
+    onEnqueued: (@Sendable () -> Void)? = nil
+  ) async -> T? {
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        queue.async {
+          guard cancellation.beginExecution() else {
+            continuation.resume(returning: nil)
+            return
+          }
+          continuation.resume(returning: operation())
+        }
+        onEnqueued?()
+      }
+    } onCancel: {
+      cancellation.cancel()
+    }
+  }
+}
+
+final class FFICancellation: @unchecked Sendable {
+  private let lock = NSLock()
+  private var isCancelled = false
+  private let onCancel: @Sendable () -> Void
+
+  init(onCancel: @escaping @Sendable () -> Void) {
+    self.onCancel = onCancel
+  }
+
+  func beginExecution() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return !isCancelled
+  }
+
+  func cancel() {
+    lock.lock()
+    guard !isCancelled else {
+      lock.unlock()
+      return
+    }
+    isCancelled = true
+    lock.unlock()
+    onCancel()
+  }
+}
+
+final class FrontendAttachCancellation: @unchecked Sendable {
+  let raw: OpaquePointer
+
+  init() {
+    raw = cmux_frontend_attach_cancellation_new()!
+  }
+
+  deinit {
+    cmux_frontend_attach_cancellation_free(raw)
+  }
+
+  func cancel() {
+    cmux_frontend_attach_cancellation_cancel(raw)
+  }
 }
 
 func copyFrontendCString(
@@ -99,6 +163,7 @@ actor FrontendService {
   private let ffiQueue = SerialFFIExecutor(label: "cmux.native-frontend.ffi")
   private var updateSink: FrontendUpdateSink?
   private var updateGeneration: UInt64 = 0
+  private var pendingTerminalAttachIDs: Set<String> = []
 
   private init(rawAddress: UInt) {
     raw = OpaquePointer(bitPattern: rawAddress)
@@ -183,16 +248,30 @@ actor FrontendService {
         L10n.text("error.connection_closed", "The frontend connection is closed.")
       )
     }
-    let result: Result<UInt, DetachedRequestFailure> = await enqueue {
+    guard pendingTerminalAttachIDs.insert(id).inserted else {
+      throw CancellationError()
+    }
+    defer { pendingTerminalAttachIDs.remove(id) }
+    let attachCancellation = FrontendAttachCancellation()
+    let queueCancellation = FFICancellation(onCancel: attachCancellation.cancel)
+    let queuedResult: Result<UInt, DetachedRequestFailure>? = await ffiQueue.runCancellable(
+      cancellation: queueCancellation
+    ) {
       var error = [CChar](repeating: 0, count: 2_048)
       let terminal = id.withCString {
-        cmux_frontend_client_attach_terminal(
-          OpaquePointer(bitPattern: rawAddress)!, $0, &error, error.count, 15_000
+        cmux_frontend_client_attach_terminal_cancellable(
+          OpaquePointer(bitPattern: rawAddress)!,
+          $0,
+          &error,
+          error.count,
+          15_000,
+          attachCancellation.raw
         )
       }
       guard let terminal else { return .failure(DetachedRequestFailure(message: decodeError(error))) }
       return .success(UInt(bitPattern: terminal))
     }
+    guard let result = queuedResult else { throw CancellationError() }
     let address: UInt
     switch result {
     case .success(let value): address = value
@@ -328,15 +407,10 @@ actor TerminalHandle {
     return FrontendUpdateSubscription(generation: generation, stream: pair.stream)
   }
 
-  func snapshot() async -> TerminalRenderSnapshot? {
-    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return nil }
+  func hasExited() async -> Bool {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return true }
     return await enqueue {
-      TerminalRenderSnapshot(
-        diagnostics: copyFrontendCString {
-          cmux_frontend_terminal_copy_diagnostics(OpaquePointer(bitPattern: rawAddress), $0, $1)
-        },
-        didExit: cmux_frontend_terminal_has_exited(OpaquePointer(bitPattern: rawAddress))
-      )
+      cmux_frontend_terminal_has_exited(OpaquePointer(bitPattern: rawAddress))
     }
   }
 
@@ -388,11 +462,6 @@ actor TerminalHandle {
     let address = UInt(bitPattern: raw)
     await enqueue { cmux_frontend_terminal_disconnect(OpaquePointer(bitPattern: address)!) }
   }
-}
-
-struct TerminalRenderSnapshot: Sendable {
-  let diagnostics: String
-  let didExit: Bool
 }
 
 struct TerminalRenderEvent: Sendable {

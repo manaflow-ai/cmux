@@ -5,6 +5,7 @@ struct LayoutRootView: View {
     let snapshot: ResourceSnapshot
     let screen: ScreenSnapshot
     let terminalStates: [String: NativeTerminalViewState]
+    let terminalTitle: TerminalTitleFn
 
     var body: some View {
         if let zoomed = screen.layout.zoomedPaneID {
@@ -12,7 +13,8 @@ struct LayoutRootView: View {
                 actions: actions,
                 snapshot: snapshot,
                 paneID: zoomed,
-                terminalStates: terminalStates
+                terminalStates: terminalStates,
+                terminalTitle: terminalTitle
             )
                 .padding(6)
         } else {
@@ -23,14 +25,16 @@ struct LayoutRootView: View {
                     snapshot: snapshot,
                     baseWidth: baseWidth,
                     columns: columns,
-                    terminalStates: terminalStates
+                    terminalStates: terminalStates,
+                    terminalTitle: terminalTitle
                 )
             case let root:
                 LayoutNodeView(
                     actions: actions,
                     snapshot: snapshot,
                     node: root,
-                    terminalStates: terminalStates
+                    terminalStates: terminalStates,
+                    terminalTitle: terminalTitle
                 )
                     .padding(6)
             }
@@ -44,6 +48,7 @@ struct ViewportColumnsView: View {
     let baseWidth: Double
     let columns: [ViewportColumn]
     let terminalStates: [String: NativeTerminalViewState]
+    let terminalTitle: TerminalTitleFn
 
     @State private var pendingWidths: [String: CGFloat] = [:]
 
@@ -78,7 +83,8 @@ struct ViewportColumnsView: View {
                                 actions: actions,
                                 snapshot: snapshot,
                                 node: column.root,
-                                terminalStates: terminalStates
+                                terminalStates: terminalStates,
+                                terminalTitle: terminalTitle
                             )
                             .padding(4)
                         }
@@ -135,6 +141,7 @@ struct LayoutNodeView: View {
     let snapshot: ResourceSnapshot
     let node: LayoutNode
     let terminalStates: [String: NativeTerminalViewState]
+    let terminalTitle: TerminalTitleFn
 
     var body: some View {
         rendered
@@ -147,7 +154,8 @@ struct LayoutNodeView: View {
                 actions: actions,
                 snapshot: snapshot,
                 paneID: paneID,
-                terminalStates: terminalStates
+                terminalStates: terminalStates,
+                terminalTitle: terminalTitle
             ))
         case .split(let splitID, let direction, let ratio, let first, let second):
             return AnyView(
@@ -159,7 +167,8 @@ struct LayoutNodeView: View {
                     ratio: ratio,
                     first: first,
                     second: second,
-                    terminalStates: terminalStates
+                    terminalStates: terminalStates,
+                    terminalTitle: terminalTitle
                 )
             )
         case .stack(let paneIDs, let expandedPaneID):
@@ -169,7 +178,8 @@ struct LayoutNodeView: View {
                     snapshot: snapshot,
                     paneIDs: paneIDs,
                     expandedPaneID: expandedPaneID,
-                    terminalStates: terminalStates
+                    terminalStates: terminalStates,
+                    terminalTitle: terminalTitle
                 )
             )
         case .viewport(let baseWidth, let columns):
@@ -179,7 +189,8 @@ struct LayoutNodeView: View {
                     snapshot: snapshot,
                     baseWidth: baseWidth,
                     columns: columns,
-                    terminalStates: terminalStates
+                    terminalStates: terminalStates,
+                    terminalTitle: terminalTitle
                 )
             )
         }
@@ -195,6 +206,7 @@ private struct SplitLayoutView: View {
     let first: LayoutNode
     let second: LayoutNode
     let terminalStates: [String: NativeTerminalViewState]
+    let terminalTitle: TerminalTitleFn
 
     @State private var pendingRatio: Double?
 
@@ -210,7 +222,8 @@ private struct SplitLayoutView: View {
                         actions: actions,
                         snapshot: snapshot,
                         node: first,
-                        terminalStates: terminalStates
+                        terminalStates: terminalStates,
+                        terminalTitle: terminalTitle
                     )
                         .frame(width: max(80, geometry.size.width * safeRatio - 3))
                     splitDivider(total: geometry.size.width)
@@ -218,7 +231,8 @@ private struct SplitLayoutView: View {
                         actions: actions,
                         snapshot: snapshot,
                         node: second,
-                        terminalStates: terminalStates
+                        terminalStates: terminalStates,
+                        terminalTitle: terminalTitle
                     )
                 }
             } else {
@@ -227,7 +241,8 @@ private struct SplitLayoutView: View {
                         actions: actions,
                         snapshot: snapshot,
                         node: first,
-                        terminalStates: terminalStates
+                        terminalStates: terminalStates,
+                        terminalTitle: terminalTitle
                     )
                         .frame(height: max(80, geometry.size.height * safeRatio - 3))
                     splitDivider(total: geometry.size.height)
@@ -235,7 +250,8 @@ private struct SplitLayoutView: View {
                         actions: actions,
                         snapshot: snapshot,
                         node: second,
-                        terminalStates: terminalStates
+                        terminalStates: terminalStates,
+                        terminalTitle: terminalTitle
                     )
                 }
             }
@@ -278,6 +294,7 @@ private struct StackLayoutView: View {
     let paneIDs: [String]
     let expandedPaneID: String
     let terminalStates: [String: NativeTerminalViewState]
+    let terminalTitle: TerminalTitleFn
 
     var body: some View {
         VStack(spacing: 2) {
@@ -303,7 +320,8 @@ private struct StackLayoutView: View {
                 actions: actions,
                 snapshot: snapshot,
                 paneID: expandedPaneID,
-                terminalStates: terminalStates
+                terminalStates: terminalStates,
+                terminalTitle: terminalTitle
             )
         }
     }

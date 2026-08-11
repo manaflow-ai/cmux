@@ -1037,7 +1037,23 @@ async fn open_terminal_stream_with_timeout(
     terminal_id: &TerminalPublicId,
     timeout: Option<StdDuration>,
 ) -> Result<Arc<ServiceStream>, String> {
+    open_terminal_stream_with_timeout_and_cancel(
+        multiplexer,
+        terminal_id,
+        timeout,
+        std::future::pending(),
+    )
+    .await
+}
+
+pub(crate) async fn open_terminal_stream_with_timeout_and_cancel(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    terminal_id: &TerminalPublicId,
+    timeout: Option<StdDuration>,
+    cancellation: impl std::future::Future<Output = ()>,
+) -> Result<Arc<ServiceStream>, String> {
     let started = Instant::now();
+    tokio::pin!(cancellation);
     let open = async {
         multiplexer
             .open(
@@ -1048,8 +1064,16 @@ async fn open_terminal_stream_with_timeout(
             .map_err(|error| format!("open terminal-bytes-v1: {error}"))
     };
     let stream = Arc::new(match timeout {
-        Some(timeout) => connect_with_timeout(open, timeout).await?,
-        None => open.await?,
+        Some(timeout) => tokio::select! {
+            biased;
+            _ = &mut cancellation => return Err("terminal attach canceled".into()),
+            result = connect_with_timeout(open, timeout) => result?,
+        },
+        None => tokio::select! {
+            biased;
+            _ = &mut cancellation => return Err("terminal attach canceled".into()),
+            result = open => result?,
+        },
     });
     let handshake = async {
         let opened = stream
@@ -1067,10 +1091,16 @@ async fn open_terminal_stream_with_timeout(
         Ok::<(), String>(())
     };
     let handshake = match timeout {
-        Some(timeout) => {
-            connect_with_timeout(handshake, timeout.saturating_sub(started.elapsed())).await
-        }
-        None => handshake.await,
+        Some(timeout) => tokio::select! {
+            biased;
+            _ = &mut cancellation => Err("terminal attach canceled".into()),
+            result = connect_with_timeout(handshake, timeout.saturating_sub(started.elapsed())) => result,
+        },
+        None => tokio::select! {
+            biased;
+            _ = &mut cancellation => Err("terminal attach canceled".into()),
+            result = handshake => result,
+        },
     };
     if let Err(error) = handshake {
         let _ = stream.close().await;
