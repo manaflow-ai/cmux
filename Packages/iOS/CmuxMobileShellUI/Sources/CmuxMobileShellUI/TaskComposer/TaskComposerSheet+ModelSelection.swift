@@ -22,10 +22,15 @@ extension TaskComposerSheet {
         var models = modelAvailability.models
         if let selectedModelID,
            !models.contains(where: { $0.id == selectedModelID }) {
-            models.append(MobileTaskAgentModel(
-                id: selectedModelID,
-                displayName: selectedModelID
-            ))
+            if let explicitlySelectedModel,
+               explicitlySelectedModel.id == selectedModelID {
+                models.append(explicitlySelectedModel)
+            } else {
+                models.append(MobileTaskAgentModel(
+                    id: selectedModelID,
+                    displayName: selectedModelID
+                ))
+            }
         }
         return models
     }
@@ -68,9 +73,11 @@ extension TaskComposerSheet {
         // even if host discovery replaces the live catalog while the menu is
         // open. Draft restoration still uses validatedModelID(_:for:).
         let selectedID = model?.id
-        guard selectedModelID != selectedID else { return }
+        guard selectedModelID != selectedID
+            || explicitlySelectedModel != model else { return }
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedModelID = selectedID
+            explicitlySelectedModel = model
         }
     }
 }

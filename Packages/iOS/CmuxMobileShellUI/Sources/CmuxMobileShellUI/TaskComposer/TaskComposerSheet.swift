@@ -18,6 +18,7 @@ struct TaskComposerSheet: View {
     @State private var templates: [MobileTaskTemplate]
     @State var selectedTemplateID: MobileTaskTemplate.ID?
     @State var selectedModelID: String?
+    @State var explicitlySelectedModel: MobileTaskAgentModel?
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
     @State private var modelRefreshTask: Task<Void, Never>?
@@ -233,6 +234,9 @@ struct TaskComposerSheet: View {
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
         _selectedModelID = State(initialValue: initialModelID)
+        _explicitlySelectedModel = State(initialValue: initialModelAvailability.models.first {
+            $0.id == initialModelID
+        })
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
         _displayedModels = State(initialValue: initialDiscoveredModels ?? [])
@@ -717,6 +721,7 @@ struct TaskComposerSheet: View {
             store.taskTemplateStore?.addTemplate(template)
             selectedTemplateID = template.id
             selectedModelID = nil
+            explicitlySelectedModel = nil
             syncSuggestedDirectory()
         }
     }

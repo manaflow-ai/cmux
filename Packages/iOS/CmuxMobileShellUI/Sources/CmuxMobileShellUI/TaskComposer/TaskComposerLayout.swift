@@ -257,43 +257,42 @@ struct TaskComposerLayout: View {
     }
 
     private var modelPill: some View {
-        Menu {
+        HStack(spacing: 7) {
+            Image(systemName: "cpu")
+                .font(.caption.weight(.semibold))
+                .accessibilityHidden(true)
+
+            Text(selectedModelName)
+                .lineLimit(1)
+
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.primary)
+        // See agentPill: adopt the new title's width immediately instead of
+        // animating (and clipping) into it.
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color.primary.opacity(0.07), in: Capsule())
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        .accessibilityHidden(true)
+        .overlay {
             TaskComposerModelMenuContent(
                 models: models,
                 selectedModelID: selectedModelID,
+                selectedModelName: selectedModelName,
+                isEnabled: !isDisabled,
                 selectModel: selectModel
             )
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "cpu")
-                    .font(.caption.weight(.semibold))
-                    .accessibilityHidden(true)
-
-                Text(selectedModelName)
-                    .lineLimit(1)
-
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.primary)
-            // See agentPill: adopt the new title's width immediately instead
-            // of animating (and clipping) into it.
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 38)
-            .background(Color.primary.opacity(0.07), in: Capsule())
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .tint(Color.primary)
-        .disabled(isDisabled)
-        .taskComposerModelAccessibility(valueName: selectedModelName)
-        .accessibilityIdentifier("MobileTaskComposerModelPill")
-        // See agentPill: identity-swap the Menu so the new title cannot be
-        // clipped by the old button frame mid-animation.
+        // See agentPill: identity-swap the pill so the new title cannot be
+        // clipped by the old frame mid-animation.
         .id(selectedModelName)
     }
 

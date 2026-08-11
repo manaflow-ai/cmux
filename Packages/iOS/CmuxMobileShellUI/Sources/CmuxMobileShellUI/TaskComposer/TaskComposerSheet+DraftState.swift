@@ -8,6 +8,7 @@ extension TaskComposerSheet {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
             selectedModelID = validatedModelID
+            explicitlySelectedModel = nil
             if template.isPlainShell {
                 removeStagedAttachmentFiles()
                 attachments.removeAll()
@@ -27,6 +28,7 @@ extension TaskComposerSheet {
                 previouslyValidModelID: snapshot.modelID
             )
         }
+        explicitlySelectedModel = nil
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
         directory = snapshot.directory
