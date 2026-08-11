@@ -5561,6 +5561,35 @@ fn journal_agent_legacy_upgrade_backfills_archived_agent_event_kinds() {
 }
 
 #[test]
+fn journal_agent_kind_backfill_uses_the_missing_kind_index() {
+    let registry = WorkspaceRegistry::in_memory("journal-agent-kind-backfill-index").unwrap();
+    let plan = {
+        let mut statement = registry
+            .connection
+            .prepare(
+                "EXPLAIN QUERY PLAN
+                 SELECT event.sequence
+                 FROM journal_event_index event
+                      INDEXED BY journal_event_index_by_missing_kind_sequence
+                 JOIN session_journal journal ON journal.sequence = event.sequence
+                 WHERE event.kind IS NULL
+                 ORDER BY event.sequence ASC
+                 LIMIT 1024",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| row.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    assert!(
+        plan.iter().any(|detail| detail.contains("journal_event_index_by_missing_kind_sequence")),
+        "missing-kind scan must use its partial sequence index: {plan:#?}"
+    );
+}
+
+#[test]
 fn journal_agent_legacy_upgrade_keeps_later_stored_socket_projection() {
     let root = temp_root("journal-agent-upgrade-stored-socket");
     let session = "journal-agent-upgrade-stored-socket";

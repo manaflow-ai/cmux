@@ -455,7 +455,10 @@ pub(super) fn ensure_journal_event_index_schema(
            WHERE resource_revision IS NOT NULL;
          CREATE INDEX IF NOT EXISTS journal_event_index_by_agent_sequence
            ON journal_event_index(sequence)
-           WHERE kind >= 'agent.' AND kind < 'agent/';",
+           WHERE kind >= 'agent.' AND kind < 'agent/';
+         CREATE INDEX IF NOT EXISTS journal_event_index_by_missing_kind_sequence
+           ON journal_event_index(sequence)
+           WHERE kind IS NULL;",
     )?;
     Ok(())
 }
@@ -472,11 +475,12 @@ pub(super) fn backfill_journal_event_index_kinds_page(
          )
          WHERE kind IS NULL
            AND sequence IN (
-             SELECT journal.sequence
-             FROM session_journal journal
-             JOIN journal_event_index event ON event.sequence = journal.sequence
+             SELECT event.sequence
+             FROM journal_event_index event
+                  INDEXED BY journal_event_index_by_missing_kind_sequence
+             JOIN session_journal journal ON journal.sequence = event.sequence
              WHERE event.kind IS NULL
-             ORDER BY journal.sequence ASC
+             ORDER BY event.sequence ASC
              LIMIT ?1
            )",
         [i64::try_from(active_limit).context("journal kind backfill limit exceeds SQLite")?],
@@ -487,7 +491,9 @@ pub(super) fn backfill_journal_event_index_kinds_page(
                     content, uncompressed_bytes, sha256
              FROM journal_segments segment
              WHERE EXISTS (
-               SELECT 1 FROM journal_event_index event
+               SELECT 1
+               FROM journal_event_index event
+                    INDEXED BY journal_event_index_by_missing_kind_sequence
                WHERE event.kind IS NULL
                  AND event.sequence BETWEEN segment.start_sequence AND segment.end_sequence
              )
@@ -515,7 +521,11 @@ pub(super) fn backfill_journal_event_index_kinds_page(
         0
     };
     let pending = transaction.query_row(
-        "SELECT EXISTS(SELECT 1 FROM journal_event_index WHERE kind IS NULL)",
+        "SELECT EXISTS(
+           SELECT 1
+           FROM journal_event_index INDEXED BY journal_event_index_by_missing_kind_sequence
+           WHERE kind IS NULL
+         )",
         [],
         |row| row.get::<_, bool>(0),
     )?;
