@@ -54,7 +54,11 @@ mod remote_cli {
         args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
     }
 
-    pub fn run(_: &[String], _: &str) -> i32 {
+    pub fn run(
+        _: &[String],
+        _: &str,
+        _: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+    ) -> i32 {
         eprintln!(
             "cmux-tui: remote daemon commands require Unix sockets and are unsupported on {}",
             std::env::consts::OS
