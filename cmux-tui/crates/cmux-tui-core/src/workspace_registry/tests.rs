@@ -5010,7 +5010,7 @@ fn journal_agent_projection_cursor_advances_and_replays_only_a_suffix() {
         )
         .unwrap();
 
-    let mut reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
     let applied = reopened
         .connection
         .query_row(
@@ -5268,7 +5268,7 @@ fn journal_agent_generation_backfill_is_bounded_and_resumable() {
             .unwrap();
     }
 
-    let reopened = WorkspaceRegistry::open(&root, session).unwrap();
+    let mut reopened = WorkspaceRegistry::open(&root, session).unwrap();
     let first_page = reopened
         .connection
         .query_row("SELECT COUNT(*) FROM resource_agent_session_generations", [], |row| {
