@@ -2280,12 +2280,6 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
         "stalled renderer silently froze instead of being disconnected"
     );
 
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 31, "cmd": "send", "surface": surface, "text": "\u{3}"}),
-    );
-    std::thread::sleep(Duration::from_millis(50));
-
     // Overflow is isolated to the stalled renderer. The daemon proxy and PTY
     // remain responsive and the durable host record remains adoptable.
     let after = format!("host-still-live-{}", std::process::id());
