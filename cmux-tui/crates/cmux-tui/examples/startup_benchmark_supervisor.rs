@@ -946,7 +946,8 @@ mod platform {
     use windows_sys::Win32::System::Pipes::CreatePipe;
     use windows_sys::Win32::System::StationsAndDesktops::{
         CloseDesktop, CloseWindowStation, CreateDesktopW, CreateWindowStationW,
-        GetProcessWindowStation, SetProcessWindowStation,
+        GetProcessWindowStation, GetThreadDesktop, GetUserObjectInformationW,
+        SetProcessWindowStation, SetThreadDesktop, UOI_NAME,
     };
     use windows_sys::Win32::System::SystemServices::{
         ACCESS_ALLOWED_ACE_TYPE, JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO, JOB_OBJECT_QUERY,
@@ -955,14 +956,18 @@ mod platform {
     };
     use windows_sys::Win32::System::Threading::{
         CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithTokenW,
-        GetCurrentProcess, GetExitCodeProcess, INFINITE, OpenProcessToken, PROCESS_INFORMATION,
-        ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
+        GetCurrentProcess, GetCurrentThreadId, GetExitCodeProcess, INFINITE, OpenProcessToken,
+        PROCESS_INFORMATION, ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
     };
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
     use windows_sys::Win32::UI::WindowsAndMessaging::{CWF_CREATE_ONLY, WINSTA_ALL_ACCESS};
 
     use super::*;
-    use crate::startup_benchmark_protocol::{BootstrapHangArtifactReference, BootstrapTerminal};
+    use crate::startup_benchmark_protocol::{
+        BootstrapHangArtifactReference, BootstrapTerminal,
+        WINDOWS_DESKTOP_LIFECYCLE_SCHEMA_VERSION, WindowsDesktopLifecycleEvidence,
+        windows_desktop_lifecycle_evidence_path,
+    };
     use crate::startup_benchmark_windows_diagnostic::{self, CaptureRequest};
 
     const MAX_BOOTSTRAP_CHECKPOINT_BYTES: usize = 64 * 1024;
@@ -1127,12 +1132,122 @@ mod platform {
     const READ_CONTROL_ACCESS: u32 = 0x0002_0000;
     const PRIVATE_DESKTOP_ALL_ACCESS: u32 = 0x000f_01ff;
 
+    struct SupervisorDesktopIdentity {
+        process_station: HANDLE,
+        thread_desktop: HANDLE,
+        thread_id: u32,
+        process_station_name: String,
+        thread_desktop_name: String,
+    }
+
+    impl SupervisorDesktopIdentity {
+        fn capture() -> Result<Self> {
+            // CreateWindowStationW changes the calling process association. Capture both
+            // supervisor objects before that call so all later paths can restore them exactly.
+            let process_station = unsafe { GetProcessWindowStation() };
+            if process_station.is_null() {
+                return Err(std::io::Error::last_os_error())
+                    .context("get original supervisor window station");
+            }
+            let thread_id = unsafe { GetCurrentThreadId() };
+            let thread_desktop = unsafe { GetThreadDesktop(thread_id) };
+            if thread_desktop.is_null() {
+                return Err(std::io::Error::last_os_error())
+                    .context("get original supervisor thread desktop");
+            }
+            Ok(Self {
+                process_station,
+                thread_desktop,
+                thread_id,
+                process_station_name: user_object_name(
+                    process_station,
+                    "original supervisor window station",
+                )?,
+                thread_desktop_name: user_object_name(
+                    thread_desktop,
+                    "original supervisor thread desktop",
+                )?,
+            })
+        }
+
+        fn restore(&self) -> Result<(String, String)> {
+            // SetThreadDesktop requires its target to belong to the current process station.
+            // Restore the station first, and do not make an invalid desktop call if that fails.
+            if let Err(error) = check(
+                unsafe { SetProcessWindowStation(self.process_station) },
+                "restore original supervisor window station",
+            ) {
+                return Err(error.context(
+                    "original thread desktop restore was not attempted because its window station was not current",
+                ));
+            }
+            check(
+                unsafe { SetThreadDesktop(self.thread_desktop) },
+                "restore original supervisor thread desktop",
+            )?;
+            self.prove_current("after private desktop creation")
+        }
+
+        fn prove_current(&self, phase: &str) -> Result<(String, String)> {
+            let thread_id = unsafe { GetCurrentThreadId() };
+            if thread_id != self.thread_id {
+                bail!("supervisor desktop lifecycle moved to a different thread {phase}");
+            }
+            let process_station = unsafe { GetProcessWindowStation() };
+            let thread_desktop = unsafe { GetThreadDesktop(thread_id) };
+            if process_station != self.process_station || thread_desktop != self.thread_desktop {
+                bail!("supervisor station or desktop handle changed {phase}");
+            }
+            let process_station_name =
+                user_object_name(process_station, &format!("supervisor window station {phase}"))?;
+            let thread_desktop_name =
+                user_object_name(thread_desktop, &format!("supervisor thread desktop {phase}"))?;
+            if process_station_name != self.process_station_name
+                || thread_desktop_name != self.thread_desktop_name
+            {
+                bail!("supervisor station or desktop name changed {phase}");
+            }
+            Ok((process_station_name, thread_desktop_name))
+        }
+    }
+
+    fn user_object_name(handle: HANDLE, description: &str) -> Result<String> {
+        let mut bytes = 0_u32;
+        unsafe { GetUserObjectInformationW(handle, UOI_NAME, null_mut(), 0, &mut bytes) };
+        if bytes < 2 || bytes % 2 != 0 {
+            return Err(std::io::Error::last_os_error())
+                .with_context(|| format!("measure {description} name"));
+        }
+        let mut value = vec![0_u16; usize::try_from(bytes / 2)?];
+        check(
+            unsafe {
+                GetUserObjectInformationW(
+                    handle,
+                    UOI_NAME,
+                    value.as_mut_ptr().cast(),
+                    bytes,
+                    &mut bytes,
+                )
+            },
+            &format!("read {description} name"),
+        )?;
+        let end = value.iter().position(|unit| *unit == 0).unwrap_or(value.len());
+        let name = String::from_utf16(&value[..end])?;
+        if name.is_empty() {
+            bail!("{description} name was empty");
+        }
+        Ok(name)
+    }
+
     struct PrivateDesktopOwner {
         _desktop: OwnedDesktop,
         _station: OwnedWindowStation,
         station_name: String,
         desktop_name: String,
         qualified_wide: Vec<u16>,
+        supervisor_identity: SupervisorDesktopIdentity,
+        supervisor_station_after_create: String,
+        supervisor_desktop_after_create: String,
     }
 
     impl PrivateDesktopOwner {
@@ -1165,10 +1280,14 @@ mod platform {
                 system_restricting_sid.0,
                 PRIVATE_DESKTOP_ALL_ACCESS,
             )?;
+            let supervisor_identity = SupervisorDesktopIdentity::capture()?;
             let station_wide = wide(std::ffi::OsStr::new(&station_name));
             let station_attributes = station_security.attributes()?;
+            let desktop_wide = wide(std::ffi::OsStr::new(&desktop_name));
+            let desktop_attributes = desktop_security.attributes()?;
+            check_security_deadline(deadline, trace, "prepare private desktop creation")?;
             // SAFETY: the name and security descriptor remain live for this call.
-            let station = unsafe {
+            let station_raw = unsafe {
                 CreateWindowStationW(
                     station_wide.as_ptr(),
                     CWF_CREATE_ONLY,
@@ -1176,24 +1295,14 @@ mod platform {
                     &station_attributes,
                 )
             };
-            if station.is_null() {
+            if station_raw.is_null() {
                 return Err(std::io::Error::last_os_error())
                     .context("create nonce-bound private window station");
             }
-            let station = OwnedWindowStation(station);
-            check_security_deadline(deadline, trace, "create private window station")?;
-            let original_station = unsafe { GetProcessWindowStation() };
-            if original_station.is_null() {
-                return Err(std::io::Error::last_os_error())
-                    .context("get supervisor window station");
-            }
-            check(
-                unsafe { SetProcessWindowStation(station.0) },
-                "select private window station for desktop creation",
-            )?;
-            let desktop_wide = wide(std::ffi::OsStr::new(&desktop_name));
-            let desktop_attributes = desktop_security.attributes()?;
-            // SAFETY: the private station is selected and all pointed-to values remain live.
+            // Own every successful handle before any fallible restore operation. Windows has
+            // already associated this process with the new station at this point.
+            let station = OwnedWindowStation(station_raw);
+            // SAFETY: the new private station is current and all pointed-to values remain live.
             let desktop_raw = unsafe {
                 CreateDesktopW(
                     desktop_wide.as_ptr(),
@@ -1204,17 +1313,26 @@ mod platform {
                     &desktop_attributes,
                 )
             };
-            let desktop_error =
-                if desktop_raw.is_null() { Some(std::io::Error::last_os_error()) } else { None };
-            let restore = check(
-                unsafe { SetProcessWindowStation(original_station) },
-                "restore supervisor window station",
-            );
-            if let Some(error) = desktop_error {
-                return Err(error).context("create nonce-bound private desktop");
-            }
-            restore?;
-            let desktop = OwnedDesktop(desktop_raw);
+            let desktop = if desktop_raw.is_null() {
+                Err(std::io::Error::last_os_error()).context("create nonce-bound private desktop")
+            } else {
+                Ok(OwnedDesktop(desktop_raw))
+            };
+            // CreateDesktopW associates the new desktop with this thread. Restore both original
+            // associations before any return, including a desktop creation error.
+            let restore = supervisor_identity.restore();
+            let (desktop, (supervisor_station_after_create, supervisor_desktop_after_create)) =
+                match (desktop, restore) {
+                    (Ok(desktop), Ok(identity)) => (desktop, identity),
+                    (Err(error), Ok(_)) => return Err(error),
+                    (Ok(_), Err(restore)) => return Err(restore),
+                    (Err(error), Err(restore)) => {
+                        return Err(error.context(format!(
+                            "also restore original supervisor station and desktop: {restore:#}"
+                        )));
+                    }
+                };
+            check_security_deadline(deadline, trace, "restore supervisor desktop identity")?;
             prove_private_object_security(
                 station.0,
                 account_sid.0,
@@ -1246,20 +1364,56 @@ mod platform {
                 station_name,
                 desktop_name,
                 qualified_wide,
+                supervisor_identity,
+                supervisor_station_after_create,
+                supervisor_desktop_after_create,
             })
         }
 
-        fn close(mut self) -> Result<()> {
+        fn close(mut self, nonce: &str) -> Result<WindowsDesktopLifecycleEvidence> {
+            let before_cleanup =
+                self.supervisor_identity.prove_current("before private desktop cleanup");
             let desktop = self._desktop.close();
             let station = self._station.close();
-            match (desktop, station) {
-                (Ok(()), Ok(())) => Ok(()),
-                (Err(error), Ok(())) => Err(error),
-                (Ok(()), Err(error)) => Err(error),
-                (Err(desktop), Err(station)) => {
-                    Err(desktop.context(format!("also close private window station: {station:#}")))
-                }
+            let after_cleanup =
+                self.supervisor_identity.prove_current("after private desktop cleanup");
+            let mut errors = Vec::new();
+            if let Err(error) = &before_cleanup {
+                errors.push(format!("supervisor identity before cleanup: {error:#}"));
             }
+            if let Err(error) = &desktop {
+                errors.push(format!("close private desktop: {error:#}"));
+            }
+            if let Err(error) = &station {
+                errors.push(format!("close private window station: {error:#}"));
+            }
+            if let Err(error) = &after_cleanup {
+                errors.push(format!("supervisor identity after cleanup: {error:#}"));
+            }
+            if !errors.is_empty() {
+                bail!("{}", errors.join("; "));
+            }
+            let (supervisor_window_station_after_cleanup, supervisor_desktop_after_cleanup) =
+                after_cleanup?;
+            Ok(WindowsDesktopLifecycleEvidence {
+                schema_version: WINDOWS_DESKTOP_LIFECYCLE_SCHEMA_VERSION,
+                nonce: nonce.to_string(),
+                private_window_station: self.station_name.clone(),
+                private_desktop: format!("{}\\{}", self.station_name, self.desktop_name),
+                supervisor_window_station_before: self
+                    .supervisor_identity
+                    .process_station_name
+                    .clone(),
+                supervisor_desktop_before: self.supervisor_identity.thread_desktop_name.clone(),
+                supervisor_window_station_after_create: self.supervisor_station_after_create,
+                supervisor_desktop_after_create: self.supervisor_desktop_after_create,
+                supervisor_window_station_after_cleanup,
+                supervisor_desktop_after_cleanup,
+                supervisor_identity_unchanged_after_create: true,
+                supervisor_identity_unchanged_after_cleanup: true,
+                private_desktop_closed: true,
+                private_window_station_closed: true,
+            })
         }
     }
 
@@ -1498,6 +1652,8 @@ mod platform {
         query_job: Option<OwnedHandle>,
         completion_port: OwnedHandle,
         private_desktop: Option<PrivateDesktopOwner>,
+        desktop_lifecycle_evidence_path: PathBuf,
+        nonce: String,
         // Keep the profile after all Job handles so field-drop fallback closes the containment
         // boundary before it tries to unload a profile after an error.
         profile: Option<LoadedProfile>,
@@ -1635,6 +1791,8 @@ mod platform {
                 security_deadline,
                 trace,
             )?;
+            let desktop_lifecycle_evidence_path =
+                windows_desktop_lifecycle_evidence_path(&launch.fixture_root, &launch.nonce)?;
             configure_fixture_acl(
                 &launch.fixture_root,
                 &user,
@@ -1657,6 +1815,8 @@ mod platform {
                 query_job,
                 completion_port,
                 private_desktop: Some(private_desktop),
+                desktop_lifecycle_evidence_path,
+                nonce: launch.nonce.clone(),
                 restricting_sid_text: sid_text,
                 broker_assigned: false,
             })
@@ -1846,7 +2006,12 @@ mod platform {
                 self.broker_assigned = false;
             }
             let desktop_cleanup = match self.private_desktop.take() {
-                Some(private_desktop) => private_desktop.close(),
+                Some(private_desktop) => private_desktop.close(&self.nonce).and_then(|evidence| {
+                    persist_windows_desktop_lifecycle_evidence(
+                        &self.desktop_lifecycle_evidence_path,
+                        &evidence,
+                    )
+                }),
                 None => Ok(()),
             };
             let profile_cleanup = if Instant::now() >= deadline {
@@ -2761,6 +2926,25 @@ mod platform {
         file.flush()?;
         drop(file);
         Ok((u64::try_from(bytes.len())?, digest))
+    }
+
+    fn persist_windows_desktop_lifecycle_evidence(
+        path: &Path,
+        evidence: &WindowsDesktopLifecycleEvidence,
+    ) -> Result<()> {
+        evidence.validate(&evidence.nonce)?;
+        let bytes = serde_json::to_vec_pretty(evidence)?;
+        if bytes.len() > MAX_BOOTSTRAP_CHECKPOINT_BYTES {
+            bail!("Windows desktop lifecycle evidence exceeded its file bound");
+        }
+        let mut file =
+            fs::OpenOptions::new().write(true).create_new(true).open(path).with_context(|| {
+                format!("create Windows desktop lifecycle evidence {}", path.display())
+            })?;
+        file.write_all(&bytes)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        Ok(())
     }
 
     fn wait_process(process: &OwnedHandle, timeout: Duration, operation: &str) -> Result<()> {

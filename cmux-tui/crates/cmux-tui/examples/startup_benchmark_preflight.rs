@@ -18,12 +18,14 @@ use sha2::{Digest, Sha256};
 use startup_benchmark_protocol::{
     BootstrapHangDiagnosticReport, CONTROL_TIMEOUT, MAX_BOOTSTRAP_HANG_DUMP_BYTES,
     MAX_BOOTSTRAP_HANG_REPORT_BYTES, STARTUP_LINE_TIMEOUT, SupervisorStartupLine, TimingPage,
-    arm_line, bootstrap_failure_hang_artifact, monotonic_ns, parse_supervisor_startup_line,
-    read_control_line, validate_bootstrap_failure_records, write_control_line,
+    WindowsDesktopLifecycleEvidence, arm_line, bootstrap_failure_hang_artifact, monotonic_ns,
+    parse_supervisor_startup_line, read_control_line, validate_bootstrap_failure_records,
+    write_control_line,
 };
 #[cfg(windows)]
 use startup_benchmark_protocol::{
     PRODUCT_STARTED_TIMEOUT, parse_product_started_line, read_product_started_control_line,
+    windows_desktop_lifecycle_evidence_path,
 };
 use wait_timeout::ChildExt;
 
@@ -72,6 +74,16 @@ struct PreflightEvidence {
     windows_private_window_station: Option<String>,
     windows_private_desktop: Option<String>,
     windows_private_desktop_ready_before_resume: Option<bool>,
+    windows_supervisor_window_station_before: Option<String>,
+    windows_supervisor_desktop_before: Option<String>,
+    windows_supervisor_window_station_after_create: Option<String>,
+    windows_supervisor_desktop_after_create: Option<String>,
+    windows_supervisor_window_station_after_cleanup: Option<String>,
+    windows_supervisor_desktop_after_cleanup: Option<String>,
+    windows_supervisor_identity_unchanged_after_create: Option<bool>,
+    windows_supervisor_identity_unchanged_after_cleanup: Option<bool>,
+    windows_private_desktop_closed: Option<bool>,
+    windows_private_window_station_closed: Option<bool>,
     windows_bootstrap_create_no_window: Option<bool>,
     windows_broker_authentication_id: Option<String>,
     windows_restricted_authentication_id: Option<String>,
@@ -816,8 +828,20 @@ fn run_controller(values: &[String]) -> Result<()> {
     };
     #[cfg(not(windows))]
     let bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
+    #[cfg(windows)]
+    let desktop_lifecycle_evidence: Option<WindowsDesktopLifecycleEvidence> = {
+        let path = windows_desktop_lifecycle_evidence_path(&root, &nonce)?;
+        let evidence: WindowsDesktopLifecycleEvidence =
+            serde_json::from_slice(&fs::read(&path).with_context(|| {
+                format!("read Windows desktop lifecycle evidence {}", path.display())
+            })?)?;
+        evidence.validate(&nonce)?;
+        Some(evidence)
+    };
+    #[cfg(not(windows))]
+    let desktop_lifecycle_evidence: Option<WindowsDesktopLifecycleEvidence> = None;
     let evidence = PreflightEvidence {
-        schema_version: 7,
+        schema_version: 8,
         backend,
         policy: "fixture-root-only-write",
         handshake: "nonce-bound-ready-arm-with-pre-exec-t0",
@@ -888,6 +912,36 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_private_desktop_ready_before_resume: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.private_desktop_ready_before_resume),
+        windows_supervisor_window_station_before: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.supervisor_window_station_before.clone()),
+        windows_supervisor_desktop_before: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.supervisor_desktop_before.clone()),
+        windows_supervisor_window_station_after_create: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.supervisor_window_station_after_create.clone()),
+        windows_supervisor_desktop_after_create: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.supervisor_desktop_after_create.clone()),
+        windows_supervisor_window_station_after_cleanup: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.supervisor_window_station_after_cleanup.clone()),
+        windows_supervisor_desktop_after_cleanup: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.supervisor_desktop_after_cleanup.clone()),
+        windows_supervisor_identity_unchanged_after_create: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.supervisor_identity_unchanged_after_create),
+        windows_supervisor_identity_unchanged_after_cleanup: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.supervisor_identity_unchanged_after_cleanup),
+        windows_private_desktop_closed: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_desktop_closed),
+        windows_private_window_station_closed: desktop_lifecycle_evidence
+            .as_ref()
+            .map(|evidence| evidence.private_window_station_closed),
         windows_bootstrap_create_no_window: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.bootstrap_create_no_window),
@@ -1235,6 +1289,26 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
                         && evidence.windows_private_desktop.as_ref() == Some(&desktop)
                 })
             && evidence.windows_private_desktop_ready_before_resume == Some(true)
+            && evidence.windows_supervisor_window_station_before
+                == evidence.windows_supervisor_window_station_after_create
+            && evidence.windows_supervisor_window_station_before
+                == evidence.windows_supervisor_window_station_after_cleanup
+            && evidence.windows_supervisor_desktop_before
+                == evidence.windows_supervisor_desktop_after_create
+            && evidence.windows_supervisor_desktop_before
+                == evidence.windows_supervisor_desktop_after_cleanup
+            && evidence
+                .windows_supervisor_window_station_before
+                .as_ref()
+                .is_some_and(|name| !name.is_empty())
+            && evidence
+                .windows_supervisor_desktop_before
+                .as_ref()
+                .is_some_and(|name| !name.is_empty())
+            && evidence.windows_supervisor_identity_unchanged_after_create == Some(true)
+            && evidence.windows_supervisor_identity_unchanged_after_cleanup == Some(true)
+            && evidence.windows_private_desktop_closed == Some(true)
+            && evidence.windows_private_window_station_closed == Some(true)
             && evidence.windows_bootstrap_create_no_window == Some(true)
             && evidence.windows_broker_authentication_id.as_ref().is_some_and(|value| {
                 value.len() == 16 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -1281,6 +1355,16 @@ fn windows_account_broker_proofs_absent(evidence: &PreflightEvidence) -> bool {
         && evidence.windows_private_window_station.is_none()
         && evidence.windows_private_desktop.is_none()
         && evidence.windows_private_desktop_ready_before_resume.is_none()
+        && evidence.windows_supervisor_window_station_before.is_none()
+        && evidence.windows_supervisor_desktop_before.is_none()
+        && evidence.windows_supervisor_window_station_after_create.is_none()
+        && evidence.windows_supervisor_desktop_after_create.is_none()
+        && evidence.windows_supervisor_window_station_after_cleanup.is_none()
+        && evidence.windows_supervisor_desktop_after_cleanup.is_none()
+        && evidence.windows_supervisor_identity_unchanged_after_create.is_none()
+        && evidence.windows_supervisor_identity_unchanged_after_cleanup.is_none()
+        && evidence.windows_private_desktop_closed.is_none()
+        && evidence.windows_private_window_station_closed.is_none()
         && evidence.windows_bootstrap_create_no_window.is_none()
         && evidence.windows_broker_authentication_id.is_none()
         && evidence.windows_restricted_authentication_id.is_none()
