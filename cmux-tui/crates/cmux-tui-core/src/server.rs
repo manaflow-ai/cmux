@@ -4950,13 +4950,17 @@ impl WebSocketServer {
             return Ok(false);
         }
 
-        let Some(thread) = self.thread.as_ref() else { return Ok(true) };
-        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-            return Ok(false);
-        };
-        match self.thread_finished.recv_timeout(remaining) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return Ok(false),
+        if self.thread.is_none() {
+            return Ok(true);
+        }
+        if matches!(self.thread_finished.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Ok(false);
+            };
+            match self.thread_finished.recv_timeout(remaining) {
+                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return Ok(false),
+            }
         }
         let thread = self.thread.take().expect("finished WebSocket listener retained its owner");
         thread.join().map_err(|_| anyhow::anyhow!("WebSocket listener thread panicked"))?;
@@ -13254,7 +13258,7 @@ mod tests {
         let first = server.shutdown_until(Instant::now() + Duration::from_millis(25)).unwrap();
         let retained = server.thread.is_some();
         let _ = release.send(());
-        let second = server.shutdown_until(Instant::now() + Duration::from_secs(1)).unwrap();
+        let second = server.shutdown_until(Instant::now()).unwrap();
 
         assert!(!first, "unfinished WebSocket listener reported complete");
         assert!(retained, "pending WebSocket shutdown discarded listener ownership");
