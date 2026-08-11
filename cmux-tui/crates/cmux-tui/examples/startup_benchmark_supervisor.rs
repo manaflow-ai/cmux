@@ -420,7 +420,7 @@ mod platform {
             // F_DUPFD makes an inheritable duplicate. Rust opens the source with CLOEXEC.
             let raw = unsafe { libc::fcntl(source.as_raw_fd(), libc::F_DUPFD, 10) };
             if raw == -1 {
-                return Err(std::io::Error::last_os_error())
+                return Err(io::Error::last_os_error())
                     .with_context(|| format!("duplicate {name} descriptor"));
             }
             // SAFETY: F_DUPFD returned a new owned descriptor.
@@ -444,7 +444,7 @@ mod platform {
         unsafe {
             command.pre_exec(move || {
                 if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1 {
-                    return Err(std::io::Error::last_os_error());
+                    return Err(io::Error::last_os_error());
                 }
                 timing.record_pre_exec()
             })
@@ -781,7 +781,7 @@ mod platform {
             // SAFETY: kqueue returns a new owned descriptor or -1.
             let raw = unsafe { libc::kqueue() };
             if raw == -1 {
-                return Err(std::io::Error::last_os_error())
+                return Err(io::Error::last_os_error())
                     .context("create Seatbelt process-exit kqueue");
             }
             // SAFETY: raw is a unique descriptor returned by kqueue above.
@@ -809,8 +809,8 @@ mod platform {
                 };
                 if result == 0 {
                     registrations += 1;
-                } else if std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
-                    return Err(std::io::Error::last_os_error())
+                } else if io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+                    return Err(io::Error::last_os_error())
                         .context(format!("register Seatbelt exit event for PID {pid}"));
                 }
             }
@@ -854,8 +854,8 @@ mod platform {
                     )
                 };
                 if count == -1 {
-                    let error = std::io::Error::last_os_error();
-                    if error.kind() == std::io::ErrorKind::Interrupted {
+                    let error = io::Error::last_os_error();
+                    if error.kind() == io::ErrorKind::Interrupted {
                         continue;
                     }
                     return Err(error).context("wait for Seatbelt process exits");
@@ -1566,7 +1566,6 @@ mod platform {
                 primary_thread_id,
                 target_cmux_bench_environment_filtered,
                 restricting_sid,
-                product_started_relayed: false,
             } = identity;
             let wait_handle =
                 duplicate_current_process_handle(process.0, "restricted bootstrap status wait")?;
@@ -1621,6 +1620,7 @@ mod platform {
                 primary_thread_id,
                 target_cmux_bench_environment_filtered,
                 restricting_sid,
+                product_started_relayed: false,
             })
         }
 
