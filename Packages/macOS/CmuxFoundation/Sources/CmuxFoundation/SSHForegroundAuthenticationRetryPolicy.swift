@@ -1670,12 +1670,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if [ ! -s "$cmux_ssh_auth_group_file" ] || \
             [ ! -s "$cmux_ssh_auth_group_publisher_file" ]; then
             # Recheck after opening the channel to close the publication race.
-            # The publisher sends one terminal event on every unpublished path.
+            # The cleanup claim admits one reader. The deadline covers a
+            # publisher that dies before it can send a terminal event.
             exec {cmux_ssh_auth_group_publication_fd}<> \
               "$cmux_ssh_auth_group_publication_fifo" || exit 0
             if [ ! -s "$cmux_ssh_auth_group_file" ] || \
               [ ! -s "$cmux_ssh_auth_group_publisher_file" ]; then
-              IFS= read -r cmux_ssh_auth_group_publication_event \
+              IFS= read -r -t 2 cmux_ssh_auth_group_publication_event \
                 <&$cmux_ssh_auth_group_publication_fd || exit 0
               if [ "$cmux_ssh_auth_group_publication_event" != identity-published ]; then
                 exit 0
