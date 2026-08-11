@@ -86,7 +86,6 @@ public struct ChatAttachmentBubbleView: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: displayName))
             .accessibilityValue(Text(verbatim: hostPath))
             .accessibilityIdentifier("ChatAttachmentButton")
