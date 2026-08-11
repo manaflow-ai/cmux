@@ -73,6 +73,8 @@ bool cmux_frontend_client_copy_resource_update(
     CmuxFrontendResourceUpdate *update,
     uint8_t *buffer,
     size_t capacity);
+void cmux_frontend_client_discard_resource_updates(
+    const CmuxFrontendClient *client);
 char *cmux_frontend_client_request(
     CmuxFrontendClient *client,
     const char *operation,

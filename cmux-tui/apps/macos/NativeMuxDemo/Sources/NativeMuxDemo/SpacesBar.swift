@@ -25,9 +25,7 @@ struct SpacesBar: View {
                             HStack(spacing: 5) {
                                 Image(systemName: selected ? "circle.inset.filled" : "circle")
                                     .font(.system(size: 8))
-                                Text(screen.name?.isEmpty == false
-                                    ? screen.name!
-                                    : L10n.format("space.number", "%d", screen.index + 1))
+                                Text(screen.displayName)
                             }
                             .font(.caption)
                             .padding(.horizontal, 9)
@@ -64,15 +62,11 @@ struct SpacesBar: View {
             .help(L10n.text("pane.new_auto", "New auto-layout pane"))
             Spacer()
             if let screen = model.selectedScreen,
-                case .viewport(_, let columns) = screen.layout.root
+                case .viewport(_, _, _) = screen.layout.root,
+                let columnCountLabel = screen.columnCountLabel
             {
-                let columnCount = columns.count
                 Label(
-                    L10n.format(
-                        columnCount == 1 ? "columns.count.one" : "columns.count.other",
-                        columnCount == 1 ? "%d column" : "%d columns",
-                        columnCount
-                    ),
+                    columnCountLabel,
                     systemImage: "rectangle.3.group"
                 )
                     .font(.caption2)

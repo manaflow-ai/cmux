@@ -4,6 +4,7 @@ import Foundation
 func drainFrontendResourceUpdates(
   maximumEnvelopes: Int = 64,
   maximumBytes: Int = 1_048_576,
+  discard: () -> Void = {},
   copy: (
     _ descriptor: inout CmuxFrontendResourceUpdate,
     _ buffer: UnsafeMutablePointer<UInt8>?,
@@ -29,6 +30,12 @@ func drainFrontendResourceUpdates(
       )
     }
     guard descriptor.payload_length > 0 else { break }
+    if descriptor.payload_length > byteBudget {
+      discard()
+      return FrontendResourceUpdateBatch(
+        envelopes: [], hasMore: false, overflowed: true, ended: false, endReason: .none
+      )
+    }
     if !result.isEmpty,
       descriptor.payload_length > byteBudget - min(retainedBytes, byteBudget)
     {

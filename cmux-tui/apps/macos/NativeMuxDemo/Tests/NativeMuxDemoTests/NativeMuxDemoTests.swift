@@ -37,7 +37,7 @@ private func nativeResetPayload() -> Data {
 }
 
 @Test
-func decodesEveryNativeLayoutShape() throws {
+func decodesEveryNativeLayoutShape() async throws {
     let data = Data(
         #"""
         {
@@ -78,12 +78,12 @@ func decodesEveryNativeLayoutShape() throws {
         """#.utf8
     )
 
-    let snapshot = try JSONDecoder().decode(ResourceSnapshot.self, from: data)
+    var snapshot = try JSONDecoder().decode(ResourceSnapshot.self, from: data)
     #expect(snapshot.workspaces.first?.name == "agents")
     #expect(snapshot.screenCount(in: "ws_33333333333333333333333333333333") == 1)
     #expect(snapshot.screenCount(in: "ws_missing") == 0)
     #expect(snapshot.screens.first?.layout.root.paneIDs.count == 2)
-    guard case .viewport(let baseWidth, let columns) = snapshot.screens[0].layout.root else {
+    guard case .viewport(let baseWidth, _, let columns) = snapshot.screens[0].layout.root else {
         Issue.record("viewport root was not decoded")
         return
     }
@@ -103,6 +103,44 @@ func decodesEveryNativeLayoutShape() throws {
         "pane_55555555555555555555555555555555": "term_88888888888888888888888888888888",
         "pane_66666666666666666666666666666666": "term_88888888888888888888888888888888",
     ])
+
+    let deltaData = Data(
+        #"""
+        {"item":{"kind":"delta","previous_revision":"8","revision":"9","changes":[
+          {"kind":"upsert","sequence":1,"resource":"terminal","id":"term_88888888888888888888888888888888","value":{"id":"term_88888888888888888888888888888888","tab_id":"tab_77777777777777777777777777777777","title":"updated","cols":80,"rows":24,"running":true,"lifecycle":"running"}},
+          {"kind":"upsert","sequence":2,"resource":"pane","id":"pane_55555555555555555555555555555555","value":{"id":"pane_55555555555555555555555555555555","screen_id":"screen_44444444444444444444444444444444","name":"renamed","focused":true,"zoomed":false}},
+          {"kind":"upsert","sequence":3,"resource":"notification","id":"notification_99999999999999999999999999999999","value":{"id":"notification_99999999999999999999999999999999","message":"ignored"}}
+        ]}}
+        """#.utf8
+    )
+    let decodedResult = await FrontendResourceDecoder().decode([deltaData])
+    let decoded = try #require(decodedResult)
+    guard decoded.count == 1, case .delta(let delta) = decoded[0] else {
+        Issue.record("typed resource delta was not decoded")
+        return
+    }
+    #expect(delta.previousRevision == "8")
+    #expect(delta.revision == "9")
+    #expect(delta.changes.count == 3)
+
+    var sawTitle = false
+    var sawTopology = false
+    for change in delta.changes {
+        switch try #require(snapshot.apply(change)) {
+        case .terminalTitle(let id, let title):
+            sawTitle = id == "term_88888888888888888888888888888888"
+                && title == "updated"
+        case .changed(let impact):
+            sawTopology = impact.contains(.topology)
+        case .ignored:
+            break
+        }
+    }
+    snapshot.setRevision(delta.revision)
+    #expect(sawTitle)
+    #expect(sawTopology)
+    #expect(snapshot.pane("pane_55555555555555555555555555555555")?.displayName == "renamed")
+    #expect(snapshot.cursor.revision == "9")
 }
 
 @Test
@@ -260,6 +298,17 @@ func focusMutationTrackerRejectsStaleRollback() {
     #expect(rollback?.screenID == "screen-a")
 }
 
+@Test @MainActor
+func terminalTitleLookupIsAnImmutableValueSnapshot() {
+    let owner = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
+    let lookup = TerminalTitleFn(owners: [owner.terminalID: owner])
+
+    owner.replace(with: "after")
+
+    #expect(lookup("terminal-a") == "before")
+    #expect(TerminalTitleFn(owners: [owner.terminalID: owner])("terminal-a") == "after")
+}
+
 @Test
 func terminalInputRelayReportsBoundedBufferDrops() async {
     let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(1))
@@ -396,6 +445,28 @@ func resourceDrainLeavesTheNextEnvelopeAtTheByteBudget() {
     #expect(second.envelopes == [Data("five".utf8)])
     #expect(!second.hasMore)
     #expect(pending.isEmpty)
+}
+
+@Test
+func resourceDrainRejectsOversizedFirstEnvelopeBeforeAllocation() {
+    var discarded = false
+    var requestedPayloadBuffer = false
+    let batch = drainFrontendResourceUpdates(
+        maximumBytes: 3,
+        discard: { discarded = true },
+        copy: { descriptor, buffer, _ in
+            descriptor = CmuxFrontendResourceUpdate()
+            descriptor.payload_length = 4
+            requestedPayloadBuffer = buffer != nil
+            return true
+        }
+    )
+
+    #expect(batch.envelopes.isEmpty)
+    #expect(batch.overflowed)
+    #expect(!batch.hasMore)
+    #expect(discarded)
+    #expect(!requestedPayloadBuffer)
 }
 
 @Test

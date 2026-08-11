@@ -28,7 +28,7 @@ struct WorkspaceSidebar: View {
                         WorkspaceSidebarRow(
                             workspace: workspace,
                             isSelected: workspace.id == selectedWorkspaceID,
-                            spaceCount: snapshot.screenCount(in: workspace.id),
+                            spaceCountLabel: snapshot.spaceCountLabel(in: workspace.id),
                             onSelect: { model.selectWorkspace(workspace) },
                             onClose: { model.closeWorkspace(workspace) }
                         )
@@ -58,7 +58,7 @@ struct WorkspaceSidebar: View {
 private struct WorkspaceSidebarRow: View, Equatable {
     let workspace: WorkspaceSnapshot
     let isSelected: Bool
-    let spaceCount: Int
+    let spaceCountLabel: String
     let onSelect: () -> Void
     let onClose: () -> Void
 
@@ -67,7 +67,7 @@ private struct WorkspaceSidebarRow: View, Equatable {
             && lhs.isSelected == rhs.isSelected
             && lhs.workspace.name == rhs.workspace.name
             && lhs.workspace.index == rhs.workspace.index
-            && lhs.spaceCount == rhs.spaceCount
+            && lhs.spaceCountLabel == rhs.spaceCountLabel
     }
 
     var body: some View {
@@ -77,15 +77,9 @@ private struct WorkspaceSidebarRow: View, Equatable {
                     .foregroundStyle(isSelected ? .cyan : .secondary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(workspace.name.isEmpty
-                        ? L10n.format("workspace.number", "workspace %d", workspace.index + 1)
-                        : workspace.name)
+                    Text(workspace.displayName)
                         .lineLimit(1)
-                    Text(L10n.format(
-                        spaceCount == 1 ? "spaces.count.one" : "spaces.count.other",
-                        spaceCount == 1 ? "%d space" : "%d spaces",
-                        spaceCount
-                    ))
+                    Text(spaceCountLabel)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

@@ -19,11 +19,12 @@ struct LayoutRootView: View {
                 .padding(6)
         } else {
             switch screen.layout.root {
-            case .viewport(let baseWidth, let columns):
+            case .viewport(let baseWidth, let baseWidthLabel, let columns):
                 ViewportColumnsView(
                     actions: actions,
                     snapshot: snapshot,
                     baseWidth: baseWidth,
+                    baseWidthLabel: baseWidthLabel,
                     columns: columns,
                     terminalStates: terminalStates,
                     terminalTitle: terminalTitle
@@ -46,6 +47,7 @@ struct ViewportColumnsView: View {
     let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let baseWidth: Double
+    let baseWidthLabel: String
     let columns: [ViewportColumn]
     let terminalStates: [String: NativeTerminalViewState]
     let terminalTitle: TerminalTitleFn
@@ -68,11 +70,7 @@ struct ViewportColumnsView: View {
                                 Text(column.columnID.suffix(6))
                                     .font(.system(.caption2, design: .monospaced))
                                 Spacer()
-                                Text(L10n.format(
-                                    "column.percent",
-                                    "%d%%",
-                                    Int(column.width * 100)
-                                ))
+                                Text(column.widthLabel)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -132,7 +130,7 @@ struct ViewportColumnsView: View {
             }
             .scrollIndicators(.visible)
         }
-        .accessibilityValue(L10n.format("column.base_width", "base width %.2f", baseWidth))
+        .accessibilityValue(baseWidthLabel)
     }
 }
 
@@ -182,12 +180,13 @@ struct LayoutNodeView: View {
                     terminalTitle: terminalTitle
                 )
             )
-        case .viewport(let baseWidth, let columns):
+        case .viewport(let baseWidth, let baseWidthLabel, let columns):
             return AnyView(
                 ViewportColumnsView(
                     actions: actions,
                     snapshot: snapshot,
                     baseWidth: baseWidth,
+                    baseWidthLabel: baseWidthLabel,
                     columns: columns,
                     terminalStates: terminalStates,
                     terminalTitle: terminalTitle
@@ -304,8 +303,8 @@ private struct StackLayoutView: View {
                 } label: {
                     HStack {
                         Image(systemName: "rectangle.compress.vertical")
-                        Text(snapshot.pane(paneID)?.name
-                            ?? L10n.format("pane.short_id", "Pane %@", String(paneID.suffix(5))))
+                        Text(snapshot.pane(paneID)?.displayName
+                            ?? String(paneID.suffix(5)))
                             .lineLimit(1)
                         Spacer()
                     }
