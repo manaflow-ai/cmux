@@ -8,11 +8,8 @@ use std::process::{Command, ExitStatus};
 use anyhow::{Context, Result, bail};
 #[cfg(windows)]
 use cmux_startup_bootstrap::{
-    BOOTSTRAP_SCHEMA_VERSION as MINIMAL_BOOTSTRAP_SCHEMA_VERSION,
-    BootstrapChildStage as MinimalBootstrapStage, BootstrapCommand as MinimalBootstrapCommand,
-    BootstrapConfig as MinimalBootstrapConfig, BootstrapLaunchEvidence,
-    BootstrapMessage as MinimalBootstrapMessage, BootstrapProductLaunch,
-    MAX_BOOTSTRAP_MESSAGE_BYTES as MAX_MINIMAL_BOOTSTRAP_MESSAGE_BYTES,
+    BOOTSTRAP_SCHEMA_VERSION, BootstrapChildStage, BootstrapConfig, BootstrapLaunchEvidence,
+    BootstrapMessage, BootstrapProductLaunch, encode_arm, encode_config, read_event,
 };
 use cmux_tui_core::platform::transport;
 #[cfg(any(target_os = "linux", windows))]
@@ -866,7 +863,7 @@ mod platform {
 mod platform {
     use std::ffi::c_void;
     use std::fs::File;
-    use std::io::{BufRead, BufReader, Write};
+    use std::io::Write;
     use std::mem::{size_of, zeroed};
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
@@ -956,9 +953,6 @@ mod platform {
                 );
             }
         };
-        let startup_deadline = Instant::now()
-            .checked_add(BOOTSTRAP_STARTUP_TIMEOUT)
-            .context("Windows bootstrap startup deadline overflow")?;
         let mut bootstrap = match restricted.start_bootstrap(launch, &mut trace) {
             Ok(bootstrap) => bootstrap,
             Err(error) => {
@@ -973,7 +967,7 @@ mod platform {
                 );
             }
         };
-        if let Err(error) = bootstrap.wait_ready(&launch.nonce, startup_deadline, &mut trace) {
+        if let Err(error) = bootstrap.wait_ready(&launch.nonce, &mut trace) {
             return finish_failed_bootstrap_startup(
                 launch,
                 &mut control,
@@ -1260,17 +1254,22 @@ mod platform {
             trace: &mut BootstrapStartupTrace,
         ) -> Result<BootstrapSession> {
             let bootstrap_binary = launch.windows_bootstrap_binary.canonicalize()?;
+            let fixture_root = launch.fixture_root.canonicalize()?;
+            let timing = launch.timing.canonicalize()?;
+            let target = launch.target.canonicalize()?;
+            let config_path = fixture_root.join(format!("bootstrap-{}.bin", &launch.nonce[..16]));
             verify_file_sha256(
                 &bootstrap_binary,
                 &launch.windows_bootstrap_sha256,
                 "dedicated Windows bootstrap before launch",
             )?;
             let trusted_probe = TrustedPathProbe::create(launch)?;
+            let trusted_path_probe = trusted_probe.path.canonicalize()?;
             let application = wide(bootstrap_binary.as_os_str());
-            let current_directory = wide(launch.fixture_root.as_os_str());
+            let current_directory = wide(fixture_root.as_os_str());
             let mut command_line = wide(std::ffi::OsStr::new(&windows_command_line(
                 &bootstrap_binary,
-                &[bootstrap_config_path(launch).to_string_lossy().into_owned()],
+                &[config_path.to_string_lossy().into_owned()],
             )));
             // SAFETY: zero is a valid initial state for these Win32 structs.
             let mut startup: STARTUPINFOW = unsafe { zeroed() };
@@ -1335,33 +1334,40 @@ mod platform {
                 })
                 .transpose()?;
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::HandlesDuplicated));
-            let config_path = bootstrap_config_path(launch);
             let (config_bytes, config_sha256) = write_bootstrap_config(
                 &config_path,
-                &MinimalBootstrapConfig {
-                    schema_version: MINIMAL_BOOTSTRAP_SCHEMA_VERSION,
+                &BootstrapConfig {
+                    schema_version: BOOTSTRAP_SCHEMA_VERSION,
                     nonce: launch.nonce.clone(),
                     launch: BootstrapProductLaunch {
-                        timing: launch.timing.clone(),
-                        fixture_root: launch.fixture_root.clone(),
-                        target: launch.target.clone(),
+                        timing,
+                        fixture_root: fixture_root.clone(),
+                        target,
                         target_sha256: launch.target_sha256.clone(),
                         product_args: launch.product_args.clone(),
-                        trusted_path_probe: trusted_probe.path.clone(),
+                        trusted_path_probe,
                         expected_bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
                     },
                     control_read,
                     control_write,
                     standard_handles,
-                    query_job,
+                    query_job: query_job.context("private Job query handle is required")?,
                 },
             )?;
             trace.record_config(config_bytes, config_sha256);
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ConfigWritten));
             // SAFETY: thread_handle is the suspended primary thread.
-            if unsafe { ResumeThread(thread_handle.0) } == u32::MAX {
-                return Err(std::io::Error::last_os_error()).context("resume restricted bootstrap");
+            let resume_previous_count = unsafe { ResumeThread(thread_handle.0) };
+            if resume_previous_count != 1 {
+                if resume_previous_count == u32::MAX {
+                    return Err(std::io::Error::last_os_error())
+                        .context("resume restricted bootstrap");
+                }
+                bail!(
+                    "restricted bootstrap primary thread had suspend count {resume_previous_count}, expected 1"
+                );
             }
+            let resumed_at = Instant::now();
             trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ProcessResumed));
             let session = BootstrapSession::new(
                 process_handle,
@@ -1371,9 +1377,10 @@ mod platform {
                     trusted_probe,
                     bootstrap_binary,
                     bootstrap_sha256: launch.windows_bootstrap_sha256.clone(),
-                    fixture_root: launch.fixture_root.clone(),
+                    fixture_root,
                     nonce: launch.nonce.clone(),
-                    resumed_at: Instant::now(),
+                    resumed_at,
+                    resume_previous_count,
                 },
             )?;
             let _ = &self.restricting_sid;
@@ -1455,6 +1462,7 @@ mod platform {
         fixture_root: PathBuf,
         nonce: String,
         resumed_at: Instant,
+        resume_previous_count: u32,
         evidence: Option<BootstrapLaunchEvidence>,
     }
 
@@ -1466,10 +1474,11 @@ mod platform {
         fixture_root: PathBuf,
         nonce: String,
         resumed_at: Instant,
+        resume_previous_count: u32,
     }
 
     enum BootstrapEvent {
-        Message(MinimalBootstrapMessage),
+        Message(BootstrapMessage),
         PipeEof,
         ProtocolError(String),
         ProcessExited(std::result::Result<u32, String>),
@@ -1489,6 +1498,7 @@ mod platform {
                 fixture_root,
                 nonce,
                 resumed_at,
+                resume_previous_count,
             } = identity;
             let wait_handle =
                 duplicate_current_process_handle(process.0, "restricted bootstrap status wait")?;
@@ -1496,27 +1506,17 @@ mod platform {
             let controller_write = pipes.controller_write.take();
             drop(pipes);
             // SAFETY: ownership moved out of OwnedHandle and is transferred to File once.
-            let reader = unsafe { File::from_raw_handle(controller_read as RawHandle) };
+            let mut reader = unsafe { File::from_raw_handle(controller_read as RawHandle) };
             // SAFETY: same one-owner transfer for the command pipe.
             let writer = unsafe { File::from_raw_handle(controller_write as RawHandle) };
             let (sender, receiver) = mpsc::channel();
             let reader_sender = sender.clone();
             let reader = thread::spawn(move || {
-                let mut reader = BufReader::new(reader);
                 loop {
-                    let mut line = Vec::new();
-                    let event = match reader.read_until(b'\n', &mut line) {
-                        Ok(0) => BootstrapEvent::PipeEof,
-                        Ok(_) if line.len() > MAX_MINIMAL_BOOTSTRAP_MESSAGE_BYTES => {
-                            BootstrapEvent::ProtocolError(
-                                "Windows bootstrap event exceeded its bound".into(),
-                            )
-                        }
-                        Ok(_) => match serde_json::from_slice(&line) {
-                            Ok(message) => BootstrapEvent::Message(message),
-                            Err(error) => BootstrapEvent::ProtocolError(error.to_string()),
-                        },
-                        Err(error) => BootstrapEvent::ProtocolError(error.to_string()),
+                    let event = match read_event(&mut reader) {
+                        Ok(None) => BootstrapEvent::PipeEof,
+                        Ok(Some(message)) => BootstrapEvent::Message(message),
+                        Err(error) => BootstrapEvent::ProtocolError(format!("{error:#}")),
                     };
                     let terminal =
                         matches!(event, BootstrapEvent::PipeEof | BootstrapEvent::ProtocolError(_));
@@ -1543,16 +1543,16 @@ mod platform {
                 fixture_root,
                 nonce,
                 resumed_at,
+                resume_previous_count,
                 evidence: None,
             })
         }
 
-        fn wait_ready(
-            &mut self,
-            nonce: &str,
-            deadline: Instant,
-            trace: &mut BootstrapStartupTrace,
-        ) -> Result<()> {
+        fn wait_ready(&mut self, nonce: &str, trace: &mut BootstrapStartupTrace) -> Result<()> {
+            let deadline = self
+                .resumed_at
+                .checked_add(BOOTSTRAP_STARTUP_TIMEOUT)
+                .context("Windows native bootstrap loader deadline overflow")?;
             loop {
                 let event =
                     match self.receive_until(deadline, "wait for restricted bootstrap READY") {
@@ -1567,13 +1567,12 @@ mod platform {
                         }
                     };
                 match event {
-                    BootstrapEvent::Message(MinimalBootstrapMessage::Stage {
-                        nonce: observed,
-                        stage,
-                    }) if observed == nonce => {
+                    BootstrapEvent::Message(BootstrapMessage::Stage { nonce: observed, stage })
+                        if observed == nonce =>
+                    {
                         trace.observe(BootstrapObservedEvent::Stage(map_minimal_stage(stage)));
                     }
-                    BootstrapEvent::Message(MinimalBootstrapMessage::Ready {
+                    BootstrapEvent::Message(BootstrapMessage::Ready {
                         nonce: observed,
                         bootstrap_sha256,
                         config_consumed,
@@ -1594,10 +1593,11 @@ mod platform {
                             bail!("restricted bootstrap did not consume its launch config");
                         }
                         self.evidence = Some(BootstrapLaunchEvidence {
-                            schema_version: MINIMAL_BOOTSTRAP_SCHEMA_VERSION,
+                            schema_version: BOOTSTRAP_SCHEMA_VERSION,
                             bootstrap_sha256,
                             config_nonce: observed,
                             config_consumed,
+                            resume_previous_count: self.resume_previous_count,
                             ready_elapsed_ms: u64::try_from(self.resumed_at.elapsed().as_millis())
                                 .unwrap_or(u64::MAX),
                             exact_job_proof: private_job_member,
@@ -1606,12 +1606,15 @@ mod platform {
                         trace.observe(BootstrapObservedEvent::Ready);
                         return Ok(());
                     }
-                    BootstrapEvent::Message(MinimalBootstrapMessage::Error {
+                    BootstrapEvent::Message(BootstrapMessage::Error {
                         nonce: observed,
-                        error,
+                        windows_error,
+                        stage,
                     }) if observed == nonce => {
                         trace.observe(BootstrapObservedEvent::Error);
-                        bail!("restricted bootstrap failed before READY: {error}")
+                        bail!(
+                            "restricted bootstrap failed before READY at native stage {stage} with Windows error {windows_error}"
+                        )
                     }
                     BootstrapEvent::ProcessExited(Ok(code)) => {
                         trace.observe(BootstrapObservedEvent::Exit(code));
@@ -1640,25 +1643,27 @@ mod platform {
         fn arm_and_wait(&mut self, nonce: &str, require_descendant: bool) -> Result<ExitStatus> {
             let writer =
                 self.writer.as_mut().context("Windows bootstrap command pipe is closed")?;
-            write_minimal_bootstrap_message(
-                writer,
-                &MinimalBootstrapCommand::Arm { nonce: nonce.into() },
-            )?;
+            let arm = encode_arm(nonce)?;
+            writer.write_all(&arm)?;
+            writer.flush()?;
             let deadline = Instant::now()
                 .checked_add(CONTROL_TIMEOUT)
                 .context("restricted product status deadline overflow")?;
             let (code, contained) = loop {
                 match self.receive_until(deadline, "wait for restricted product status")? {
-                    BootstrapEvent::Message(MinimalBootstrapMessage::Exit {
+                    BootstrapEvent::Message(BootstrapMessage::Exit {
                         nonce: observed,
                         code,
                         private_job_descendant_contained,
                     }) if observed == nonce => break (code, private_job_descendant_contained),
-                    BootstrapEvent::Message(MinimalBootstrapMessage::Error {
+                    BootstrapEvent::Message(BootstrapMessage::Error {
                         nonce: observed,
-                        error,
+                        windows_error,
+                        stage,
                     }) if observed == nonce => {
-                        bail!("restricted bootstrap product launch failed: {error}")
+                        bail!(
+                            "restricted bootstrap product launch failed at native stage {stage} with Windows error {windows_error}"
+                        )
                     }
                     BootstrapEvent::ProcessExited(Ok(_)) => {
                         // The event-pipe line can arrive after the process signal. Keep the one
@@ -1735,14 +1740,14 @@ mod platform {
         }
     }
 
-    fn map_minimal_stage(stage: MinimalBootstrapStage) -> BootstrapStage {
+    fn map_minimal_stage(stage: BootstrapChildStage) -> BootstrapStage {
         match stage {
-            MinimalBootstrapStage::ConfigConsumed => BootstrapStage::ConfigConsumed,
-            MinimalBootstrapStage::LaunchValidated => BootstrapStage::LaunchValidated,
-            MinimalBootstrapStage::StandardHandlesValidated => {
+            BootstrapChildStage::ConfigConsumed => BootstrapStage::ConfigConsumed,
+            BootstrapChildStage::LaunchValidated => BootstrapStage::LaunchValidated,
+            BootstrapChildStage::StandardHandlesValidated => {
                 BootstrapStage::StandardHandlesValidated
             }
-            MinimalBootstrapStage::TimingConsumed => BootstrapStage::TimingConsumed,
+            BootstrapChildStage::TimingConsumed => BootstrapStage::TimingConsumed,
         }
     }
 
@@ -1942,18 +1947,12 @@ mod platform {
     }
 
     fn bootstrap_config_path(launch: &Launch) -> PathBuf {
-        launch.fixture_root.join(format!("bootstrap-{}.json", &launch.nonce[..16]))
+        launch.fixture_root.join(format!("bootstrap-{}.bin", &launch.nonce[..16]))
     }
 
-    fn write_bootstrap_config(
-        path: &Path,
-        config: &MinimalBootstrapConfig,
-    ) -> Result<(u64, String)> {
-        let mut bytes = serde_json::to_vec(config)?;
-        bytes.push(b'\n');
-        if bytes.len() > MAX_MINIMAL_BOOTSTRAP_MESSAGE_BYTES {
-            bail!("Windows bootstrap config exceeded its bound");
-        }
+    fn write_bootstrap_config(path: &Path, config: &BootstrapConfig) -> Result<(u64, String)> {
+        config.validate_identity(path)?;
+        let bytes = encode_config(config)?;
         let digest = format!("{:x}", Sha256::digest(&bytes));
         let mut file = fs::OpenOptions::new()
             .write(true)
@@ -1964,20 +1963,6 @@ mod platform {
         file.flush()?;
         drop(file);
         Ok((u64::try_from(bytes.len())?, digest))
-    }
-
-    fn write_bootstrap_message(writer: &mut File, message: &impl serde::Serialize) -> Result<()> {
-        serde_json::to_writer(&mut *writer, message)?;
-        writer.write_all(b"\n")?;
-        writer.flush()?;
-        Ok(())
-    }
-
-    fn write_minimal_bootstrap_message(
-        writer: &mut File,
-        message: &MinimalBootstrapCommand,
-    ) -> Result<()> {
-        write_bootstrap_message(writer, message)
     }
 
     fn wait_process(process: &OwnedHandle, timeout: Duration, operation: &str) -> Result<()> {

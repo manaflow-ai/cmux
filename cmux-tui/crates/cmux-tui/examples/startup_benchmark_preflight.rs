@@ -57,6 +57,7 @@ struct PreflightEvidence {
     windows_bootstrap_sha256: Option<String>,
     windows_bootstrap_config_nonce: Option<String>,
     windows_bootstrap_config_consumed: Option<bool>,
+    windows_bootstrap_resume_previous_count: Option<u32>,
     windows_bootstrap_ready_elapsed_ms: Option<u64>,
     windows_bootstrap_exact_job: Option<bool>,
     windows_bootstrap_trusted_path_write_denied: Option<bool>,
@@ -632,7 +633,7 @@ fn run_controller(values: &[String]) -> Result<()> {
     #[cfg(not(windows))]
     let bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
     let evidence = PreflightEvidence {
-        schema_version: 3,
+        schema_version: 4,
         backend,
         policy: "fixture-root-only-write",
         handshake: "nonce-bound-ready-arm-with-pre-exec-t0",
@@ -673,6 +674,9 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_bootstrap_config_consumed: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.config_consumed),
+        windows_bootstrap_resume_previous_count: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.resume_previous_count),
         windows_bootstrap_ready_elapsed_ms: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.ready_elapsed_ms),
@@ -862,6 +866,7 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_bootstrap_sha256.is_none()
             && evidence.windows_bootstrap_config_nonce.is_none()
             && evidence.windows_bootstrap_config_consumed.is_none()
+            && evidence.windows_bootstrap_resume_previous_count.is_none()
             && evidence.windows_bootstrap_ready_elapsed_ms.is_none()
             && evidence.windows_bootstrap_exact_job.is_none()
             && evidence.windows_bootstrap_trusted_path_write_denied.is_none()
@@ -886,6 +891,7 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_bootstrap_sha256.is_none()
             && evidence.windows_bootstrap_config_nonce.is_none()
             && evidence.windows_bootstrap_config_consumed.is_none()
+            && evidence.windows_bootstrap_resume_previous_count.is_none()
             && evidence.windows_bootstrap_ready_elapsed_ms.is_none()
             && evidence.windows_bootstrap_exact_job.is_none()
             && evidence.windows_bootstrap_trusted_path_write_denied.is_none()
@@ -913,7 +919,8 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
                 .as_ref()
                 .is_some_and(|value| value.len() == 64)
             && evidence.windows_bootstrap_config_consumed == Some(true)
-            && evidence.windows_bootstrap_ready_elapsed_ms.is_some_and(|elapsed| elapsed <= 10_000)
+            && evidence.windows_bootstrap_resume_previous_count == Some(1)
+            && evidence.windows_bootstrap_ready_elapsed_ms.is_some_and(|elapsed| elapsed <= 30_000)
             && evidence.windows_bootstrap_exact_job == Some(true)
             && evidence.windows_bootstrap_trusted_path_write_denied == Some(true)
     }

@@ -120,6 +120,26 @@ if get("infrastructure.preflight_sha256") != get(
     "infrastructure.expected_preflight_sha256"
 ):
     raise SystemExit("sandbox preflight evidence changed after attestation")
+preflight_path = path.parent / "sandbox-preflight.json"
+preflight_bytes = preflight_path.read_bytes()
+if hashlib.sha256(preflight_bytes).hexdigest() != get(
+    "infrastructure.preflight_sha256"
+):
+    raise SystemExit("sandbox preflight file does not match its attested SHA-256")
+preflight = json.loads(preflight_bytes)
+if not isinstance(preflight, dict) or preflight.get("schema_version") != 4:
+    raise SystemExit("sandbox preflight evidence has the wrong schema")
+windows_preflight_fields = (
+    "windows_bootstrap_sha256",
+    "windows_bootstrap_config_nonce",
+    "windows_bootstrap_config_consumed",
+    "windows_bootstrap_resume_previous_count",
+    "windows_bootstrap_ready_elapsed_ms",
+    "windows_bootstrap_exact_job",
+    "windows_bootstrap_trusted_path_write_denied",
+)
+if any(field not in preflight for field in windows_preflight_fields):
+    raise SystemExit("sandbox preflight evidence is missing a Windows bootstrap field")
 windows_bootstrap_fields = (
     "infrastructure.windows_bootstrap_binary",
     "infrastructure.expected_windows_bootstrap_sha256",
@@ -168,8 +188,37 @@ if os.environ["RUNNER_OS"] == "Windows":
         )
     ):
         raise SystemExit("trusted Windows bootstrap import evidence is invalid")
+    approved_physical_dependencies = {"bcrypt.dll", "kernel32.dll"}
+    api_set_pattern = re.compile(
+        r"(?i:(?:api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)"
+    )
+    if any(
+        dependency.lower() not in approved_physical_dependencies
+        and api_set_pattern.fullmatch(dependency) is None
+        for dependency in dependencies
+    ):
+        raise SystemExit("trusted Windows bootstrap imports an unapproved DLL")
+    ready_elapsed_ms = preflight["windows_bootstrap_ready_elapsed_ms"]
+    if (
+        preflight["windows_bootstrap_sha256"] != bootstrap_sha256
+        or not isinstance(preflight["windows_bootstrap_config_nonce"], str)
+        or re.fullmatch(
+            r"[0-9a-fA-F]{64}", preflight["windows_bootstrap_config_nonce"]
+        )
+        is None
+        or preflight["windows_bootstrap_config_consumed"] is not True
+        or preflight["windows_bootstrap_resume_previous_count"] != 1
+        or not isinstance(ready_elapsed_ms, int)
+        or isinstance(ready_elapsed_ms, bool)
+        or not 0 <= ready_elapsed_ms <= 30_000
+        or preflight["windows_bootstrap_exact_job"] is not True
+        or preflight["windows_bootstrap_trusted_path_write_denied"] is not True
+    ):
+        raise SystemExit("sandbox preflight has invalid native Windows bootstrap proof")
 elif any(get(dotted) is not None for dotted in windows_bootstrap_fields):
     raise SystemExit("non-Windows evidence contains Windows bootstrap identity")
+elif any(preflight[field] is not None for field in windows_preflight_fields):
+    raise SystemExit("non-Windows preflight contains Windows bootstrap proof")
 expected_sandbox_contract = {
     "infrastructure.sandbox_policy": "fixture-root-only-write",
     "infrastructure.sandbox_handshake": "nonce-bound-ready-arm-with-pre-exec-t0",

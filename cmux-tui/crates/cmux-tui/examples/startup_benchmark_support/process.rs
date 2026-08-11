@@ -2907,6 +2907,8 @@ mod tests {
     const FIXTURE_PARENT_ENV: &str = "CMUX_BENCH_TEST_FIXTURE_PARENT";
 
     fn current_test_target() -> Target {
+        let binary = env::current_exe().unwrap();
+        let expected_binary_sha256 = binary_sha256(&binary).expect("hash current test product");
         let supervisor_binary = PathBuf::from(
             env::var_os(SUPERVISOR_PATH_ENV)
                 .expect("CMUX_BENCH_TEST_SUPERVISOR must name the built trusted supervisor"),
@@ -2923,10 +2925,10 @@ mod tests {
             binary_sha256(&windows_bootstrap_binary).expect("hash trusted test bootstrap");
         Target {
             kind: TargetKind::Candidate,
-            binary: env::current_exe().unwrap(),
+            binary,
             source: env::current_dir().unwrap(),
             sha: "0".repeat(40),
-            expected_binary_sha256: "0".repeat(64),
+            expected_binary_sha256,
             observed_sha: "0".repeat(40),
             ghostty_sha: "0".repeat(40),
             zig_version: "test".into(),

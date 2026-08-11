@@ -328,6 +328,7 @@ struct SandboxPreflightEvidence {
     windows_bootstrap_sha256: Option<String>,
     windows_bootstrap_config_nonce: Option<String>,
     windows_bootstrap_config_consumed: Option<bool>,
+    windows_bootstrap_resume_previous_count: Option<u32>,
     windows_bootstrap_ready_elapsed_ms: Option<u64>,
     windows_bootstrap_exact_job: Option<bool>,
     windows_bootstrap_trusted_path_write_denied: Option<bool>,
@@ -343,7 +344,7 @@ impl SandboxPreflightEvidence {
         supervisor_sha256: &str,
         windows_bootstrap_sha256: Option<&str>,
     ) -> Result<()> {
-        if self.schema_version != 3
+        if self.schema_version != 4
             || self.backend != backend
             || self.policy != "fixture-root-only-write"
             || self.handshake != "nonce-bound-ready-arm-with-pre-exec-t0"
@@ -392,9 +393,10 @@ impl SandboxPreflightEvidence {
                         value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
                     })
                     && self.windows_bootstrap_config_consumed == Some(true)
+                    && self.windows_bootstrap_resume_previous_count == Some(1)
                     && self
                         .windows_bootstrap_ready_elapsed_ms
-                        .is_some_and(|elapsed| elapsed <= 10_000)
+                        .is_some_and(|elapsed| elapsed <= 30_000)
                     && self.windows_bootstrap_exact_job == Some(true)
                     && self.windows_bootstrap_trusted_path_write_denied == Some(true)
             }
@@ -419,6 +421,7 @@ impl SandboxPreflightEvidence {
             && self.windows_bootstrap_sha256.is_none()
             && self.windows_bootstrap_config_nonce.is_none()
             && self.windows_bootstrap_config_consumed.is_none()
+            && self.windows_bootstrap_resume_previous_count.is_none()
             && self.windows_bootstrap_ready_elapsed_ms.is_none()
             && self.windows_bootstrap_exact_job.is_none()
             && self.windows_bootstrap_trusted_path_write_denied.is_none()

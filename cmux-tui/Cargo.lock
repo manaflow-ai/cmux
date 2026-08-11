@@ -690,11 +690,7 @@ name = "cmux-startup-bootstrap"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "memmap2",
  "serde",
- "serde_json",
- "sha2 0.10.9",
- "windows-sys 0.61.2",
 ]
 
 [[package]]

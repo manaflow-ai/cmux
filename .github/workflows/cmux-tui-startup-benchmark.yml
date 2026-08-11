@@ -636,7 +636,6 @@ jobs:
             rustup target add --toolchain "$candidate_toolchain" "$RUST_TARGET"
           fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            rustup target add --toolchain "$trusted_toolchain" x86_64-pc-windows-msvc
             printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
           fi
           rustc -vV
@@ -753,7 +752,7 @@ jobs:
           "sid=$sid" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
           "rule=$rule" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
 
-      - name: Build trusted minimal MSVC startup bootstrap
+      - name: Build trusted native MSVC startup bootstrap
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -766,19 +765,20 @@ jobs:
           if (-not $installation) { throw "MSVC x64 build tools are unavailable" }
           Import-Module (Join-Path $installation "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
           Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          $source = Join-Path $env:TRUSTED_SOURCE "cmux-tui\crates\cmux-startup-bootstrap\native\windows_bootstrap.c"
           $targetRoot = Join-Path $env:RUNNER_TEMP "cmux-startup-bootstrap-msvc"
-          Push-Location (Join-Path $env:TRUSTED_SOURCE "cmux-tui")
-          try {
-            & rustup run $env:TRUSTED_RUST_TOOLCHAIN cargo build --locked --release `
-              -p cmux-startup-bootstrap --bin cmux-startup-bootstrap `
-              --target x86_64-pc-windows-msvc --target-dir $targetRoot
-            if ($LASTEXITCODE -ne 0) { throw "trusted minimal MSVC startup bootstrap build failed" }
-          } finally {
-            Pop-Location
-          }
-          $bootstrap = Join-Path $targetRoot "x86_64-pc-windows-msvc\release\cmux-startup-bootstrap.exe"
+          $outDir = Join-Path $targetRoot "x86_64-pc-windows-msvc\release"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $bootstrap = Join-Path $outDir "cmux-startup-bootstrap.exe"
+          $object = Join-Path $outDir "cmux-startup-bootstrap.obj"
+          & cl.exe /nologo /O2 /W4 /WX /MT /GS /guard:cf /utf-8 `
+            /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0A00 /TC $source `
+            "/Fo$object" "/Fe$bootstrap" `
+            /link /INCREMENTAL:NO /SUBSYSTEM:CONSOLE /DYNAMICBASE /NXCOMPAT `
+            /HIGHENTROPYVA /GUARD:CF bcrypt.lib
+          if ($LASTEXITCODE -ne 0) { throw "trusted native MSVC startup bootstrap build failed" }
           if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
-            throw "trusted minimal MSVC startup bootstrap is missing"
+            throw "trusted native MSVC startup bootstrap is missing"
           }
           $sha256 = (Get-FileHash -LiteralPath $bootstrap -Algorithm SHA256).Hash.ToLowerInvariant()
           $dumpbin = Get-Command dumpbin.exe -ErrorAction Stop
@@ -790,8 +790,12 @@ jobs:
           }
           foreach ($dll in $imports) {
             $apiSet = $dll -match '^(?i:(api|ext)-[a-z0-9-]+-l[0-9]+-[0-9]+-[0-9]+\.dll)$'
+            $physical = $dll.ToLowerInvariant()
+            if (-not $apiSet -and $physical -notin @("bcrypt.dll", "kernel32.dll")) {
+              throw "bootstrap dependency is not approved: $dll"
+            }
             if (-not $apiSet -and -not (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dll") -PathType Leaf)) {
-              throw "bootstrap dependency is not a System32 DLL: $dll"
+              throw "approved bootstrap dependency is not a System32 DLL: $dll"
             }
             if (Test-Path -LiteralPath (Join-Path (Split-Path $bootstrap) $dll)) {
               throw "bootstrap has a local DLL dependency override: $dll"

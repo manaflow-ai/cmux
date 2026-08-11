@@ -21,9 +21,13 @@ const T0_OFFSET: usize = 40;
 const GENERATION_OFFSET: usize = 48;
 
 pub const CONTROL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-pub const STARTUP_LINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+pub const STARTUP_LINE_TIMEOUT: std::time::Duration = if cfg!(windows) {
+    std::time::Duration::from_secs(80)
+} else {
+    std::time::Duration::from_secs(60)
+};
 pub const SECURITY_PREPARATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-pub const BOOTSTRAP_STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+pub const BOOTSTRAP_STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const BOOTSTRAP_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

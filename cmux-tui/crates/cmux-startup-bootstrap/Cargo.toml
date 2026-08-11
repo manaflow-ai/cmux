@@ -9,17 +9,6 @@ publish.workspace = true
 [lints]
 workspace = true
 
-[[bin]]
-name = "cmux-startup-bootstrap"
-path = "src/main.rs"
-test = false
-
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-memmap2 = "0.9"
-sha2.workspace = true
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Performance", "Win32_System_Threading"] }
