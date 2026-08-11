@@ -231,15 +231,39 @@ jobs:
         with:
           version: 0.15.2
 
-      - name: Python conformance fixtures
-        env:
-          CMUX_ZIG: zig
+      - name: Enter SDK conformance toolchain phase
+        shell: bash
         run: |
+          sdk_zig="$(command -v zig)"
+          case "$sdk_zig" in
+            /*) ;;
+            *) echo "Zig executable is not an absolute path: $sdk_zig" >&2; exit 1 ;;
+          esac
+          test "$("$sdk_zig" version)" = "0.15.2"
+          sdk_zig_lib_dir="$("$sdk_zig" env | python3 -c 'import json, sys; print(json.load(sys.stdin)["lib_dir"])')"
+          case "$sdk_zig_lib_dir" in
+            /*) ;;
+            *) echo "Zig library directory is not an absolute path: $sdk_zig_lib_dir" >&2; exit 1 ;;
+          esac
+          test -d "$sdk_zig_lib_dir"
+          echo "CMUX_ZIG=$sdk_zig" >> "$GITHUB_ENV"
+          echo "CMUX_ZIG_LIB_DIR=$sdk_zig_lib_dir" >> "$GITHUB_ENV"
+
+      - name: Python conformance fixtures
+        shell: bash
+        run: |
+          test "$(command -v zig)" = "$CMUX_ZIG"
           test "$("$CMUX_ZIG" version)" = "0.15.2"
+          test "$("$CMUX_ZIG" env | python3 -c 'import json, sys; print(json.load(sys.stdin)["lib_dir"])')" = "$CMUX_ZIG_LIB_DIR"
           python3 cmux-tui/bindings/conformance/runner.py
 
       - name: Binding e2e
-        run: bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
+        shell: bash
+        run: |
+          test "$(command -v zig)" = "$CMUX_ZIG"
+          test "$("$CMUX_ZIG" version)" = "0.15.2"
+          test "$("$CMUX_ZIG" env | python3 -c 'import json, sys; print(json.load(sys.stdin)["lib_dir"])')" = "$CMUX_ZIG_LIB_DIR"
+          bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
 
   windows-experimental:
     name: windows experimental (x86_64-gnu)
