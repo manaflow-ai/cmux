@@ -6,6 +6,7 @@ umask 077
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 TUI_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd -P)"
 REMOTE_HOST="${1:-cmux-lawrence}"
+LIFECYCLE_PIPE="${CMUX_NATIVE_LIFECYCLE_PIPE:-}"
 
 if [[ $# -gt 1 || "$REMOTE_HOST" == -* \
   || ! "$REMOTE_HOST" =~ ^[A-Za-z0-9._@-]+$ ]]; then
@@ -19,6 +20,18 @@ for command in codesign jq mkfifo open openssl perl pgrep scp shasum ssh; do
     exit 1
   fi
 done
+
+if [[ -n "$LIFECYCLE_PIPE" ]]; then
+  if [[ ! -p "$LIFECYCLE_PIPE" ]]; then
+    echo "Remote NativeMuxDemo lifecycle channel is not a FIFO: $LIFECYCLE_PIPE" >&2
+    exit 1
+  fi
+fi
+
+lifecycle_event() {
+  [[ -n "$LIFECYCLE_PIPE" ]] || return 0
+  printf '%s\n' "$1" >"$LIFECYCLE_PIPE"
+}
 
 DEMO_BUILD_ROOT="$TUI_ROOT/target/native-mux-demo"
 CMUX_TUI="$DEMO_BUILD_ROOT/rust-build/debug/cmux-tui"
@@ -64,6 +77,7 @@ OPEN_PID=""
 APP_PID=""
 REMOTE_CREATED=0
 CLEANUP_STARTED=0
+LIFECYCLE_READY=0
 
 # shellcheck source=remote-command.sh
 source "$SCRIPT_DIR/remote-command.sh"
@@ -211,6 +225,9 @@ cleanup() {
   fi
   CLEANUP_STARTED=1
   set +e
+  if (( exit_status != 0 )) && [[ "$LIFECYCLE_READY" == "0" ]]; then
+    lifecycle_event "failed $exit_status"
+  fi
   if [[ -z "$APP_PID" ]]; then
     APP_PID="$(find_run_app_pid || true)"
   fi
@@ -313,6 +330,7 @@ if [[ "$REMOTE_HASH" != "$LOCAL_HASH" ]]; then
 fi
 
 echo "Starting the PTY-owning Iroh daemon on $REMOTE_HOST..."
+lifecycle_event "daemon-starting"
 DAEMON_OWNER_COMMAND="$(cmux_remote_quote_command \
   "$REMOTE_DAEMON_OWNER" \
   "$REMOTE_DAEMON_PID_FILE" \
@@ -421,7 +439,7 @@ if [[ -z "$APP_PID" ]]; then
   echo "Could not identify the isolated NativeMuxDemo process." >&2
   exit 1
 fi
-echo "NativeMuxDemo PID: $APP_PID"
+lifecycle_event "app-started $APP_PID"
 
 claimed=0
 for _ in $(seq 1 120); do
@@ -462,6 +480,8 @@ if [[ "$connected" != "1" ]]; then
 fi
 
 echo "Ready. $REMOTE_HOST owns terminal $TERMINAL_ID; this Mac only renders it."
+lifecycle_event "ready"
+LIFECYCLE_READY=1
 echo "Close the NativeMuxDemo window or quit the app to clean up the remote demo."
 
 while kill -0 "$APP_PID" 2>/dev/null; do

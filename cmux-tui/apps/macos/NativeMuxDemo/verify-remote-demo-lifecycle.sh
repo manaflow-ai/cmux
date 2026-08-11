@@ -12,9 +12,9 @@ LAUNCHER_PID=""
 APP_PID=""
 ATTACH_PID=""
 ATTACH_FD_OPEN=0
-TRANSFER_READY_ATTEMPTS=3000
-DAEMON_READY_ATTEMPTS=900
-READY_POLL_SECONDS=0.1
+LIFECYCLE_FD_OPEN=0
+TRANSFER_READY_TIMEOUT=300
+DAEMON_READY_TIMEOUT=90
 
 if [[ $# -gt 2 || ! "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
   echo "Usage: verify-remote-demo-lifecycle.sh [ssh-host] [runs]" >&2
@@ -40,6 +40,10 @@ cleanup() {
   if [[ -n "$LAUNCHER_PID" ]] && kill -0 "$LAUNCHER_PID" 2>/dev/null; then
     kill "$LAUNCHER_PID" 2>/dev/null
     wait "$LAUNCHER_PID" 2>/dev/null
+  fi
+  if [[ "$LIFECYCLE_FD_OPEN" == "1" ]]; then
+    exec 7<&-
+    LIFECYCLE_FD_OPEN=0
   fi
   rm -rf -- "$TEST_ROOT"
 }
@@ -85,17 +89,21 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
     OWNER_LOSS=1
   fi
   LAUNCH_LOG="$TEST_ROOT/launcher-$run.log"
+  LIFECYCLE_PIPE="$TEST_ROOT/lifecycle-$run.pipe"
+  /usr/bin/mkfifo "$LIFECYCLE_PIPE"
   APP_PIDS_BEFORE="$(matching_app_pids)"
-  "$RUN_REMOTE_DEMO" "$REMOTE_HOST" >"$LAUNCH_LOG" 2>&1 &
+  CMUX_NATIVE_LIFECYCLE_PIPE="$LIFECYCLE_PIPE" \
+    "$RUN_REMOTE_DEMO" "$REMOTE_HOST" >"$LAUNCH_LOG" 2>&1 &
   LAUNCHER_PID=$!
+  exec 7<>"$LIFECYCLE_PIPE"
+  LIFECYCLE_FD_OPEN=1
 
   set +e
   cmux_wait_for_remote_demo_ready \
-    "$LAUNCH_LOG" \
+    7 \
     "$LAUNCHER_PID" \
-    "$TRANSFER_READY_ATTEMPTS" \
-    "$DAEMON_READY_ATTEMPTS" \
-    "$READY_POLL_SECONDS"
+    "$TRANSFER_READY_TIMEOUT" \
+    "$DAEMON_READY_TIMEOUT"
   READY_STATUS=$?
   set -e
   if [[ "$READY_STATUS" != "0" ]]; then
@@ -103,14 +111,17 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
       10) echo "Remote demo run $run exited before becoming ready:" >&2 ;;
       20) echo "Remote demo run $run did not finish installation within 300 seconds:" >&2 ;;
       21) echo "Remote demo run $run did not become ready within 90 seconds after daemon startup:" >&2 ;;
+      22) echo "Remote demo run $run published an invalid lifecycle event:" >&2 ;;
       *) echo "Remote demo run $run failed its readiness check with status $READY_STATUS:" >&2 ;;
     esac
     sed -n '1,220p' "$LAUNCH_LOG" >&2
     exit 1
   fi
 
-  PUBLISHED_APP_PID="$(sed -n 's/^NativeMuxDemo PID: \([1-9][0-9]*\)$/\1/p' \
-    "$LAUNCH_LOG" | tail -n 1)"
+  PUBLISHED_APP_PID="$CMUX_REMOTE_DEMO_APP_PID"
+  exec 7<&-
+  LIFECYCLE_FD_OPEN=0
+  rm -f -- "$LIFECYCLE_PIPE"
   APP_PID="$(new_app_pid "$APP_PIDS_BEFORE" || true)"
   if [[ -z "$APP_PID" || "$APP_PID" != "$PUBLISHED_APP_PID" ]]; then
     echo "Remote demo run $run did not expose its isolated app process." >&2
