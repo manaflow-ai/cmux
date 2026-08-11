@@ -2249,12 +2249,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let signals = root.appendingPathComponent("signals")
         let enqueuedGroup = root.appendingPathComponent("enqueued-group")
+        let processSnapshot = root.appendingPathComponent("processes")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          /bin/cp "$CMUX_TEST_PROCESS_SNAPSHOT" "$1"
+        }
         cmux_ssh_auth_identity() {
           test "$1" = 101 || return 1
           printf '1|777|Thu_Jan_1_00:00:00_1970\n'
@@ -2268,14 +2273,18 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         CMUX_SSH_AUTH_GROUP_DIR="$CMUX_TEST_GROUP_DIR"
         export CMUX_SSH_AUTH_GROUP_DIR
+        printf '101 1 777 S Thu Jan 1 00:00:00 1970\n202 101 778 S Fri Jan 2 00:00:00 1970\n' \
+          > "$CMUX_TEST_PROCESS_SNAPSHOT"
         : > "$CMUX_TEST_SIGNALS"
         cmux_ssh_terminate_auth_process_tree 101 1
         if /usr/bin/grep -Fqx -- '-KILL 101' "$CMUX_TEST_SIGNALS"; then exit 99; fi
         test -f "$CMUX_SSH_AUTH_GROUP_DIR/rollback-only" || exit 98
         /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970' \
           "$CMUX_SSH_AUTH_GROUP_DIR/unpublished.root" || exit 97
-        /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970 R' \
+        /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970 S' \
           "$CMUX_SSH_AUTH_GROUP_DIR/owned" || exit 96
+        /usr/bin/grep -Fqx '202 101 778 Fri_Jan_2_00:00:00_1970 S' \
+          "$CMUX_SSH_AUTH_GROUP_DIR/owned" || exit 94
         /usr/bin/grep -Fqx "$CMUX_SSH_AUTH_GROUP_DIR" \
           "$CMUX_TEST_ENQUEUED_GROUP" || exit 95
         """
@@ -2285,6 +2294,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             environment: [
                 "CMUX_TEST_GROUP_DIR": groupDirectory.path,
                 "CMUX_TEST_ENQUEUED_GROUP": enqueuedGroup.path,
+                "CMUX_TEST_PROCESS_SNAPSHOT": processSnapshot.path,
                 "CMUX_TEST_SIGNALS": signals.path,
                 "TMPDIR": root.path,
             ],
@@ -5525,6 +5535,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         #expect(claimAcquisition.lowerBound < cancellationPublication.lowerBound)
         #expect(claimAcquisition.lowerBound < cleanupTransaction.lowerBound)
+    }
+
+    @Test func failedOwnershipHandoffUsesBoundedBackgroundOwner() {
+        let functions = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+
+        #expect(functions.contains("cmux_ssh_auth_handoff_deadline_millis"))
+        #expect(functions.contains("cmux_ssh_auth_handoff_attempt"))
+        #expect(functions.contains("cmux_ssh_auth_background_owner_pid=$!"))
+        #expect(functions.contains("cmux_ssh_auth_durable_cleanup_pending=1"))
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
