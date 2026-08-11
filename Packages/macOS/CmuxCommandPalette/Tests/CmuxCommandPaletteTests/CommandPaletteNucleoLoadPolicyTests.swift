@@ -4,60 +4,72 @@ import Testing
 @Suite struct CommandPaletteNucleoLoadPolicyTests {
     @Test func backendOnlyOwnershipRejectsDeveloperPathsInDebugBuilds() {
         #expect(
-            !CommandPaletteNucleoSearchLibrary.permitsDeveloperLibraryPaths(
+            !CommandPaletteNucleoLibraryPathPolicy(
+                environmentPath: nil,
+                bundledLibraryPath: nil,
                 runtimeOwnership: "backend-only",
                 debugBuild: true
-            )
+            ).permitsDeveloperPaths
         )
     }
 
     @Test func releaseBuildsRejectDeveloperPathsForEveryOwnershipMode() {
         #expect(
-            !CommandPaletteNucleoSearchLibrary.permitsDeveloperLibraryPaths(
+            !CommandPaletteNucleoLibraryPathPolicy(
+                environmentPath: nil,
+                bundledLibraryPath: nil,
                 runtimeOwnership: nil,
                 debugBuild: false
-            )
+            ).permitsDeveloperPaths
         )
         #expect(
-            !CommandPaletteNucleoSearchLibrary.permitsDeveloperLibraryPaths(
+            !CommandPaletteNucleoLibraryPathPolicy(
+                environmentPath: nil,
+                bundledLibraryPath: nil,
                 runtimeOwnership: "legacy",
                 debugBuild: false
-            )
+            ).permitsDeveloperPaths
         )
     }
 
     @Test func onlyNonAttestedDebugBuildsRetainDeveloperPaths() {
         #expect(
-            CommandPaletteNucleoSearchLibrary.permitsDeveloperLibraryPaths(
+            CommandPaletteNucleoLibraryPathPolicy(
+                environmentPath: nil,
+                bundledLibraryPath: nil,
                 runtimeOwnership: nil,
                 debugBuild: true
-            )
+            ).permitsDeveloperPaths
         )
         #expect(
-            CommandPaletteNucleoSearchLibrary.permitsDeveloperLibraryPaths(
+            CommandPaletteNucleoLibraryPathPolicy(
+                environmentPath: nil,
+                bundledLibraryPath: nil,
                 runtimeOwnership: "legacy",
                 debugBuild: true
-            )
+            ).permitsDeveloperPaths
         )
     }
 
     @Test func developerOverridePrecedesBundledLibraryWhenPermitted() {
         #expect(
-            CommandPaletteNucleoSearchLibrary.prioritizedLibraryPaths(
+            CommandPaletteNucleoLibraryPathPolicy(
                 environmentPath: "/tmp/developer/libnucleo.dylib",
                 bundledLibraryPath: "/Applications/cmux.app/Contents/Frameworks/libnucleo.dylib",
-                permitsDeveloperLibraryPaths: true
-            ) == [
+                runtimeOwnership: nil,
+                debugBuild: true
+            ).prioritizedLibraryPaths == [
                 "/tmp/developer/libnucleo.dylib",
                 "/Applications/cmux.app/Contents/Frameworks/libnucleo.dylib",
             ]
         )
         #expect(
-            CommandPaletteNucleoSearchLibrary.prioritizedLibraryPaths(
+            CommandPaletteNucleoLibraryPathPolicy(
                 environmentPath: "/tmp/developer/libnucleo.dylib",
                 bundledLibraryPath: "/Applications/cmux.app/Contents/Frameworks/libnucleo.dylib",
-                permitsDeveloperLibraryPaths: false
-            ) == [
+                runtimeOwnership: "backend-only",
+                debugBuild: true
+            ).prioritizedLibraryPaths == [
                 "/Applications/cmux.app/Contents/Frameworks/libnucleo.dylib"
             ]
         )

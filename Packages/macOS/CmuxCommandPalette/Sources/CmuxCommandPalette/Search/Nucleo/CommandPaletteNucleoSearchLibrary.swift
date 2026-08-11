@@ -118,13 +118,16 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
                 .appendingPathComponent(Self.libraryFileName)
                 .path
         }
-        let developerPathsPermitted = Self.permitsDeveloperLibraryPaths
-        var paths = prioritizedLibraryPaths(
+        let policy = CommandPaletteNucleoLibraryPathPolicy(
             environmentPath: environmentPath,
             bundledLibraryPath: bundledLibraryPath,
-            permitsDeveloperLibraryPaths: developerPathsPermitted
+            runtimeOwnership: Bundle.main.object(
+                forInfoDictionaryKey: "CMUXTerminalRuntimeOwnership"
+            ) as? String,
+            debugBuild: Self.isDebugBuild
         )
-        guard developerPathsPermitted else { return paths }
+        var paths = policy.prioritizedLibraryPaths
+        guard policy.permitsDeveloperPaths else { return paths }
 
         // Repo source root: this file lives at
         // Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/Nucleo/.
@@ -164,42 +167,12 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
         return paths
     }
 
-    static func prioritizedLibraryPaths(
-        environmentPath: String?,
-        bundledLibraryPath: String?,
-        permitsDeveloperLibraryPaths: Bool
-    ) -> [String] {
-        var paths: [String] = []
-        if permitsDeveloperLibraryPaths,
-           let environmentPath,
-           !environmentPath.isEmpty {
-            paths.append(environmentPath)
-        }
-        if let bundledLibraryPath, !bundledLibraryPath.isEmpty {
-            paths.append(bundledLibraryPath)
-        }
-        return paths
-    }
-
-    private static var permitsDeveloperLibraryPaths: Bool {
+    private static var isDebugBuild: Bool {
 #if DEBUG
-        let debugBuild = true
+        true
 #else
-        let debugBuild = false
+        false
 #endif
-        return permitsDeveloperLibraryPaths(
-            runtimeOwnership: Bundle.main.object(
-                forInfoDictionaryKey: "CMUXTerminalRuntimeOwnership"
-            ) as? String,
-            debugBuild: debugBuild
-        )
-    }
-
-    static func permitsDeveloperLibraryPaths(
-        runtimeOwnership: String?,
-        debugBuild: Bool
-    ) -> Bool {
-        debugBuild && runtimeOwnership != "backend-only"
     }
 
     private static let libraryFileName = "libcmux_command_palette_nucleo_ffi.dylib"
