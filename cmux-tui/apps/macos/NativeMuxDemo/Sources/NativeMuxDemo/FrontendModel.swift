@@ -98,14 +98,14 @@ final class TerminalTitleOwner {
 
 @MainActor
 struct TerminalTitleFn {
-    private let titles: [String: String]
+    private let owners: [String: TerminalTitleOwner]
 
     init(owners: [String: TerminalTitleOwner]) {
-        titles = owners.mapValues(\.title)
+        self.owners = owners
     }
 
-    func callAsFunction(_ terminalID: String) -> String? {
-        titles[terminalID]
+    func callAsFunction(_ terminalID: String) -> TerminalTitleOwner? {
+        owners[terminalID]
     }
 }
 
