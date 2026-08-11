@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestPersistentDaemonLogsConnectionAndPTYLifecycle(t *testing.T) {
@@ -297,10 +299,32 @@ func TestPersistentDaemonProcessOutputUsesRotatingWriter(t *testing.T) {
 			t.Fatalf("process output exposed sensitive content %q: %q", secret, string(logged))
 		}
 	}
-	for _, stream := range []string{`stream="stdout"`, `stream="stderr"`} {
-		if !strings.Contains(string(logged), "event=process_output") ||
-			!strings.Contains(string(logged), stream) {
-			t.Fatalf("process output metadata missing %s: %q", stream, string(logged))
+	processOutputBytes := map[string][]int64{}
+	for _, line := range strings.Split(string(logged), "\n") {
+		if !strings.Contains(line, "event=process_output") {
+			continue
+		}
+		fields := map[string]string{}
+		for _, field := range strings.Fields(line) {
+			key, value, ok := strings.Cut(field, "=")
+			if !ok {
+				continue
+			}
+			if unquoted, err := strconv.Unquote(value); err == nil {
+				fields[key] = unquoted
+			} else {
+				fields[key] = value
+			}
+		}
+		byteCount, err := strconv.ParseInt(fields["bytes"], 10, 64)
+		if err != nil || byteCount <= 0 {
+			t.Fatalf("process output byte count = %q, want a positive integer: %q", fields["bytes"], line)
+		}
+		processOutputBytes[fields["stream"]] = append(processOutputBytes[fields["stream"]], byteCount)
+	}
+	for _, stream := range []string{"stdout", "stderr"} {
+		if len(processOutputBytes[stream]) == 0 {
+			t.Fatalf("process output metadata missing stream %q: %q", stream, string(logged))
 		}
 	}
 	info, err := os.Stat(logPath)
@@ -309,6 +333,33 @@ func TestPersistentDaemonProcessOutputUsesRotatingWriter(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("process-output log mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestPersistentDaemonProcessOutputSummaryBatchesReads(t *testing.T) {
+	startedAt := time.Unix(100, 0)
+	summary := persistentDaemonProcessOutputSummary{minimumInterval: time.Second}
+
+	if byteCount, emit := summary.record(10, startedAt); !emit || byteCount != 10 {
+		t.Fatalf("first record = (%d, %t), want (10, true)", byteCount, emit)
+	}
+	if byteCount, emit := summary.record(20, startedAt.Add(100*time.Millisecond)); emit || byteCount != 0 {
+		t.Fatalf("second record = (%d, %t), want (0, false)", byteCount, emit)
+	}
+	if byteCount, emit := summary.record(30, startedAt.Add(999*time.Millisecond)); emit || byteCount != 0 {
+		t.Fatalf("third record = (%d, %t), want (0, false)", byteCount, emit)
+	}
+	if byteCount, emit := summary.record(40, startedAt.Add(time.Second)); !emit || byteCount != 90 {
+		t.Fatalf("interval record = (%d, %t), want (90, true)", byteCount, emit)
+	}
+	if byteCount, emit := summary.record(50, startedAt.Add(1100*time.Millisecond)); emit || byteCount != 0 {
+		t.Fatalf("pending record = (%d, %t), want (0, false)", byteCount, emit)
+	}
+	if byteCount, emit := summary.flush(startedAt.Add(1200 * time.Millisecond)); !emit || byteCount != 50 {
+		t.Fatalf("final flush = (%d, %t), want (50, true)", byteCount, emit)
+	}
+	if byteCount, emit := summary.flush(startedAt.Add(1300 * time.Millisecond)); emit || byteCount != 0 {
+		t.Fatalf("empty flush = (%d, %t), want (0, false)", byteCount, emit)
 	}
 }
 

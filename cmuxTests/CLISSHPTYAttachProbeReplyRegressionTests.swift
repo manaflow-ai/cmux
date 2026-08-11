@@ -122,6 +122,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ["sessions": [[:]], "errors": []],
             ["sessions": [["session_id": "  "]], "errors": []],
             ["sessions": [["session_id": 42]], "errors": []],
+            ["requested_session_lifecycle": 42, "sessions": [], "errors": []],
+            ["requested_session_lifecycle": "  ", "sessions": [], "errors": []],
+            ["requested_session_lifecycle": "unknown", "sessions": [], "errors": []],
         ]
         for (index, malformedResult) in malformedResults.enumerated() {
             let malformedCase = "malformed result \(index): \(malformedResult)"
@@ -217,6 +220,83 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 )
             }
         }
+    }
+
+    func testSSHPTYAttachClosedGenerationPreservesActiveLifecycleWithoutSessionProof() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyclosedactive")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceID = "22222222-2222-2222-2222-222222222222"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
+        let sessionID = "ssh-\(workspaceID)-\(surfaceID)"
+        let lifecycleID = "44444444-4444-4444-4444-444444444444"
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.remote.pty_bridge":
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "pty_lifecycle_closed", "message": "remote PTY operation failed"]
+                )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: [
+                    "sessions": [],
+                    "errors": [],
+                ])
+            case "workspace.remote.pty_attach_end":
+                return self.v2Response(id: id, ok: true, result: ["ended": true])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-pty-attach", "--wait", "--require-existing",
+                "--workspace", workspaceID, "--session-id", sessionID,
+                "--lifecycle-id", lifecycleID, "--attachment-id", surfaceID,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [socketHandled], timeout: 5)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(
+            result.status == SSHPTYAttachExitCode.retryableTransient.rawValue,
+            Comment(rawValue: result.stderr)
+        )
+        let requests = state.snapshot().compactMap { self.jsonObject($0) }
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(methods.filter { $0 == "workspace.remote.pty_bridge" }.count == 1)
+        #expect(methods.filter { $0 == "workspace.remote.pty_sessions" }.count == 1)
+        #expect(!methods.contains("workspace.remote.pty_attach_end"), Comment(rawValue: "\(methods)"))
+        let reconciliationParams = requests.compactMap { request -> [String: Any]? in
+            guard request["method"] as? String == "workspace.remote.pty_sessions" else { return nil }
+            return request["params"] as? [String: Any]
+        }
+        #expect(reconciliationParams.first?["acknowledge_lifecycle"] as? Bool != true)
+        #expect(reconciliationParams.first?["acknowledge_lifecycle_if_session_absent"] as? Bool != true)
     }
 
     func testSSHPTYAttachPreservesPipedProbeLikeInputBeforeForwardingInput() throws {
