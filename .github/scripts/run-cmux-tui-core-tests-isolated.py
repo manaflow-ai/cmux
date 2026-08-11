@@ -40,8 +40,6 @@ def test_binaries(cargo_messages: Path, core_root: Path) -> list[Path]:
 
             target = message.get("target", {})
             kinds = set(target.get("kind", []))
-            if not kinds.intersection({"lib", "test"}):
-                continue
             source = target.get("src_path")
             executable = message.get("executable")
             if not source or not executable:

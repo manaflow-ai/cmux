@@ -50,7 +50,7 @@ if [[ "$mode" == "focused" && ! "$test_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]{0
   exit 2
 fi
 
-timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-7200}"
+timeout_seconds="${CMUX_TUI_HOSTED_TIMEOUT_SECONDS:-10800}"
 if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: hosted verification timeout must be a positive integer" >&2
   exit 2
