@@ -1,0 +1,29 @@
+{"type":"fixture_comment","note":"Mirrors Claude Code 2.1.x project JSONL: message records, content blocks including image, system subtype records, sidechain records, tool_use/tool_result pairing, and title/bookkeeping records."}
+{"type":"user","message":{"role":"user","content":"Lorem ipsum prompt for the example project."},"sessionId":"00000000-0000-4000-8000-000000000001","cwd":"/tmp/example"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Lorem ipsum assistant prose."}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Private reasoning placeholder."}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_001","name":"Bash","input":{"command":"echo example"}}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_001","content":"example output","is_error":false}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_002","name":"Edit","input":{"file_path":"/tmp/example/file.txt","old_string":"old","new_string":"new"}}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_003","name":"AskUserQuestion","input":{"question":"Choose an example option?","options":["Alpha","Beta"]}}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"user","isSidechain":true,"message":{"role":"user","content":"Sidechain placeholder skipped."},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","isMeta":true,"message":{"role":"assistant","content":"Meta placeholder skipped."},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Tool introduction placeholder."},{"type":"tool_use","id":"toolu_004","name":"Bash","input":{"command":"echo combined"}}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"system","subtype":"api_error","isApiErrorMessage":true,"content":"Example API error placeholder.","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"system","subtype":"stop_hook_summary","content":"Example hook summary placeholder.","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"system","subtype":"turn_duration","durationMs":1234,"messageCount":2,"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Lorem ipsum prompt with attachment."},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"<redacted-image-data>"}}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"ai-title","aiTitle":"Example AI Title","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"custom-title","customTitle":"Example Custom Title","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"agent-name","agentName":"Example Agent Name","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"last-prompt","lastPrompt":"Example last prompt.","sessionId":"00000000-0000-4000-8000-000000000001","leafUuid":"00000000-0000-4000-8000-000000000002"}
+{"type":"mode","mode":"default","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"permission-mode","permissionMode":"acceptEdits","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"pr-link","sessionId":"00000000-0000-4000-8000-000000000001","prNumber":1,"prUrl":"https://example.invalid/pr/1","prRepository":"example/repo","timestamp":"2026-07-01T00:00:00.000Z"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-07-01T00:00:00.000Z","sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"bridge-session","sessionId":"00000000-0000-4000-8000-000000000001","bridgeSessionId":"bridge-example","lastSequenceNum":1}
+{"type":"file-history-snapshot","messageId":"00000000-0000-4000-8000-000000000003","snapshot":[],"isSnapshotUpdate":false}
+{"type":"attachment","attachment":{"type":"image","fileName":"example.png"},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"future_block","value":"placeholder"}]},"sessionId":"00000000-0000-4000-8000-000000000001"}
+{malformed json
+{"type":"future_record","payload":{"value":"placeholder"}}

@@ -1,0 +1,29 @@
+{"type":"fixture_comment","note":"Mirrors Codex 0.14x rollout JSONL: session_meta, turn_context, event_msg phase/duplicate/bookkeeping streams, response_item message/reasoning/function_call/function_call_output/custom_tool_call/custom_tool_call_output/tool_search/web_search, and compaction."}
+{"timestamp":"2026-07-01T00:00:00.000Z","type":"session_meta","payload":{"id":"00000000-0000-4000-8000-000000000010","timestamp":"2026-07-01T00:00:00.000Z","cwd":"/tmp/example","originator":"codex","cli_version":"0.140.0","model_provider":"openai"}}
+{"timestamp":"2026-07-01T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Lorem ipsum codex prompt."}]}}
+{"timestamp":"2026-07-01T00:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Lorem ipsum codex answer."}]}}
+{"timestamp":"2026-07-01T00:00:03.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Reasoning placeholder."}]}}
+{"timestamp":"2026-07-01T00:00:04.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call_001","arguments":"{\"command\":[\"bash\",\"-lc\",\"echo example\"],\"cwd\":\"/tmp/example\"}"}}
+{"timestamp":"2026-07-01T00:00:05.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_001","output":"example output"}}
+{"timestamp":"2026-07-01T00:00:06.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"call_002","input":"patch placeholder"}}
+{"timestamp":"2026-07-01T00:00:07.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_002","output":"patch applied"}}
+{"timestamp":"2026-07-01T00:00:08.000Z","type":"response_item","payload":{"type":"web_search_call","call_id":"call_003","action":{"query":"example query"}}}
+{"timestamp":"2026-07-01T00:00:09.000Z","type":"response_item","payload":{"type":"tool_search_call","call_id":"call_004","status":"completed","arguments":{"query":"example tool"}}}
+{"timestamp":"2026-07-01T00:00:10.000Z","type":"response_item","payload":{"type":"tool_search_output","call_id":"call_004","status":"completed","tools":[{"name":"example_tool"}]}}
+{"timestamp":"2026-07-01T00:00:11.000Z","type":"turn_context","payload":{"turn_id":"00000000-0000-4000-8000-000000000021","cwd":"/tmp/example","model":"gpt-5.5","approval_policy":"never","sandbox_policy":{"type":"danger-full-access","writable_roots":["/tmp/example"]}}}
+{"timestamp":"2026-07-01T00:00:12.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"00000000-0000-4000-8000-000000000020"}}
+{"timestamp":"2026-07-01T00:00:13.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"00000000-0000-4000-8000-000000000020"}}
+{"timestamp":"2026-07-01T00:00:14.000Z","type":"event_msg","payload":{"type":"turn_aborted","turn_id":"00000000-0000-4000-8000-000000000020","reason":"example"}}
+{"timestamp":"2026-07-01T00:00:15.000Z","type":"compacted","payload":{"reason":"manual"}}
+{"timestamp":"2026-07-01T00:00:16.000Z","type":"event_msg","payload":{"type":"context_compacted"}}
+{"timestamp":"2026-07-01T00:00:17.000Z","type":"event_msg","payload":{"type":"user_message","message":"Lorem ipsum duplicate prompt.","images":[],"local_images":[],"text_elements":[]}}
+{"timestamp":"2026-07-01T00:00:18.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Lorem ipsum duplicate answer.","phase":"final_answer"}}
+{"timestamp":"2026-07-01T00:00:19.000Z","type":"event_msg","payload":{"type":"patch_apply_end","call_id":"call_002","stdout":"ok","stderr":"","success":true,"changes":{}}}
+{"timestamp":"2026-07-01T00:00:20.000Z","type":"event_msg","payload":{"type":"web_search_end","call_id":"call_003","query":"example query","action":"search"}}
+{"timestamp":"2026-07-01T00:00:21.000Z","type":"event_msg","payload":{"type":"mcp_tool_call_end","call_id":"call_005","status":"success"}}
+{"timestamp":"2026-07-01T00:00:22.000Z","type":"event_msg","payload":{"type":"entered_review_mode"}}
+{"timestamp":"2026-07-01T00:00:23.000Z","type":"event_msg","payload":{"type":"exited_review_mode"}}
+{"timestamp":"2026-07-01T00:00:24.000Z","type":"event_msg","payload":{"type":"thread_goal_updated","threadId":"thread-example","goal":"Example goal."}}
+{"timestamp":"2026-07-01T00:00:25.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1,"output_tokens":1}}}}
+{malformed json
+{"timestamp":"2026-07-01T00:00:26.000Z","type":"response_item","payload":{"type":"future_item","content":"placeholder"}}

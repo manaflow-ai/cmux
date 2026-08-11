@@ -44,7 +44,10 @@ enum MobileIrohReleaseGateResponseValidator {
     }
 
     static func chatSessions(_ data: Data) -> Bool {
-        (try? ChatWireCoding().decode(MobileChatSessionsResponse.self, from: data)) != nil
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return object["sessions"] is [Any]
     }
 
     static func artifactScanCount(_ data: Data) -> Bool {

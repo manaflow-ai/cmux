@@ -96,6 +96,9 @@ extension MobileShellComposite {
                 break
             }
         }
+        if case .networkChange = trigger {
+            agentSyncEngine?.noteNetworkPathChanged()
+        }
         let connectionMethodChanged: Bool
         if case .connectionMethodChanged = trigger {
             connectionMethodChanged = true

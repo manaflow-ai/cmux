@@ -148,19 +148,12 @@ struct MobileIrohReleaseGateResponseValidatorTests {
 
     @Test
     func chatSessionsAcceptProductWireDates() throws {
-        let descriptor = ChatSessionDescriptor(
-            id: "release-gate-session",
-            agentKind: .codex,
-            title: "Iroh release gate",
-            workspaceID: "workspace",
-            terminalID: "terminal",
-            workingDirectory: "/tmp",
-            state: .idle,
-            lastActivityAt: Date(timeIntervalSince1970: 1_784_432_789)
-        )
-        let payload = try ChatWireCoding().encode(
-            MobileChatSessionsResponse(sessions: [descriptor])
-        )
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "sessions": [[
+                "id": "release-gate-session",
+                "last_activity_at": "2026-07-18T01:59:49.000Z",
+            ]],
+        ])
 
         #expect(MobileIrohReleaseGateResponseValidator.chatSessions(payload))
     }

@@ -65,7 +65,6 @@ extension GhosttySurfaceView {
                     return
                 }
                 self.drawForWakeup()
-                self.scheduleVisibleArtifactCountUpdate()
                 self.pumpLocalScrollbackScroll()
             }
         }

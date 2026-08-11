@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
 import CoreGraphics
@@ -6,6 +6,10 @@ import CoreGraphics
 extension WorkspaceDetailView {
     var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
+    }
+
+    var selectedTerminalID: String? {
+        selectedTerminal?.id.rawValue
     }
 
     var selectedToolbarSubtitle: String? {
@@ -26,9 +30,30 @@ extension WorkspaceDetailView {
     }
 
     #if os(iOS)
-    /// The tab/terminal name for a session, for the chat header subtitle.
-    func tabName(for session: ChatSessionDescriptor) -> String? {
-        workspace.terminals.first { $0.id.rawValue == session.terminalID }?.name
+    var agentGUIAvailability: AgentGUIAvailability? {
+        guard let engine = store.agentSyncEngine else { return nil }
+        return AgentGUIAvailability.derive(
+            sessions: engine.directory.sessions,
+            selectedTerminalID: selectedTerminalID
+        )
+    }
+
+    var isAgentGUIVisible: Bool {
+        activeSurface == .terminal && guiModeSelected && agentGUIAvailability != nil
+    }
+
+    var agentGUIComposerSubmitAction: (@MainActor () async -> Void)? {
+        guard isAgentGUIVisible,
+              let engine = store.agentSyncEngine,
+              let availability = agentGUIAvailability else {
+            return nil
+        }
+        return { @MainActor in
+            let text = store.terminalInputText
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            engine.send(sessionID: availability.sessionID, text: text)
+            store.terminalInputText = ""
+        }
     }
     #endif
 }

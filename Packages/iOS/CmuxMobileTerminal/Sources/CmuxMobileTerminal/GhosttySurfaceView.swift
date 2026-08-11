@@ -655,7 +655,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     )
 
-    private lazy var inputProxy: TerminalInputTextView = {
+    lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
         inputProxy.terminalTheme = terminalTheme
         inputProxy.onFirstResponderChanged = { [weak self] isFirstResponder in
@@ -875,12 +875,55 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppDidBecomeActive() {
+        reconcileNotificationDrivenKeyboardAfterActivation()
         resumeRendering()
         inputSession.send(.sceneDidBecomeActive)
         // The guide reflects the current keyboard even if this surface missed a
         // notification while inactive; force a layout read before the next render.
         setNeedsLayout()
     }
+
+    /// Clears an iOS 27 notification-derived keyboard reservation that outlived
+    /// its responder while the app was inactive.
+    ///
+    /// UIKit can remove the keyboard after this process resigns active without
+    /// delivering the matching frame notification. The system-layout-guide path
+    /// repairs itself on the next layout, but the notification path otherwise keeps
+    /// its last numeric overlap indefinitely and strands the whole bottom dock near
+    /// the top of the screen. A live local responder is authoritative: preserve its
+    /// overlap when returning from transient overlays such as Control Center.
+    private func reconcileNotificationDrivenKeyboardAfterActivation() {
+        guard keyboardDockGeometrySource == .keyboardNotifications,
+              !hasLocalKeyboardFirstResponder,
+              keyboardHeight > 0 else { return }
+        #if DEBUG
+        guard keyboardHeightOverrideForTesting == nil else { return }
+        #endif
+
+        keyboardNotificationTransitionGeneration &+= 1
+        keyboardHeight = 0
+        keyboardVisible = false
+        inputProxy.setKeyboardShown(false)
+        bottomDockTransitionObserved = false
+        updateNotificationDrivenDockConstraint()
+        updateDockedToolbarVisibility()
+        setNeedsGeometrySync()
+
+        let owner = bottomDockHostView ?? self
+        UIView.performWithoutAnimation {
+            owner.layoutIfNeeded()
+            layoutRenderedTerminalForCurrentViewport()
+            layoutZoomOverlay()
+        }
+    }
+
+    #if DEBUG
+    /// Exercises activation reconciliation without broadcasting a synthetic app
+    /// lifecycle event to other surfaces in the test process.
+    func debugHandleAppDidBecomeActiveForTesting() {
+        handleAppDidBecomeActive()
+    }
+    #endif
 
     @objc private func handleAppWillEnterForeground() {
         guard surface != nil, window != nil else { return }
@@ -930,7 +973,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
-    private var keyboardVisible = false
+    var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is constrained to ``UIView/keyboardLayoutGuide`` and the viewport
     /// coordinator consumes that same guide-derived overlap, so the grid must shrink
@@ -945,7 +988,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the buttons (the "gap below" Lawrence kept seeing). Matching them keeps the
     /// toolbar's live top edge equal to the viewport edge; any whole-cell render
     /// remainder stays inside the terminal viewport instead of becoming toolbar fill.
-    private static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
+    static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
     /// The single visual dock translated by the selected keyboard geometry source.
     /// The Shortcut and Composer bars are children of this view, so an interrupted
     /// animation cannot leave their presentation layers on different timelines.
@@ -970,7 +1013,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the docked toolbar riding its top edge and the terminal grid above that. The
     /// viewport coordinator consumes the same guide overlap for the
     /// `terminal / toolbar / composer / keyboard` stack.
-    private let composerContainer = UIView()
+    let composerContainer = UIView()
     /// Height (points) the open composer band reserves above the keyboard edge. Fed
     /// by the host from the hosted compose field's intrinsic content size
     /// (``setComposerBandHeight(_:animated:)``); 0 while the composer is closed. The
@@ -978,6 +1021,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
+    /// Real bottom-dock containers for native scroll-edge registration by an overlaying transcript.
+    public var bottomScrollEdgeElementContainers: [UIView] {
+        [dockedToolbar, composerContainer].compactMap { $0 }
+    }
     /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
     /// toolbar/composer containers makes keyboard and composer movement use one
     /// coordinate system instead of a competing SwiftUI safe-area offset.
@@ -1050,6 +1097,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
         }
     }
+
+    #if DEBUG
+    /// Drives the production notification handler without broadcasting synthetic
+    /// keyboard state to unrelated surfaces in a parallel test process.
+    func debugHandleKeyboardTransitionForTesting(_ notification: Notification) {
+        handleKeyboardWillChangeFrame(notification)
+    }
+    #endif
 
     /// Drives the iOS 27 compatibility constraint from UIKit's keyboard frame.
     /// This is the sole dock geometry authority on that OS, so the broken layout

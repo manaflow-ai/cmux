@@ -1,3 +1,6 @@
+#if os(iOS) && DEBUG
+import CmuxAgentGUIUI
+#endif
 import Foundation
 import CMUXMobileCore
 import CmuxAuthRuntime
@@ -113,9 +116,9 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowWorkspaceListLayoutPreview: Bool {
+    private var shouldShowTranscriptDemoPreview: Bool {
         #if os(iOS) && DEBUG
-        return UITestConfig.workspaceListLayoutPreviewEnabled
+        return UITestConfig.transcriptDemoPreviewEnabled
         #else
         return false
         #endif
@@ -129,9 +132,19 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowStreamingChatPreview: Bool {
+    @ViewBuilder private var transcriptDemoPreview: some View {
         #if os(iOS) && DEBUG
-        return UITestConfig.streamingChatPreviewEnabled
+        NavigationStack {
+            TranscriptDemoScreen()
+        }
+        #else
+        EmptyView()
+        #endif
+    }
+
+    private var shouldShowWorkspaceListLayoutPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.workspaceListLayoutPreviewEnabled
         #else
         return false
         #endif
@@ -160,7 +173,6 @@ struct CMUXMobileRootView: View {
         return false
         #endif
     }
-
     #if os(iOS)
     /// A configured launch attach route (dev/UITest auto-pair) owns startup
     /// connections outright; background onboarding discovery must not race it.
@@ -172,15 +184,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
     #endif
-
-    @ViewBuilder private var streamingChatPreview: some View {
-        #if os(iOS) && DEBUG
-        StreamingChatPreviewView()
-        #else
-        EmptyView()
-        #endif
-    }
-
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
@@ -401,16 +404,14 @@ struct CMUXMobileRootView: View {
             changesPreview
         } else if shouldShowHideComputersVerifier {
             hideComputersVerifier
-        } else if shouldShowAgentChatDemoPreview {
-            agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
+        } else if shouldShowTranscriptDemoPreview {
+            transcriptDemoPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
-        } else if shouldShowStreamingChatPreview {
-            streamingChatPreview
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {

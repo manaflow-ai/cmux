@@ -138544,6 +138544,23 @@
         }
       }
     },
+    "mobile.terminalPaste.invalidAgentLaunchParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid agent launch parameters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント起動パラメータが無効です"
+          }
+        }
+      }
+    },
     "mode.compact": {
       "localizations": {
         "en": {
@@ -256707,6 +256724,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "チェックリスト完了"
+          }
+        }
+      }
+    },
+    "workspace.todo.notification.doneBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace's status is now done."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースのステータスが完了になりました。"
+          }
+        }
+      }
+    },
+    "workspace.todo.notification.doneTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace marked done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを完了にしました"
           }
         }
       }

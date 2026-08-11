@@ -35,8 +35,8 @@
 ///
 /// This seam serves only the v2 control socket (`processV2Command`, sync,
 /// main-actor), dispatched by ``ControlCommandCoordinator/handleMobileHost(_:)``:
-/// the eight shared verbs plus `mobile.terminal.paste` / `terminal.paste` and the
-/// local debug `chat.sessions.dump`. Every method is a thin pass-through; the app
+/// the eight shared verbs plus `mobile.terminal.paste` / `terminal.paste`.
+/// Every method is a thin pass-through; the app
 /// conformance runs the EXACT legacy body and bridges its Foundation payload to a
 /// ``JSONValue``.
 ///
@@ -135,12 +135,6 @@ public protocol ControlMobileHostContext: AnyObject {
     nonisolated func controlMobileTaskModelsList(
         params: [String: JSONValue]
     ) async -> ControlCallResult
-
-    /// `chat.sessions.dump` (local debug socket) — the full chat-session registry
-    /// dump, for diagnosing inconsistent phone-side chat state.
-    ///
-    /// - Returns: The fully-built command result.
-    func controlMobileChatSessionsDump() -> ControlCallResult
 }
 
 public extension ControlMobileHostContext {

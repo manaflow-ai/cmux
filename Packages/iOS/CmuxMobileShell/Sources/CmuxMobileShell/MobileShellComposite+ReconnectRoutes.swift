@@ -298,6 +298,7 @@ extension MobileShellComposite {
         foregroundRefreshIsActive = true
         foregroundResumeEpoch &+= 1
         startObservingNetworkPathChanges()
+        agentSyncEngine?.noteAppForegrounded()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()

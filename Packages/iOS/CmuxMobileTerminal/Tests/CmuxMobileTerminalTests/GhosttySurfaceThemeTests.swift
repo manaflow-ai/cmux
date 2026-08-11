@@ -64,6 +64,99 @@ import UIKit
 }
 
 @MainActor
+@Test func keyboardDidShowAndHideReconcileAccessoryAccessibilityLabel() throws {
+    let runtime = try GhosttyRuntime.shared()
+    let surface = GhosttySurfaceView(runtime: runtime, delegate: ThemeTestSurfaceDelegate())
+    defer { surface.prepareForDismantle() }
+    let button = try #require(surface.bottomScrollEdgeElementContainers.compactMap {
+        $0.descendant(withAccessibilityIdentifier: "terminal.inputAccessory.hideKeyboard") as? UIButton
+    }.first)
+
+    surface.handleKeyboardDidShow(Notification(name: UIResponder.keyboardDidShowNotification))
+    #expect(button.accessibilityLabel == String(
+        localized: "terminal.input_accessory.hideKeyboard",
+        defaultValue: "Hide Keyboard"
+    ))
+
+    surface.handleKeyboardDidHide(Notification(name: UIResponder.keyboardDidHideNotification))
+    #expect(button.accessibilityLabel == String(
+        localized: "terminal.input_accessory.showKeyboard",
+        defaultValue: "Show Keyboard"
+    ))
+}
+
+@MainActor
+@Test func staleKeyboardHideDoesNotOverrideLiveTerminalFirstResponder() throws {
+    let runtime = try GhosttyRuntime.shared()
+    let surface = GhosttySurfaceView(runtime: runtime, delegate: ThemeTestSurfaceDelegate())
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+    let root = UIViewController()
+    window.rootViewController = root
+    root.view.addSubview(surface)
+    surface.frame = root.view.bounds
+    window.makeKeyAndVisible()
+    defer {
+        surface.prepareForDismantle()
+        window.isHidden = true
+    }
+    surface.focusInput()
+    let button = try #require(surface.bottomScrollEdgeElementContainers.compactMap {
+        $0.descendant(withAccessibilityIdentifier: "terminal.inputAccessory.hideKeyboard") as? UIButton
+    }.first)
+
+    surface.handleKeyboardDidHide(Notification(name: UIResponder.keyboardDidHideNotification))
+
+    #expect(surface.inputProxy.isFirstResponder)
+    #expect(button.accessibilityLabel == String(
+        localized: "terminal.input_accessory.hideKeyboard",
+        defaultValue: "Hide Keyboard"
+    ))
+}
+
+@MainActor
+@Test func appActivationClearsStaleNotificationDrivenKeyboardReservation() throws {
+    let variable = "CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK"
+    let previousValue = ProcessInfo.processInfo.environment[variable]
+    setenv(variable, "1", 1)
+    let runtime = try GhosttyRuntime.shared()
+    let surface = GhosttySurfaceView(runtime: runtime, delegate: ThemeTestSurfaceDelegate())
+    if let previousValue {
+        setenv(variable, previousValue, 1)
+    } else {
+        unsetenv(variable)
+    }
+
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+    let root = UIViewController()
+    window.rootViewController = root
+    root.view.addSubview(surface)
+    surface.frame = root.view.bounds
+    window.makeKeyAndVisible()
+    root.view.layoutIfNeeded()
+    defer {
+        surface.prepareForDismantle()
+        window.isHidden = true
+    }
+
+    surface.debugHandleKeyboardTransitionForTesting(Notification(
+        name: UIResponder.keyboardWillChangeFrameNotification,
+        object: nil,
+        userInfo: [
+            UIResponder.keyboardFrameEndUserInfoKey: CGRect(x: 0, y: 212, width: 393, height: 640),
+            UIResponder.keyboardAnimationDurationUserInfoKey: TimeInterval(0),
+            UIResponder.keyboardAnimationCurveUserInfoKey: UIView.AnimationCurve.easeInOut.rawValue,
+        ]
+    ))
+    #expect(surface.composerDockProbeValue.contains("keyboardDockSource=notification"))
+    #expect(surface.composerDockProbeValue.contains("keyboardHeight=640.000"))
+    #expect(!surface.hasLocalKeyboardFirstResponder)
+
+    surface.debugHandleAppDidBecomeActiveForTesting()
+
+    #expect(surface.composerDockProbeValue.contains("keyboardHeight=0.000"))
+}
+
+@MainActor
 @Test func reverseModeOSCResetsUseRawConfigDefaults() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()

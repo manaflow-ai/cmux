@@ -1424,7 +1424,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
     #endif
 }
-
 // MARK: - UITextInputTraits
 
 extension TerminalInputTextView {

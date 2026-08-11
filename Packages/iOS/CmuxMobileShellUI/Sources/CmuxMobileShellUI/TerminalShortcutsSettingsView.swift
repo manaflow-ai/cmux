@@ -16,14 +16,9 @@ struct TerminalShortcutsSettingsView: View {
     // reserved for the terminal-surface wave. Until then this view keeps the
     // singleton reach-in so behavior stays identical.
     private var configuration: TerminalAccessoryConfiguration { .shared }
-    private let scope: TerminalShortcutsSettingsScope
     @Environment(\.dismiss) private var dismiss
     @State private var isAddingAction = false
     @State private var editingAction: CustomToolbarAction?
-
-    init(scope: TerminalShortcutsSettingsScope = .terminal) {
-        self.scope = scope
-    }
 
     var body: some View {
         NavigationStack {
@@ -36,7 +31,10 @@ struct TerminalShortcutsSettingsView: View {
                 } header: {
                     Text(L10n.string("mobile.shortcuts.header", defaultValue: "Shortcut Buttons"))
                 } footer: {
-                    Text(scope.footer)
+                    Text(L10n.string(
+                        "mobile.shortcuts.footer",
+                        defaultValue: "Choose which buttons appear on the terminal keyboard bar, and drag to reorder them. The modifier keys, zoom, and paste can be moved or hidden along with the shortcuts. Swipe a custom action to edit or delete it."
+                    ))
                 }
 
                 Section {
@@ -60,7 +58,7 @@ struct TerminalShortcutsSettingsView: View {
                     .accessibilityIdentifier("TerminalShortcutsResetButton")
                 }
             }
-            .navigationTitle(scope.navigationTitle)
+            .navigationTitle(L10n.string("mobile.shortcuts.title", defaultValue: "Terminal Shortcuts"))
             .mobileInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -121,25 +119,11 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     private var displayedItems: [ResolvedToolbarItem] {
-        configuration.displayItems.filter(scope.includes)
+        configuration.displayItems
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
-        guard scope != .terminal else {
-            configuration.moveItems(from: offsets, to: destination)
-            return
-        }
-
-        let visibleIDs = displayedItems.map(\.id)
-        let visibleSet = Set(visibleIDs)
-        var reorderedVisibleIDs = visibleIDs
-        reorderedVisibleIDs.move(fromOffsets: offsets, toOffset: destination)
-        var visibleIterator = reorderedVisibleIDs.makeIterator()
-        let reorderedFullIDs = configuration.displayOrder.map { id in
-            guard visibleSet.contains(id) else { return id }
-            return visibleIterator.next() ?? id
-        }
-        configuration.reorderItems(reorderedFullIDs)
+        configuration.moveItems(from: offsets, to: destination)
     }
 }
 #endif
