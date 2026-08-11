@@ -2255,11 +2255,10 @@ mod tests {
             .unwrap();
 
         assert!(bulk_messages.receive().await.unwrap().unwrap().is_empty());
-        {
-            let state = bulk_messages.read.lock().await;
-            assert_eq!(state.buffer.len(), 5 * KIB - size_of::<u32>());
-            assert_eq!(state.budgets.len(), 1);
-        }
+        assert_eq!(
+            bulk_messages.buffered_state().await,
+            (5 * KIB - size_of::<u32>(), 1)
+        );
 
         daemon_endpoint
             .send_frame(
@@ -2320,7 +2319,7 @@ mod tests {
              additional_bulk={additional_bulk_result:?}, control={control_result:?}, \
              interactive={interactive_result:?}"
         );
-        assert_eq!(bulk_messages.read.lock().await.budgets.len(), 1);
+        assert_eq!(bulk_messages.buffered_state().await.1, 1);
     }
 
     #[tokio::test]

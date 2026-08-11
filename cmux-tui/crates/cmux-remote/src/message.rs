@@ -137,6 +137,12 @@ impl MessageStream {
         self.stream.close_on(self.lane).await?;
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) async fn buffered_state(&self) -> (usize, usize) {
+        let state = self.read.lock().await;
+        (state.buffer.len(), state.budgets.len())
+    }
 }
 
 #[derive(Debug)]
