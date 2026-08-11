@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -127,10 +128,9 @@ def main() -> None:
                     workspace_id,
                     "run",
                     "--",
-                    "cmd.exe",
-                    "/d",
-                    "/c",
-                    "echo PROCESS_EXIT_READY & exit /b 7",
+                    sys.executable,
+                    "-c",
+                    "import sys; print('PROCESS_EXIT_READY', flush=True); sys.exit(7)",
                 )
             )
             terminal = created.get("terminal_id")

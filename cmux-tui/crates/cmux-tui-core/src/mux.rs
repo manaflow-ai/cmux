@@ -15420,6 +15420,7 @@ fn validate_terminal_hex(value: &str, error: &'static str) -> anyhow::Result<()>
     Ok(())
 }
 
+#[cfg(test)]
 fn unique_terminal_match<T>(
     terminal_id: &str,
     identities: impl IntoIterator<Item = (T, TerminalHostIdentity)>,
