@@ -21,6 +21,7 @@ struct TaskComposerSheet: View {
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
     @State private var modelRefreshTask: Task<Void, Never>?
+    @State private var settledConnectionModelRefreshTask: Task<Void, Never>?
     @State private var modelRefreshOperationID: UUID?
     @State var displayedModels: [MobileTaskAgentModel]
     @State var directory: String
@@ -274,6 +275,7 @@ struct TaskComposerSheet: View {
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
                 modelRefreshTask?.cancel()
+                settledConnectionModelRefreshTask?.cancel()
                 modelRefreshOperationID = nil
                 attachmentStagingTask?.cancel()
                 removeStagedAttachmentFiles()
@@ -331,11 +333,15 @@ struct TaskComposerSheet: View {
         .background(TaskComposerInitialFocusCoordinator(
             isEnabled: !submissionPhase.disablesRequestEditing
         ))
-        // The provider/Mac owns results, while each foreground-connection
-        // snapshot is a new opportunity to run that request. Keeping those
-        // identities separate lets a settling connection retry immediately.
-        .onChange(of: modelRefreshTrigger, initial: true) { _, _ in
+        // Provider/Mac changes replace ownership and cancel obsolete work.
+        .onChange(of: modelRefreshID, initial: true) { _, _ in
             restartModelRefresh()
+        }
+        // A connection established by the owner probe is an immediate second
+        // opportunity to query the host. This host-only retry never cancels the
+        // probe that performed the switch.
+        .onChange(of: modelConnectionSnapshot) { _, _ in
+            refreshModelsFromSettledConnection()
         }
     }
 
@@ -461,20 +467,17 @@ struct TaskComposerSheet: View {
         )
     }
 
-    private var modelRefreshTrigger: TaskComposerModelRefreshTrigger {
-        TaskComposerModelRefreshTrigger(
-            requestID: modelRefreshID,
-            connectedMacPairingID: store.connectedMacDeviceID.map {
-                MobilePairedMac.pairingID(
-                    macDeviceID: $0,
-                    instanceTag: store.connectedMacInstanceTag
-                )
-            }
+    private var modelConnectionSnapshot: TaskComposerModelConnectionSnapshot {
+        TaskComposerModelConnectionSnapshot(
+            macDeviceID: store.connectedMacDeviceID,
+            instanceTag: store.connectedMacInstanceTag
         )
     }
 
     private func restartModelRefresh() {
         modelRefreshTask?.cancel()
+        settledConnectionModelRefreshTask?.cancel()
+        settledConnectionModelRefreshTask = nil
         modelRefreshOperationID = nil
         guard let provider = modelRefreshID.provider,
               !selectedMacDeviceID.isEmpty else {
@@ -517,7 +520,50 @@ struct TaskComposerSheet: View {
                 displayedModels = refreshedModels
             }
             modelRefreshTask = nil
-            modelRefreshOperationID = nil
+        }
+    }
+
+    private func refreshModelsFromSettledConnection() {
+        settledConnectionModelRefreshTask?.cancel()
+        settledConnectionModelRefreshTask = nil
+        guard modelConnectionSnapshot.matchesSelectedMac(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        ),
+              let provider = modelRefreshID.provider,
+              let operationID = modelRefreshOperationID else {
+            return
+        }
+        let macDeviceID = selectedMacDeviceID
+        let instanceTag = selectedMacInstanceTag
+        let refreshID = modelRefreshID
+        settledConnectionModelRefreshTask = Task {
+            await store.refreshTaskModelsFromConnectedHost(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ) { result in
+                guard !Task.isCancelled,
+                      modelRefreshOperationID == operationID,
+                      modelRefreshID == refreshID else { return }
+                displayedModels = result.models
+            }
+            guard !Task.isCancelled,
+                  modelRefreshOperationID == operationID,
+                  modelRefreshID == refreshID else { return }
+            if store.taskModelListSource(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ) == .discovered,
+               let refreshedModels = store.discoveredTaskModels(
+                   provider: provider,
+                   macDeviceID: macDeviceID,
+                   instanceTag: instanceTag
+               ) {
+                displayedModels = refreshedModels
+            }
+            settledConnectionModelRefreshTask = nil
         }
     }
 

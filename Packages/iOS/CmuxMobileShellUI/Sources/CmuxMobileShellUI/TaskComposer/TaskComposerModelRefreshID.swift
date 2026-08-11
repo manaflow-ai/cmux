@@ -7,12 +7,18 @@ struct TaskComposerModelRefreshID: Hashable {
     let macPairingID: String
 }
 
-/// Observable inputs that can make the stable request owner runnable.
-///
-/// A foreground connection transition must restart discovery immediately, but
-/// it does not change which provider/Mac owns the eventual result.
-struct TaskComposerModelRefreshTrigger: Hashable {
-    let requestID: TaskComposerModelRefreshID
-    let connectedMacPairingID: String?
+/// Foreground connection state observed independently from request ownership.
+struct TaskComposerModelConnectionSnapshot: Hashable {
+    let macDeviceID: String?
+    let instanceTag: String?
+
+    func matchesSelectedMac(
+        macDeviceID selectedMacDeviceID: String,
+        instanceTag selectedMacInstanceTag: String?
+    ) -> Bool {
+        guard macDeviceID == selectedMacDeviceID else { return false }
+        return selectedMacInstanceTag == nil
+            || instanceTag == selectedMacInstanceTag
+    }
 }
 #endif

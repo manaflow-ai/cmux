@@ -205,6 +205,47 @@ struct MobileTaskModelCatalogClientTests {
     }
 
     @MainActor
+    @Test func settledConnectionRefreshQueriesOnlyTheConnectedHost() async throws {
+        let probe = MobileTaskModelCatalogProbe(responses: [
+            catalogData(claude: [("backend-next-999", "Backend Next 999")]),
+        ])
+        let router = RoutingHostRouter()
+        await router.setTaskModels(
+            [
+                MobileTaskAgentModel(
+                    id: "host-next-999",
+                    displayName: "Host Next 999"
+                ),
+            ],
+            provider: .claude
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [],
+            taskModelCatalogClient: makeClient(probe: probe)
+        )
+
+        await store.refreshTaskModelsFromConnectedHost(
+            provider: .claude,
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        )
+
+        #expect(await router.recordedTaskModelListProviders() == ["claude"])
+        #expect(await probe.requestCount == 0)
+        #expect(store.discoveredTaskModels(
+            provider: .claude,
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        )?.map(\.id) == ["host-next-999"])
+        #expect(store.taskModelListSource(
+            provider: .claude,
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        ) == .discovered)
+    }
+
+    @MainActor
     @Test func refreshFallsBackToBackendAndPreservesLastValidCatalogOnFailure() async {
         let initialData = catalogData(
             claude: [("backend-next-999", "Backend Next 999")]

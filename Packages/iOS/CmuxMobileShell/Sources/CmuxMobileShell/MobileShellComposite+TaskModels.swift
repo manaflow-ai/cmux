@@ -228,6 +228,39 @@ extension MobileShellComposite {
         )
     }
 
+    /// Refreshes only from an already-connected selected Mac.
+    ///
+    /// Used when a foreground switch settles while the original owner probe is
+    /// still alive. It avoids a duplicate backend request and never initiates a
+    /// second connection switch.
+    public func refreshTaskModelsFromConnectedHost(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag: String?,
+        didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
+    ) async {
+        guard matchesForegroundPairing(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ), remoteClient != nil,
+              let result = try? await fetchTaskModels(
+                  provider: provider,
+                  macDeviceID: macDeviceID,
+                  instanceTag: instanceTag
+              ),
+              result.source == .discovered,
+              !result.models.isEmpty,
+              !Task.isCancelled else {
+            return
+        }
+        let key = MobileTaskModelCacheKey(
+            macDeviceID: macDeviceID,
+            provider: provider
+        )
+        cacheTaskModels(result, for: key)
+        didUpdate?(result)
+    }
+
     private func refreshTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
