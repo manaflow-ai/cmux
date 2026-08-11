@@ -1137,7 +1137,6 @@ fn reset_state_root_swap_after_guard_keeps_live_terminal_host_state() {
 fn reset_session_dir_swap_and_restore_after_writer_lock_keeps_original_state() {
     use std::os::unix::fs::PermissionsExt;
 
-    let _hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
     let root = temp_root("reset-session-swap-restore-after-writer-lock");
     let session = "reset-session-swap-restore-after-writer-lock";
     let resetter = PersistentSessionStateResetter::new(root.clone());
@@ -1178,7 +1177,6 @@ fn reset_terminal_host_root_swap_and_restore_after_lock_keeps_live_state() {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
-    let _hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
     let root = temp_root("reset-terminal-host-swap-restore-after-lock");
     let session = "reset-terminal-host-swap-restore-after-lock";
     let resetter = PersistentSessionStateResetter::new(root.clone());
