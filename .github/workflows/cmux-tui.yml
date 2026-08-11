@@ -449,6 +449,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Build and prove trusted startup supervisor
+        id: startup-containment-preflight
         shell: bash
         working-directory: cmux-tui
         run: |
@@ -506,6 +507,15 @@ jobs:
           fi
           test -s "$evidence"
           printf 'CMUX_BENCH_TEST_SUPERVISOR=%s\n' "$supervisor" >> "$GITHUB_ENV"
+
+      - name: Upload startup containment failure checkpoint
+        if: ${{ failure() && steps.startup-containment-preflight.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: startup-containment-failure-${{ runner.os }}-${{ inputs.commit }}
+          path: ${{ runner.temp }}/startup-containment/*-bootstrap-failure.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: focused Linux journal process-fence test
         if: runner.os == 'Linux'
@@ -779,6 +789,7 @@ jobs:
           "rule=$rule" | Add-Content -Encoding utf8 $env:GITHUB_OUTPUT
 
       - name: Build and prove restricted-token startup supervisor
+        id: windows-startup-containment-preflight
         working-directory: cmux-tui
         shell: bash
         env:
@@ -802,6 +813,15 @@ jobs:
             --backend windows-restricted-token-job
           test -s "$evidence"
           printf 'CMUX_BENCH_TEST_SUPERVISOR=%s\n' "$supervisor" >> "$GITHUB_ENV"
+
+      - name: Upload startup containment failure checkpoint
+        if: ${{ failure() && steps.windows-startup-containment-preflight.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: startup-containment-failure-${{ runner.os }}-${{ inputs.commit }}
+          path: ${{ runner.temp }}/startup-containment/*-bootstrap-failure.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Run release startup harness gate
         working-directory: cmux-tui
