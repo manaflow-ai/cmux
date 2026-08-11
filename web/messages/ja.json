@@ -130,6 +130,7 @@
       "signOut": "サインアウト",
       "signingOut": "サインアウト中…",
       "signOutError": "サインアウトできませんでした。もう一度お試しください。",
+      "organizationSwitchError": "組織を切り替えられませんでした。もう一度お試しください。",
       "signIn": "サインイン"
     },
     "billing": {
@@ -145,8 +146,8 @@
       "free": {
         "name": "Free",
         "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。",
-        "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
-        "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
+        "upsellTitle": "クラウドエージェントや共有 CodeRouter が必要になったらアップグレードできます。",
+        "upsellBody": "個人向けクラウド機能には Pro、匿名の集計使用量・コスト分析付き共有 CodeRouter には Team を選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
         "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
@@ -469,12 +470,7 @@
       "cta": "Teams を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "一元請求: チーム全体をまとめて1つの請求書に",
-        "シート管理: メンバーをいつでも追加・削除",
-        "チームで共有する Cloud VM のプール計算時間",
-        "共有のチームルール、設定、ワークスペーステンプレート",
-        "メンバーごとの使用量・コスト分析付きのチーム全体 CodeRouter",
-        "一元管理と優先メールサポート"
+        "匿名の集計使用量・コスト分析付きチーム全体 CodeRouter"
       ]
     },
     "enterprise": {
@@ -544,7 +540,7 @@
           "label": "Cloud VM 上のクラウドエージェント",
           "free": "VM 1台トライアル",
           "pro": "月20時間、以降従量課金",
-          "team": "プール制・従量課金",
+          "team": "20時間/月、以降は従量課金",
           "enterprise": "コミット利用"
         },
         {
@@ -577,13 +573,6 @@
           "hostedNetworking": true
         },
         {
-          "label": "一元請求とシート管理",
-          "free": "false",
-          "pro": "false",
-          "team": "true",
-          "enterprise": "true"
-        },
-        {
           "label": "SSO と SAML サインイン",
           "free": "false",
           "pro": "false",
@@ -595,13 +584,6 @@
           "free": "false",
           "pro": "false",
           "team": "false",
-          "enterprise": "true"
-        },
-        {
-          "label": "一元管理と共有チームルール",
-          "free": "false",
-          "pro": "false",
-          "team": "true",
           "enterprise": "true"
         },
         {
@@ -693,7 +675,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月で、匿名の集計使用量・コスト分析付き共有 CodeRouter が追加されます。"
         }
       ]
     },

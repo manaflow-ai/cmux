@@ -3,11 +3,20 @@ import SwiftUI
 
 struct AltScreenNoticeButton: View {
     let dismissNotice: () -> Void
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @State private var isPresentingExplanation = false
+
+    private var explanationPresentation: MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(
+            for: .workspaceDetail(.alternateScreenExplanation),
+            fallback: $isPresentingExplanation
+        )
+            ?? MobileChildSheetPresentation(isPresented: $isPresentingExplanation)
+    }
 
     var body: some View {
         Button {
-            isPresentingExplanation = true
+            explanationPresentation.present()
         } label: {
             Label(buttonAccessibilityLabel, systemImage: "exclamationmark.triangle.fill")
         }
@@ -15,7 +24,7 @@ struct AltScreenNoticeButton: View {
         .foregroundStyle(.orange)
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileTerminalAltScreenNoticeButton")
-        .popover(isPresented: $isPresentingExplanation) {
+        .popover(isPresented: explanationPresentation.isPresented) {
             ViewThatFits(in: .vertical) {
                 popoverContent
 
@@ -30,6 +39,7 @@ struct AltScreenNoticeButton: View {
             )
             .presentationSizing(AltScreenNoticePresentationSizing())
             .presentationCompactAdaptation(.popover)
+            .onDisappear(perform: explanationPresentation.didDismiss)
         }
     }
 
@@ -91,6 +101,6 @@ struct AltScreenNoticeButton: View {
 
     private func dismissFromPopover() {
         dismissNotice()
-        isPresentingExplanation = false
+        explanationPresentation.dismiss()
     }
 }
