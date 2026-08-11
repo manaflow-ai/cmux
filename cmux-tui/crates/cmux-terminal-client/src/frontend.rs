@@ -40,10 +40,7 @@ pub struct CmuxFrontendAttachCancellation {
 
 impl CmuxFrontendAttachCancellation {
     fn new() -> Self {
-        Self {
-            canceled: AtomicBool::new(false),
-            notify: Notify::new(),
-        }
+        Self { canceled: AtomicBool::new(false), notify: Notify::new() }
     }
 
     fn cancel(&self) {
