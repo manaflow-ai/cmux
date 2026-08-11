@@ -3593,7 +3593,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_index=$((cmux_test_index + 1))
         done
         if cmux_ssh_auth_recovery_enqueue \
-          "$TMPDIR/cmux-ssh-auth-group.overflow"; then exit 96; fi
+          "$TMPDIR/cmux-ssh-auth-group.overflow"; then
+          exit 96
+        else
+          cmux_test_overflow_status=$?
+        fi
+        test "$cmux_test_overflow_status" -eq 75 || exit 91
         /bin/cat \
           "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)"/queue.[0-9]* \
           > "$CMUX_TEST_ENTRIES" || exit 95
