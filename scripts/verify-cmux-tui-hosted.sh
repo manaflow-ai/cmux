@@ -55,6 +55,11 @@ if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: hosted verification timeout must be a positive integer" >&2
   exit 2
 fi
+poll_seconds="${CMUX_TUI_HOSTED_POLL_SECONDS:-30}"
+if [[ ! "$poll_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: hosted verification poll interval must be a positive integer" >&2
+  exit 2
+fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
@@ -212,17 +217,6 @@ exec 3<> "$watch_result_fifo"
   trap stop_gh_child EXIT
 
   while true; do
-    set +e
-    gh run watch \
-      --repo "$REPO" \
-      "$run_id" \
-      --exit-status \
-      --interval 10 >&2 &
-    gh_child_pid=$!
-    wait "$gh_child_pid"
-    gh_child_pid=""
-    set -e
-
     run_state_file="$temp_dir/run-state"
     : > "$run_state_file"
     set +e
@@ -244,8 +238,10 @@ exec 3<> "$watch_result_fifo"
         printf '%s\t%s\n' "$run_status" "$run_conclusion" >&3
         exit 0
       fi
+    else
+      echo "warning: hosted run status query failed; retrying" >&2
     fi
-    sleep 10 &
+    sleep "$poll_seconds" &
     gh_child_pid=$!
     wait "$gh_child_pid" 2>/dev/null || true
     gh_child_pid=""
