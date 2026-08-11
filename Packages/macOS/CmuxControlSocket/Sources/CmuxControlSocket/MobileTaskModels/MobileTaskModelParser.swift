@@ -59,7 +59,7 @@ public struct MobileTaskModelParser: Sendable {
             return []
         }
         return uniqueModels(rawModels.compactMap { raw in
-            guard raw["visibility"] as? String != "hide",
+            guard raw["visibility"] as? String == "list",
                   let rawID = raw["slug"] as? String else { return nil }
             let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !id.isEmpty else { return nil }
