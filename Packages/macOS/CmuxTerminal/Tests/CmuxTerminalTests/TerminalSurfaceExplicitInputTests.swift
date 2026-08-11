@@ -71,9 +71,12 @@ struct TerminalSurfaceExplicitInputTests {
     }
 
     @Test func parsedInputChecksDeferralBetweenLiveEvents() {
-        let fixture = makeFixture()
-        fixture.surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
-        defer { fixture.surface.releaseSurfaceForTesting() }
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: runtimeSurface)
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
         fixture.nativeView.runtimeInputDeferralResponses = [false, true, true]
 
         let result = fixture.surface.sendInputResult("x\r")
@@ -138,9 +141,12 @@ struct TerminalSurfaceExplicitInputTests {
     }
 
     @Test func keyTextNotifiesPaneHostBeforeWritingToALiveSurface() {
-        let fixture = makeFixture()
-        fixture.surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
-        defer { fixture.surface.releaseSurfaceForTesting() }
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: runtimeSurface)
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
 
         _ = fixture.surface.sendKeyText("x")
 
@@ -189,9 +195,12 @@ struct TerminalSurfaceExplicitInputTests {
     }
 
     @Test func mobileMouseReleaseWaitsForPasteStartedByPress() {
-        let fixture = makeFixture()
-        fixture.surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
-        defer { fixture.surface.releaseSurfaceForTesting() }
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: runtimeSurface)
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
         fixture.nativeView.runtimeInputDeferralResponses = [false, true]
 
         fixture.surface.mobileClick(col: 4, row: 7)
@@ -250,7 +259,8 @@ struct TerminalSurfaceExplicitInputTests {
     private func makeFixture(
         initialInput: String? = nil,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
-        onAttach: (() -> Void)? = nil
+        onAttach: (() -> Void)? = nil,
+        runtimeSurface: ghostty_surface_t? = nil
     ) -> (
         surface: TerminalSurface,
         paneHost: FakeTerminalSurfacePaneHost,
@@ -260,6 +270,7 @@ struct TerminalSurfaceExplicitInputTests {
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView, onAttach: onAttach)
+        let registry = FakeSurfaceRegistry()
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -267,7 +278,7 @@ struct TerminalSurfaceExplicitInputTests {
             initialInput: initialInput,
             preparePaneHost: preparePaneHost,
             dependencies: TerminalSurfaceRuntimeDependencies(
-                registry: FakeSurfaceRegistry(),
+                registry: registry,
                 engine: FakeTerminalEngine(),
                 viewProvider: FakeTerminalSurfaceViewProvider(
                     surfaceView: nativeView,
@@ -292,10 +303,14 @@ struct TerminalSurfaceExplicitInputTests {
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
             )
         )
+        if let runtimeSurface {
+            registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+            surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        }
         return (surface, paneHost, nativeView)
     }
 
-    private func fakeRuntimeSurface() -> ghostty_surface_t {
-        UnsafeMutableRawPointer(bitPattern: 0x7540)!
+    private func allocatedRuntimeSurface() -> ghostty_surface_t {
+        UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
     }
 }

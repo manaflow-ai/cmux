@@ -413,7 +413,11 @@ struct TerminalPasteboardTransactionLaneTests {
             )
         )
         defer { lease.finish() }
-        #expect(await lease.waitUntilApplied()?.status == .conditionNotMet)
+        // The isolated capture rejects the now-stale snapshot, which the lane
+        // reports as a capture failure without touching the external contents.
+        #expect(
+            await lease.waitUntilApplied()?.status == .captureLimitExceeded
+        )
         #expect(
             fixture.standard.string(forType: .string)
                 == "external clipboard"
