@@ -1213,6 +1213,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_stable_identity() {
           printf '777|Thu_Jan_1_00:00:00_1970\n'
         }
+        cmux_ssh_auth_stopped_identity() {
+          printf '1|777|Thu_Jan_1_00:00:00_1970\n'
+        }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n102 1 777 Thu_Jan_1_00:00:00_1970 S\n' \
           > "$CMUX_TEST_OWNED"
@@ -1276,6 +1279,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot() { return 1; }
         cmux_ssh_auth_stable_identity() {
           printf '777|Thu_Jan_1_00:00:00_1970\n'
+        }
+        cmux_ssh_auth_stopped_identity() {
+          printf '1|777|Thu_Jan_1_00:00:00_1970\n'
         }
         cmux_ssh_auth_take_process_snapshot_until() {
           printf '101 1 777 T Thu Jan 1 00:00:00 1970\n102 1 777 T Thu Jan 1 00:00:00 1970\n103 101 777 T Thu Jan 1 00:00:00 1970\n999 7 777 T Fri Jan 2 00:00:00 1970\n' \
@@ -1355,6 +1361,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_expand_owned_processes() { return 0; }
         cmux_ssh_auth_stable_identity() {
           printf '777|Thu_Jan_1_00:00:00_1970\\n'
+        }
+        cmux_ssh_auth_stopped_identity() {
+          printf '1|777|Thu_Jan_1_00:00:00_1970\\n'
         }
         kill() { printf '%s\\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\\n102 1 777 Thu_Jan_1_00:00:00_1970 S\\n' \\
@@ -1609,6 +1618,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
+        cmux_ssh_auth_stopped_identity() {
+          case "$1" in
+            101|103) printf '1|2|Thu_Jan_1_00:00:00_1970\n' ;;
+            *) return 1 ;;
+          esac
+        }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 7 2 T Thu Jan 1 00:00:00 1970\n102 9 99 T Thu Jan 1 00:00:00 1970\n103 8 2 T Thu Jan 1 00:00:00 1970\n104 9 99 T Thu Jan 1 00:00:00 1970\n' \
           > "$CMUX_TEST_CURRENT"
@@ -1699,6 +1714,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
+        cmux_ssh_auth_stopped_identity() {
+          printf '1|11|Thu_Jan_1_00:00:00_1970\n'
+        }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 11 T Thu Jan 1 00:00:00 1970\n102 1 12 T Thu Jan 1 00:00:00 1970\n' \
           > "$CMUX_TEST_CURRENT"
@@ -1767,7 +1785,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 11 T Thu Jan 1 00:00:00 1970\n102 1 12 T Thu Jan 1 00:00:00 1970\n' \
           > "$CMUX_TEST_CURRENT"
-        printf '101 1 11 Thu_Jan_1_00:00:00_1970 T\n102 1 12 Thu_Jan_1_00:00:00_1970 T\n' \
+        printf '101 1 11 Thu_Jan_1_00:00:00_1970 S\n102 1 12 Thu_Jan_1_00:00:00_1970 S\n' \
           > "$CMUX_TEST_SIGNALED_PIDS"
         : > "$CMUX_TEST_SIGNALED_GROUPS"
         : > "$CMUX_TEST_FROZEN"
@@ -1820,6 +1838,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_now_millis() { printf '1000\n'; }
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
+        }
+        cmux_ssh_auth_stopped_identity() {
+          case "$1" in
+            101) printf '1|11|Thu_Jan_1_00:00:00_1970\n' ;;
+            103) printf '1|13|Thu_Jan_1_00:00:00_1970\n' ;;
+            *) return 1 ;;
+          esac
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 7 11 T Thu Jan 1 00:00:00 1970\n102 9 99 T Thu Jan 1 00:00:00 1970\n103 8 13 T Thu Jan 1 00:00:00 1970\n' \
@@ -1882,6 +1907,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
+        cmux_ssh_auth_stopped_identity() {
+          printf '1|11|Thu_Jan_1_00:00:00_1970\n'
+        }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 7 11 T Thu Jan 1 00:00:00 1970\n999 7 11 T Fri Jan 2 00:00:00 1970\n' \
           > "$CMUX_TEST_CURRENT"
@@ -1937,6 +1965,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_now_millis() { printf '1000\n'; }
         cmux_ssh_auth_take_process_snapshot_until() {
           /bin/cp "$CMUX_TEST_CURRENT" "$1"
+        }
+        cmux_ssh_auth_stopped_identity() {
+          case "$1" in
+            101) printf '1|11|Thu_Jan_1_00:00:00_1970\n' ;;
+            102) printf '1|12|Thu_Jan_1_00:00:00_1970\n' ;;
+            *) return 1 ;;
+          esac
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 11 T Thu Jan 1 00:00:00 1970\n102 1 12 T Thu Jan 1 00:00:00 1970\n' \
@@ -4481,7 +4516,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_anchor_identity=$(cmux_ssh_auth_identity "$$") || exit 99
         cmux_test_anchor_remainder=${cmux_test_anchor_identity#*|}
         printf '%s|%s\n' "$$" "$cmux_test_anchor_remainder" \
-          > "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 99
+          > "$TMPDIR/cmux-ssh-auth-group.test/identity" || exit 99
         cmux_ssh_terminate_owned_auth_group() {
           /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
         }
