@@ -149,6 +149,64 @@ struct VaultRestoreRelaunchPersistenceTests {
         #expect(restoredPanel.surface.debugInitialInputForTesting() == launch.initialInput)
     }
 
+    @Test("Cancelling a staged relaunch releases its launch claim and closes the terminal")
+    func cancelledRelaunchRestoreReleasesClaimAndClosesTerminal() throws {
+        let sessionID = "vault-cancelled-relaunch-\(UUID().uuidString)"
+        let launch = try makeLaunch(sessionID: sessionID)
+        let snapshot = try #require(launch.startupRestoreAgent)
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        defer {
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: snapshot.kind.rawValue,
+                sessionId: sessionID
+            )
+        }
+        let resumeIntentRecorder = AgentChatResumeIntentRecorder { _ in }
+        let source = Workspace(
+            workingDirectory: launch.workingDirectory,
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: snapshot,
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { source.teardownAllPanels() }
+        let persisted = source.sessionSnapshot(includeScrollback: false)
+        let sourcePanelID = try #require(source.focusedPanelId)
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults.store,
+            agentChatResumeIntentRecorder: resumeIntentRecorder
+        )
+        defer { restored.teardownAllPanels() }
+        let restoredPanelIDs = restored.restoreSessionSnapshot(
+            persisted,
+            startupRestoreCommitOwner: .tabManagerTopology
+        )
+        let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(
+            !AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                kind: snapshot.kind.rawValue,
+                sessionId: sessionID
+            )
+        )
+
+        restored.terminalStartupRestoreCoordinator.discardPendingRestore(
+            panelID: restoredPanelID
+        )
+
+        #expect(restoredPanel.surface.debugTeardownRequest().requestedAt != nil)
+        #expect(
+            AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                kind: snapshot.kind.rawValue,
+                sessionId: sessionID
+            )
+        )
+    }
+
     @Test("Manual Vault continuation does not auto-resume after relaunch")
     func manualContinuationDoesNotAutoResume() throws {
         let launch = try makeLaunch(sessionID: "vault-manual-relaunch")
