@@ -184,18 +184,15 @@ fn record_agent_session_generation(
                  WHERE terminal_id = ?1 AND source_session = ?2 AND superseded = 0",
                 params![next.terminal_id.as_str(), active_session],
             )?;
-            active_generation
-                .checked_add(1)
-                .context("agent session generation exhausted")?
+            active_generation.checked_add(1).context("agent session generation exhausted")?
         }
-        None => transaction
-            .query_row(
-                "SELECT COALESCE(MAX(generation), 0) + 1
+        None => transaction.query_row(
+            "SELECT COALESCE(MAX(generation), 0) + 1
                  FROM resource_agent_session_generations
                  WHERE terminal_id = ?1",
-                [next.terminal_id.as_str()],
-                |row| row.get::<_, i64>(0),
-            )?,
+            [next.terminal_id.as_str()],
+            |row| row.get::<_, i64>(0),
+        )?,
     };
     transaction.execute(
         "INSERT INTO resource_agent_session_generations(
@@ -902,9 +899,7 @@ fn merge_projection(
             && current.turn_id.is_some()
             && next.turn_id.is_some()
             && current.turn_id != next.turn_id;
-        if matches!(current.state.as_str(), "done" | "interrupted")
-            && begins_new_structured_turn
-        {
+        if matches!(current.state.as_str(), "done" | "interrupted") && begins_new_structured_turn {
             return next;
         }
         if current.source == "hook" && next.source == "socket" {
