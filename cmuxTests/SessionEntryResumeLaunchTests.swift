@@ -385,7 +385,10 @@ struct SessionEntryResumeLaunchTests {
             )
         }
 
-        workspace.restoredAgentResumeStatesByPanelId[tabPanel.id] = .autoResumeCommandRunning
+        workspace.restoredAgentLifecycle.setResumeState(
+            .autoResumeCommandRunning,
+            panelId: tabPanel.id
+        )
         workspace.panelDirectories[tabPanel.id] = FileManager.default.homeDirectoryForCurrentUser.path
         workspace.foregroundProcessWorkingDirectoryProvider = { _ in nil }
         let inheritedSplit = try #require(workspace.newTerminalSplit(

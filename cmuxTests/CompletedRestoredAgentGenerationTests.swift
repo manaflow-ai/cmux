@@ -21,8 +21,8 @@ struct CompletedRestoredAgentGenerationTests {
         let oldIdentity = AgentPIDProcessIdentity(pid: 321, startSeconds: 90, startMicroseconds: 0)
         let newIdentity = AgentPIDProcessIdentity(pid: 321, startSeconds: 101, startMicroseconds: 0)
         let lifecycle = RestoredAgentLifecycleCoordinator(dateProvider: { 100 })
-        lifecycle.snapshotsByPanelId[panelId] = snapshot
-        lifecycle.resumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        lifecycle.setSnapshot(snapshot, panelId: panelId)
+        lifecycle.setResumeState(.observedAgentCommandRunning, panelId: panelId)
         lifecycle.markCompleted(
             panelId: panelId,
             observation: indexEntry(snapshot: snapshot, updatedAt: 95, identity: oldIdentity),
@@ -60,12 +60,18 @@ struct CompletedRestoredAgentGenerationTests {
         let panelId = try #require(workspace.focusedPanelId)
         let sessionId = "completed-agent-stale-hook"
         let oldWorkingDirectory = "/tmp/completed-agent-stale-hook-old"
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = agentSnapshot(
-            sessionId: sessionId,
-            workingDirectory: oldWorkingDirectory,
-            capturedAt: Date.now.timeIntervalSince1970 - 60
+        workspace.restoredAgentLifecycle.setSnapshot(
+            agentSnapshot(
+                sessionId: sessionId,
+                workingDirectory: oldWorkingDirectory,
+                capturedAt: Date.now.timeIntervalSince1970 - 60
+            ),
+            panelId: panelId
         )
-        workspace.restoredAgentResumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        workspace.restoredAgentLifecycle.setResumeState(
+            .observedAgentCommandRunning,
+            panelId: panelId
+        )
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         try #require(workspace.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit)
@@ -98,8 +104,8 @@ struct CompletedRestoredAgentGenerationTests {
             capturedAt: 90
         )
         let source = RestoredAgentLifecycleCoordinator(dateProvider: { 100 })
-        source.snapshotsByPanelId[panelId] = snapshot
-        source.resumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        source.setSnapshot(snapshot, panelId: panelId)
+        source.setResumeState(.observedAgentCommandRunning, panelId: panelId)
         source.markCompleted(
             panelId: panelId,
             observation: nil,
@@ -144,8 +150,11 @@ struct CompletedRestoredAgentGenerationTests {
             workingDirectory: "/tmp/workspace-transfer-completed-agent",
             capturedAt: Date.now.timeIntervalSince1970 - 60
         )
-        source.restoredAgentSnapshotsByPanelId[panelId] = snapshot
-        source.restoredAgentResumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        source.restoredAgentLifecycle.setSnapshot(snapshot, panelId: panelId)
+        source.restoredAgentLifecycle.setResumeState(
+            .observedAgentCommandRunning,
+            panelId: panelId
+        )
         source.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         source.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         let sourceGeneration = try #require(source.restoredAgentLifecycle.completedGeneration(panelId: panelId))
@@ -175,12 +184,18 @@ struct CompletedRestoredAgentGenerationTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let completedSessionId = "completed-before-delayed-refresh"
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = agentSnapshot(
-            sessionId: completedSessionId,
-            workingDirectory: "/tmp/completed-before-delayed-refresh",
-            capturedAt: Date.now.timeIntervalSince1970 - 60
+        workspace.restoredAgentLifecycle.setSnapshot(
+            agentSnapshot(
+                sessionId: completedSessionId,
+                workingDirectory: "/tmp/completed-before-delayed-refresh",
+                capturedAt: Date.now.timeIntervalSince1970 - 60
+            ),
+            panelId: panelId
         )
-        workspace.restoredAgentResumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        workspace.restoredAgentLifecycle.setResumeState(
+            .observedAgentCommandRunning,
+            panelId: panelId
+        )
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)

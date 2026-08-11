@@ -56,8 +56,13 @@ struct TerminalStartupRestoreFailureTests {
             panelId: savedPanelID,
             state: .commandRunning
         )
-        let snapshot = source.sessionSnapshot(includeScrollback: false)
-        #expect(snapshot.panels.first?.terminal?.agent == nil)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let savedPanelIndex = try #require(
+            snapshot.panels.firstIndex { $0.id == savedPanelID }
+        )
+        snapshot.panels[savedPanelIndex].terminal?.wasAgentRunning = true
+        #expect(snapshot.panels[savedPanelIndex].terminal?.agent == nil)
+        #expect(snapshot.panels[savedPanelIndex].terminal?.wasAgentRunning == true)
 
         let restored = Workspace(agentSessionAutoResumeDefaults: defaults.store)
         defer { restored.teardownAllPanels() }
@@ -68,8 +73,14 @@ struct TerminalStartupRestoreFailureTests {
         let restoredPanelID = try #require(restoredIDs[savedPanelID])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
         let startupCommand = try #require(restoredPanel.surface.debugInitialCommand())
+        let remoteCommand = try decodedRemoteCommand(from: startupCommand)
+        let expectedRestoreInput = " cmux restore codex persistent-ssh-session\n"
 
         #expect(startupCommand.contains("ssh-pty-attach"))
+        #expect(
+            remoteCommand.contains(Data(expectedRestoreInput.utf8).base64EncodedString()),
+            "\(remoteCommand)"
+        )
         #expect(!restoredPanel.surface.canCreateRuntimeSurface)
 
         restored.terminalStartupRestoreCoordinator.commitPendingRestores(
@@ -254,6 +265,17 @@ struct TerminalStartupRestoreFailureTests {
         let store = try #require(UserDefaults(suiteName: name))
         store.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
         return (store, name)
+    }
+
+    private func decodedRemoteCommand(from startupCommand: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).map(\.value)
+        let script = try #require(words.dropFirst(2).first)
+        let range = try #require(
+            script.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
+        )
+        let encoded = String(script[range]).split(separator: " ", maxSplits: 1).last.map(String.init)
+        let data = try #require(encoded.flatMap { Data(base64Encoded: $0) })
+        return try #require(String(data: data, encoding: .utf8))
     }
 
     private func remoteConfiguration() -> WorkspaceRemoteConfiguration {

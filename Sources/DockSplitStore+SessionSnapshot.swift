@@ -485,7 +485,7 @@ extension DockSplitStore {
             proposedSnapshot: compatibleCandidate
         )
         if let compatible {
-            restoredAgentLifecycle.snapshotsByPanelId[panelId] = compatible
+            restoredAgentLifecycle.setSnapshot(compatible, panelId: panelId)
         }
         return compatible
     }

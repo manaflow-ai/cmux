@@ -37,7 +37,7 @@ struct VaultQueuedRestoreIdentityTests {
         // A reused surface can briefly receive a stale index observation before
         // the queued selector starts. That observation must not become the
         // identity authorized by the existing queued lifecycle phase.
-        workspace.restoredAgentSnapshotsByPanelId[panelID] = replacementAgent
+        workspace.restoredAgentLifecycle.setSnapshot(replacementAgent, panelId: panelID)
         #expect(
             workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId
                 == queuedAgent.sessionId
@@ -83,7 +83,7 @@ struct VaultQueuedRestoreIdentityTests {
 
         // Generic shell activity proves that startup began, but it does not
         // authorize a different indexed session to inherit that startup phase.
-        workspace.restoredAgentSnapshotsByPanelId[panelID] = replacementAgent
+        workspace.restoredAgentLifecycle.setSnapshot(replacementAgent, panelId: panelID)
 
         #expect(
             workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId

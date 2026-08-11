@@ -390,9 +390,13 @@ extension Workspace {
                 if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
                     clearRestoredAgentSnapshot(panelId: panelId)
                 } else {
-                    restoredAgentSnapshotsByPanelId[panelId] = compatibleRestorableAgent
+                    restoredAgentLifecycle.setSnapshot(
+                        compatibleRestorableAgent,
+                        panelId: panelId
+                    )
                     if restoredAgentResumeStatesByPanelId[panelId] == nil {
-                        restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
+                        restoredAgentLifecycle.setResumeState(
+                            restoredAgentResumeStateForAcceptedSnapshot(panelId: panelId),
                             panelId: panelId
                         )
                     }
@@ -2606,8 +2610,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalStartupRestoreCoordinator.lifecycle
     }
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] {
-        get { restoredAgentLifecycle.snapshotsByPanelId }
-        set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
+        restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     var restoredGuardedWorkingDirectoriesByPanelId: [UUID: RestoredWorkingDirectoryGuard] = [:]
@@ -2622,8 +2625,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         case manualResumeAvailable, awaitingAutoResumeCommand, autoResumeCommandRunning, observedAgentCommandRunning, completedAgentExit
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] {
-        get { restoredAgentLifecycle.resumeStatesByPanelId }
-        set { restoredAgentLifecycle.resumeStatesByPanelId = newValue }
+        restoredAgentLifecycle.resumeStatesByPanelId
     }
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] {
         get { restoredAgentLifecycle.invalidatedFingerprintsByPanelId }
@@ -5097,8 +5099,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               ) else {
             return false
         }
-        restoredAgentSnapshotsByPanelId[panelId] = agent
-        restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
+        restoredAgentLifecycle.setSnapshot(agent, panelId: panelId)
+        restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         if !isRemoteWorkspace {
             // Hibernation destroys the local PTY. Clear its derived badge and
@@ -5126,9 +5128,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let preparation = terminalPanel.prepareAgentHibernationResume()
         guard preparation.didResume else { return false }
         if restoredAgentSnapshotsByPanelId[panelId] != nil {
-            restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
-                ? .awaitingAutoResumeCommand
-                : .manualResumeAvailable
+            restoredAgentLifecycle.setResumeState(
+                preparation.queuedStartupInput
+                    ? .awaitingAutoResumeCommand
+                    : .manualResumeAvailable,
+                panelId: panelId
+            )
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         clearAgentLifecycleStates(panelId: panelId)
@@ -5444,14 +5449,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
-        // End queued ownership before pruning snapshots so the lifecycle invariant
-        // does not preserve a restore target for a panel that no longer exists.
-        restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
-            validSurfaceIds.contains($0.key)
-        }
-        restoredAgentSnapshotsByPanelId = restoredAgentSnapshotsByPanelId.filter {
-            validSurfaceIds.contains($0.key)
-        }
+        restoredAgentLifecycle.retainSessionRestores(for: validSurfaceIds)
         restoredResumeSessionWorkingDirectoriesByPanelId = restoredResumeSessionWorkingDirectoriesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
@@ -10986,7 +10984,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
 #if DEBUG
     func setRestoredAgentSnapshotForTesting(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID) {
-        restoredAgentSnapshotsByPanelId[panelId] = snapshot
+        restoredAgentLifecycle.setSnapshot(snapshot, panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
     }
 
@@ -10996,9 +10994,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func setRestoredAgentAutoResumePendingForTesting(_ isPending: Bool, panelId: UUID) {
         if isPending {
-            restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
+            restoredAgentLifecycle.setResumeState(.awaitingAutoResumeCommand, panelId: panelId)
         } else {
-            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+            restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
         }
     }
 
