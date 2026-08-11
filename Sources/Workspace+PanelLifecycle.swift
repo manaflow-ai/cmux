@@ -90,6 +90,11 @@ extension Workspace {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
+        for (statusKey, lifecycle) in lifecycleStates where lifecycle == .needsInput {
+            if let statusEntry = statusEntries[statusKey] {
+                statusEntriesForPanel[statusKey] = statusEntry
+            }
+        }
         guard !statusEntriesForPanel.isEmpty
                 || !agentPIDsForPanel.isEmpty
                 || !pidKeys.isEmpty
@@ -121,6 +126,11 @@ extension Workspace {
             return true
         }
         for key in agentPIDPanelIdsByKey.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            return true
+        }
+        if agentLifecycleStatesByPanelId.values.contains(where: {
+            $0[statusKey] == .needsInput
+        }) {
             return true
         }
         return false
@@ -374,6 +384,12 @@ extension Workspace {
             if clearAgentPID(key: key, panelId: runtimeState.panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
+        }
+        for (statusKey, capturedStatusEntry) in runtimeState.statusEntries
+            where !hasAgentRuntime(forStatusKey: statusKey)
+                && statusEntries[statusKey] == capturedStatusEntry {
+            statusEntries.removeValue(forKey: statusKey)
+            didChange = true
         }
         if didChange {
             refreshTrackedAgentPorts()

@@ -167,6 +167,7 @@ struct cmuxApp: App {
             displaySettings: Self.root.displaySettings,
             connectionMethodStore: Self.root.connectionMethodStore,
             terminalRuntimeOwner: Self.root.terminalRuntimeOwner,
+            autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,

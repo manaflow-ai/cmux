@@ -7,6 +7,13 @@ import CmuxMobileTerminal
 import SwiftUI
 
 extension WorkspaceDetailView {
+    var terminalArtifactFilesPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.terminalArtifactFiles),
+            fallback: $isTerminalArtifactFilesPresented
+        )
+    }
+
     @ViewBuilder
     func terminalArtifactSurface(terminalID: String) -> some View {
         let shouldAutoFocus =
@@ -41,11 +48,13 @@ extension WorkspaceDetailView {
                     sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
                     visibleArtifactCount: visibleArtifactCount,
                     onArtifactFilesRequested: { anchor in
-                        terminalArtifactFilesContext = TerminalArtifactContext(
-                            workspaceID: workspace.id.rawValue,
-                            surfaceID: terminalID,
-                            anchor: anchor
-                        )
+                        terminalArtifactFilesPresentation.present {
+                            terminalArtifactFilesContext = TerminalArtifactContext(
+                                workspaceID: workspace.id.rawValue,
+                                surfaceID: terminalID,
+                                anchor: anchor
+                            )
+                        }
                     },
                     onArtifactPathTapped: { path in
                         selectedTerminalArtifact = TerminalArtifactSelection(
@@ -74,23 +83,31 @@ extension WorkspaceDetailView {
             }
         }
         .popover(
-            item: $terminalArtifactFilesContext,
+            isPresented: terminalArtifactFilesPresentation.isPresented,
             attachmentAnchor: .point(terminalArtifactFilesContext?.anchor ?? .bottom),
             arrowEdge: .bottom
-        ) { context in
-            TerminalArtifactFilesSheet(
-                workspaceID: context.workspaceID,
-                surfaceID: context.surfaceID,
-                source: store.makeChatEventSource(),
-                refreshSignal: artifactGalleryRefreshSignal,
-                loader: terminalArtifactLoader(
-                    workspaceID: context.workspaceID,
-                    surfaceID: context.surfaceID
-                )
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+        ) {
+            Group {
+                if let context = terminalArtifactFilesContext {
+                    TerminalArtifactFilesSheet(
+                        workspaceID: context.workspaceID,
+                        surfaceID: context.surfaceID,
+                        source: store.makeChatEventSource(),
+                        refreshSignal: artifactGalleryRefreshSignal,
+                        loader: terminalArtifactLoader(
+                            workspaceID: context.workspaceID,
+                            surfaceID: context.surfaceID
+                        )
+                    )
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                }
+            }
             .presentationCompactAdaptation(.sheet)
+            .onDisappear {
+                terminalArtifactFilesContext = nil
+                terminalArtifactFilesPresentation.didDismiss()
+            }
         }
         // Identity must track the selected terminal. The representable's
         // coordinator binds its byte sink to the surfaceID at make time and

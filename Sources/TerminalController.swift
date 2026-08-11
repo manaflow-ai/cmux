@@ -8766,11 +8766,19 @@ class TerminalController {
                 guard let context = dockResolution.context else { return }
                 let willActivate = enterAliases.contains(mode)
                     || (mode == "toggle" && !context.browserPanel.isBrowserFocusModeActive)
-                if willActivate,
-                   context.browserPanel.searchState == nil,
-                   let windowDock = windowDockContainingPanel(context.surfaceId),
-                   windowDock.focusedPanelId != context.surfaceId {
-                    windowDock.focusPanel(context.surfaceId)
+                if willActivate, context.browserPanel.searchState == nil {
+                    guard let windowDock = windowDockContainingPanel(context.surfaceId),
+                          focusAndRevealWindowDock(for: windowDock, fallback: tabManager) else {
+                        result = .err(
+                            code: "unavailable",
+                            message: dockUnavailableMessage(),
+                            data: nil
+                        )
+                        return
+                    }
+                    if windowDock.focusedPanelId != context.surfaceId {
+                        windowDock.focusPanel(context.surfaceId)
+                    }
                 }
                 let handled: Bool
                 if enterAliases.contains(mode) {
@@ -8925,7 +8933,14 @@ class TerminalController {
             let browserPanel = context.browserPanel
 
             if let windowDock = windowDockContainingPanel(surfaceId) {
-                _ = focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
+                guard focusAndRevealWindowDock(for: windowDock, fallback: tabManager) else {
+                    result = .err(
+                        code: "unavailable",
+                        message: dockUnavailableMessage(),
+                        data: nil
+                    )
+                    return
+                }
                 windowDock.focusPanel(surfaceId)
             } else {
                 if let windowId = v2ResolveWindowId(tabManager: tabManager) {

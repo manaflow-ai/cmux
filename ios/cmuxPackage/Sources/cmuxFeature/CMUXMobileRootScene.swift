@@ -48,6 +48,8 @@ public struct CMUXMobileRootScene: View {
     private let connectionMethodStore: MobileConnectionMethodStore
     /// Process-lifetime Ghostty result, created before any SwiftUI surface mounts.
     package let terminalRuntimeOwner: GhosttyRuntimeOwner
+    /// The one-time Auto-Connect migration eligibility and acknowledgement.
+    private let autoConnectMigrationStore: MobileAutoConnectMigrationStore
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
@@ -89,6 +91,10 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - connectionMethodStore: The shared Auto-Connect vs Tailscale choice
+    ///     used by both connection routing and Settings.
+    ///   - autoConnectMigrationStore: The versioned, one-time migration
+    ///     eligibility and acknowledgement injected into the root view.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
@@ -110,6 +116,7 @@ public struct CMUXMobileRootScene: View {
         displaySettings: MobileDisplaySettings,
         connectionMethodStore: MobileConnectionMethodStore,
         terminalRuntimeOwner: GhosttyRuntimeOwner,
+        autoConnectMigrationStore: MobileAutoConnectMigrationStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
@@ -126,6 +133,7 @@ public struct CMUXMobileRootScene: View {
         self.displaySettings = displaySettings
         self.connectionMethodStore = connectionMethodStore
         self.terminalRuntimeOwner = terminalRuntimeOwner
+        self.autoConnectMigrationStore = autoConnectMigrationStore
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
@@ -319,6 +327,7 @@ public struct CMUXMobileRootScene: View {
             .environment(displaySettings)
             .environment(connectionMethodStore)
             .environment(terminalRuntimeOwner)
+            .environment(autoConnectMigrationStore)
             #endif
     }
 
