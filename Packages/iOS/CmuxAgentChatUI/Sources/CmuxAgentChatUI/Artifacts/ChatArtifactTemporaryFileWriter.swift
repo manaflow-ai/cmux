@@ -21,7 +21,7 @@ actor ChatArtifactTemporaryFileWriter {
                 withIntermediateDirectories: true
             )
         } catch {
-            throw ChatArtifactLocalFailureClassifier.classify(error)
+            throw Self.classifyLocalFailure(error)
         }
         let fileURL: URL
         if let preferredFilename {
@@ -35,7 +35,7 @@ actor ChatArtifactTemporaryFileWriter {
                     withIntermediateDirectories: true
                 )
             } catch {
-                throw ChatArtifactLocalFailureClassifier.classify(error)
+                throw Self.classifyLocalFailure(error)
             }
             fileURL = itemDirectory.appendingPathComponent(preferredFilename)
         } else {
@@ -53,7 +53,7 @@ actor ChatArtifactTemporaryFileWriter {
             fileHandle = try FileHandle(forWritingTo: fileURL)
         } catch {
             try? FileManager.default.removeItem(at: fileURL)
-            throw ChatArtifactLocalFailureClassifier.classify(error)
+            throw Self.classifyLocalFailure(error)
         }
     }
 
@@ -67,7 +67,7 @@ actor ChatArtifactTemporaryFileWriter {
         do {
             try fileHandle.write(contentsOf: chunk.data)
         } catch {
-            throw ChatArtifactLocalFailureClassifier.classify(error)
+            throw Self.classifyLocalFailure(error)
         }
     }
 
@@ -79,7 +79,7 @@ actor ChatArtifactTemporaryFileWriter {
         do {
             try fileHandle.close()
         } catch {
-            throw ChatArtifactLocalFailureClassifier.classify(error)
+            throw Self.classifyLocalFailure(error)
         }
         self.fileHandle = nil
         return fileURL
