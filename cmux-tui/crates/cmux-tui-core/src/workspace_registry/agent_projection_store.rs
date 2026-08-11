@@ -130,6 +130,15 @@ fn validate_projection_transition(
         return Ok(());
     }
     let current_is_active = matches!(current.state.as_str(), "working" | "blocked" | "idle");
+    anyhow::ensure!(
+        !current_is_active
+            || !matches!(current.source.as_str(), "hook" | "socket")
+            || current.source_session.is_none()
+            || next.source_session.is_some(),
+        "agent socket report omits active {} session {:?}",
+        current.source,
+        current.source_session
+    );
     let conflicting_structured_identity = current.source_session.is_some()
         && next.source_session.is_some()
         && (current.source_session != next.source_session
