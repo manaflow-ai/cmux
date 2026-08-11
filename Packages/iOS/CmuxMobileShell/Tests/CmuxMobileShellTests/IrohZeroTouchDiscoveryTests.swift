@@ -102,6 +102,57 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func cleanInstallPersistsEveryAuthenticatedSiblingBuild() async throws {
+        let nightlyRouteID = "iroh-mac-a-nightly"
+        let stableRouteID = "iroh-mac-a-default"
+        let fixture = try await makeFixture(
+            candidates: [
+                try candidate(
+                    deviceID: "mac-a",
+                    endpointByte: "a",
+                    instanceTag: "nightly",
+                    routeID: nightlyRouteID
+                ),
+                try candidate(
+                    deviceID: "mac-a",
+                    endpointByte: "b",
+                    instanceTag: "default",
+                    routeID: stableRouteID
+                ),
+            ],
+            reportedHostsByRouteID: [
+                nightlyRouteID: ZeroTouchReportedHost(
+                    deviceID: "mac-a",
+                    instanceTag: "nightly"
+                ),
+                stableRouteID: ZeroTouchReportedHost(
+                    deviceID: "mac-a",
+                    instanceTag: "default"
+                ),
+            ]
+        )
+        defer { fixture.cleanup() }
+
+        #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil {
+            let rows = try? await fixture.store.loadAll(
+                stackUserID: "user-1",
+                teamID: nil
+            )
+            return Set(rows?.compactMap(\.instanceTag) ?? [])
+                == Set(["default", "nightly"])
+        })
+        #expect(Set(fixture.factory.attemptedRouteIDs()) == Set([
+            nightlyRouteID,
+            stableRouteID,
+        ]))
+
+        await fixture.shell.loadPairedMacs()
+        #expect(Set(fixture.shell.displayPairedMacs.compactMap(\.instanceTag))
+            == Set(["default", "nightly"]))
+    }
+
+    @Test
     func malformedDuplicateCannotHideLaterAuthenticatedCandidate() async throws {
         let valid = try candidate(deviceID: "mac-a", endpointByte: "a")
         let malformed = MobileDiscoveredIrohMac(
@@ -370,10 +421,64 @@ struct IrohZeroTouchDiscoveryTests {
         )
     }
 
+    private func makeFixture(
+        candidates: [MobileDiscoveredIrohMac],
+        reportedHostsByRouteID: [String: ZeroTouchReportedHost]
+    ) async throws -> ZeroTouchFixture {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let store = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        var routersByRouteID: [String: LivenessHostRouter] = [:]
+        for (routeID, host) in reportedHostsByRouteID {
+            let router = LivenessHostRouter()
+            await router.setHostIdentity(
+                deviceID: host.deviceID,
+                instanceTag: host.instanceTag,
+                displayName: host.displayName
+            )
+            routersByRouteID[routeID] = router
+        }
+        let fallbackRouter = LivenessHostRouter()
+        let factory = ZeroTouchRouteFactory(
+            router: fallbackRouter,
+            routersByRouteID: routersByRouteID,
+            failingRouteIDs: [],
+            rateLimitedRouteIDs: []
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Self.fixedNow },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: store,
+            personalIrohDiscovery: ScriptedIrohDiscovery(
+                snapshots: [candidates]
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "iroh-zero-touch-\(UUID().uuidString)"
+            )!
+        )
+        return ZeroTouchFixture(
+            shell: shell,
+            store: store,
+            factory: factory,
+            router: fallbackRouter,
+            directory: directory
+        )
+    }
+
     private func candidate(
         deviceID: String,
         endpointByte: Character,
         instanceTag: String = "stable",
+        routeID: String? = nil,
         extraRoutes: [CmxAttachRoute] = []
     ) throws -> MobileDiscoveredIrohMac {
         let endpointID = String(repeating: String(endpointByte), count: 64)
@@ -382,7 +487,7 @@ struct IrohZeroTouchDiscoveryTests {
             displayName: "Test \(deviceID)",
             instanceTag: instanceTag,
             routes: [try CmxAttachRoute(
-                id: "iroh-\(deviceID)",
+                id: routeID ?? "iroh-\(deviceID)",
                 kind: .iroh,
                 endpoint: .peer(
                     identity: CmxIrohPeerIdentity(endpointID: endpointID),
@@ -393,6 +498,12 @@ struct IrohZeroTouchDiscoveryTests {
             lastSeenAt: Self.fixedNow
         )
     }
+}
+
+private struct ZeroTouchReportedHost {
+    let deviceID: String
+    let instanceTag: String
+    var displayName = "Test Mac"
 }
 
 @MainActor
@@ -456,6 +567,7 @@ private final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
 
 private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
+    private let routersByRouteID: [String: LivenessHostRouter]
     private let failingRouteIDs: Set<String>
     private let rateLimitedRouteIDs: Set<String>
     private let lock = NSLock()
@@ -463,10 +575,12 @@ private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked S
 
     init(
         router: LivenessHostRouter,
+        routersByRouteID: [String: LivenessHostRouter] = [:],
         failingRouteIDs: Set<String>,
         rateLimitedRouteIDs: Set<String>
     ) {
         self.router = router
+        self.routersByRouteID = routersByRouteID
         self.failingRouteIDs = failingRouteIDs
         self.rateLimitedRouteIDs = rateLimitedRouteIDs
     }
@@ -479,7 +593,9 @@ private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked S
         if rateLimitedRouteIDs.contains(route.id) {
             throw ZeroTouchRouteError.rateLimited
         }
-        return LivenessTransport(router: router)
+        return LivenessTransport(
+            router: routersByRouteID[route.id] ?? router
+        )
     }
 
     func attemptedRouteIDs() -> [String] {
@@ -505,7 +621,9 @@ private struct ZeroTouchFixture {
     let directory: URL
 
     func cleanup() {
-        Task { await shell.remoteClient?.disconnect() }
+        let remoteClient = shell.remoteClient
+        shell.signOut()
+        Task { await remoteClient?.disconnect() }
         try? FileManager.default.removeItem(at: directory)
     }
 }

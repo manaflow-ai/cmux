@@ -27,6 +27,7 @@ extension MobileShellComposite {
         instanceTagUpdate: PairedMacInstanceTagUpdate = .preserve,
         displayNameOverride: String? = nil,
         userAuthorizedTailscaleRoutes: [CmxAttachRoute] = [],
+        markActive: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
         guard let pairedMacStore,
@@ -102,6 +103,7 @@ extension MobileShellComposite {
                     ticketRoutes: ticket.routes, storedRoutes: storedRoutes
                 )
                 : ticket.routes
+            let shouldMarkActive = markActive || existing?.isActive == true
             do {
                 if case .preserveOnlyIfUnclaimed = instanceTagUpdate {
                     accepted = try await pairedMacStore.upsertRoutesIfAuthorized(
@@ -109,7 +111,7 @@ extension MobileShellComposite {
                         displayName: displayName,
                         routes: routes,
                         condition: .unclaimed,
-                        markActive: true,
+                        markActive: shouldMarkActive,
                         stackUserID: stackUserID,
                         teamID: scope?.teamID,
                         now: Date()
@@ -121,7 +123,7 @@ extension MobileShellComposite {
                         displayName: displayName,
                         routes: routes,
                         instanceTag: instanceTag,
-                        markActive: true,
+                        markActive: shouldMarkActive,
                         stackUserID: stackUserID,
                         teamID: scope?.teamID,
                         now: Date()
