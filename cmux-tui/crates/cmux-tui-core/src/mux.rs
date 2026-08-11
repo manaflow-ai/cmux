@@ -2282,8 +2282,10 @@ impl BrowserRuntimeSlot {
         // The connector can block on process or network work. The slot owner
         // has already published Connecting and released its state lock here.
         let connected = connect();
-        let shutting_down = is_shutting_down();
         let mut state = self.state.lock().unwrap();
+        // This read belongs to the Connecting -> Ready transition. Shutdown
+        // can start while the connector runs without holding this lock.
+        let shutting_down = is_shutting_down();
         match connected {
             Ok(created)
                 if matches!(*state, BrowserRuntimeSlotState::Connecting) && !shutting_down =>
@@ -2315,7 +2317,16 @@ impl BrowserRuntimeSlot {
     }
 
     fn stop(&self) {
+        self.stop_with_fence(|| {});
+    }
+
+    fn stop_with_fence(&self, fence: impl FnOnce()) {
         let mut state = self.state.lock().unwrap();
+        // The global shutdown fence and this owner transition share one
+        // critical section, so a connector publishes before both or after
+        // neither. There is no state where shutdown is fenced but this slot
+        // can still publish Ready.
+        fence();
         let current = std::mem::take(&mut *state);
         *state = match current {
             BrowserRuntimeSlotState::Ready(runtime) => {
@@ -10094,8 +10105,8 @@ impl Mux {
         crate::process_session::require_stable_process_signaling_until(deadline)
             .context("preflight process control for daemon exit")?;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
-        self.shutting_down.store(true, Ordering::Release);
-        self.browser_runtime.stop();
+        self.browser_runtime
+            .stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
         self.journal_kernel.wake_waiters();
         let hook_deadline = deadline.min(Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT);
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
@@ -10328,8 +10339,8 @@ impl Mux {
             .context("preflight process control for server shutdown")?;
         let _coordinator = self.lock_shutdown_coordinator_until(deadline)?;
         let cleanup_lifecycle = self.shutdown_cleanup_lifecycle.begin();
-        self.shutting_down.store(true, Ordering::Release);
-        self.browser_runtime.stop();
+        self.browser_runtime
+            .stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
         if !self.surface_creations.stop_and_wait_until(deadline) {
@@ -10675,10 +10686,10 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutdown_cleanup_lifecycle.schedule();
-        self.shutting_down.store(true, Ordering::Release);
+        self.browser_runtime
+            .stop_with_fence(|| self.shutting_down.store(true, Ordering::Release));
         self.surface_creations.stop();
         self.async_surface_creations.stop();
-        self.browser_runtime.stop();
         self.daemon_shutdown_requested.store(true, Ordering::Release);
         #[cfg(unix)]
         self.request_terminal_adoption_stop();
@@ -27945,6 +27956,78 @@ mod tests {
             "browser connection setup held the shared runtime slot across blocking work"
         );
         assert!(connect_failed, "test connector result was not published");
+    }
+
+    #[test]
+    fn browser_runtime_connection_does_not_publish_after_shutdown_starts() {
+        fn read_ws_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
+            loop {
+                match ws.read().unwrap() {
+                    tungstenite::Message::Text(text) => {
+                        return serde_json::from_str(&text).unwrap();
+                    }
+                    tungstenite::Message::Binary(bytes) => {
+                        return serde_json::from_slice(&bytes).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            let discover = read_ws_json(&mut ws);
+            assert_eq!(discover["method"], "Target.setDiscoverTargets");
+            ws.send(tungstenite::Message::Text(
+                serde_json::json!({"id": discover["id"], "result": {}}).to_string().into(),
+            ))
+            .unwrap();
+            while ws.read().is_ok() {}
+        });
+        let runtime = BrowserRuntime::connect_external_for_test(&format!(
+            "ws://{address}/devtools/browser/fake"
+        ))
+        .unwrap();
+        let slot = Arc::new(BrowserRuntimeSlot::default());
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        let (connect_started_tx, connect_started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_connect_tx, release_connect_rx) = std::sync::mpsc::sync_channel(1);
+        let (connect_done_tx, connect_done_rx) = std::sync::mpsc::sync_channel(1);
+        let connect = std::thread::spawn({
+            let slot = slot.clone();
+            let shutting_down = shutting_down.clone();
+            let runtime = runtime.clone();
+            move || {
+                let result = slot.get_or_connect(
+                    || shutting_down.load(Ordering::Acquire),
+                    |_| false,
+                    || {
+                        connect_started_tx.send(()).unwrap();
+                        release_connect_rx.recv().unwrap();
+                        Ok(runtime)
+                    },
+                );
+                connect_done_tx.send(result.is_err()).unwrap();
+            }
+        });
+        connect_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        slot.stop_with_fence(|| shutting_down.store(true, Ordering::Release));
+        release_connect_tx.send(()).unwrap();
+        assert!(connect_done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        connect.join().unwrap();
+        assert!(
+            !slot.has_runtime_for_test(),
+            "browser runtime was published after shutdown started"
+        );
+        assert!(
+            runtime.wait_until_closed(Instant::now() + Duration::from_secs(1)),
+            "browser runtime created during shutdown was not closed"
+        );
+        server.join().unwrap();
     }
 
     #[test]
