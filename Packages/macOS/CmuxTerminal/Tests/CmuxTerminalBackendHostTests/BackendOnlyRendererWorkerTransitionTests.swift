@@ -12,7 +12,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
 
     @Test("same-epoch ready is normal readiness, not a restart")
     func sameEpochReadyDoesNotRestart() {
-        #expect(BackendOnlyRendererWorkerTransition.action(
+        #expect(backendOnlyRendererWorkerTransitionAction(
             currentRendererEpoch: 7,
             priorRendererEpoch: 7,
             rendererEpoch: 7,
@@ -22,19 +22,19 @@ struct BackendOnlyRendererWorkerTransitionTests {
 
     @Test("replacement and unavailable workers restart the presentation")
     func replacementAndUnavailableWorkersRestart() {
-        #expect(BackendOnlyRendererWorkerTransition.action(
+        #expect(backendOnlyRendererWorkerTransitionAction(
             currentRendererEpoch: 7,
             priorRendererEpoch: 7,
             rendererEpoch: 8,
             state: .starting
         ) == .restart)
-        #expect(BackendOnlyRendererWorkerTransition.action(
+        #expect(backendOnlyRendererWorkerTransitionAction(
             currentRendererEpoch: 7,
             priorRendererEpoch: 7,
             rendererEpoch: 7,
             state: .backoff
         ) == .restart)
-        #expect(BackendOnlyRendererWorkerTransition.action(
+        #expect(backendOnlyRendererWorkerTransitionAction(
             currentRendererEpoch: 7,
             priorRendererEpoch: 6,
             rendererEpoch: 7,
@@ -43,10 +43,10 @@ struct BackendOnlyRendererWorkerTransitionTests {
     }
 
     @Test("authenticated replacement requires a fresh write-once receiver")
-    func replacementWorkerRequiresReceiverRotation() {
-        let daemonInstanceID = UUID(
+    func replacementWorkerRequiresReceiverRotation() throws {
+        let daemonInstanceID = try #require(UUID(
             uuidString: "10000000-0000-0000-0000-000000000001"
-        )!
+        ))
         let currentToken = BackendRendererProcessInstanceToken(
             startTimeSeconds: 10,
             startTimeMicroseconds: 20
@@ -59,7 +59,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
             processInstanceToken: currentToken
         )
 
-        #expect(!BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
+        #expect(!backendOnlyRendererWorkerRequiresReceiverRotation(
             currentWorker: current,
             daemonInstanceID: daemonInstanceID,
             rendererEpoch: 7,
@@ -68,7 +68,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
             effectiveUserID: 501,
             processInstanceToken: currentToken
         ))
-        #expect(BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
+        #expect(backendOnlyRendererWorkerRequiresReceiverRotation(
             currentWorker: current,
             daemonInstanceID: daemonInstanceID,
             rendererEpoch: 8,
@@ -80,7 +80,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
                 startTimeMicroseconds: 21
             )
         ))
-        #expect(BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
+        #expect(backendOnlyRendererWorkerRequiresReceiverRotation(
             currentWorker: current,
             daemonInstanceID: daemonInstanceID,
             rendererEpoch: 7,
@@ -89,7 +89,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
             effectiveUserID: 501,
             processInstanceToken: currentToken
         ))
-        #expect(BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
+        #expect(backendOnlyRendererWorkerRequiresReceiverRotation(
             currentWorker: current,
             daemonInstanceID: daemonInstanceID,
             rendererEpoch: 7,
@@ -98,7 +98,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
             effectiveUserID: nil,
             processInstanceToken: nil
         ))
-        #expect(!BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
+        #expect(!backendOnlyRendererWorkerRequiresReceiverRotation(
             currentWorker: nil,
             daemonInstanceID: daemonInstanceID,
             rendererEpoch: 8,
@@ -123,7 +123,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
         )
         var steps: [RefreshStep] = []
 
-        let outcome = try await BackendOnlyRendererConfigRefresh.perform(
+        let outcome = try await performBackendOnlyRendererConfigRefresh(
             current: nil,
             invalidation: invalidation,
             retireIngress: {
@@ -164,7 +164,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
         )
         var refreshCount = 0
 
-        let first = try await BackendOnlyRendererConfigRefresh.perform(
+        let first = try await performBackendOnlyRendererConfigRefresh(
             current: BackendOnlyRendererConfigIdentity(
                 revision: 1,
                 digest: secondDigest
@@ -180,7 +180,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
             }
         )
         let current = try #require(first.identity)
-        let coalesced = try await BackendOnlyRendererConfigRefresh.perform(
+        let coalesced = try await performBackendOnlyRendererConfigRefresh(
             current: current,
             invalidation: third,
             retireIngress: {
@@ -210,7 +210,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
         )
 
         await #expect(throws: BackendOnlyRendererConfigRefreshError.staleReceipt) {
-            _ = try await BackendOnlyRendererConfigRefresh.perform(
+            _ = try await performBackendOnlyRendererConfigRefresh(
                 current: nil,
                 invalidation: invalidation,
                 retireIngress: {},
@@ -223,15 +223,15 @@ struct BackendOnlyRendererWorkerTransitionTests {
 
     @Test("config floor rejects an in-flight stale receipt after invalidation")
     func configFloorRejectsInFlightStaleReceipt() throws {
-        let first = BackendOnlyRendererConfigIdentity(
+        let first = try BackendOnlyRendererConfigIdentity(
             revision: 1,
-            digest: try BackendRendererConfigDigest(
+            digest: BackendRendererConfigDigest(
                 validating: String(repeating: "a", count: 64)
             )
         )
-        let second = BackendOnlyRendererConfigIdentity(
+        let second = try BackendOnlyRendererConfigIdentity(
             revision: 2,
-            digest: try BackendRendererConfigDigest(
+            digest: BackendRendererConfigDigest(
                 validating: String(repeating: "b", count: 64)
             )
         )
@@ -257,15 +257,15 @@ struct BackendOnlyRendererWorkerTransitionTests {
 
     @Test("config floor rejects one revision with conflicting digests")
     func configFloorRejectsConflictingDigest() throws {
-        let accepted = BackendOnlyRendererConfigIdentity(
+        let accepted = try BackendOnlyRendererConfigIdentity(
             revision: 2,
-            digest: try BackendRendererConfigDigest(
+            digest: BackendRendererConfigDigest(
                 validating: String(repeating: "a", count: 64)
             )
         )
         let invalidation = try BackendRendererConfigInvalidated(
             revision: 2,
-            digest: try BackendRendererConfigDigest(
+            digest: BackendRendererConfigDigest(
                 validating: String(repeating: "b", count: 64)
             ),
             reason: "ghostty-config-reloaded",
@@ -306,7 +306,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
         visible = false
         let second = try configInvalidation(revision: 2, digestByte: "b")
         events.continuation.yield(.configInvalidated(second))
-        guard case .configInvalidated(let hiddenEvent)? = await observationIterator.next() else {
+        guard case let .configInvalidated(hiddenEvent)? = await observationIterator.next() else {
             Issue.record("listener stopped on the transient hidden state")
             return
         }
@@ -316,7 +316,7 @@ struct BackendOnlyRendererWorkerTransitionTests {
         visible = true
         let third = try configInvalidation(revision: 3, digestByte: "c")
         events.continuation.yield(.configInvalidated(third))
-        guard case .configInvalidated(let visibleEvent)? = await observationIterator.next() else {
+        guard case let .configInvalidated(visibleEvent)? = await observationIterator.next() else {
             Issue.record("listener did not survive the re-show")
             return
         }

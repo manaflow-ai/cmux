@@ -32,13 +32,13 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     /// Normal IME preedit values are tiny. The ceiling prevents a malformed
     /// input source from turning frontend composition state into unbounded
     /// process memory while preserving complete Unicode scalars.
-    static let maximumMarkedTextUTF16Length = 4_096
+    static let maximumMarkedTextUTF16Length = 4096
 
     /// Canonical daemon ceiling for repeat counts and one-shot scroll amounts.
-    static let maximumCommandCount: UInt32 = 10_000
+    static let maximumCommandCount: UInt32 = 10000
 
     /// Canonical daemon ceiling for retained search-query bytes.
-    static let maximumSearchQueryUTF8Length = 65_536
+    static let maximumSearchQueryUTF8Length = 65536
 
     /// Ghostty-free pixel surface mounted edge-to-edge behind interaction.
     public let surfaceView: TerminalFrontendSurfaceView
@@ -134,13 +134,13 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
             TerminalFrontendSystemClipboardReader(),
         accessibilityLinkOpener: (@MainActor (String) -> Bool)? = nil,
         keyEventInterpreter:
-            (@MainActor (TerminalFrontendInteractionView, [NSEvent]) -> Void)?
+        (@MainActor (TerminalFrontendInteractionView, [NSEvent]) -> Void)?
     ) {
         self.runtime = runtime
         self.responderFocusOwnership = responderFocusOwnership
         self.surfaceView = surfaceView
         self.translator = translator
-        self.interactionAdapter = TerminalFrontendInteractionAdapter(
+        interactionAdapter = TerminalFrontendInteractionAdapter(
             runtime: runtime,
             translator: translator,
             clipboardWriter: clipboardWriter,
@@ -161,16 +161,16 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     }
 
     @available(*, unavailable, message: "Construct with an external terminal runtime")
-    required init?(coder: NSCoder) {
+    required init?(coder _: NSCoder) {
         nil
     }
 
-    public override func layout() {
+    override public func layout() {
         super.layout()
         surfaceView.frame = bounds
     }
 
-    public override func updateTrackingAreas() {
+    override public func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let pointerTrackingArea {
             removeTrackingArea(pointerTrackingArea)
@@ -190,9 +190,11 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         pointerTrackingArea = trackingArea
     }
 
-    public override var acceptsFirstResponder: Bool { true }
+    override public var acceptsFirstResponder: Bool {
+        true
+    }
 
-    public override func becomeFirstResponder() -> Bool {
+    override public func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted {
             publishResponderFocus(true)
@@ -200,7 +202,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         return accepted
     }
 
-    public override func resignFirstResponder() -> Bool {
+    override public func resignFirstResponder() -> Bool {
         let accepted = super.resignFirstResponder()
         if accepted {
             interactionAdapter.cancelPointerInteractions()
@@ -216,7 +218,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         responderFocusDidChange?(focused)
     }
 
-    public override func viewDidMoveToWindow() {
+    override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
             interactionAdapter.cancelAllInteractions()
@@ -228,18 +230,22 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
 
     // MARK: - Accessibility
 
-    public override func isAccessibilityElement() -> Bool { true }
+    override public func isAccessibilityElement() -> Bool {
+        true
+    }
 
-    public override func accessibilityRole() -> NSAccessibility.Role? { .textArea }
+    override public func accessibilityRole() -> NSAccessibility.Role? {
+        .textArea
+    }
 
-    public override func accessibilityValue() -> Any? {
+    override public func accessibilityValue() -> Any? {
         accessibilityBridge.snapshot()?.text
             ?? interactionSnapshot.visibleText
             ?? interactionSnapshot.selection?.text
             ?? ""
     }
 
-    public override func setAccessibilityValue(_ value: Any?) {
+    override public func setAccessibilityValue(_ value: Any?) {
         guard window != nil else { return }
         let text: String
         switch value {
@@ -257,14 +263,14 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         )
     }
 
-    public override func accessibilitySelectedTextRange() -> NSRange {
+    override public func accessibilitySelectedTextRange() -> NSRange {
         guard let snapshot = accessibilityBridge.snapshot() else {
             return selectedRange()
         }
         return TerminalFrontendAccessibilityTextModel(snapshot: snapshot).selectedRange
     }
 
-    public override func accessibilitySelectedText() -> String? {
+    override public func accessibilitySelectedText() -> String? {
         guard let snapshot = accessibilityBridge.snapshot() else {
             let text = interactionSnapshot.selection?.text ?? ""
             return text.isEmpty ? nil : text
@@ -273,15 +279,16 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         return text.isEmpty ? nil : text
     }
 
-    public override func accessibilitySelectedTextRanges() -> [NSValue]? {
+    override public func accessibilitySelectedTextRanges() -> [NSValue]? {
         guard let snapshot = accessibilityBridge.snapshot() else {
             return [NSValue(range: selectedRange())]
         }
         let model = TerminalFrontendAccessibilityTextModel(snapshot: snapshot)
         if model.selectedRanges.isEmpty,
-           let insertion = snapshot.cursor?.insertionRange {
+           let insertion = snapshot.cursor?.insertionRange
+        {
             let range = NSRange(location: insertion.location, length: insertion.length)
-            guard TerminalFrontendAccessibilityTextModel.isValid(
+            guard terminalFrontendAccessibilityRangeIsValid(
                 range,
                 maximum: model.utf16Length
             ) else { return [] }
@@ -290,27 +297,27 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         return model.selectedRanges.map(NSValue.init(range:))
     }
 
-    public override func accessibilityNumberOfCharacters() -> Int {
+    override public func accessibilityNumberOfCharacters() -> Int {
         guard let snapshot = accessibilityBridge.snapshot() else {
             return ((accessibilityValue() as? String) ?? "").utf16.count
         }
         return TerminalFrontendAccessibilityTextModel(snapshot: snapshot).utf16Length
     }
 
-    public override func accessibilityVisibleCharacterRange() -> NSRange {
+    override public func accessibilityVisibleCharacterRange() -> NSRange {
         NSRange(location: 0, length: accessibilityNumberOfCharacters())
     }
 
-    public override func accessibilityInsertionPointLineNumber() -> Int {
+    override public func accessibilityInsertionPointLineNumber() -> Int {
         accessibilityBridge.snapshot()?.cursor?.line ?? 0
     }
 
-    public override func accessibilityString(for range: NSRange) -> String? {
+    override public func accessibilityString(for range: NSRange) -> String? {
         guard let snapshot = accessibilityBridge.snapshot() else { return nil }
         return TerminalFrontendAccessibilityTextModel(snapshot: snapshot).string(for: range)
     }
 
-    public override func accessibilityAttributedString(
+    override public func accessibilityAttributedString(
         for range: NSRange
     ) -> NSAttributedString? {
         guard let text = accessibilityString(for: range) else { return nil }
@@ -325,19 +332,19 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         )
     }
 
-    public override func accessibilityLine(for index: Int) -> Int {
+    override public func accessibilityLine(for index: Int) -> Int {
         guard let snapshot = accessibilityBridge.snapshot() else { return NSNotFound }
         return TerminalFrontendAccessibilityTextModel(snapshot: snapshot).line(for: index)
     }
 
-    public override func accessibilityRange(forLine line: Int) -> NSRange {
+    override public func accessibilityRange(forLine line: Int) -> NSRange {
         guard let snapshot = accessibilityBridge.snapshot() else {
             return NSRange(location: NSNotFound, length: 0)
         }
         return TerminalFrontendAccessibilityTextModel(snapshot: snapshot).range(forLine: line)
     }
 
-    public override func accessibilityRange(for index: Int) -> NSRange {
+    override public func accessibilityRange(for index: Int) -> NSRange {
         guard let snapshot = accessibilityBridge.snapshot() else {
             return NSRange(location: NSNotFound, length: 0)
         }
@@ -346,12 +353,12 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         )
     }
 
-    public override func accessibilityFrame(for range: NSRange) -> NSRect {
+    override public func accessibilityFrame(for range: NSRange) -> NSRect {
         guard let snapshot = accessibilityBridge.snapshot() else { return .zero }
         return accessibilityBridge.frame(for: range, snapshot: snapshot) ?? .zero
     }
 
-    public override func accessibilityRange(for point: NSPoint) -> NSRange {
+    override public func accessibilityRange(for point: NSPoint) -> NSRange {
         guard let snapshot = accessibilityBridge.snapshot() else {
             return NSRange(location: NSNotFound, length: 0)
         }
@@ -359,17 +366,17 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
             ?? NSRange(location: NSNotFound, length: 0)
     }
 
-    public override func isAccessibilityFocused() -> Bool {
+    override public func isAccessibilityFocused() -> Bool {
         accessibilityBridge.snapshot()?.focused
             ?? (window?.firstResponder === self)
     }
 
-    public override func setAccessibilityFocused(_ focused: Bool) {
+    override public func setAccessibilityFocused(_ focused: Bool) {
         guard focused else { return }
         window?.makeFirstResponder(self)
     }
 
-    public override func accessibilityChildren() -> [Any]? {
+    override public func accessibilityChildren() -> [Any]? {
         accessibilityBridge.children()
     }
 
@@ -390,26 +397,26 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         return result
     }
 
-    public override func mouseDown(with event: NSEvent) {
+    override public func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         recordIngressIfPresent(
             interactionAdapter.pointerDown(event, button: .left, in: self)
         )
     }
 
-    public override func mouseUp(with event: NSEvent) {
+    override public func mouseUp(with event: NSEvent) {
         recordIngressIfPresent(
             interactionAdapter.pointerUp(event, button: .left, in: self)
         )
     }
 
-    public override func mouseDragged(with event: NSEvent) {
+    override public func mouseDragged(with event: NSEvent) {
         recordIngressIfPresent(
             interactionAdapter.pointerDragged(event, button: .left, in: self)
         )
     }
 
-    public override func rightMouseDown(with event: NSEvent) {
+    override public func rightMouseDown(with event: NSEvent) {
         guard interactionSnapshot.mouseTracking else {
             super.rightMouseDown(with: event)
             return
@@ -420,7 +427,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         )
     }
 
-    public override func rightMouseUp(with event: NSEvent) {
+    override public func rightMouseUp(with event: NSEvent) {
         guard interactionAdapter.hasPressedButton(.right) else {
             super.rightMouseUp(with: event)
             return
@@ -430,7 +437,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         )
     }
 
-    public override func rightMouseDragged(with event: NSEvent) {
+    override public func rightMouseDragged(with event: NSEvent) {
         guard interactionAdapter.hasPressedButton(.right) else {
             super.rightMouseDragged(with: event)
             return
@@ -440,7 +447,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         )
     }
 
-    public override func otherMouseDown(with event: NSEvent) {
+    override public func otherMouseDown(with event: NSEvent) {
         guard event.buttonNumber == 2 else {
             super.otherMouseDown(with: event)
             return
@@ -451,7 +458,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         )
     }
 
-    public override func otherMouseUp(with event: NSEvent) {
+    override public func otherMouseUp(with event: NSEvent) {
         guard event.buttonNumber == 2,
               interactionAdapter.hasPressedButton(.middle)
         else {
@@ -463,7 +470,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         )
     }
 
-    public override func otherMouseDragged(with event: NSEvent) {
+    override public func otherMouseDragged(with event: NSEvent) {
         guard event.buttonNumber == 2,
               interactionAdapter.hasPressedButton(.middle)
         else {
@@ -475,21 +482,21 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         )
     }
 
-    public override func mouseMoved(with event: NSEvent) {
+    override public func mouseMoved(with event: NSEvent) {
         recordIngressIfPresent(interactionAdapter.pointerMoved(event, in: self))
     }
 
-    public override func mouseEntered(with event: NSEvent) {
+    override public func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
         recordIngressIfPresent(interactionAdapter.pointerMoved(event, in: self))
     }
 
-    public override func mouseExited(with event: NSEvent) {
+    override public func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         recordIngressIfPresent(interactionAdapter.pointerExited(event, in: self))
     }
 
-    public override func scrollWheel(with event: NSEvent) {
+    override public func scrollWheel(with event: NSEvent) {
         recordIngressIfPresent(interactionAdapter.scrollWheel(event, in: self))
     }
 
@@ -561,7 +568,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     }
 
     /// Selects canonical terminal contents through the shared mutation path.
-    @IBAction public override func selectAll(_ sender: Any?) {
+    @IBAction override public func selectAll(_ sender: Any?) {
         _ = sender
         recordIngress(interactionAdapter.performSelection(.selectAll))
     }
@@ -599,7 +606,8 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
 
     /// Forwards the runtime's bounded newest-only accessibility stream.
     public func terminalAccessibilitySnapshots()
-        -> AsyncStream<TerminalAccessibilitySnapshot> {
+        -> AsyncStream<TerminalAccessibilitySnapshot>
+    {
         interactionAdapter.terminalAccessibilitySnapshots()
     }
 
@@ -632,7 +640,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         lastIngressResult = result
     }
 
-    public override func keyDown(with event: NSEvent) {
+    override public func keyDown(with event: NSEvent) {
         // A fresh physical press supersedes stale suppression left by a missing
         // key-up. Repeats stay suppressed with their original rejected/IME press.
         if event.isARepeat, isReleaseSuppressed(for: event.keyCode) {
@@ -688,14 +696,14 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
         routePhysicalKey(event, interpretedText: nil)
     }
 
-    public override func keyUp(with event: NSEvent) {
+    override public func keyUp(with event: NSEvent) {
         if consumeReleaseSuppression(for: event.keyCode) {
             return
         }
         routePhysicalKey(event, interpretedText: nil, action: .release)
     }
 
-    public override func flagsChanged(with event: NSEvent) {
+    override public func flagsChanged(with event: NSEvent) {
         let key = translator.keyEvent(from: event, interpretedText: nil)
 
         if key.action == .release, consumeReleaseSuppression(for: event.keyCode) {
@@ -719,7 +727,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
 
     /// Handles standard edit selectors and leaves other physical keys on the
     /// semantic backend input path after `interpretKeyEvents` returns.
-    public override func doCommand(by selector: Selector) {
+    override public func doCommand(by selector: Selector) {
         let handled: Bool
         switch selector {
         case #selector(copy(_:)):
@@ -738,7 +746,7 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     }
 
     /// Responder-chain committed text used by dictation and accessibility tools.
-    public override func insertText(_ insertString: Any) {
+    override public func insertText(_ insertString: Any) {
         insertText(
             insertString,
             replacementRange: NSRange(location: NSNotFound, length: 0)
@@ -952,8 +960,12 @@ public final class TerminalFrontendInteractionView: NSView, @preconcurrency NSTe
     }
 
     private func stringValue(from value: Any) -> String? {
-        if let string = value as? String { return string }
-        if let attributed = value as? NSAttributedString { return attributed.string }
+        if let string = value as? String {
+            return string
+        }
+        if let attributed = value as? NSAttributedString {
+            return attributed.string
+        }
         return nil
     }
 
@@ -1046,7 +1058,7 @@ private final class KeyInterpretation {
         guard !committedInputs.isEmpty else { return nil }
         var result = ""
         for input in committedInputs {
-            guard case .text(let text) = input, text.kind == .committed else {
+            guard case let .text(text) = input, text.kind == .committed else {
                 return nil
             }
             result.append(text.text)

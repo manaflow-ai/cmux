@@ -8,14 +8,7 @@ internal import ObjectiveC
 /// restores that captured value.
 @MainActor
 final class BackendOnlyWindowMouseMovedEventsLease {
-    private final class WindowState: NSObject {
-        let originalValue: Bool
-        var leaseCount = 0
-
-        init(originalValue: Bool) {
-            self.originalValue = originalValue
-        }
-    }
+    private typealias WindowState = BackendOnlyWindowMouseMovedEventsState
 
     private static var associationKey: UInt8 = 0
 

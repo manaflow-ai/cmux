@@ -4,12 +4,15 @@ internal import Foundation
 ///
 /// AppKit can invoke an accessibility element's synchronous action method from
 /// outside the main actor. The gate copies an active Sendable action under one
-/// unfair lock, while invalidation atomically removes it. The copied action only
+/// serial queue, while invalidation atomically removes it. The copied action only
 /// schedules asynchronous main-actor revalidation and performs no work inline.
+/// The private serial queue protects every read and write of `action`.
 final class TerminalFrontendAccessibilityLinkActionGate: @unchecked Sendable {
     private typealias Action = @Sendable () -> Void
 
-    private let lock = NSLock()
+    private let isolationQueue = DispatchQueue(
+        label: "com.cmux.terminal-frontend.accessibility-link-action"
+    )
     private var action: Action?
 
     init(action: @escaping @Sendable () -> Void) {
@@ -17,17 +20,15 @@ final class TerminalFrontendAccessibilityLinkActionGate: @unchecked Sendable {
     }
 
     func perform() -> Bool {
-        lock.lock()
-        let activeAction = action
-        lock.unlock()
+        let activeAction = isolationQueue.sync { action }
         guard let activeAction else { return false }
         activeAction()
         return true
     }
 
     func invalidate() {
-        lock.lock()
-        action = nil
-        lock.unlock()
+        isolationQueue.sync {
+            action = nil
+        }
     }
 }

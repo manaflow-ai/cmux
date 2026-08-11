@@ -1,133 +1,11 @@
-internal import AppKit
 public import CmuxTerminalBackend
 public import CmuxTerminalFrontend
+public import Foundation
+internal import AppKit
 internal import CmuxTerminalRenderCompositor
 internal import CmuxTerminalRenderProtocol
 internal import CmuxTerminalRenderTransport
 internal import Darwin
-public import Foundation
-
-final class BackendOnlyPresentedFrameState: @unchecked Sendable {
-    struct ScheduledDrain: Sendable {
-        let metadata: TerminalRenderFrameMetadata
-        let accessibilityDemanded: Bool
-    }
-
-    private struct SemanticFrameKey: Equatable {
-        let presentationID: UUID
-        let presentationGeneration: UInt64
-        let terminalSequence: UInt64
-    }
-
-    private let lock = NSLock()
-    private var metadata: TerminalRenderFrameMetadata?
-    private var semanticFrameKey: SemanticFrameKey?
-    private var drainScheduled = false
-    private var accessibilityDemanded = false
-
-    func record(_ value: TerminalRenderFrameMetadata) -> Bool {
-        lock.lock()
-        metadata = value
-        let key = SemanticFrameKey(
-            presentationID: value.presentationID,
-            presentationGeneration: value.presentationGeneration,
-            terminalSequence: value.terminalSequence
-        )
-        guard semanticFrameKey != key else {
-            lock.unlock()
-            return false
-        }
-        semanticFrameKey = key
-        guard accessibilityDemanded, !drainScheduled else {
-            lock.unlock()
-            return false
-        }
-        drainScheduled = true
-        lock.unlock()
-        return true
-    }
-
-    func takeScheduledDrain() -> ScheduledDrain? {
-        lock.lock()
-        guard drainScheduled, let metadata else {
-            lock.unlock()
-            return nil
-        }
-        drainScheduled = false
-        let drain = ScheduledDrain(
-            metadata: metadata,
-            accessibilityDemanded: accessibilityDemanded
-        )
-        lock.unlock()
-        return drain
-    }
-
-    func latest() -> TerminalRenderFrameMetadata? {
-        lock.lock()
-        defer { lock.unlock() }
-        return metadata
-    }
-
-    func demandAccessibility() -> TerminalRenderFrameMetadata? {
-        lock.lock()
-        guard !accessibilityDemanded else {
-            lock.unlock()
-            return nil
-        }
-        accessibilityDemanded = true
-        let latestWithoutScheduledDrain = drainScheduled ? nil : metadata
-        lock.unlock()
-        return latestWithoutScheduledDrain
-    }
-
-    func releaseAccessibilityDemand() {
-        lock.lock()
-        accessibilityDemanded = false
-        drainScheduled = false
-        lock.unlock()
-    }
-
-    func reset() {
-        lock.lock()
-        metadata = nil
-        semanticFrameKey = nil
-        drainScheduled = false
-        lock.unlock()
-    }
-}
-
-private final class BackendOnlyPresentationLease: TerminalExternalPresentationLease,
-    @unchecked Sendable
-{
-    private let lock = NSLock()
-    private var detached = false
-    private let detachAction: @Sendable () -> Void
-
-    init(detachAction: @escaping @Sendable () -> Void) {
-        self.detachAction = detachAction
-    }
-
-    nonisolated func detach() {
-        lock.lock()
-        guard !detached else {
-            lock.unlock()
-            return
-        }
-        detached = true
-        lock.unlock()
-        detachAction()
-    }
-
-    deinit {
-        detach()
-    }
-}
-
-private struct BackendOnlyRetiredFrameIngress: Sendable {
-    let receiveTask: Task<Void, Never>?
-    let compositorIngress: TerminalRenderCompositorIngress?
-    let releaseMetricsBeforeRetirement: BackendOnlyRendererFrameReleaseLaneMetrics
-}
 
 /// Visible-only terminal adapter for the backend-only experimental host.
 ///
@@ -140,12 +18,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private static let mutationCapacity = 64
     private static let normalFrameReleaseCapacity = 128
     private static let recoveryFrameReleaseCapacity = 16
-    nonisolated private static let frameReleaseDeadline: Duration = .seconds(2)
-
-    private struct RendererOperationWaiter {
-        let identifier: UUID
-        let continuation: CheckedContinuation<Bool, Never>
-    }
+    private typealias RendererOperationWaiter = BackendOnlyRendererOperationWaiter
 
     public private(set) var snapshot = TerminalExternalRuntimeSnapshot(
         lifecycle: .unavailable
@@ -217,7 +90,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
 
     public init(
         session: BackendCanonicalSession,
-        selection: BackendOnlyTerminalSelection
+        selection: BackendOnlyTerminalSelection,
+        frameReleaseDeadline: Duration = .seconds(2),
+        frameReleaseDeadlineClock: any Clock<Duration> = ContinuousClock()
     ) {
         self.session = session
         self.selection = selection
@@ -229,9 +104,11 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             normalCapacity: Self.normalFrameReleaseCapacity,
             recoveryCapacity: Self.recoveryFrameReleaseCapacity,
             send: { release in
-                await Self.sendRendererFrameRelease(
+                await sendBackendOnlyRendererFrameRelease(
                     release,
-                    through: session
+                    through: session,
+                    deadline: frameReleaseDeadline,
+                    clock: frameReleaseDeadlineClock
                 )
             },
             onFailure: { failure in
@@ -415,7 +292,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 // before this task resumes from the renderer-operation await.
                 // Keep this owner when that setter installed a fresh target.
                 guard shouldContinue
-                        || self.hostControlState.latestTarget() != nil
+                    || self.hostControlState.latestTarget() != nil
                 else { return }
             }
         }
@@ -470,7 +347,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
             switch request {
             case .visible:
                 return value
-            case .vtTail(let maxRows, let maxBytes):
+            case let .vtTail(maxRows, maxBytes):
                 return Self.boundedVTTail(
                     value,
                     maximumRows: maxRows,
@@ -588,28 +465,28 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private func applySerialized(_ mutation: TerminalExternalRuntimeMutation) async {
         do {
             switch mutation {
-            case .visibility(let value):
+            case let .visibility(value):
                 visible = value
                 if value {
                     try await startPresentationIfReady()
                 } else {
                     await stopPresentation()
                 }
-            case .focus(let value):
+            case let .focus(value):
                 guard focused != value || configuredFocus != value else { return }
                 focused = value
                 if visible, presentation != nil, let currentViewport {
                     try await configureRenderer(viewport: currentViewport)
                 }
-            case .resize(let viewport):
+            case let .resize(viewport):
                 currentViewport = viewport
                 if visible {
                     try await startPresentationIfReady()
                     try await resizeIfNeeded(viewport)
                 }
-            case .input(let input):
+            case let .input(input):
                 try await send(input)
-            case .preedit(let preedit):
+            case let .preedit(preedit):
                 currentPreedit = preedit
                 guard let presentation, let rendererGeneration else { return }
                 try await session.setTerminalPreedit(
@@ -624,16 +501,16 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                         )
                     }
                 )
-            case .mouse(let event):
+            case let .mouse(event):
                 try await send(event)
-            case .bindingAction(let action, let repeatCount):
+            case let .bindingAction(action, repeatCount):
                 let response = try await session.performTerminalBindingAction(
                     surfaceID: selection.surfaceID,
                     action: action,
                     repeatCount: repeatCount
                 )
                 try install(response)
-            case .selection(let operation):
+            case let .selection(operation):
                 let response = try await session.terminalSelection(
                     surfaceID: selection.surfaceID,
                     operation: Self.backendSelectionOperation(operation)
@@ -650,7 +527,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     count: 1
                 )
                 try install(response)
-            case .copyMode(let operation, let adjustment, let count):
+            case let .copyMode(operation, adjustment, count):
                 let response = try await session.terminalCopyMode(
                     surfaceID: selection.surfaceID,
                     operation: Self.backendCopyModeOperation(operation),
@@ -658,21 +535,21 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     count: count
                 )
                 try install(response)
-            case .search(let operation, let query):
+            case let .search(operation, query):
                 let response = try await session.terminalSearch(
                     surfaceID: selection.surfaceID,
                     operation: Self.backendSearchOperation(operation),
                     query: query
                 )
                 try install(response)
-            case .scroll(let operation, let amount):
+            case let .scroll(operation, amount):
                 let response = try await session.terminalScroll(
                     surfaceID: selection.surfaceID,
                     operation: Self.backendScrollOperation(operation),
                     amount: amount
                 )
                 try install(response)
-            case .reparent(let workspaceID):
+            case let .reparent(workspaceID):
                 guard workspaceID == selection.workspaceID.rawValue else {
                     throw BackendOnlyHostConnectionError.backendUnavailable
                 }
@@ -849,7 +726,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private func validateRendererOperation(_ generation: UInt64) throws {
         try Task.checkCancellation()
         guard !retired, !attachmentIDs.isEmpty, visible,
-              rendererOperationGeneration == generation else {
+              rendererOperationGeneration == generation
+        else {
             throw CancellationError()
         }
     }
@@ -934,7 +812,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
               receipt.presentationID == presentation.id,
               receipt.canonicalGeneration == presentation.generation,
               receipt.width == width,
-              receipt.height == height else {
+              receipt.height == height
+        else {
             throw BackendOnlyHostConnectionError.backendUnavailable
         }
         let configIdentity = BackendOnlyRendererConfigIdentity(
@@ -947,7 +826,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         // Worker authorization and the endpoint capability are write-once. Let
         // serialized recovery retire this presentation, then configure the
         // replacement worker with a fresh receiver and capability.
-        if BackendOnlyRendererWorkerTransition.requiresReceiverRotation(
+        if backendOnlyRendererWorkerRequiresReceiverRotation(
             currentWorker: workerIdentity,
             daemonInstanceID: receipt.daemonInstanceID.rawValue,
             rendererEpoch: receipt.rendererEpoch,
@@ -1053,7 +932,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
               presentationGeneration == rendererGeneration,
               rendererDaemonInstanceID == daemonInstanceID,
               self.rendererEpoch == rendererEpoch,
-              rendererTerminalEpoch == terminalEpoch else {
+              rendererTerminalEpoch == terminalEpoch
+        else {
             throw BackendOnlyHostConnectionError.backendUnavailable
         }
         guard try rendererConfigFloor.satisfies(configIdentity) else {
@@ -1073,7 +953,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 await runtime?.rendererWorkerExited(exited)
             }
         }) {
-        case .watching(let fence):
+        case let .watching(fence):
             exitFence = fence
         case .alreadyExited, .unverifiable:
             throw BackendOnlyHostConnectionError.backendUnavailable
@@ -1123,7 +1003,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                   !exitFence.hasExited,
                   workerIdentity == identity,
                   self.presentation?.id == presentation.id,
-                  self.presentation?.generation == presentation.generation else {
+                  self.presentation?.generation == presentation.generation
+            else {
                 throw BackendOnlyHostConnectionError.backendUnavailable
             }
         } catch {
@@ -1256,8 +1137,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                     }
                 },
                 framePresentedHandler: { metadata in
-                    guard presentedFrameState.record(metadata) else { return }
                     Task { @MainActor [weak runtime] in
+                        guard presentedFrameState.record(metadata) else { return }
                         guard let drain = presentedFrameState.takeScheduledDrain() else { return }
                         runtime?.didPresentFrame(
                             drain.metadata,
@@ -1324,9 +1205,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                         timeoutMilliseconds: TerminalRenderFrameReceiver
                             .maximumReceiveTimeoutMilliseconds
                     ) {
-                    case .frame(let frame):
+                    case let .frame(frame):
                         _ = await ingress.enqueue(frame)
-                    case .dropped(_, let release):
+                    case let .dropped(_, release):
                         if let release {
                             if frameReleaseLane.enqueue(
                                 Self.backendRelease(release),
@@ -1351,7 +1232,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         for opened: BackendPresentation
     ) async throws {
         guard rendererEventSubscription == nil,
-              !rendererEventListener.isActive else {
+              !rendererEventListener.isActive
+        else {
             throw BackendOnlyHostConnectionError.backendUnavailable
         }
         let subscription = await session.rendererEventSubscription(
@@ -1360,7 +1242,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         )
         guard !retired, !attachmentIDs.isEmpty, visible,
               presentation?.id == opened.id,
-              presentation?.generation == opened.generation else {
+              presentation?.generation == opened.generation
+        else {
             await session.cancelRendererEventSubscription(subscription.identifier)
             throw CancellationError()
         }
@@ -1383,7 +1266,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         guard terminalInteractionModeSubscription == nil,
               !terminalInteractionModeListener.isActive,
               let presentation,
-              rendererTerminalEpoch != nil else {
+              rendererTerminalEpoch != nil
+        else {
             throw BackendOnlyHostConnectionError.backendUnavailable
         }
         let subscription = try await session.terminalInteractionModeEventSubscription(
@@ -1391,7 +1275,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         )
         guard !retired, !attachmentIDs.isEmpty, visible,
               self.presentation?.id == presentation.id,
-              self.presentation?.generation == presentation.generation else {
+              self.presentation?.generation == presentation.generation
+        else {
             await session.cancelTerminalInteractionModeEventSubscription(
                 subscription.identifier
             )
@@ -1444,7 +1329,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
               event.terminalEpoch == rendererTerminalEpoch else { return }
         if let current = terminalInteractionMode {
             guard current.terminalEpoch == event.terminalEpoch else { return }
-            if event.interactionRevision < current.interactionRevision { return }
+            if event.interactionRevision < current.interactionRevision {
+                return
+            }
             if event.interactionRevision == current.interactionRevision {
                 guard event.mouseTracking == current.mouseTracking else {
                     throw BackendOnlyHostConnectionError.backendUnavailable
@@ -1495,23 +1382,23 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     }
 
     private func handleRendererEvent(_ event: BackendRendererLifecycleEvent) async {
-        if case .configInvalidated(let invalidation) = event {
+        if case let .configInvalidated(invalidation) = event {
             await handleRendererConfigInvalidation(invalidation)
             return
         }
         do {
             try await withRendererOperation {
                 switch event {
-                case .presentationReady(let ready):
+                case let .presentationReady(ready):
                     try await self.installReadyEvent(ready)
-                case .workerChanged(let changed):
+                case let .workerChanged(changed):
                     guard changed.workspaceID == self.selection.workspaceID,
                           !self.rendererRestarting,
-                          BackendOnlyRendererWorkerTransition.action(
-                            currentRendererEpoch: self.rendererEpoch,
-                            priorRendererEpoch: changed.priorRendererEpoch,
-                            rendererEpoch: changed.rendererEpoch,
-                            state: changed.state
+                          backendOnlyRendererWorkerTransitionAction(
+                              currentRendererEpoch: self.rendererEpoch,
+                              priorRendererEpoch: changed.priorRendererEpoch,
+                              rendererEpoch: changed.rendererEpoch,
+                              state: changed.state
                           ) == .restart else { return }
                     self.snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
                     self.rendererRestarting = true
@@ -1538,7 +1425,7 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                   presentation != nil else { return }
             snapshot = TerminalExternalRuntimeSnapshot(lifecycle: .unavailable)
             let frameRetirement = retireRendererFrameIngressNow()
-            let outcome = try await BackendOnlyRendererConfigRefresh.perform(
+            let outcome = try await performBackendOnlyRendererConfigRefresh(
                 current: rendererConfigIdentity,
                 invalidation: invalidation,
                 retireIngress: {
@@ -1549,18 +1436,20 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 configure: {
                     try await self.withRendererOperation {
                         if let current = self.rendererConfigIdentity,
-                           try self.rendererConfigFloor.satisfies(current) {
+                           try self.rendererConfigFloor.satisfies(current)
+                        {
                             return current
                         }
                         guard let viewport = self.currentViewport,
-                              self.presentation != nil else {
+                              self.presentation != nil
+                        else {
                             throw BackendOnlyHostConnectionError.backendUnavailable
                         }
                         return try await self.configureRenderer(viewport: viewport)
                     }
                 }
             )
-            if case .refreshed(let identity) = outcome {
+            if case let .refreshed(identity) = outcome {
                 try rendererConfigFloor.accept(identity)
                 rendererConfigIdentity = identity
             }
@@ -1664,9 +1553,9 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         await frameReleaseLane.waitUntilIdle()
         let after = frameReleaseLane.metrics()
         guard after.capacityFailures
-                == retirement.releaseMetricsBeforeRetirement.capacityFailures,
-              after.sendFailures
-                == retirement.releaseMetricsBeforeRetirement.sendFailures
+            == retirement.releaseMetricsBeforeRetirement.capacityFailures,
+            after.sendFailures
+            == retirement.releaseMetricsBeforeRetirement.sendFailures
         else {
             throw BackendOnlyHostConnectionError.backendUnavailable
         }
@@ -1736,11 +1625,11 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private func send(_ input: TerminalExternalInput) async throws {
         guard let presentation else { throw BackendOnlyHostConnectionError.backendUnavailable }
         let backend: BackendTerminalControlInput = switch input {
-        case .text(let value):
+        case let .text(value):
             .text(value.text, paste: value.kind == .paste)
-        case .namedKey(let value):
+        case let .namedKey(value):
             .namedKey(value)
-        case .key(let value):
+        case let .key(value):
             .key(BackendTerminalKeyEvent(
                 key: value.key,
                 modifiers: value.modifiers.rawValue,
@@ -1786,12 +1675,14 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
               state.terminalEpoch > 0,
               state.interactionRevision > 0,
               !state.interactionRevisionExhausted,
-              rendererTerminalEpoch.map({ $0 == state.terminalEpoch }) ?? true else {
+              rendererTerminalEpoch.map({ $0 == state.terminalEpoch }) ?? true
+        else {
             throw BackendOnlyHostConnectionError.backendUnavailable
         }
         let mouseTracking: Bool
         if let current = terminalInteractionMode,
-           current.terminalEpoch == state.terminalEpoch {
+           current.terminalEpoch == state.terminalEpoch
+        {
             if state.interactionRevision < current.interactionRevision {
                 mouseTracking = current.mouseTracking
             } else if state.interactionRevision == current.interactionRevision {
@@ -1990,7 +1881,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
         if accessibilityRefreshTask != nil {
             if priorMetadata?.terminalSequence != metadata.terminalSequence
                 || priorMetadata?.presentationGeneration != metadata.presentationGeneration
-                || priorMetadata?.presentationID != metadata.presentationID {
+                || priorMetadata?.presentationID != metadata.presentationID
+            {
                 accessibilityRefreshRequested = true
             }
             return
@@ -2030,7 +1922,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                           self.presentation?.generation == presentation.generation,
                           self.rendererGeneration == expected.presentationGeneration,
                           self.latestAccessibilityMetadata?.terminalSequence
-                            == expected.terminalSequence else {
+                          == expected.terminalSequence
+                    else {
                         self.accessibilityRefreshRequested = true
                         continue
                     }
@@ -2040,7 +1933,8 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
                 } catch {
                     guard self.accessibilityRefreshTaskID == refreshTaskID else { return }
                     if self.latestAccessibilityMetadata?.terminalSequence
-                        != expected.terminalSequence {
+                        != expected.terminalSequence
+                    {
                         self.accessibilityRefreshRequested = true
                     }
                 }
@@ -2056,10 +1950,10 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
     private func installAccessibility(_ converted: TerminalAccessibilitySnapshot) {
         let prior = snapshot.accessibility
         guard prior?.presentationID != converted.presentationID
-                || prior?.presentationGeneration != converted.presentationGeneration
-                || prior?.terminalRevision != converted.terminalRevision
-                || prior?.contentRevision != converted.contentRevision
-                || prior?.viewportRevision != converted.viewportRevision else { return }
+            || prior?.presentationGeneration != converted.presentationGeneration
+            || prior?.terminalRevision != converted.terminalRevision
+            || prior?.contentRevision != converted.contentRevision
+            || prior?.viewportRevision != converted.viewportRevision else { return }
         snapshot = TerminalExternalRuntimeSnapshot(
             lifecycle: snapshot.lifecycle,
             visibleText: snapshot.visibleText,
@@ -2107,33 +2001,6 @@ public final class BackendOnlyTerminalRuntime: TerminalExternalRuntime {
 }
 
 private extension BackendOnlyTerminalRuntime {
-    nonisolated static func sendRendererFrameRelease(
-        _ release: BackendRendererFrameRelease,
-        through session: BackendCanonicalSession
-    ) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                do {
-                    _ = try await session.releaseRendererFrame(release)
-                    return true
-                } catch {
-                    return false
-                }
-            }
-            group.addTask {
-                do {
-                    try await Task.sleep(for: frameReleaseDeadline)
-                } catch {
-                    return false
-                }
-                return false
-            }
-            let result = await group.next() ?? false
-            group.cancelAll()
-            return result
-        }
-    }
-
     static func boundedVTTail(
         _ value: String,
         maximumRows: Int,

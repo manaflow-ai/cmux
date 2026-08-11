@@ -94,7 +94,7 @@ final class TerminalFrontendAccessibilityBridge {
             (Double(localPoint.x) - Double(owner.bounds.minX) - layout.xInset)
                 / layout.cellWidth
         ))
-        let viewportRow = TerminalFrontendAccessibilityGeometry.unflippedViewportRow(
+        let viewportRow = terminalFrontendUnflippedViewportRow(
             localY: Double(localPoint.y),
             boundsMinimumY: Double(owner.bounds.minY),
             boundsHeight: Double(owner.bounds.height),
@@ -115,16 +115,17 @@ final class TerminalFrontendAccessibilityBridge {
         snapshot: TerminalAccessibilitySnapshot
     ) async {
         guard isCurrent(snapshot), snapshot.links.contains(link),
-              let owner, owner.window != nil else {
+              let owner, owner.window != nil
+        else {
             return
         }
         guard let validated = await owner.activateTerminalAccessibilityLink(
             link,
             snapshot: snapshot
         ),
-        validated == link.target,
-        isCurrent(snapshot),
-        owner.window != nil
+            validated == link.target,
+            isCurrent(snapshot),
+            owner.window != nil
         else { return }
         _ = linkOpener(validated)
     }
@@ -168,16 +169,16 @@ final class TerminalFrontendAccessibilityBridge {
                 location: link.utf16Range.location,
                 length: link.utf16Range.length
             )
-            guard TerminalFrontendAccessibilityTextModel.isValid(
+            guard terminalFrontendAccessibilityRangeIsValid(
                 range,
                 maximum: model.utf16Length
             ),
-            let frameInParentSpace = cellRect(
-                row: link.row,
-                column: link.startColumn,
-                columnSpan: max(link.endColumn - link.startColumn + 1, 1),
-                snapshot: snapshot
-            )
+                let frameInParentSpace = cellRect(
+                    row: link.row,
+                    column: link.startColumn,
+                    columnSpan: max(link.endColumn - link.startColumn + 1, 1),
+                    snapshot: snapshot
+                )
             else { return nil }
             let label = model.string(for: range)
             let accessibleLabel = label.flatMap { $0.isEmpty ? nil : $0 }
@@ -204,7 +205,8 @@ final class TerminalFrontendAccessibilityBridge {
         guard postNotifications else { return }
         NSAccessibility.post(element: owner, notification: .valueChanged)
         if previous?.selections != snapshot.selections
-            || previous?.cursor != snapshot.cursor {
+            || previous?.cursor != snapshot.cursor
+        {
             NSAccessibility.post(element: owner, notification: .selectedTextChanged)
         }
         if previous?.links != snapshot.links {
@@ -241,7 +243,7 @@ final class TerminalFrontendAccessibilityBridge {
     ) -> NSRect? {
         guard isCurrent(snapshot) else { return nil }
         let model = TerminalFrontendAccessibilityTextModel(snapshot: snapshot)
-        guard TerminalFrontendAccessibilityTextModel.isValid(
+        guard terminalFrontendAccessibilityRangeIsValid(
             range,
             maximum: model.utf16Length
         ) else { return nil }
@@ -335,7 +337,7 @@ final class TerminalFrontendAccessibilityBridge {
         return NSRect(
             x: Double(owner.bounds.minX) + layout.xInset
                 + Double(column) * layout.cellWidth,
-            y: TerminalFrontendAccessibilityGeometry.unflippedCellY(
+            y: terminalFrontendUnflippedCellY(
                 boundsMinimumY: Double(owner.bounds.minY),
                 boundsHeight: Double(owner.bounds.height),
                 yInset: layout.yInset,
