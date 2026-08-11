@@ -18278,7 +18278,7 @@ mod tests {
         assert_eq!(restored_terminal["id"], terminal_public_id.as_str());
         assert_eq!(restored_terminal["lifecycle"], "exited");
         assert_eq!(restored_terminal["running"], false);
-        assert_eq!(restored_terminal["tab_id"], serde_json::Value::Null);
+        assert_eq!(restored_terminal["tab_id"], Value::Null);
         assert_eq!(restored_terminal["tab_ids"], serde_json::json!([]));
         assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
         let exited =
