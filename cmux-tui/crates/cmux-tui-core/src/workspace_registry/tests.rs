@@ -7086,7 +7086,7 @@ fn journal_agent_sessionless_start_cannot_replace_structured_owner() {
     {
         let ingress = crate::agent_hook_journal_ingress(
             "codex",
-            "AgentStart",
+            "SessionStart",
             Some(terminal_id.as_str()),
             payload,
         )
@@ -7118,13 +7118,14 @@ fn journal_agent_generation_history_is_bounded_and_keeps_compacted_fence() {
         sensitivity: JournalSensitivity::Sensitive,
     };
     for index in 0..RETAINED_GENERATIONS + 8 {
-        let ingress = crate::agent_hook_journal_ingress(
+        let mut ingress = crate::agent_hook_journal_ingress(
             "codex",
             "AgentStart",
             Some(terminal_id.as_str()),
             json!({"context":{"session_id":format!("bounded-session-{index:03}")}}),
         )
         .unwrap();
+        ingress.subjects.retain(|subject| subject.kind != "agent_session");
         registry
             .append_journal_ingress(
                 &ingress,
