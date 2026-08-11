@@ -34,10 +34,25 @@ func terminalGeometry(width: CGFloat, height: CGFloat) -> TerminalGeometry {
   )
 }
 
+enum TerminalAttachmentDisposition: Equatable, Sendable {
+  case active
+  case exited
+  case reconnectRequired
+}
+
+func terminalAttachmentDisposition(
+  didExit: Bool,
+  connectionClosed: Bool
+) -> TerminalAttachmentDisposition {
+  if didExit { return .exited }
+  if connectionClosed { return .reconnectRequired }
+  return .active
+}
+
 @MainActor
 @Observable
 final class NativeTerminalModel {
-  private static let maxRenderBatchesPerPass = 4
+  private static let maxRenderBatchesPerPass = 1
 
   let terminalID: String
   private(set) var errorMessage = ""
@@ -45,6 +60,7 @@ final class NativeTerminalModel {
   private(set) var didExit = false
 
   @ObservationIgnored private let service: FrontendService
+  @ObservationIgnored private let localization: Localization
   @ObservationIgnored private var handle: TerminalHandle?
   @ObservationIgnored private var updateTask: Task<Void, Never>?
   @ObservationIgnored private var inputTask: Task<Void, Never>?
@@ -77,10 +93,12 @@ final class NativeTerminalModel {
   init(
     terminalID: String,
     service: FrontendService,
-    runtime: NativeGhosttyRuntime?
+    runtime: NativeGhosttyRuntime?,
+    localization: Localization = .fallback
   ) {
     self.terminalID = terminalID
     self.service = service
+    self.localization = localization
     let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(256))
     let inputDrops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     inputStream = input.stream
@@ -91,7 +109,11 @@ final class NativeTerminalModel {
       continuation: input.continuation,
       dropContinuation: inputDrops.continuation
     )
-    surfaceView = GhosttyRemoteSurfaceView(runtime: runtime, inputRelay: inputRelay)
+    surfaceView = GhosttyRemoteSurfaceView(
+      runtime: runtime,
+      inputRelay: inputRelay,
+      localization: localization
+    )
     surfaceView.onGeometryChanged = { [weak self] geometry in
       self?.resize(geometry)
     }
@@ -102,6 +124,7 @@ final class NativeTerminalModel {
     didStart = true
     errorMessage = ""
     beginInputOverloadReporting()
+    beginInputDelivery()
     attachTask = Task { [weak self] in
       guard let self else { return }
       do {
@@ -121,12 +144,11 @@ final class NativeTerminalModel {
           await handle.shutdown()
           return
         }
-        beginInputDelivery(to: handle)
         beginUpdates(from: handle)
         requestRenderDrain(from: handle)
       } catch {
         if !isShuttingDown { didStart = false }
-        errorMessage = L10n.text(
+        errorMessage = localization.text(
           "error.terminal_attach",
           "The terminal could not be attached."
         )
@@ -136,7 +158,7 @@ final class NativeTerminalModel {
   }
 
   private func beginInputOverloadReporting() {
-    inputDropTask?.cancel()
+    guard inputDropTask == nil else { return }
     let stream = inputDropStream
     inputDropTask = Task { [weak self] in
       for await _ in stream {
@@ -146,15 +168,18 @@ final class NativeTerminalModel {
     }
   }
 
-  private func beginInputDelivery(to handle: TerminalHandle) {
-    inputTask?.cancel()
+  private func beginInputDelivery() {
+    guard inputTask == nil else { return }
     let stream = inputStream
     inputTask = Task { [weak self] in
       for await input in stream {
-        guard !Task.isCancelled else { break }
+        guard !Task.isCancelled, let self, !isShuttingDown else { return }
+        guard let handle, isAttached else { continue }
         let accepted = await handle.submit(input)
-        guard let self, !isShuttingDown else { return }
-        let rejected = L10n.text(
+        guard !Task.isCancelled, !isShuttingDown,
+          let activeHandle = self.handle, activeHandle === handle
+        else { continue }
+        let rejected = localization.text(
           "error.terminal_input_rejected",
           "Terminal input was rejected."
         )
@@ -197,17 +222,64 @@ final class NativeTerminalModel {
         drainRequested = false
         let batch = await handle.drainRenderEvents()
         guard !Task.isCancelled, !isShuttingDown else { return }
-        for event in batch.events { surfaceView.apply(event) }
+        if batch.overflowed {
+          await failAttachment(
+            handle,
+            message: localization.text(
+              "error.terminal_render_limit",
+              "Terminal output exceeded the safe display limit. Select Retry."
+            )
+          )
+          return
+        }
+        for event in batch.events {
+          guard !Task.isCancelled, !isShuttingDown else { return }
+          surfaceView.apply(event)
+          await Task.yield()
+        }
         if let rendererError = surfaceView.initializationError {
-          errorMessage = rendererError
+          await failAttachment(handle, message: rendererError)
+          return
         }
         let nextDidExit = await handle.hasExited()
         if didExit != nextDidExit { didExit = nextDidExit }
+        let connectionClosed = await handle.isClosed()
+        if terminalAttachmentDisposition(
+          didExit: nextDidExit,
+          connectionClosed: connectionClosed
+        ) == .reconnectRequired {
+          await failAttachment(
+            handle,
+            message: localization.text(
+              "error.terminal_connection_stopped",
+              "The terminal connection stopped. Select Retry."
+            )
+          )
+          return
+        }
         guard !Task.isCancelled, !isShuttingDown else { return }
         if batch.hasMore { drainRequested = true }
         if !drainRequested { return }
       }
     }
+  }
+
+  private func failAttachment(_ handle: TerminalHandle, message: String) async {
+    let workers = [updateTask, resizeTask].compactMap { $0 }
+    for worker in workers { worker.cancel() }
+    updateTask = nil
+    resizeTask = nil
+    drainRequested = false
+    self.handle = nil
+    isAttached = false
+    didStart = false
+    didExit = false
+    inputErrorMessage = nil
+    resizeQueue = NewestResizeQueue()
+    errorMessage = ""
+    await handle.shutdown()
+    for worker in workers { await worker.value }
+    errorMessage = message
   }
 
   func submit(_ input: TerminalInput) {
@@ -218,7 +290,7 @@ final class NativeTerminalModel {
   }
 
   private func reportInputOverload() {
-    let message = L10n.text(
+    let message = localization.text(
       "error.terminal_input_overloaded",
       "Terminal input is busy; try again."
     )
@@ -238,7 +310,7 @@ final class NativeTerminalModel {
         let accepted = await handle.resize(cols: next.cols, rows: next.rows)
         guard !Task.isCancelled else { return }
         if !accepted, resizeQueue.pending == nil, !isShuttingDown {
-          errorMessage = L10n.text(
+          errorMessage = localization.text(
             "error.terminal_resize_rejected",
             "Terminal resize was rejected."
           )

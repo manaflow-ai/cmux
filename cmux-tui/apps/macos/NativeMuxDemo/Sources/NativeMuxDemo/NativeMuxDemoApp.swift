@@ -4,16 +4,20 @@ import SwiftUI
 @MainActor
 final class NativeMuxDemoAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let model: FrontendModel
+    let localization: Localization
     private(set) var window: NSWindow?
     private var terminationRequested = false
 
     override init() {
-        model = FrontendModel()
+        let localization = Localization(bundle: .main, locale: .current)
+        self.localization = localization
+        model = FrontendModel(localization: localization)
         super.init()
     }
 
     init(model: FrontendModel) {
         self.model = model
+        localization = model.localization
         super.init()
     }
 
@@ -22,6 +26,7 @@ final class NativeMuxDemoAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
 
         let content = NSHostingController(
             rootView: RootView(model: model)
+                .environment(\.localization, localization)
                 .frame(minWidth: 720, minHeight: 520)
         )
         let window = NSWindow(
@@ -30,7 +35,7 @@ final class NativeMuxDemoAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             backing: .buffered,
             defer: false
         )
-        window.title = L10n.text("app.title", "cmux Native Frontend")
+        window.title = localization.text("app.title", "cmux Native Frontend")
         window.contentViewController = content
         window.minSize = NSSize(width: 720, height: 520)
         window.isReleasedWhenClosed = false

@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import Observation
 
@@ -19,14 +20,116 @@ struct DemoLaunchConfiguration: Sendable {
     }
 }
 
+func uniqueFrontendIdentity(_ identities: [ResourceIdentity]) -> ResourceIdentity? {
+    identities.count == 1 ? identities[0] : nil
+}
+
+struct FrontendResourceGeneration: Sendable {
+    private(set) var value: UInt64 = 0
+
+    var token: UInt64 { value }
+
+    mutating func advance() {
+        value &+= 1
+    }
+
+    func matches(_ token: UInt64) -> Bool {
+        value == token
+    }
+}
+
+struct FrontendRecoveryPolicy: Sendable {
+    let maximumAttempts: Int
+    let initialBackoffNanoseconds: UInt64
+    let stableWindowNanoseconds: UInt64
+
+    init(
+        maximumAttempts: Int,
+        initialBackoffNanoseconds: UInt64,
+        stableWindowNanoseconds: UInt64 = 30_000_000_000
+    ) {
+        self.maximumAttempts = maximumAttempts
+        self.initialBackoffNanoseconds = initialBackoffNanoseconds
+        self.stableWindowNanoseconds = stableWindowNanoseconds
+    }
+
+    static let standard = FrontendRecoveryPolicy(
+        maximumAttempts: 3,
+        initialBackoffNanoseconds: 100_000_000
+    )
+
+    func backoffNanoseconds(afterFailedAttempt attempt: Int) -> UInt64 {
+        let shift = min(max(0, attempt), 2)
+        return initialBackoffNanoseconds << shift
+    }
+
+    func backoffNanoseconds(forRecoveryAttempt attempt: Int) -> UInt64? {
+        guard attempt < max(1, maximumAttempts) else { return nil }
+        return backoffNanoseconds(afterFailedAttempt: attempt)
+    }
+}
+
+typealias FrontendRecoveryDelay = @Sendable (UInt64) async throws -> Void
+typealias FrontendRecoveryNow = @Sendable () -> UInt64
+
+struct FrontendRecoveryTracker: Sendable {
+    private(set) var attempts = 0
+    private var repairedAt: UInt64?
+
+    mutating func recordAttempt() {
+        attempts += 1
+        repairedAt = nil
+    }
+
+    mutating func recordSuccessfulRepair(at now: UInt64) {
+        repairedAt = now
+    }
+
+    mutating func resetIfStable(now: UInt64, stableWindowNanoseconds: UInt64) {
+        guard let repairedAt, now >= repairedAt,
+            now - repairedAt >= stableWindowNanoseconds
+        else { return }
+        attempts = 0
+        self.repairedAt = nil
+    }
+}
+
+func appendingTransportDiagnostic(
+    _ diagnostic: String,
+    to entries: [String],
+    maximumEntries: Int = 8,
+    maximumCharacters: Int = 2_048
+) -> [String] {
+    let diagnostic = diagnostic.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !diagnostic.isEmpty else {
+        return Array(entries.suffix(max(1, maximumEntries)))
+    }
+    let bounded = String(diagnostic.suffix(max(1, maximumCharacters)))
+    var next = entries.filter { $0 != bounded }
+    next.append(bounded)
+    return Array(next.suffix(max(1, maximumEntries)))
+}
+
+struct FrontendResourceStream: Sendable, Equatable {
+    let id: String
+
+    func cancellationParameters(machineID: String, sessionID: String) -> [String: JSONValue] {
+        [
+            "machine": .string(machineID),
+            "session": .string(sessionID),
+            "stream": .string(id),
+        ]
+    }
+}
+
 @MainActor
-@Observable
 final class TerminalTitleOwner {
     let terminalID: String
     private(set) var title: String
 
-    @ObservationIgnored private var pendingTitle: String?
-    @ObservationIgnored private var deliveryTask: Task<Void, Never>?
+    private var pendingTitle: String?
+    private var deliveryTask: Task<Void, Never>?
+    private var subscribers: [UUID: AsyncStream<String>.Continuation] = [:]
 
     init(terminalID: String, title: String) {
         self.terminalID = terminalID
@@ -42,7 +145,10 @@ final class TerminalTitleOwner {
             let latest = pendingTitle
             pendingTitle = nil
             deliveryTask = nil
-            if let latest, latest != title { title = latest }
+            if let latest, latest != title {
+                title = latest
+                publish(latest)
+            }
             if pendingTitle != nil { submit(pendingTitle ?? title) }
         }
     }
@@ -51,32 +157,59 @@ final class TerminalTitleOwner {
         deliveryTask?.cancel()
         deliveryTask = nil
         pendingTitle = nil
-        if title != nextTitle { title = nextTitle }
+        if title != nextTitle {
+            title = nextTitle
+            publish(nextTitle)
+        }
+    }
+
+    func subscribe() -> TerminalTitleSubscription {
+        let id = UUID()
+        let pair = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        subscribers[id] = pair.continuation
+        pair.continuation.onTermination = { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in self?.subscribers[id] = nil }
+        }
+        return TerminalTitleSubscription(current: title, updates: pair.stream)
+    }
+
+    private func publish(_ nextTitle: String) {
+        for continuation in subscribers.values { continuation.yield(nextTitle) }
     }
 
     func cancel() {
         deliveryTask?.cancel()
         deliveryTask = nil
         pendingTitle = nil
+        for continuation in subscribers.values { continuation.finish() }
+        subscribers.removeAll()
     }
+}
+
+struct TerminalTitleSubscription: Sendable {
+    let current: String
+    let updates: AsyncStream<String>
 }
 
 @MainActor
 struct TerminalTitleFn {
-    private let titles: [String: String]
+    private let owners: [String: TerminalTitleOwner]
 
     init(owners: [String: TerminalTitleOwner]) {
-        titles = owners.mapValues(\.title)
+        self.owners = owners
     }
 
-    func callAsFunction(_ terminalID: String) -> String? {
-        titles[terminalID]
+    func callAsFunction(_ terminalID: String) -> TerminalTitleSubscription? {
+        owners[terminalID]?.subscribe()
     }
 }
 
 @MainActor
 @Observable
 final class FrontendModel {
+    private static let maximumPendingMutations = 16
+
+    let localization: Localization
     var invitation: String
     private(set) var snapshot: ResourceSnapshot?
     private(set) var isConnecting = false
@@ -84,15 +217,15 @@ final class FrontendModel {
     private(set) var transportDiagnostics = ""
     private(set) var selectedWorkspaceID: String?
     private(set) var selectedScreenID: String?
-
     @ObservationIgnored private var service: FrontendService?
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
-    @ObservationIgnored private var refreshRequested = false
     @ObservationIgnored private var terminalControllers: [String: NativeTerminalModel] = [:]
     @ObservationIgnored private var terminalTitles: [String: TerminalTitleOwner] = [:]
     @ObservationIgnored private var terminalRetirementTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var mutationTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var replaceableMutationIDs: [String: UUID] = [:]
     @ObservationIgnored private lazy var ghosttyRuntime = NativeGhosttyRuntime()
     @ObservationIgnored private let shouldAutoConnect: Bool
     @ObservationIgnored private var didAutoConnect = false
@@ -101,12 +234,33 @@ final class FrontendModel {
     @ObservationIgnored private var sessionID: String?
     @ObservationIgnored private var resourceRevision: String?
     @ObservationIgnored private var resourceState: ResourceSnapshot?
+    @ObservationIgnored private var resourceGeneration = FrontendResourceGeneration()
     @ObservationIgnored private let resourceDecoder = FrontendResourceDecoder()
     @ObservationIgnored private var focusMutations = FocusMutationTracker()
+    @ObservationIgnored private var transportDiagnosticEntries: [String] = []
+    @ObservationIgnored private let recoveryPolicy: FrontendRecoveryPolicy
+    @ObservationIgnored private let recoveryDelay: FrontendRecoveryDelay
+    @ObservationIgnored private let recoveryNow: FrontendRecoveryNow
 
-    init(configuration: DemoLaunchConfiguration = .processEnvironment()) {
+    init(
+        configuration: DemoLaunchConfiguration = .processEnvironment(),
+        localization: Localization = .fallback,
+        recoveryPolicy: FrontendRecoveryPolicy = .standard,
+        recoveryDelay: @escaping FrontendRecoveryDelay = { nanoseconds in
+            try await ContinuousClock().sleep(
+                for: .nanoseconds(Int64(clamping: nanoseconds))
+            )
+        },
+        recoveryNow: @escaping FrontendRecoveryNow = {
+            DispatchTime.now().uptimeNanoseconds
+        }
+    ) {
+        self.localization = localization
         invitation = configuration.invitation
         shouldAutoConnect = configuration.autoConnect
+        self.recoveryPolicy = recoveryPolicy
+        self.recoveryDelay = recoveryDelay
+        self.recoveryNow = recoveryNow
     }
 
     var isConnected: Bool { service != nil && snapshot != nil }
@@ -136,7 +290,7 @@ final class FrontendModel {
         guard !isConnecting, !isShuttingDown else { return }
         let invitation = invitation.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !invitation.isEmpty else {
-            errorMessage = L10n.text(
+            errorMessage = localization.text(
                 "connection.invitation.required",
                 "Enter an enrollment invitation."
             )
@@ -147,7 +301,10 @@ final class FrontendModel {
         connectTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let service = try await FrontendService.connect(invitation: invitation)
+                let service = try await FrontendService.connect(
+                    invitation: invitation,
+                    localization: localization
+                )
                 guard !isShuttingDown else {
                     await service.shutdown()
                     return
@@ -157,26 +314,33 @@ final class FrontendModel {
                     "machine.list",
                     params: [:]
                 )
-                guard let machine = machines.first else {
-                    throw FrontendServiceError.message(
-                        L10n.text("error.no_machine", "The daemon reported no machine.")
+                guard let machine = uniqueFrontendIdentity(machines) else {
+                    throw FrontendServiceError.localized(
+                        localization.text(
+                            "error.no_machine",
+                            "The daemon did not identify exactly one machine."
+                        )
                     )
                 }
                 let sessions: [ResourceIdentity] = try await service.request(
                     "session.list",
                     params: ["machine": .string(machine.id)]
                 )
-                guard let session = sessions.first else {
-                    throw FrontendServiceError.message(
-                        L10n.text("error.no_session", "The daemon reported no session.")
+                guard let session = uniqueFrontendIdentity(sessions) else {
+                    throw FrontendServiceError.localized(
+                        localization.text(
+                            "error.no_session",
+                            "The daemon did not identify exactly one session."
+                        )
                     )
                 }
                 machineID = machine.id
                 sessionID = session.id
                 try await refreshNow()
                 let updates = await service.updates()
+                let resourceStream: FrontendResourceStream
                 do {
-                    try await openResourceStream(
+                    resourceStream = try await openResourceStream(
                         service: service,
                         machineID: machine.id,
                         sessionID: session.id
@@ -185,8 +349,16 @@ final class FrontendModel {
                     await service.stopUpdates(generation: updates.generation)
                     throw error
                 }
-                beginResourceUpdates(service: service, initialUpdates: updates)
-                transportDiagnostics = await service.diagnostics()
+                beginResourceUpdates(
+                    service: service,
+                    initialUpdates: updates,
+                    initialStream: resourceStream
+                )
+                transportDiagnosticEntries = appendingTransportDiagnostic(
+                    await service.diagnostics(),
+                    to: []
+                )
+                transportDiagnostics = transportDiagnosticEntries.joined(separator: "\n")
                 isConnecting = false
             } catch {
                 await disconnectAfterFailure(error)
@@ -198,16 +370,20 @@ final class FrontendModel {
     private func disconnectAfterFailure(_ error: any Error) async {
         updatesTask?.cancel()
         refreshTask?.cancel()
-        refreshRequested = false
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
+        let mutations = Array(mutationTasks.values)
+        for mutation in mutations { mutation.cancel() }
         terminalControllers.removeAll()
         terminalTitles.removeAll()
         terminalRetirementTasks.removeAll()
+        mutationTasks.removeAll()
+        replaceableMutationIDs.removeAll()
         snapshot = nil
         resourceRevision = nil
         resourceState = nil
+        resourceGeneration.advance()
         machineID = nil
         sessionID = nil
         focusMutations = FocusMutationTracker()
@@ -220,10 +396,26 @@ final class FrontendModel {
         for retirement in retirements {
             await retirement.value
         }
+        for mutation in mutations {
+            await mutation.value
+        }
         if let owned {
             await owned.shutdown()
         }
         isConnecting = false
+        recordAndPresent(error)
+    }
+
+    private func recordAndPresent(_ error: any Error) {
+        if let diagnostic = (error as? FrontendServiceError)?.diagnosticDescription,
+           !diagnostic.isEmpty
+        {
+            transportDiagnosticEntries = appendingTransportDiagnostic(
+                diagnostic,
+                to: transportDiagnosticEntries
+            )
+            transportDiagnostics = transportDiagnosticEntries.joined(separator: "\n")
+        }
         errorMessage = error.localizedDescription
     }
 
@@ -231,7 +423,7 @@ final class FrontendModel {
         service: FrontendService,
         machineID: String,
         sessionID: String
-    ) async throws {
+    ) async throws -> FrontendResourceStream {
         let streamID = "stream_" + UUID().uuidString
             .replacingOccurrences(of: "-", with: "")
             .lowercased()
@@ -243,27 +435,49 @@ final class FrontendModel {
                 "stream_id": .string(streamID),
             ]
         )
+        return FrontendResourceStream(id: streamID)
+    }
+
+    private func cancelResourceStream(
+        service: FrontendService,
+        machineID: String,
+        sessionID: String,
+        stream: FrontendResourceStream
+    ) async throws {
+        try await service.requestDiscardingResult(
+            "stream.cancel",
+            params: stream.cancellationParameters(
+                machineID: machineID,
+                sessionID: sessionID
+            )
+        )
     }
 
     private func beginResourceUpdates(
         service: FrontendService,
-        initialUpdates: FrontendUpdateSubscription
+        initialUpdates: FrontendUpdateSubscription,
+        initialStream: FrontendResourceStream
     ) {
         updatesTask?.cancel()
         updatesTask = Task { [weak self] in
             var updates = initialUpdates
+            var resourceStream = initialStream
+            var recovery = FrontendRecoveryTracker()
             while !Task.isCancelled {
                 var endReason = FrontendResourceStreamEndReason.none
+                var recoveryNeeded = false
                 for await _ in updates.stream {
                     guard !Task.isCancelled else { break }
                     guard let self else { continue }
                     let batch = await service.drainResourceUpdates()
                     if batch.overflowed {
-                        self.scheduleRefresh()
+                        recoveryNeeded = true
+                        break
                     } else if !batch.envelopes.isEmpty {
                         let events = await self.resourceDecoder.decode(batch.envelopes)
                         if events == nil || self.applyResourceEvents(events ?? []) == false {
-                            self.scheduleRefresh()
+                            recoveryNeeded = true
+                            break
                         }
                     }
                     if batch.ended {
@@ -273,9 +487,9 @@ final class FrontendModel {
                 }
                 await service.stopUpdates(generation: updates.generation)
                 guard !Task.isCancelled, let self else { return }
-                guard endReason == .gap else {
+                guard recoveryNeeded || endReason == .gap else {
                     await self.disconnectAfterFailure(
-                        FrontendServiceError.message(L10n.text(
+                        FrontendServiceError.localized(localization.text(
                             "error.session_event_stream_ended",
                             "The session event stream ended."
                         ))
@@ -283,31 +497,88 @@ final class FrontendModel {
                     return
                 }
                 do {
-                    refreshRequested = false
-                    let pendingRefresh = refreshTask
-                    pendingRefresh?.cancel()
-                    await pendingRefresh?.value
-                    try await self.refreshNow()
+                    recovery.resetIfStable(
+                        now: recoveryNow(),
+                        stableWindowNanoseconds: recoveryPolicy.stableWindowNanoseconds
+                    )
+                    guard let delay = recoveryPolicy.backoffNanoseconds(
+                        forRecoveryAttempt: recovery.attempts
+                    ) else {
+                        throw FrontendServiceError.localized(localization.text(
+                            "error.session_event_recovery_limit",
+                            "The session update stream could not recover. Reconnect to try again."
+                        ))
+                    }
+                    recovery.recordAttempt()
+                    try await recoveryDelay(delay)
                     guard let machineID = self.machineID, let sessionID = self.sessionID else {
                         return
                     }
-                    updates = await service.updates()
-                    do {
-                        try await self.openResourceStream(
-                            service: service,
-                            machineID: machineID,
-                            sessionID: sessionID
-                        )
-                    } catch {
-                        await service.stopUpdates(generation: updates.generation)
-                        throw error
-                    }
+                    let recovered = try await self.recoverResourceStream(
+                        service: service,
+                        machineID: machineID,
+                        sessionID: sessionID,
+                        currentStream: resourceStream
+                    )
+                    updates = recovered.updates
+                    resourceStream = recovered.stream
+                    recovery.recordSuccessfulRepair(at: recoveryNow())
                 } catch {
                     await self.disconnectAfterFailure(error)
                     return
                 }
             }
         }
+    }
+
+    private func recoverResourceStream(
+        service: FrontendService,
+        machineID: String,
+        sessionID: String,
+        currentStream: FrontendResourceStream
+    ) async throws -> (updates: FrontendUpdateSubscription, stream: FrontendResourceStream) {
+        try await cancelResourceStream(
+            service: service,
+            machineID: machineID,
+            sessionID: sessionID,
+            stream: currentStream
+        )
+        let pendingRefresh = refreshTask
+        pendingRefresh?.cancel()
+        await pendingRefresh?.value
+        await service.discardResourceUpdates()
+
+        let attempts = max(1, recoveryPolicy.maximumAttempts)
+        var lastError: (any Error)?
+        for attempt in 0..<attempts {
+            try Task.checkCancellation()
+            do {
+                try await refreshNow()
+                let nextUpdates = await service.updates()
+                do {
+                    let nextStream = try await openResourceStream(
+                        service: service,
+                        machineID: machineID,
+                        sessionID: sessionID
+                    )
+                    return (nextUpdates, nextStream)
+                } catch {
+                    await service.stopUpdates(generation: nextUpdates.generation)
+                    throw error
+                }
+            } catch {
+                lastError = error
+            }
+            if attempt + 1 < attempts {
+                try await recoveryDelay(
+                    recoveryPolicy.backoffNanoseconds(afterFailedAttempt: attempt)
+                )
+            }
+        }
+        throw lastError ?? FrontendServiceError.localized(localization.text(
+            "error.session_event_stream_ended",
+            "The session event stream ended."
+        ))
     }
 
     private func applyResourceEvents(_ events: [FrontendResourceEvent]) -> Bool {
@@ -349,6 +620,7 @@ final class FrontendModel {
         }
 
         guard let nextState, let nextRevision else { return false }
+        resourceGeneration.advance()
         resourceState = nextState
         resourceRevision = nextRevision
         if impact.contains(.presentation) {
@@ -367,33 +639,32 @@ final class FrontendModel {
     }
 
     private func scheduleRefresh() {
-        refreshRequested = true
         guard refreshTask == nil else { return }
         refreshTask = Task { [weak self] in
             defer { self?.refreshTask = nil }
             guard let self, !Task.isCancelled else { return }
-            while refreshRequested, !Task.isCancelled {
-                refreshRequested = false
-                do {
-                    try await refreshNow()
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
+            do {
+                try await refreshNow()
+            } catch {
+                recordAndPresent(error)
             }
         }
     }
 
     private func refreshNow() async throws {
         guard let service, let machineID, let sessionID else { return }
+        let generation = resourceGeneration.token
         let next = try await fetchSnapshot(
             service: service,
             machineID: machineID,
             sessionID: sessionID
         )
+        guard resourceGeneration.matches(generation) else { return }
         applySnapshot(next)
     }
 
     private func applySnapshot(_ next: ResourceSnapshot) {
+        resourceGeneration.advance()
         resourceState = next
         snapshot = next
         resourceRevision = next.cursor.revision
@@ -437,7 +708,7 @@ final class FrontendModel {
                   let screenID = selectedScreenID,
                   let screen = next.screens.first(where: {
                       $0.id == screenID && $0.workspaceID == workspaceID
-                  }) else { return [] }
+                  }) else { return [:] }
             return next.visibleTerminalPlacements(in: screen)
         }()
         let removed = terminalControllers.compactMap { paneID, controller in
@@ -453,7 +724,8 @@ final class FrontendModel {
             let controller = NativeTerminalModel(
                 terminalID: terminalID,
                 service: service,
-                runtime: ghosttyRuntime
+                runtime: ghosttyRuntime,
+                localization: localization
             )
             terminalControllers[paneID] = controller
             controller.attach()
@@ -526,10 +798,11 @@ final class FrontendModel {
         selectedWorkspaceID = workspaceID
         selectedScreenID = screenID
         if let snapshot { reconcileTerminalControllers(snapshot) }
-        mutate(
+        let enqueued = mutate(
             operation,
             selectors: selectors,
             onSuccess: { await self.reconcileFocusMutation(requestID) },
+            onIndeterminate: { _ = self.focusMutations.finish(requestID) },
             onFailure: {
                 guard let rollback = self.focusMutations.rollback(requestID) else { return false }
                 self.selectedWorkspaceID = rollback.workspaceID
@@ -541,6 +814,11 @@ final class FrontendModel {
                 return true
             }
         )
+        if !enqueued, let rollback = focusMutations.rollback(requestID) {
+            selectedWorkspaceID = rollback.workspaceID
+            selectedScreenID = rollback.screenID
+            if let snapshot { reconcileTerminalControllers(snapshot) }
+        }
     }
 
     private func reconcileFocusMutation(_ requestID: UInt64) async {
@@ -548,6 +826,7 @@ final class FrontendModel {
               let service,
               let machineID,
               let sessionID else { return }
+        let generation = resourceGeneration.token
         do {
             let next = try await fetchSnapshot(
                 service: service,
@@ -555,6 +834,10 @@ final class FrontendModel {
                 sessionID: sessionID
             )
             guard focusMutations.owns(requestID) else { return }
+            guard resourceGeneration.matches(generation) else {
+                _ = focusMutations.finish(requestID)
+                return
+            }
             selectedWorkspaceID = next.workspaces.first { $0.focused }?.id
                 ?? next.workspaces.first?.id
             if let selectedWorkspaceID {
@@ -567,7 +850,7 @@ final class FrontendModel {
             applySnapshot(next)
         } catch {
             guard focusMutations.finish(requestID) else { return }
-            errorMessage = error.localizedDescription
+            recordAndPresent(error)
             scheduleRefresh()
         }
     }
@@ -577,7 +860,7 @@ final class FrontendModel {
             "workspace.create",
             selectors: [:],
             fields: [
-                "name": .string(L10n.text("workspace.default_name", "workspace")),
+                "name": .string(localization.text("workspace.default_name", "workspace")),
                 "initial_content": .string("terminal"),
             ]
         )
@@ -593,7 +876,7 @@ final class FrontendModel {
             "screen.create",
             selectors: ["workspace": workspace.id],
             fields: [
-                "name": .string(L10n.format(
+                "name": .string(localization.format(
                     "space.default_name",
                     "space %d",
                     (snapshot?.screens(in: workspace.id).count ?? 0) + 1
@@ -763,21 +1046,42 @@ final class FrontendModel {
         )
     }
 
+    @discardableResult
     private func mutate(
         _ operation: String,
         selectors: [String: String],
         fields: [String: JSONValue] = [:],
         onSuccess: (() async -> Void)? = nil,
+        onIndeterminate: (() -> Void)? = nil,
         onFailure: (() -> Bool)? = nil
-    ) {
-        guard let service, let machineID, let sessionID else { return }
+    ) -> Bool {
+        guard let service, let machineID, let sessionID else { return false }
         var params: [String: JSONValue] = [
             "machine": .string(machineID),
             "session": .string(sessionID),
         ]
         for (key, value) in selectors { params[key] = .string(value) }
         for (key, value) in fields { params[key] = value }
-        Task {
+
+        let replacementKey = mutationReplacementKey(operation, selectors: selectors)
+        guard mutationTasks.count < Self.maximumPendingMutations else {
+            errorMessage = localization.text(
+                "error.too_many_changes",
+                "Too many changes are waiting. Try again after they finish."
+            )
+            return false
+        }
+        if let replacementKey,
+           let replacedID = replaceableMutationIDs[replacementKey],
+           let replaced = mutationTasks[replacedID] {
+            replaceableMutationIDs[replacementKey] = nil
+            replaced.cancel()
+        }
+
+        let mutationID = UUID()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { finishMutation(mutationID, replacementKey: replacementKey) }
             do {
                 try await service.requestDiscardingResult(
                     operation,
@@ -789,11 +1093,44 @@ final class FrontendModel {
                 } else {
                     scheduleRefresh()
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                if let serviceError = error as? FrontendServiceError,
+                   serviceError.requiresAuthoritativeReconciliation {
+                    onIndeterminate?()
+                    scheduleRefresh()
+                    recordAndPresent(serviceError)
+                    return
+                }
                 if onFailure?() ?? true {
-                    errorMessage = error.localizedDescription
+                    recordAndPresent(error)
                 }
             }
+        }
+        mutationTasks[mutationID] = task
+        if let replacementKey { replaceableMutationIDs[replacementKey] = mutationID }
+        return true
+    }
+
+    private func mutationReplacementKey(
+        _ operation: String,
+        selectors: [String: String]
+    ) -> String? {
+        switch operation {
+        case "workspace.focus", "screen.focus", "pane.focus", "tab.focus":
+            return "focus"
+        case "pane.split_ratio.set", "pane.viewport_width.set":
+            return selectors["pane"].map { "\(operation):\($0)" }
+        default:
+            return nil
+        }
+    }
+
+    private func finishMutation(_ id: UUID, replacementKey: String?) {
+        mutationTasks[id] = nil
+        if let replacementKey, replaceableMutationIDs[replacementKey] == id {
+            replaceableMutationIDs[replacementKey] = nil
         }
     }
 
@@ -810,27 +1147,38 @@ final class FrontendModel {
     func shutdownAndWait() async {
         guard !isShuttingDown else { return }
         isShuttingDown = true
-        connectTask?.cancel()
+        let connection = connectTask
+        connectTask = nil
+        connection?.cancel()
         updatesTask?.cancel()
         refreshTask?.cancel()
-        refreshRequested = false
         focusMutations = FocusMutationTracker()
+        await connection?.value
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
+        let mutations = Array(mutationTasks.values)
+        for mutation in mutations { mutation.cancel() }
         terminalControllers.removeAll()
         terminalTitles.removeAll()
         terminalRetirementTasks.removeAll()
+        mutationTasks.removeAll()
+        replaceableMutationIDs.removeAll()
         let ownedService = service
         service = nil
         snapshot = nil
         resourceRevision = nil
+        resourceState = nil
+        resourceGeneration.advance()
         for controller in controllers {
             await controller.shutdownAndWait()
         }
         for title in titles { title.cancel() }
         for retirement in retirements {
             await retirement.value
+        }
+        for mutation in mutations {
+            await mutation.value
         }
         await ownedService?.shutdown()
     }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct BrowserSurfaceView: View {
+    @Environment(\.localization) private var localization
     let browser: BrowserSnapshot
 
     var body: some View {
@@ -27,23 +28,23 @@ struct BrowserSurfaceView: View {
             {
                 ContentUnavailableView {
                     Label(
-                        L10n.text("browser.remote_content", "Remote browser content"),
+                        localization.text("browser.remote_content", "Remote browser content"),
                         systemImage: "network"
                     )
                 } description: {
-                    Text(L10n.text(
+                    Text(localization.text(
                         "browser.manual_load",
                         "This tab does not load remote content until you open it."
                     ))
                 } actions: {
                     Link(destination: url) {
-                        Text(L10n.text("browser.open_external", "Open in Browser"))
+                        Text(localization.text("browser.open_external", "Open in Browser"))
                     }
                     .buttonStyle(.borderedProminent)
                 }
             } else {
                 ContentUnavailableView(
-                    L10n.text("browser.invalid_url", "This browser tab has no valid URL."),
+                    localization.text("browser.invalid_url", "This browser tab has no valid URL."),
                     systemImage: "exclamationmark.triangle"
                 )
             }

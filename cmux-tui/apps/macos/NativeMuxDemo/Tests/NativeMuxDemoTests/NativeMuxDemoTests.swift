@@ -5,6 +5,8 @@ import Foundation
 import Testing
 @testable import NativeMuxDemo
 
+private let testLocalization = Localization.fallback
+
 private final class EventLog: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String] = []
@@ -34,6 +36,31 @@ private func nativeResetPayload() -> Data {
     payload.append(contentsOf: UInt32(77).littleEndianBytes)
     payload.append(contentsOf: Data("abc".utf8))
     return payload
+}
+
+@Test
+func decodesAnUnplacedExitedTerminal() throws {
+    let data = Data(
+        #"""
+        {
+          "machine":{"id":"machine_11111111111111111111111111111111"},
+          "session":{"id":"session_22222222222222222222222222222222","name":"demo"},
+          "workspaces":[],"screens":[],"panes":[],"tabs":[],
+          "terminals":[{
+            "id":"term_88888888888888888888888888888888",
+            "tab_id":null,"title":"","cols":80,"rows":24,
+            "running":false,"lifecycle":"exited"
+          }],
+          "browsers":[],
+          "cursor":{"generation":"g","revision":"9"}
+        }
+        """#.utf8
+    )
+
+    let snapshot = try JSONDecoder().decode(ResourceSnapshot.self, from: data)
+    let terminal = try #require(snapshot.terminals.first)
+    #expect(terminal.tabID == nil)
+    #expect(terminal.lifecycle == "exited")
 }
 
 @Test
@@ -83,7 +110,7 @@ func decodesEveryNativeLayoutShape() async throws {
     #expect(snapshot.screenCount(in: "ws_33333333333333333333333333333333") == 1)
     #expect(snapshot.screenCount(in: "ws_missing") == 0)
     #expect(snapshot.screens.first?.layout.root.paneIDs.count == 2)
-    guard case .viewport(let baseWidth, _, let columns) = snapshot.screens[0].layout.root else {
+    guard case .viewport(let baseWidth, let columns) = snapshot.screens[0].layout.root else {
         Issue.record("viewport root was not decoded")
         return
     }
@@ -126,7 +153,8 @@ func decodesEveryNativeLayoutShape() async throws {
     var sawTitle = false
     var sawTopology = false
     for change in delta.changes {
-        switch try #require(snapshot.apply(change)) {
+        let appliedChange = snapshot.apply(change)
+        switch try #require(appliedChange) {
         case .terminalTitle(let id, let title):
             sawTitle = id == "term_88888888888888888888888888888888"
                 && title == "updated"
@@ -139,8 +167,42 @@ func decodesEveryNativeLayoutShape() async throws {
     snapshot.setRevision(delta.revision)
     #expect(sawTitle)
     #expect(sawTopology)
-    #expect(snapshot.pane("pane_55555555555555555555555555555555")?.displayName == "renamed")
+    #expect(
+        snapshot.pane("pane_55555555555555555555555555555555")?
+            .displayName(localization: testLocalization) == "renamed"
+    )
     #expect(snapshot.cursor.revision == "9")
+}
+
+@Test
+func remoteIdentitySelectionFailsClosedUnlessExactlyOneItemExists() {
+    let first = ResourceIdentity(id: "machine-a", name: "A")
+    let second = ResourceIdentity(id: "machine-b", name: "B")
+
+    #expect(uniqueFrontendIdentity([]) == nil)
+    #expect(uniqueFrontendIdentity([first])?.id == first.id)
+    #expect(uniqueFrontendIdentity([first, second]) == nil)
+}
+
+@Test
+func remoteLayoutNumbersRejectCrashableAndOutOfProtocolValues() {
+    let unsafeColumn = Data(
+        #"{"column_id":"column-a","width":1e308,"root":{"kind":"leaf","pane_id":"pane-a","tab_ids":[],"active_tab_id":null}}"#.utf8
+    )
+    let unsafeSplit = Data(
+        #"{"kind":"split","split_id":"split-a","direction":"horizontal","ratio":1e308,"first":{"kind":"leaf","pane_id":"pane-a","tab_ids":[],"active_tab_id":null},"second":{"kind":"leaf","pane_id":"pane-b","tab_ids":[],"active_tab_id":null}}"#.utf8
+    )
+    let unsafeWorkspaceIndex = Data(
+        #"{"id":"workspace-a","name":"","index":4294967295,"focused":true}"#.utf8
+    )
+    let unsafeTabIndex = Data(
+        #"{"id":"tab-a","pane_id":"pane-a","name":null,"index":4294967295,"focused":true,"content_kind":"terminal","content_id":"terminal-a"}"#.utf8
+    )
+
+    #expect((try? JSONDecoder().decode(ViewportColumn.self, from: unsafeColumn)) == nil)
+    #expect((try? JSONDecoder().decode(LayoutNode.self, from: unsafeSplit)) == nil)
+    #expect((try? JSONDecoder().decode(WorkspaceSnapshot.self, from: unsafeWorkspaceIndex)) == nil)
+    #expect((try? JSONDecoder().decode(TabSnapshot.self, from: unsafeTabIndex)) == nil)
 }
 
 @Test
@@ -193,6 +255,30 @@ func terminalGeometryIsBoundedAndNonzero() {
 }
 
 @Test
+func markedTextRangesUseOneUTF16CoordinateSpace() {
+    let unavailable = NSRange(location: NSNotFound, length: 0)
+    let initial = MarkedTextRanges.updated(
+        textLength: ("かな" as NSString).length,
+        selectedRange: NSRange(location: 1, length: 1),
+        replacementRange: unavailable,
+        currentMarkedRange: unavailable,
+        fallbackSelection: NSRange(location: 0, length: 0)
+    )
+    #expect(initial.marked == NSRange(location: 0, length: 2))
+    #expect(initial.selected == NSRange(location: 1, length: 1))
+
+    let replaced = MarkedTextRanges.updated(
+        textLength: ("日本語" as NSString).length,
+        selectedRange: NSRange(location: 2, length: 1),
+        replacementRange: NSRange(location: 20, length: 2),
+        currentMarkedRange: initial.marked,
+        fallbackSelection: unavailable
+    )
+    #expect(replaced.marked == NSRange(location: 20, length: 3))
+    #expect(replaced.selected == NSRange(location: 22, length: 1))
+}
+
+@Test
 func terminalHandleFFIQueuePreservesFIFOAndDisconnectDrain() async {
     let executor = SerialFFIExecutor(label: "test.native-terminal.fifo")
     let started = AsyncStream<Void>.makeStream()
@@ -233,7 +319,7 @@ func terminalHandleFFIQueuePreservesFIFOAndDisconnectDrain() async {
 }
 
 @Test
-func canceledQueuedFFIOperationDoesNotExecute() async {
+func canceledQueuedFFIOperationDoesNotExecute() async throws {
     let executor = SerialFFIExecutor(label: "test.native-terminal.cancel")
     let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     let releaseFirst = DispatchSemaphore(value: 0)
@@ -250,7 +336,7 @@ func canceledQueuedFFIOperationDoesNotExecute() async {
     let operations = EventLog()
     let cancellation = FFICancellation {}
     let second = Task {
-        await executor.runCancellable(
+        try await executor.runCancellable(
             cancellation: cancellation,
             { operations.append("canceled"); return true },
             onEnqueued: { queued.continuation.yield() }
@@ -261,11 +347,135 @@ func canceledQueuedFFIOperationDoesNotExecute() async {
     releaseFirst.signal()
 
     _ = await first.value
-    let secondResult = await second.value
+    do {
+        _ = try await second.value
+        Issue.record("A canceled queued operation returned a value.")
+    } catch is CancellationError {
+    } catch {
+        Issue.record("A canceled queued operation returned an unexpected error: \(error)")
+    }
     firstStarted.continuation.finish()
     queued.continuation.finish()
-    #expect(secondResult == nil)
     #expect(operations.snapshot.isEmpty)
+}
+
+@Test
+func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async throws {
+    let executor = SerialFFIExecutor(
+        label: "test.native-terminal.queue-deadline",
+        timeoutScheduler: { _, action in Task { await action() } }
+    )
+    let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let first = Task {
+        await executor.run {
+            firstStarted.continuation.yield()
+            releaseFirst.wait()
+            return true
+        }
+    }
+    for await _ in firstStarted.stream { break }
+
+    let operations = EventLog()
+    let cancellation = FFICancellation { operations.append("cancel") }
+    do {
+        _ = try await executor.runCancellable(
+            cancellation: cancellation,
+            timeoutNanoseconds: 10_000_000
+        ) {
+            operations.append("execute")
+            return true
+        }
+        Issue.record("A timed-out queued operation returned a value.")
+    } catch SerialFFIExecutorError.timedOut {
+    } catch {
+        Issue.record("A timed-out queued operation returned an unexpected error: \(error)")
+    }
+
+    #expect(operations.snapshot == ["cancel"])
+    releaseFirst.signal()
+    _ = await first.value
+    firstStarted.continuation.finish()
+    #expect(operations.snapshot == ["cancel"])
+}
+
+@Test
+func completedFFIOperationCancelsPendingDeadline() async throws {
+    let deadlineHold = AsyncStream<Void>.makeStream()
+    let deadlineCancelled = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let executor = SerialFFIExecutor(
+        label: "test.native-terminal.completed-deadline",
+        timeoutScheduler: { _, _ in
+            Task {
+                await withTaskCancellationHandler {
+                    for await _ in deadlineHold.stream {}
+                } onCancel: {
+                    deadlineCancelled.continuation.yield()
+                }
+            }
+        }
+    )
+
+    let result = try await executor.runCancellable(
+        cancellation: FFICancellation {},
+        timeoutNanoseconds: 15_000_000_000
+    ) {
+        true
+    }
+
+    #expect(result == true)
+    for await _ in deadlineCancelled.stream { break }
+    deadlineHold.continuation.finish()
+    deadlineCancelled.continuation.finish()
+}
+
+@Test
+func serialFFIExecutorBoundsActiveAndQueuedCancellableWork() async throws {
+    let executor = SerialFFIExecutor(
+        label: "test.native-terminal.queue-bound",
+        maximumPendingCancellableOperations: 1
+    )
+    let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let first = Task {
+        try await executor.runCancellable(cancellation: FFICancellation {}) {
+            firstStarted.continuation.yield()
+            releaseFirst.wait()
+            return true
+        }
+    }
+    for await _ in firstStarted.stream { break }
+
+    do {
+        _ = try await executor.runCancellable(cancellation: FFICancellation {}) { true }
+        Issue.record("The bounded serial executor accepted too much work.")
+    } catch SerialFFIExecutorError.queueFull {
+    } catch {
+        Issue.record("The bounded serial executor returned an unexpected error: \(error)")
+    }
+
+    releaseFirst.signal()
+    let firstResult = try await first.value
+    #expect(firstResult == true)
+    firstStarted.continuation.finish()
+}
+
+@Test
+func canceledAttachedTerminalIsDisconnectedBeforeOwnershipIsLost() async {
+    let operations = EventLog()
+    do {
+        _ = try await FrontendService.transferAttachedTerminal(
+            42,
+            cancellationRequested: true
+        ) { address in
+            operations.append("disconnect:\(address)")
+        }
+        Issue.record("A canceled terminal attach transferred ownership.")
+    } catch is CancellationError {
+        #expect(operations.snapshot == ["disconnect:42"])
+    } catch {
+        Issue.record("A canceled terminal attach returned an unexpected error: \(error)")
+    }
 }
 
 @Test
@@ -280,6 +490,16 @@ func resizeQueueKeepsOnlyNewestPendingGeometry() {
     #expect(!thirdStarts)
     #expect(queue.take() == TerminalGeometry(cols: 120, rows: 40))
     #expect(queue.take() == nil)
+}
+
+@Test
+func closedTerminalConnectionRequiresExplicitReattach() {
+    #expect(terminalAttachmentDisposition(didExit: false, connectionClosed: false) == .active)
+    #expect(terminalAttachmentDisposition(didExit: true, connectionClosed: true) == .exited)
+    #expect(
+        terminalAttachmentDisposition(didExit: false, connectionClosed: true)
+            == .reconnectRequired
+    )
 }
 
 @Test
@@ -299,14 +519,157 @@ func focusMutationTrackerRejectsStaleRollback() {
 }
 
 @Test @MainActor
-func terminalTitleLookupIsAnImmutableValueSnapshot() {
-    let owner = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
-    let lookup = TerminalTitleFn(owners: [owner.terminalID: owner])
+func terminalTitleLookupStreamsOnlyTheSelectedOwner() async throws {
+    let selected = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
+    let unrelated = TerminalTitleOwner(terminalID: "terminal-b", title: "other")
+    let lookup = TerminalTitleFn(owners: [
+        selected.terminalID: selected,
+        unrelated.terminalID: unrelated,
+    ])
+    let subscription = try #require(lookup("terminal-a"))
 
-    owner.replace(with: "after")
+    unrelated.replace(with: "not-selected")
+    selected.replace(with: "after")
+    var updates = subscription.updates.makeAsyncIterator()
 
-    #expect(lookup("terminal-a") == "before")
-    #expect(TerminalTitleFn(owners: [owner.terminalID: owner])("terminal-a") == "after")
+    #expect(subscription.current == "before")
+    #expect(await updates.next() == "after")
+    #expect(lookup("terminal-missing") == nil)
+    selected.cancel()
+    unrelated.cancel()
+}
+
+@Test
+func resourceGenerationRejectsAReplyAfterStreamStateAdvances() {
+    var generation = FrontendResourceGeneration()
+    let requestGeneration = generation.token
+
+    generation.advance()
+
+    #expect(!generation.matches(requestGeneration))
+    #expect(generation.matches(generation.token))
+}
+
+@Test
+func resourceRecoveryPolicyHasABoundedExponentialBackoff() {
+    let policy = FrontendRecoveryPolicy(
+        maximumAttempts: 3,
+        initialBackoffNanoseconds: 100
+    )
+
+    #expect(policy.maximumAttempts == 3)
+    #expect(policy.backoffNanoseconds(afterFailedAttempt: 0) == 100)
+    #expect(policy.backoffNanoseconds(afterFailedAttempt: 1) == 200)
+    #expect(policy.backoffNanoseconds(afterFailedAttempt: 2) == 400)
+    #expect(policy.backoffNanoseconds(forRecoveryAttempt: 0) == 100)
+    #expect(policy.backoffNanoseconds(forRecoveryAttempt: 1) == 200)
+    #expect(policy.backoffNanoseconds(forRecoveryAttempt: 2) == 400)
+    #expect(policy.backoffNanoseconds(forRecoveryAttempt: 3) == nil)
+}
+
+@Test
+func resourceRecoveryBudgetResetsOnlyAfterAStableRepairWindow() {
+    var recovery = FrontendRecoveryTracker()
+    recovery.recordAttempt()
+    recovery.recordSuccessfulRepair(at: 1_000)
+
+    recovery.resetIfStable(now: 1_099, stableWindowNanoseconds: 100)
+    #expect(recovery.attempts == 1)
+
+    recovery.resetIfStable(now: 1_100, stableWindowNanoseconds: 100)
+    #expect(recovery.attempts == 0)
+}
+
+@Test
+func resourceRecoveryCancelsTheExactActiveStream() throws {
+    let stream = FrontendResourceStream(id: "stream-active")
+    let encoded = try stream.cancellationParameters(
+        machineID: "machine-a",
+        sessionID: "session-a"
+    ).encodedJSON()
+    let parameters = try #require(
+        JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: String]
+    )
+
+    #expect(parameters == [
+        "machine": "machine-a",
+        "session": "session-a",
+        "stream": "stream-active",
+    ])
+}
+
+@Test
+func mutationIndeterminateErrorKeepsTheRetryIdentityForReconciliation() {
+    let error = FrontendServiceError.requestFailure(#"""
+    {
+      "code":"mutation.indeterminate",
+      "message":"the mutation outcome is unknown",
+      "details":{
+        "operation":"workspace.create",
+        "idempotency_key":"native-test-42"
+      }
+    }
+    """#, localization: testLocalization)
+
+    guard case .mutationIndeterminate(let operation, let idempotencyKey, _) = error else {
+        Issue.record("The mutation failure was not classified as indeterminate.")
+        return
+    }
+    #expect(operation == "workspace.create")
+    #expect(idempotencyKey == "native-test-42")
+    #expect(error.requiresAuthoritativeReconciliation)
+}
+
+@Test
+func rawServiceFailuresStayOutOfLocalizedUserMessages() {
+    let raw = "invitation has no Iroh route"
+    let connection = FrontendServiceError.connectionFailure(
+        raw,
+        localization: testLocalization
+    )
+    #expect(connection.localizedDescription == testLocalization.text(
+        "error.connection_failure",
+        "The frontend could not connect. See diagnostics for details."
+    ))
+    #expect(connection.localizedDescription != raw)
+    #expect(connection.diagnosticDescription == raw)
+
+    let request = FrontendServiceError.requestFailure(
+        #"{"code":"transport.closed","message":"socket ended"}"#,
+        localization: testLocalization
+    )
+    #expect(request.localizedDescription == testLocalization.text(
+        "error.request_failure",
+        "The frontend request failed. See diagnostics for details."
+    ))
+    #expect(request.diagnosticDescription?.contains("socket ended") == true)
+}
+
+@Test
+func transportDiagnosticsAreDeduplicatedAndBounded() {
+    var entries: [String] = []
+    for diagnostic in ["first", "second", "third", "second", "123456"] {
+        entries = appendingTransportDiagnostic(
+            diagnostic,
+            to: entries,
+            maximumEntries: 3,
+            maximumCharacters: 4
+        )
+    }
+
+    #expect(entries == ["hird", "cond", "3456"])
+    #expect(entries.allSatisfy { $0.count <= 4 })
+}
+
+@Test
+func localizationIsInjectedForTextAndFormatting() {
+    let localization = Localization(
+        locale: Locale(identifier: "en_US_POSIX"),
+        resolve: { key, fallback in "[\(key)] \(fallback)" }
+    )
+
+    #expect(localization.text("sample.text", "Fallback") == "[sample.text] Fallback")
+    #expect(localization.format("sample.count", "%d items", 3) == "[sample.count] 3 items")
 }
 
 @Test
@@ -331,8 +694,11 @@ func terminalInputRelayReportsBoundedBufferDrops() async {
     }
     #expect(received == Data("first".utf8))
     var dropIterator = drops.stream.makeAsyncIterator()
-    let dropSignal = await dropIterator.next()
+    let dropSignal: Void? = await dropIterator.next()
     #expect(dropSignal != nil)
+
+    input.continuation.finish()
+    #expect(!relay.send(Data("after-finish".utf8)))
 }
 
 @Test
@@ -528,8 +894,122 @@ func renderDrainConsumesUnknownPayloadBeforeContinuing() {
     #expect(batch.events.first?.kind == .bytes)
     #expect(batch.events.first?.payload == Data("visible".utf8))
     #expect(!batch.hasMore)
+    #expect(!batch.overflowed)
     #expect(pending.isEmpty)
     #expect(leased == nil)
+}
+
+@Test
+func renderDrainRejectsOversizedEventBeforeAllocation() {
+    var discarded = false
+    var requestedPayloadBuffer = false
+    let batch = drainTerminalRenderEvents(
+        maximumEventBytes: 3,
+        maximumBytes: 6,
+        discard: { discarded = true },
+        copy: { descriptor, buffer, _ in
+            descriptor = CmuxFrontendRenderEvent()
+            descriptor.kind = TerminalRenderEvent.Kind.bytes.rawValue
+            descriptor.payload_length = 4
+            requestedPayloadBuffer = buffer != nil
+            return true
+        }
+    )
+
+    #expect(batch.events.isEmpty)
+    #expect(!batch.hasMore)
+    #expect(batch.overflowed)
+    #expect(discarded)
+    #expect(!requestedPayloadBuffer)
+}
+
+@Test
+func renderDrainAcceptsResetAboveFormerFrontendLimit() {
+    let formerFrontendLimit = 4 * 1024 * 1024
+    let payloadLength = formerFrontendLimit + 1
+    var leased = true
+    let batch = drainTerminalRenderEvents { descriptor, buffer, capacity in
+        guard leased else { return false }
+        descriptor = CmuxFrontendRenderEvent()
+        descriptor.kind = TerminalRenderEvent.Kind.reset.rawValue
+        descriptor.cols = 80
+        descriptor.rows = 24
+        descriptor.payload_length = payloadLength
+        guard let buffer, capacity >= payloadLength else { return true }
+        buffer.initialize(repeating: 0, count: payloadLength)
+        leased = false
+        return true
+    }
+
+    #expect(payloadLength < Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE))
+    #expect(batch.events.count == 1)
+    #expect(batch.events.first?.kind == .reset)
+    #expect(batch.events.first?.payload.count == payloadLength)
+    #expect(!batch.hasMore)
+    #expect(!batch.overflowed)
+    #expect(!leased)
+}
+
+@Test
+func renderDrainRejectsByteEventsAboveTheMainActorChunkLimit() {
+    var discarded = false
+    var requestedPayloadBuffer = false
+    let batch = drainTerminalRenderEvents(
+        discard: { discarded = true },
+        copy: { descriptor, buffer, _ in
+            descriptor = CmuxFrontendRenderEvent()
+            descriptor.kind = TerminalRenderEvent.Kind.bytes.rawValue
+            descriptor.payload_length = 65_537
+            requestedPayloadBuffer = buffer != nil
+            return true
+        }
+    )
+
+    #expect(batch.events.isEmpty)
+    #expect(batch.overflowed)
+    #expect(discarded)
+    #expect(!requestedPayloadBuffer)
+}
+
+@Test
+func renderDrainLeavesTheNextEventAtTheBatchByteBudget() {
+    var pending = [Data("four".utf8), Data("five".utf8)]
+    var leased: Data?
+    let copy: (inout CmuxFrontendRenderEvent, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        if leased == nil { leased = pending.first }
+        guard let payload = leased else { return false }
+        descriptor = CmuxFrontendRenderEvent()
+        descriptor.kind = TerminalRenderEvent.Kind.bytes.rawValue
+        descriptor.cols = 80
+        descriptor.rows = 24
+        descriptor.payload_length = payload.count
+        guard let buffer, capacity >= payload.count else { return true }
+        payload.copyBytes(to: buffer, count: payload.count)
+        pending.removeFirst()
+        leased = nil
+        return true
+    }
+
+    let first = drainTerminalRenderEvents(
+        maximumEventBytes: 4,
+        maximumBytes: 6,
+        copy: copy
+    )
+    #expect(first.events.map(\.payload) == [Data("four".utf8)])
+    #expect(first.hasMore)
+    #expect(!first.overflowed)
+    #expect(pending.count == 1)
+
+    let second = drainTerminalRenderEvents(
+        maximumEventBytes: 4,
+        maximumBytes: 6,
+        copy: copy
+    )
+    #expect(second.events.map(\.payload) == [Data("five".utf8)])
+    #expect(!second.hasMore)
+    #expect(!second.overflowed)
+    #expect(pending.isEmpty)
 }
 
 @Test
@@ -551,7 +1031,11 @@ func resetKeepsSurfaceCreationError() {
         continuation: input.continuation,
         dropContinuation: drops.continuation
     )
-    let view = GhosttyRemoteSurfaceView(runtime: nil, inputRelay: relay)
+    let view = GhosttyRemoteSurfaceView(
+        runtime: nil,
+        inputRelay: relay,
+        localization: testLocalization
+    )
 
     view.apply(TerminalRenderEvent(
         kind: .reset,
@@ -559,9 +1043,43 @@ func resetKeepsSurfaceCreationError() {
         payload: nativeResetPayload()
     ))
 
-    #expect(view.initializationError == L10n.text(
+    #expect(view.initializationError == testLocalization.text(
         "error.ghostty_runtime",
         "The embedded Ghostty renderer could not start."
+    ))
+}
+
+@Test @MainActor
+func invalidResetBlocksLaterRenderEventsAndReadyState() {
+    let input = AsyncStream<TerminalInput>.makeStream()
+    let drops = AsyncStream<Void>.makeStream()
+    let relay = GhosttyTerminalInputRelay(
+        continuation: input.continuation,
+        dropContinuation: drops.continuation
+    )
+    let view = GhosttyRemoteSurfaceView(
+        runtime: nil,
+        inputRelay: relay,
+        localization: testLocalization
+    )
+    let geometry = TerminalGeometry(cols: 80, rows: 24)
+
+    view.apply(TerminalRenderEvent(
+        kind: .reset,
+        geometry: geometry,
+        payload: Data("invalid".utf8)
+    ))
+    view.apply(TerminalRenderEvent(
+        kind: .bytes,
+        geometry: geometry,
+        payload: Data("stale".utf8)
+    ))
+    view.apply(TerminalRenderEvent(kind: .ready, geometry: geometry, payload: Data()))
+
+    #expect(!view.renderStreamValid)
+    #expect(view.initializationError == testLocalization.text(
+        "error.terminal_snapshot",
+        "The terminal snapshot was invalid."
     ))
 }
 

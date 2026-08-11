@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RootView: View {
+    @Environment(\.localization) private var localization
     @Bindable var model: FrontendModel
 
     var body: some View {
@@ -13,13 +14,13 @@ struct RootView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .alert(
-            L10n.text("error.title", "Frontend error"),
+            localization.text("error.title", "Frontend error"),
             isPresented: Binding(
                 get: { !model.errorMessage.isEmpty && model.isConnected },
                 set: { if !$0 { model.clearError() } }
             )
         ) {
-            Button(L10n.text("action.ok", "OK")) { model.clearError() }
+            Button(localization.text("action.ok", "OK")) { model.clearError() }
         } message: {
             Text(model.errorMessage)
         }
@@ -30,9 +31,9 @@ struct RootView: View {
             Image(systemName: "rectangle.3.group.bubble.left.fill")
                 .font(.system(size: 42, weight: .medium))
                 .foregroundStyle(.cyan)
-            Text(L10n.text("connection.title", "Connect to cmux"))
+            Text(localization.text("connection.title", "Connect to cmux"))
                 .font(.title2.weight(.semibold))
-            Text(L10n.text(
+            Text(localization.text(
                 "connection.help",
                 "One encrypted connection carries resource state and every terminal stream."
             ))
@@ -48,16 +49,16 @@ struct RootView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(.separator, lineWidth: 1)
                 }
-                .accessibilityLabel(L10n.text("connection.invitation", "Enrollment invitation"))
+                .accessibilityLabel(localization.text("connection.invitation", "Enrollment invitation"))
             Button {
                 model.connect()
             } label: {
                 if model.isConnecting {
                     ProgressView()
                         .controlSize(.small)
-                    Text(L10n.text("connection.connecting", "Connecting…"))
+                    Text(localization.text("connection.connecting", "Connecting…"))
                 } else {
-                    Text(L10n.text("connection.connect", "Connect"))
+                    Text(localization.text("connection.connect", "Connect"))
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -92,7 +93,7 @@ struct RootView: View {
                     )
                 } else {
                     ContentUnavailableView(
-                        L10n.text("layout.empty", "This space has no panes."),
+                        localization.text("layout.empty", "This space has no panes."),
                         systemImage: "rectangle.split.2x1"
                     )
                 }

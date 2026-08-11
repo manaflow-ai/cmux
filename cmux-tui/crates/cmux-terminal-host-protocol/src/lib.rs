@@ -26,6 +26,10 @@ pub const MAX_KITTY_IMAGES: u64 = 4_096;
 pub const MAX_KITTY_PLACEMENTS: u64 = 16_384;
 /// Maximum terminal replay bytes that a host can send and a renderer must accept.
 pub const MAX_TERMINAL_REPLAY_BYTES: usize = MAX_KITTY_INFLIGHT_BYTES as usize + 2 * 1024 * 1024;
+/// Maximum value for either axis after protocol geometry normalization.
+pub const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+/// Maximum normalized terminal grid area accepted by hosts and renderers.
+pub const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
 pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
 const EXIT_PAYLOAD_VERSION: u16 = 1;

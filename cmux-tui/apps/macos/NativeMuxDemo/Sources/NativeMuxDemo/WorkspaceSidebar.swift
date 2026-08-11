@@ -1,13 +1,14 @@
 import SwiftUI
 
 struct WorkspaceSidebar: View {
+    @Environment(\.localization) private var localization
     let model: FrontendModel
     let snapshot: ResourceSnapshot
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(L10n.text("sidebar.workspaces", "WORKSPACES"))
+                Text(localization.text("sidebar.workspaces", "WORKSPACES"))
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -15,7 +16,7 @@ struct WorkspaceSidebar: View {
                     Image(systemName: "plus")
                 }
                 .buttonStyle(.plain)
-                .help(L10n.text("sidebar.new_workspace", "New workspace"))
+                .help(localization.text("sidebar.new_workspace", "New workspace"))
             }
             .padding(.horizontal, 13)
             .padding(.top, 38)
@@ -25,10 +26,15 @@ struct WorkspaceSidebar: View {
                 LazyVStack(spacing: 3) {
                     let selectedWorkspaceID = model.selectedWorkspace?.id
                     ForEach(snapshot.orderedWorkspaces) { workspace in
+                        let spaceCount = snapshot.screenCount(in: workspace.id)
                         WorkspaceSidebarRow(
                             workspace: workspace,
                             isSelected: workspace.id == selectedWorkspaceID,
-                            spaceCountLabel: snapshot.spaceCountLabel(in: workspace.id),
+                            spaceCountLabel: localization.format(
+                                spaceCount == 1 ? "spaces.count.one" : "spaces.count.other",
+                                spaceCount == 1 ? "%d space" : "%d spaces",
+                                spaceCount
+                            ),
                             onSelect: { model.selectWorkspace(workspace) },
                             onClose: { model.closeWorkspace(workspace) }
                         )
@@ -43,7 +49,7 @@ struct WorkspaceSidebar: View {
                 Circle()
                     .fill(.green)
                     .frame(width: 6, height: 6)
-                Text(L10n.text("transport.ready", "Iroh · local libghostty"))
+                Text(localization.text("transport.ready", "Iroh · local libghostty"))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -56,6 +62,7 @@ struct WorkspaceSidebar: View {
 }
 
 private struct WorkspaceSidebarRow: View, Equatable {
+    @Environment(\.localization) private var localization
     let workspace: WorkspaceSnapshot
     let isSelected: Bool
     let spaceCountLabel: String
@@ -77,7 +84,7 @@ private struct WorkspaceSidebarRow: View, Equatable {
                     .foregroundStyle(isSelected ? .cyan : .secondary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(workspace.displayName)
+                    Text(workspace.displayName(localization: localization))
                         .lineLimit(1)
                     Text(spaceCountLabel)
                         .font(.caption2)
@@ -95,7 +102,7 @@ private struct WorkspaceSidebarRow: View, Equatable {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button(L10n.text("workspace.close", "Close workspace"), role: .destructive) {
+            Button(localization.text("workspace.close", "Close workspace"), role: .destructive) {
                 onClose()
             }
         }

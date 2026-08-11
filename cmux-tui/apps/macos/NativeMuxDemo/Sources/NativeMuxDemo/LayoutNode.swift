@@ -23,7 +23,6 @@ struct LayoutDocument: Decodable, Sendable {
 struct ViewportColumn: Decodable, Identifiable, Sendable {
     let columnID: String
     let width: Double
-    let widthLabel: String
     let root: LayoutNode
 
     var id: String { columnID }
@@ -36,9 +35,20 @@ struct ViewportColumn: Decodable, Identifiable, Sendable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         columnID = try container.decode(String.self, forKey: .columnID)
-        width = try container.decode(Double.self, forKey: .width)
-        widthLabel = L10n.format("column.percent", "%d%%", Int(width * 100))
+        let decodedWidth = try container.decode(Double.self, forKey: .width)
+        guard decodedWidth.isFinite, (0.1...1.0).contains(decodedWidth) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .width,
+                in: container,
+                debugDescription: "Viewport column width must be finite from 0.1 through 1.0."
+            )
+        }
+        width = decodedWidth
         root = try container.decode(LayoutNode.self, forKey: .root)
+    }
+
+    func widthLabel(localization: Localization) -> String {
+        localization.format("column.percent", "%d%%", Int(width * 100))
     }
 }
 
@@ -52,7 +62,7 @@ indirect enum LayoutNode: Decodable, Sendable {
         second: LayoutNode
     )
     case stack(paneIDs: [String], expandedPaneID: String)
-    case viewport(baseWidth: Double, baseWidthLabel: String, columns: [ViewportColumn])
+    case viewport(baseWidth: Double, columns: [ViewportColumn])
 
     enum SplitDirection: String, Decodable, Sendable {
         case horizontal
@@ -80,10 +90,18 @@ indirect enum LayoutNode: Decodable, Sendable {
                 activeTabID: try container.decodeIfPresent(String.self, forKey: .activeTabID)
             )
         case "split":
+            let ratio = try container.decode(Double.self, forKey: .ratio)
+            guard ratio.isFinite, ratio > 0, ratio < 1 else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .ratio,
+                    in: container,
+                    debugDescription: "Split ratio must be finite and between zero and one."
+                )
+            }
             self = .split(
                 splitID: try container.decode(String.self, forKey: .splitID),
                 direction: try container.decode(SplitDirection.self, forKey: .direction),
-                ratio: try container.decode(Double.self, forKey: .ratio),
+                ratio: ratio,
                 first: try container.decode(LayoutNode.self, forKey: .first),
                 second: try container.decode(LayoutNode.self, forKey: .second)
             )
@@ -94,13 +112,15 @@ indirect enum LayoutNode: Decodable, Sendable {
             )
         case "viewport":
             let baseWidth = try container.decode(Double.self, forKey: .baseWidth)
+            guard baseWidth.isFinite, (0.1...1.0).contains(baseWidth) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .baseWidth,
+                    in: container,
+                    debugDescription: "Viewport base width must be finite from 0.1 through 1.0."
+                )
+            }
             self = .viewport(
                 baseWidth: baseWidth,
-                baseWidthLabel: L10n.format(
-                    "column.base_width",
-                    "base width %.2f",
-                    baseWidth
-                ),
                 columns: try container.decode([ViewportColumn].self, forKey: .columns)
             )
         case let kind:
@@ -120,7 +140,7 @@ indirect enum LayoutNode: Decodable, Sendable {
             first.paneIDs + second.paneIDs
         case .stack(let paneIDs, _):
             paneIDs
-        case .viewport(_, _, let columns):
+        case .viewport(_, let columns):
             columns.flatMap { $0.root.paneIDs }
         }
     }
@@ -133,7 +153,7 @@ indirect enum LayoutNode: Decodable, Sendable {
             first.visiblePaneIDs + second.visiblePaneIDs
         case .stack(_, let expandedPaneID):
             [expandedPaneID]
-        case .viewport(_, _, let columns):
+        case .viewport(_, let columns):
             columns.flatMap { $0.root.visiblePaneIDs }
         }
     }

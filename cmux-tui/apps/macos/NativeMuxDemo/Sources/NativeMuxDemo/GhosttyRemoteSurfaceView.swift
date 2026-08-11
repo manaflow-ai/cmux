@@ -18,11 +18,16 @@ final class GhosttyTerminalInputRelay: Sendable {
 
   @discardableResult
   func send(_ data: Data) -> Bool {
-    if case .dropped = continuation.yield(.bytes(data)) {
+    switch continuation.yield(.bytes(data)) {
+    case .enqueued:
+      return true
+    case .dropped, .terminated:
+      dropContinuation.yield()
+      return false
+    @unknown default:
       dropContinuation.yield()
       return false
     }
-    return true
   }
 }
 
@@ -145,31 +150,77 @@ extension NSEvent {
 /// AppKit host for a libghostty manual-I/O surface. The surface owns terminal
 /// emulation, styling, selection, input encoding, scrollback, and Metal
 /// rendering. Rust owns only transport ordering and the remote PTY stream.
+struct MarkedTextRanges: Equatable {
+  let marked: NSRange
+  let selected: NSRange
+
+  static func updated(
+    textLength: Int,
+    selectedRange: NSRange,
+    replacementRange: NSRange,
+    currentMarkedRange: NSRange,
+    fallbackSelection: NSRange
+  ) -> MarkedTextRanges {
+    let unavailable = NSRange(location: NSNotFound, length: 0)
+    let length = max(0, textLength)
+    guard length > 0 else { return MarkedTextRanges(marked: unavailable, selected: unavailable) }
+
+    let requestedBase: Int
+    if replacementRange.location != NSNotFound {
+      requestedBase = replacementRange.location
+    } else if currentMarkedRange.location != NSNotFound {
+      requestedBase = currentMarkedRange.location
+    } else if fallbackSelection.location != NSNotFound {
+      requestedBase = fallbackSelection.location
+    } else {
+      requestedBase = 0
+    }
+    let base = min(max(0, requestedBase), Int.max - length)
+    let requestedSelection = selectedRange.location == NSNotFound
+      ? length : selectedRange.location
+    let relativeLocation = min(max(0, requestedSelection), length)
+    let relativeLength = min(max(0, selectedRange.length), length - relativeLocation)
+    return MarkedTextRanges(
+      marked: NSRange(location: base, length: length),
+      selected: NSRange(location: base + relativeLocation, length: relativeLength)
+    )
+  }
+}
+
 final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient {
   var onGeometryChanged: ((TerminalGeometry) -> Void)?
   private(set) var initializationError: String?
 
   private let runtime: NativeGhosttyRuntime?
+  private let localization: Localization
   private let callbackContext: GhosttyRemoteSurfaceContext
   private let surfaceLifetime: GhosttyRemoteSurfaceLifetime
   private var surface: ghostty_surface_t? { surfaceLifetime.surface }
   private var markedText = NSMutableAttributedString()
+  private var markedTextRange = NSRange(location: NSNotFound, length: 0)
+  private var markedTextSelection = NSRange(location: NSNotFound, length: 0)
   private var keyTextAccumulator: [String]?
   private var locallyConsumedKeyCodes: Set<UInt16> = []
   private var lastReportedGeometry: TerminalGeometry?
   private var sentRightMousePress = false
   private var ready = false
+  private(set) var renderStreamValid = false
 
   override var acceptsFirstResponder: Bool { true }
 
-  init(runtime: NativeGhosttyRuntime?, inputRelay: GhosttyTerminalInputRelay) {
+  init(
+    runtime: NativeGhosttyRuntime?,
+    inputRelay: GhosttyTerminalInputRelay,
+    localization: Localization = .fallback
+  ) {
     self.runtime = runtime
+    self.localization = localization
     let callbackContext = GhosttyRemoteSurfaceContext(inputRelay: inputRelay)
     self.callbackContext = callbackContext
     surfaceLifetime = GhosttyRemoteSurfaceLifetime(callbackContext: callbackContext)
     super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
     if runtime == nil {
-      initializationError = L10n.text(
+      initializationError = localization.text(
         "error.ghostty_runtime",
         "The embedded Ghostty renderer could not start."
       )
@@ -185,27 +236,51 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   func apply(_ event: TerminalRenderEvent) {
     switch event.kind {
     case .reset:
+      ready = false
+      renderStreamValid = false
+      lastReportedGeometry = nil
+      surfaceLifetime.replace(with: nil)
       guard let reset = NativeKittyResetMetadata.decode(event.payload) else {
-        initializationError = L10n.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
+        failClosedForInvalidSnapshot()
         return
       }
       recreateSurface()
       setGrid(event.geometry)
       guard let surface else { return }
       guard restoreKittyReplay(surface: surface, metadata: reset) else {
-        initializationError = L10n.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
+        failClosedForInvalidSnapshot()
         return
       }
+      renderStreamValid = true
+      updateSurfaceSize(reportGeometry: true)
     case .bytes:
+      guard renderStreamValid else { return }
       processOutput(event.payload)
     case .resize:
+      guard renderStreamValid else { return }
       setGrid(event.geometry)
     case .ready:
+      guard renderStreamValid, surface != nil else { return }
       ready = true
-      if let surface { ghostty_surface_refresh(surface) }
+      if let surface {
+        ghostty_surface_set_focus(surface, window?.firstResponder === self)
+        ghostty_surface_refresh(surface)
+      }
     case .exit:
       ready = false
+      renderStreamValid = false
     }
+  }
+
+  private func failClosedForInvalidSnapshot() {
+    ready = false
+    renderStreamValid = false
+    lastReportedGeometry = nil
+    surfaceLifetime.replace(with: nil)
+    initializationError = localization.text(
+      "error.terminal_snapshot",
+      "The terminal snapshot was invalid."
+    )
   }
 
   private func restoreKittyReplay(
@@ -249,6 +324,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   private func recreateSurface() {
     ready = false
+    lastReportedGeometry = nil
     surfaceLifetime.replace(with: nil)
     guard let runtime else { return }
 
@@ -268,7 +344,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     config.io_write_userdata = Unmanaged.passUnretained(callbackContext).toOpaque()
     surfaceLifetime.replace(with: ghostty_surface_new(runtime.app, &config))
     if surface == nil {
-      initializationError = L10n.text(
+      initializationError = localization.text(
         "error.ghostty_surface",
         "The embedded Ghostty terminal surface could not start."
       )
@@ -300,7 +376,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     updateSurfaceSize(reportGeometry: true)
-    if window?.firstResponder === self, let surface {
+    if ready, window?.firstResponder === self, let surface {
       ghostty_surface_set_focus(surface, true)
     }
   }
@@ -330,13 +406,13 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   override func becomeFirstResponder() -> Bool {
     let accepted = super.becomeFirstResponder()
-    if accepted, let surface { ghostty_surface_set_focus(surface, true) }
+    if accepted, ready, let surface { ghostty_surface_set_focus(surface, true) }
     return accepted
   }
 
   override func resignFirstResponder() -> Bool {
     let resigned = super.resignFirstResponder()
-    if resigned, let surface { ghostty_surface_set_focus(surface, false) }
+    if resigned, ready, let surface { ghostty_surface_set_focus(surface, false) }
     return resigned
   }
 
@@ -441,7 +517,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     text: String? = nil,
     composing: Bool = false
   ) -> Bool {
-    guard let surface else { return false }
+    guard ready, let surface else { return false }
     var key = event.nativeGhosttyKeyEvent(
       action,
       translationModifiers: translatedEvent?.modifierFlags
@@ -484,7 +560,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   @objc func paste(_ sender: Any?) {
     _ = sender
-    guard let surface,
+    guard ready, let surface,
       let text = NSPasteboard.general.string(forType: .string),
       !text.isEmpty
     else { return }
@@ -514,7 +590,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func rightMouseDown(with event: NSEvent) {
-    guard let surface else {
+    guard ready, let surface else {
       super.rightMouseDown(with: event)
       return
     }
@@ -537,7 +613,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func rightMouseUp(with event: NSEvent) {
-    guard sentRightMousePress, let surface else {
+    guard ready, sentRightMousePress, let surface else {
       super.rightMouseUp(with: event)
       return
     }
@@ -566,7 +642,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     _ button: ghostty_input_mouse_button_e,
     event: NSEvent
   ) {
-    guard let surface else { return }
+    guard ready, let surface else { return }
     ghostty_surface_mouse_button(
       surface, state, button, nativeGhosttyModifiers(event.modifierFlags))
   }
@@ -605,12 +681,12 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   override func otherMouseDragged(with event: NSEvent) { sendMousePosition(event) }
 
   override func mouseExited(with event: NSEvent) {
-    guard let surface, NSEvent.pressedMouseButtons == 0 else { return }
+    guard ready, let surface, NSEvent.pressedMouseButtons == 0 else { return }
     ghostty_surface_mouse_pos(surface, -1, -1, nativeGhosttyModifiers(event.modifierFlags))
   }
 
   private func sendMousePosition(_ event: NSEvent) {
-    guard let surface else { return }
+    guard ready, let surface else { return }
     let point = convert(event.locationInWindow, from: nil)
     ghostty_surface_mouse_pos(
       surface,
@@ -621,7 +697,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func scrollWheel(with event: NSEvent) {
-    guard let surface else { return }
+    guard ready, let surface else { return }
     var x = event.scrollingDeltaX
     var y = event.scrollingDeltaY
     if event.hasPreciseScrollingDeltas {
@@ -643,16 +719,16 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func pressureChange(with event: NSEvent) {
-    guard let surface else { return }
+    guard ready, let surface else { return }
     ghostty_surface_mouse_pressure(surface, UInt32(event.stage), Double(event.pressure))
   }
 
   override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-    sender.draggingPasteboard.string(forType: .string) == nil ? [] : .copy
+    !ready || sender.draggingPasteboard.string(forType: .string) == nil ? [] : .copy
   }
 
   override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-    guard let surface, let text = sender.draggingPasteboard.string(forType: .string) else {
+    guard ready, let surface, let text = sender.draggingPasteboard.string(forType: .string) else {
       return false
     }
     text.withCString { pointer in
@@ -665,22 +741,18 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   func markedRange() -> NSRange {
     markedText.length == 0
-      ? NSRange(location: NSNotFound, length: 0) : NSRange(location: 0, length: markedText.length)
+      ? NSRange(location: NSNotFound, length: 0) : markedTextRange
   }
 
   func selectedRange() -> NSRange {
-    guard let surface else { return NSRange(location: NSNotFound, length: 0) }
-    var selected = ghostty_text_s()
-    guard ghostty_surface_read_selection(surface, &selected) else {
-      return NSRange(location: NSNotFound, length: 0)
-    }
-    defer { ghostty_surface_free_text(surface, &selected) }
-    return NSRange(location: Int(selected.offset_start), length: Int(selected.offset_len))
+    if markedText.length > 0 { return markedTextSelection }
+    // The terminal selection is not editable NSTextInputClient storage. Use a
+    // stable virtual UTF-16 insertion point for input-method composition.
+    return NSRange(location: 0, length: 0)
   }
 
   func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-    _ = selectedRange
-    _ = replacementRange
+    let fallbackSelection = self.selectedRange()
     switch string {
     case let value as NSAttributedString:
       markedText = NSMutableAttributedString(attributedString: value)
@@ -689,12 +761,23 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     default:
       return
     }
+    let ranges = MarkedTextRanges.updated(
+      textLength: markedText.length,
+      selectedRange: selectedRange,
+      replacementRange: replacementRange,
+      currentMarkedRange: markedTextRange,
+      fallbackSelection: fallbackSelection
+    )
+    markedTextRange = ranges.marked
+    markedTextSelection = ranges.selected
     if keyTextAccumulator == nil { syncPreedit() }
   }
 
   func unmarkText() {
     guard markedText.length > 0 else { return }
     markedText.mutableString.setString("")
+    markedTextRange = NSRange(location: NSNotFound, length: 0)
+    markedTextSelection = NSRange(location: NSNotFound, length: 0)
     syncPreedit()
   }
 
@@ -704,23 +787,32 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     forProposedRange range: NSRange,
     actualRange: NSRangePointer?
   ) -> NSAttributedString? {
-    _ = range
-    _ = actualRange
-    guard let surface else { return nil }
-    var selected = ghostty_text_s()
-    guard ghostty_surface_read_selection(surface, &selected) else { return nil }
-    defer { ghostty_surface_free_text(surface, &selected) }
-    return NSAttributedString(string: nativeGhosttyText(selected))
+    guard markedText.length > 0,
+      markedTextRange.location != NSNotFound,
+      range.location != NSNotFound
+    else { return nil }
+    let intersection = NSIntersectionRange(range, markedTextRange)
+    guard intersection.length > 0 else { return nil }
+    actualRange?.pointee = intersection
+    return markedText.attributedSubstring(from: NSRange(
+      location: intersection.location - markedTextRange.location,
+      length: intersection.length
+    ))
   }
 
   func characterIndex(for point: NSPoint) -> Int {
     _ = point
-    return 0
+    let selected = selectedRange()
+    return selected.location == NSNotFound ? 0 : selected.location
   }
 
   func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-    _ = range
-    _ = actualRange
+    if markedText.length > 0, range.location != NSNotFound {
+      let intersection = NSIntersectionRange(range, markedTextRange)
+      actualRange?.pointee = intersection.length > 0 ? intersection : markedTextSelection
+    } else {
+      actualRange?.pointee = selectedRange()
+    }
     guard let surface else { return window?.convertToScreen(convert(bounds, to: nil)) ?? bounds }
     var x = 0.0
     var y = 0.0
@@ -745,7 +837,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
       keyTextAccumulator?.append(text)
       return
     }
-    guard let surface, !text.isEmpty else { return }
+    guard ready, let surface, !text.isEmpty else { return }
     text.withCString { pointer in
       ghostty_surface_text_input(surface, pointer, UInt(text.utf8.count))
     }

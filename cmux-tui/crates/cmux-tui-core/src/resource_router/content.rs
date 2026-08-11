@@ -1724,6 +1724,11 @@ mod tests {
             .unwrap()
             .clone();
         assert_eq!(terminal["tab_ids"].as_array().unwrap().len(), 2);
+        let before_detach = public_session_snapshot(&mux).unwrap()["cursor"]["revision"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
 
         for (index, tab) in [original_tab, projected_tab].into_iter().enumerate() {
             let tab_selectors = ResourceSelectors {
@@ -1753,6 +1758,22 @@ mod tests {
             .unwrap();
         assert!(terminal["tab_id"].is_null());
         assert_eq!(terminal["tab_ids"], json!([]));
+        let detach_events = mux.resource_events_after(before_detach).unwrap();
+        let mut detached_upsert = None;
+        for batch in &detach_events.batches {
+            for change in batch.changes.as_array().unwrap() {
+                if change["kind"] == "upsert"
+                    && change["resource"] == "terminal"
+                    && change["id"] == terminal_id.as_str()
+                    && change["value"]["tab_id"].is_null()
+                {
+                    detached_upsert = Some(change);
+                }
+            }
+        }
+        let detached_upsert = detached_upsert.expect("detach batch omitted the unplaced terminal");
+        assert_eq!(detached_upsert["value"]["lifecycle"], "running");
+        assert_eq!(detached_upsert["value"]["tab_ids"], json!([]));
         assert!(mux.surface(original.id).is_some());
         assert!(
             dispatch(&mux, parsed_request("terminal.screen.read", &selectors, json!({}), None),)

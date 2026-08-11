@@ -936,21 +936,14 @@ impl Mux {
                 .get(&host.terminal_id)
                 .cloned()
                 .context("catalog terminal has no durable host")?;
+            let value = public_terminal_snapshot(
+                terminal_id,
+                &terminal,
+                Some(surface.as_ref()),
+                Vec::new(),
+            )?;
             changes
                 .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
-            let (cols, rows) = surface.size();
-            let mut value = json!({
-                "id":terminal_id,
-                "tab_id":Value::Null,
-                "tab_ids":[],
-                "title":surface.title(),
-                "cols":cols.max(1),
-                "rows":rows.max(1),
-                "running":!surface.is_dead(),
-            });
-            if let Some(cwd) = surface.spawn_cwd() {
-                value["cwd"] = json!(cwd);
-            }
             public.push(("terminal", terminal_id.to_string(), value));
         }
         changes.push(ResourceChange::SetWorkspaceOrder {

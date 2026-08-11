@@ -10,7 +10,6 @@ struct WorkspaceSnapshot: Decodable, Identifiable, Sendable {
     let name: String
     let index: UInt32
     let focused: Bool
-    let displayName: String
 
     private enum CodingKeys: String, CodingKey {
         case id, name, index, focused
@@ -21,9 +20,19 @@ struct WorkspaceSnapshot: Decodable, Identifiable, Sendable {
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         index = try container.decode(UInt32.self, forKey: .index)
+        guard index < UInt32(Int32.max) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .index,
+                in: container,
+                debugDescription: "Workspace index is outside the display range."
+            )
+        }
         focused = try container.decode(Bool.self, forKey: .focused)
-        displayName = name.isEmpty
-            ? L10n.format("workspace.number", "workspace %d", index + 1)
+    }
+
+    func displayName(localization: Localization) -> String {
+        name.isEmpty
+            ? localization.format("workspace.number", "workspace %d", Int(index) + 1)
             : name
     }
 }
@@ -35,8 +44,6 @@ struct ScreenSnapshot: Decodable, Identifiable, Sendable {
     let index: UInt32
     let focused: Bool
     let layout: LayoutDocument
-    let displayName: String
-    let columnCountLabel: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, index, focused, layout
@@ -49,23 +56,34 @@ struct ScreenSnapshot: Decodable, Identifiable, Sendable {
         workspaceID = try container.decode(String.self, forKey: .workspaceID)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         index = try container.decode(UInt32.self, forKey: .index)
+        guard index < UInt32(Int32.max) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .index,
+                in: container,
+                debugDescription: "Screen index is outside the display range."
+            )
+        }
         focused = try container.decode(Bool.self, forKey: .focused)
         layout = try container.decode(LayoutDocument.self, forKey: .layout)
+    }
+
+    func displayName(localization: Localization) -> String {
         if let name, !name.isEmpty {
-            displayName = name
-        } else {
-            displayName = L10n.format("space.number", "%d", index + 1)
+            return name
         }
-        if case .viewport(_, _, let columns) = layout.root {
+        return localization.format("space.number", "%d", Int(index) + 1)
+    }
+
+    func columnCountLabel(localization: Localization) -> String? {
+        if case .viewport(_, let columns) = layout.root {
             let count = columns.count
-            columnCountLabel = L10n.format(
+            return localization.format(
                 count == 1 ? "columns.count.one" : "columns.count.other",
                 count == 1 ? "%d column" : "%d columns",
                 count
             )
-        } else {
-            columnCountLabel = nil
         }
+        return nil
     }
 }
 
@@ -75,7 +93,6 @@ struct PaneSnapshot: Decodable, Identifiable, Sendable {
     let name: String?
     let focused: Bool
     let zoomed: Bool
-    let displayName: String
 
     enum CodingKeys: String, CodingKey {
         case id, name, focused, zoomed
@@ -89,11 +106,13 @@ struct PaneSnapshot: Decodable, Identifiable, Sendable {
         name = try container.decodeIfPresent(String.self, forKey: .name)
         focused = try container.decode(Bool.self, forKey: .focused)
         zoomed = try container.decode(Bool.self, forKey: .zoomed)
+    }
+
+    func displayName(localization: Localization) -> String {
         if let name, !name.isEmpty {
-            displayName = name
-        } else {
-            displayName = L10n.format("pane.short_id", "Pane %@", String(id.suffix(5)))
+            return name
         }
+        return localization.format("pane.short_id", "Pane %@", String(id.suffix(5)))
     }
 }
 
@@ -102,6 +121,7 @@ struct TabSnapshot: Decodable, Identifiable, Sendable {
     let paneID: String
     let name: String?
     let index: UInt32
+    let displayIndex: Int
     let focused: Bool
     let contentKind: String
     let contentID: String
@@ -112,11 +132,30 @@ struct TabSnapshot: Decodable, Identifiable, Sendable {
         case contentKind = "content_kind"
         case contentID = "content_id"
     }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        paneID = try container.decode(String.self, forKey: .paneID)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        index = try container.decode(UInt32.self, forKey: .index)
+        guard index < UInt32(Int32.max) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .index,
+                in: container,
+                debugDescription: "Tab index is outside the display range."
+            )
+        }
+        displayIndex = Int(index) + 1
+        focused = try container.decode(Bool.self, forKey: .focused)
+        contentKind = try container.decode(String.self, forKey: .contentKind)
+        contentID = try container.decode(String.self, forKey: .contentID)
+    }
 }
 
 struct TerminalSnapshot: Decodable, Identifiable, Sendable {
     let id: String
-    let tabID: String
+    let tabID: String?
     let title: String
     let cols: UInt16
     let rows: UInt16
@@ -289,7 +328,6 @@ struct ResourceSnapshot: Decodable, Sendable {
     private(set) var cursor: ResourceCursor
 
     private var screensByWorkspaceID: [String: [ScreenSnapshot]]
-    private var spaceCountLabelsByWorkspaceID: [String: String]
     private var panesByID: [String: PaneSnapshot]
     private var tabsByPaneID: [String: [TabSnapshot]]
     private var terminalsByID: [String: TerminalSnapshot]
@@ -325,10 +363,6 @@ struct ResourceSnapshot: Decodable, Sendable {
         cursor = try container.decode(ResourceCursor.self, forKey: .cursor)
         screensByWorkspaceID = Dictionary(grouping: screens, by: \.workspaceID)
             .mapValues { $0.sorted { $0.index < $1.index } }
-        spaceCountLabelsByWorkspaceID = Self.spaceCountLabels(
-            workspaces: workspaces,
-            screensByWorkspaceID: screensByWorkspaceID
-        )
         panesByID = try Self.index(panes, by: \.id, decoder: decoder)
         tabsByPaneID = Dictionary(grouping: tabs, by: \.paneID)
             .mapValues { $0.sorted { $0.index < $1.index } }
@@ -342,10 +376,6 @@ struct ResourceSnapshot: Decodable, Sendable {
 
     func screenCount(in workspaceID: String) -> Int {
         screensByWorkspaceID[workspaceID]?.count ?? 0
-    }
-
-    func spaceCountLabel(in workspaceID: String) -> String {
-        spaceCountLabelsByWorkspaceID[workspaceID] ?? ""
     }
 
     func pane(_ id: String) -> PaneSnapshot? {
@@ -382,28 +412,9 @@ struct ResourceSnapshot: Decodable, Sendable {
         terminalsByID[terminal.id] = terminal
     }
 
-    private static func spaceCountLabels(
-        workspaces: [WorkspaceSnapshot],
-        screensByWorkspaceID: [String: [ScreenSnapshot]]
-    ) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: workspaces.map { workspace in
-            let count = screensByWorkspaceID[workspace.id]?.count ?? 0
-            let label = L10n.format(
-                count == 1 ? "spaces.count.one" : "spaces.count.other",
-                count == 1 ? "%d space" : "%d spaces",
-                count
-            )
-            return (workspace.id, label)
-        })
-    }
-
     private mutating func rebuildScreens() {
         screensByWorkspaceID = Dictionary(grouping: screens, by: \.workspaceID)
             .mapValues { $0.sorted { $0.index < $1.index } }
-        spaceCountLabelsByWorkspaceID = Self.spaceCountLabels(
-            workspaces: workspaces,
-            screensByWorkspaceID: screensByWorkspaceID
-        )
     }
 
     private mutating func rebuildTabs() {

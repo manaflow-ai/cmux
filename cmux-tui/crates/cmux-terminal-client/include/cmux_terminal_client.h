@@ -13,7 +13,12 @@ typedef struct CmuxTerminalClient CmuxTerminalClient;
 typedef struct CmuxFrontendClient CmuxFrontendClient;
 typedef struct CmuxFrontendTerminal CmuxFrontendTerminal;
 typedef struct CmuxFrontendAttachCancellation CmuxFrontendAttachCancellation;
+typedef struct CmuxFrontendQueueCancellation CmuxFrontendQueueCancellation;
 typedef void (*CmuxTerminalClientUpdateCallback)(void *context);
+
+#define CMUX_FRONTEND_QUEUE_CANCEL_NONE 0u
+#define CMUX_FRONTEND_QUEUE_CANCEL_BEFORE_EXECUTION 1u
+#define CMUX_FRONTEND_QUEUE_CANCEL_DURING_EXECUTION 2u
 
 typedef enum {
     CMUX_FRONTEND_RENDER_RESET = 1,
@@ -64,6 +69,14 @@ CmuxFrontendClient *cmux_frontend_client_connect_with_timeout(
     char *error_buffer,
     size_t error_capacity,
     uint64_t timeout_milliseconds);
+// cancellation may be NULL. Otherwise it must stay live until this function
+// returns. Cancellation covers transport enrollment and control stream setup.
+CmuxFrontendClient *cmux_frontend_client_connect_cancellable(
+    const char *invitation_uri,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds,
+    const CmuxFrontendAttachCancellation *cancellation);
 void cmux_frontend_client_set_update_callback(
     const CmuxFrontendClient *client,
     CmuxTerminalClientUpdateCallback callback,
@@ -82,12 +95,34 @@ char *cmux_frontend_client_request(
     bool mutation,
     char *error_buffer,
     size_t error_capacity);
+// cancellation may be NULL. Otherwise it must stay live until this function
+// returns. The deadline and cancellation cover both send and response waits.
+char *cmux_frontend_client_request_cancellable(
+    CmuxFrontendClient *client,
+    const char *operation,
+    const char *params_json,
+    bool mutation,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds,
+    const CmuxFrontendAttachCancellation *cancellation);
 void cmux_frontend_string_free(char *value);
 CmuxFrontendAttachCancellation *cmux_frontend_attach_cancellation_new(void);
 void cmux_frontend_attach_cancellation_cancel(
     const CmuxFrontendAttachCancellation *cancellation);
 void cmux_frontend_attach_cancellation_free(
     CmuxFrontendAttachCancellation *cancellation);
+CmuxFrontendQueueCancellation *cmux_frontend_queue_cancellation_new(void);
+bool cmux_frontend_queue_cancellation_begin_execution(
+    const CmuxFrontendQueueCancellation *cancellation);
+void cmux_frontend_queue_cancellation_finish_execution(
+    const CmuxFrontendQueueCancellation *cancellation);
+// Returns one CMUX_FRONTEND_QUEUE_CANCEL_* value. Only the caller that gets a
+// nonzero result owns the cancellation callback.
+uint8_t cmux_frontend_queue_cancellation_cancel(
+    const CmuxFrontendQueueCancellation *cancellation);
+void cmux_frontend_queue_cancellation_free(
+    CmuxFrontendQueueCancellation *cancellation);
 CmuxFrontendTerminal *cmux_frontend_client_attach_terminal(
     CmuxFrontendClient *client,
     const char *terminal_id,
@@ -134,6 +169,8 @@ bool cmux_frontend_terminal_copy_next_render_event(
     CmuxFrontendRenderEvent *event,
     uint8_t *buffer,
     size_t capacity);
+void cmux_frontend_terminal_discard_render_events(
+    CmuxFrontendTerminal *terminal);
 size_t cmux_frontend_terminal_copy_frame(
     const CmuxFrontendTerminal *terminal,
     char *buffer,
@@ -143,6 +180,7 @@ size_t cmux_frontend_terminal_copy_diagnostics(
     char *buffer,
     size_t capacity);
 bool cmux_frontend_terminal_has_exited(const CmuxFrontendTerminal *terminal);
+bool cmux_frontend_terminal_is_closed(const CmuxFrontendTerminal *terminal);
 void cmux_frontend_terminal_disconnect(CmuxFrontendTerminal *terminal);
 
 // Both connect functions return an owned client, or NULL on failure. The caller
@@ -229,6 +267,8 @@ bool cmux_terminal_client_last_resize_ack(
 // bound two-pass retries and treat a returned length >= capacity as a truncated
 // snapshot. Returned pointers are never borrowed from client storage.
 #define CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES (16u * 1024u * 1024u)
+// Typed view for FFI importers that do not import expression macros.
+extern const size_t CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE;
 size_t cmux_terminal_client_copy_frame(
     const CmuxTerminalClient *client,
     char *buffer,

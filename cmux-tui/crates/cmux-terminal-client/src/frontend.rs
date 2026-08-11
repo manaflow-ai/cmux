@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ffi::{CStr, CString, c_char, c_void};
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use bytes::Bytes;
 use cmux_remote::mux_codec::{MuxLineAssembler, encode_line};
 use cmux_remote::service::{ServiceMultiplexer, ServiceStream, StreamChunk};
 use cmux_remote_protocol::{
@@ -17,11 +17,12 @@ use tokio::sync::{Notify, oneshot};
 
 use super::{
     ActiveTerminal, ClientState, ClientUpdates, ConnectedTransport, TerminalUpdateCallback,
-    bytes_from_ffi, connect_transport, connect_with_timeout, copy_utf8, encode_frame,
+    bytes_from_ffi, connect_transport, connect_with_timeout, copy_utf8, enqueue_active_terminal,
     open_terminal_stream_with_timeout_and_cancel, start_terminal_tasks, terminal_id_from_ffi,
 };
 
 const FRONTEND_CONNECTION_TIMEOUT_ERROR: &str = "frontend connection timed out";
+const FRONTEND_CONNECTION_CANCELLED_ERROR: &str = "frontend connection cancelled";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const RESOURCE_UPDATE_QUEUE_MAX_ITEMS: usize = 256;
 const RESOURCE_UPDATE_QUEUE_MAX_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES * 2;
@@ -31,6 +32,15 @@ const RESOURCE_STREAM_END_CANCELED: u8 = 2;
 const RESOURCE_STREAM_END_CLOSED: u8 = 3;
 const RESOURCE_STREAM_END_GAP: u8 = 4;
 const RESOURCE_STREAM_END_ERROR: u8 = 5;
+const QUEUE_CANCEL_NONE: u8 = 0;
+const QUEUE_CANCEL_BEFORE_EXECUTION: u8 = 1;
+const QUEUE_CANCEL_DURING_EXECUTION: u8 = 2;
+
+const QUEUE_STATE_QUEUED: u8 = 0;
+const QUEUE_STATE_RUNNING: u8 = 1;
+const QUEUE_STATE_CANCELLED_BEFORE_EXECUTION: u8 = 2;
+const QUEUE_STATE_CANCELLED_DURING_EXECUTION: u8 = 3;
+const QUEUE_STATE_COMPLETED: u8 = 4;
 
 #[repr(C)]
 pub struct CmuxFrontendAttachCancellation {
@@ -54,6 +64,83 @@ impl CmuxFrontendAttachCancellation {
         while !self.canceled.load(Ordering::Acquire) {
             self.notify.notified().await;
         }
+    }
+}
+
+#[repr(C)]
+pub struct CmuxFrontendQueueCancellation {
+    state: AtomicU8,
+}
+
+impl CmuxFrontendQueueCancellation {
+    fn new() -> Self {
+        Self { state: AtomicU8::new(QUEUE_STATE_QUEUED) }
+    }
+
+    fn begin_execution(&self) -> bool {
+        self.state
+            .compare_exchange(
+                QUEUE_STATE_QUEUED,
+                QUEUE_STATE_RUNNING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    fn finish_execution(&self) {
+        self.state.store(QUEUE_STATE_COMPLETED, Ordering::Release);
+    }
+
+    fn cancel(&self) -> u8 {
+        loop {
+            let current = self.state.load(Ordering::Acquire);
+            let (next, result) = match current {
+                QUEUE_STATE_QUEUED => {
+                    (QUEUE_STATE_CANCELLED_BEFORE_EXECUTION, QUEUE_CANCEL_BEFORE_EXECUTION)
+                }
+                QUEUE_STATE_RUNNING => {
+                    (QUEUE_STATE_CANCELLED_DURING_EXECUTION, QUEUE_CANCEL_DURING_EXECUTION)
+                }
+                QUEUE_STATE_CANCELLED_BEFORE_EXECUTION
+                | QUEUE_STATE_CANCELLED_DURING_EXECUTION
+                | QUEUE_STATE_COMPLETED => return QUEUE_CANCEL_NONE,
+                _ => return QUEUE_CANCEL_NONE,
+            };
+            if self
+                .state
+                .compare_exchange(current, next, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return result;
+            }
+        }
+    }
+}
+
+async fn run_frontend_connect_stage<T>(
+    future: impl Future<Output = Result<T, String>>,
+    timeout: Option<Duration>,
+    cancellation: Option<&CmuxFrontendAttachCancellation>,
+) -> Result<T, String> {
+    let stage = async {
+        match timeout {
+            Some(timeout) => connect_with_timeout(future, timeout).await,
+            None => future.await,
+        }
+    };
+    tokio::pin!(stage);
+    match cancellation {
+        Some(cancellation) => {
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => {
+                    Err(FRONTEND_CONNECTION_CANCELLED_ERROR.to_owned())
+                }
+                result = &mut stage => result,
+            }
+        }
+        None => stage.await,
     }
 }
 
@@ -159,8 +246,10 @@ impl FrontendControlState {
     }
 
     fn discard_resource_updates(&self) {
-        self.resource_updates.lock().unwrap().clear();
+        let mut queue = self.resource_updates.lock().unwrap();
+        queue.clear();
         self.resource_updates_overflowed.store(false, Ordering::Release);
+        drop(queue);
         self.updates.notify();
     }
 
@@ -409,8 +498,28 @@ fn classify_resource_request(operation: &str, mutation: bool) -> Lane {
     }
 }
 
+fn mutation_indeterminate_error(operation: &str, idempotency_key: &str, cause: &str) -> String {
+    serde_json::to_string(&json!({
+        "code":"mutation.indeterminate",
+        "message":"the mutation outcome is unknown",
+        "details":{
+            "operation":operation,
+            "idempotency_key":idempotency_key,
+            "cause":cause,
+        },
+    }))
+    .unwrap_or_else(|_| "mutation outcome is unknown".into())
+}
+
 impl CmuxFrontendClient {
-    fn request(&self, operation: &str, params: Value, mutation: bool) -> Result<Value, String> {
+    fn request(
+        &self,
+        operation: &str,
+        params: Value,
+        mutation: bool,
+        timeout: Duration,
+        cancellation: Option<&CmuxFrontendAttachCancellation>,
+    ) -> Result<Value, String> {
         if !params.is_object() {
             return Err("request params must be a JSON object".into());
         }
@@ -429,8 +538,9 @@ impl CmuxFrontendClient {
             "operation":operation,
             "params":params,
         });
-        if mutation {
-            envelope["idempotency_key"] = Value::String(format!("native-{}-{message}", self.nonce));
+        let idempotency_key = mutation.then(|| format!("native-{}-{message}", self.nonce));
+        if let Some(idempotency_key) = &idempotency_key {
+            envelope["idempotency_key"] = Value::String(idempotency_key.clone());
         }
         let mut line = serde_json::to_vec(&envelope).map_err(|error| error.to_string())?;
         line.push(b'\n');
@@ -445,26 +555,40 @@ impl CmuxFrontendClient {
             .ok_or_else(|| "mux-control is unavailable".to_string())?;
         let (sender, response) = oneshot::channel();
         self.control_state.pending.lock().unwrap().insert(id.clone(), sender);
-        let send_result = self.runtime.block_on(async {
-            for packet in packets {
-                stream.send_on(lane, packet).await.map_err(|error| error.to_string())?;
-            }
-            Ok::<(), String>(())
-        });
-        if let Err(error) = send_result {
-            self.control_state.pending.lock().unwrap().remove(&id);
-            return Err(error);
-        }
         let response = self.runtime.block_on(async {
-            tokio::time::timeout(REQUEST_TIMEOUT, response)
-                .await
-                .map_err(|_| "resource request timed out".to_string())?
-                .map_err(|_| "resource response channel closed".to_string())?
+            let exchange = async {
+                for packet in packets {
+                    stream.send_on(lane, packet).await.map_err(|error| error.to_string())?;
+                }
+                response.await.map_err(|_| "resource response channel closed".to_string())?
+            };
+            let bounded = async {
+                tokio::time::timeout(timeout, exchange)
+                    .await
+                    .map_err(|_| "resource request timed out".to_string())?
+            };
+            match cancellation {
+                Some(cancellation) => {
+                    tokio::select! {
+                        result = bounded => result,
+                        _ = cancellation.cancelled() => Err("resource request canceled".into()),
+                    }
+                }
+                None => bounded.await,
+            }
         });
-        if response.is_err() {
-            self.control_state.pending.lock().unwrap().remove(&id);
-        }
-        let response = response?;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                self.control_state.pending.lock().unwrap().remove(&id);
+                return Err(match idempotency_key {
+                    Some(idempotency_key) => {
+                        mutation_indeterminate_error(operation, &idempotency_key, &error)
+                    }
+                    None => error,
+                });
+            }
+        };
         if response.get("ok").and_then(Value::as_bool) == Some(true) {
             Ok(response.get("result").cloned().unwrap_or(Value::Null))
         } else {
@@ -481,6 +605,7 @@ unsafe fn frontend_connect(
     error_buffer: *mut c_char,
     error_capacity: usize,
     timeout: Option<Duration>,
+    cancellation: *const CmuxFrontendAttachCancellation,
 ) -> *mut CmuxFrontendClient {
     if invitation_uri.is_null() {
         copy_utf8("invitation URI is null", error_buffer, error_capacity);
@@ -505,14 +630,13 @@ unsafe fn frontend_connect(
             return std::ptr::null_mut();
         }
     };
+    let cancellation = unsafe { cancellation.as_ref() };
     let started = Instant::now();
-    let connected = match timeout {
-        Some(timeout) => runtime.block_on(connect_with_timeout(
-            connect_transport(invitation, "NativeMux Demo"),
-            timeout,
-        )),
-        None => runtime.block_on(connect_transport(invitation, "NativeMux Demo")),
-    };
+    let connected = runtime.block_on(run_frontend_connect_stage(
+        connect_transport(invitation, "NativeMux Demo"),
+        timeout,
+        cancellation,
+    ));
     let ConnectedTransport { connection, provider, multiplexer, provider_name, path, generation } =
         match connected {
             Ok(connected) => connected,
@@ -526,13 +650,11 @@ unsafe fn frontend_connect(
                 return std::ptr::null_mut();
             }
         };
-    let control_result = match timeout {
-        Some(timeout) => runtime.block_on(connect_with_timeout(
-            open_control_stream(&multiplexer),
-            timeout.saturating_sub(started.elapsed()),
-        )),
-        None => runtime.block_on(open_control_stream(&multiplexer)),
-    };
+    let control_result = runtime.block_on(run_frontend_connect_stage(
+        open_control_stream(&multiplexer),
+        timeout.map(|timeout| timeout.saturating_sub(started.elapsed())),
+        cancellation,
+    ));
     let (stream, buffered) = match control_result {
         Ok(control) => control,
         Err(error) => {
@@ -597,6 +719,33 @@ pub unsafe extern "C" fn cmux_frontend_client_connect_with_timeout(
             error_buffer,
             error_capacity,
             Some(Duration::from_millis(timeout_milliseconds)),
+            std::ptr::null(),
+        )
+    }
+}
+
+/// Enrolls one native frontend transport with a deadline and cancellation.
+///
+/// # Safety
+///
+/// String and error pointers follow `cmux_frontend_client_connect_with_timeout`.
+/// A non-null cancellation pointer must stay live until this function returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_client_connect_cancellable(
+    invitation_uri: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+    cancellation: *const CmuxFrontendAttachCancellation,
+) -> *mut CmuxFrontendClient {
+    // SAFETY: forwards this function's documented C pointer contract.
+    unsafe {
+        frontend_connect(
+            invitation_uri,
+            error_buffer,
+            error_capacity,
+            Some(Duration::from_millis(timeout_milliseconds)),
+            cancellation,
         )
     }
 }
@@ -638,7 +787,7 @@ pub unsafe extern "C" fn cmux_frontend_client_discard_resource_updates(
     client.control_state.discard_resource_updates();
 }
 
-/// Executes one public resource operation and returns allocated result JSON.
+/// Executes one public resource operation with the default deadline.
 ///
 /// # Safety
 ///
@@ -652,6 +801,38 @@ pub unsafe extern "C" fn cmux_frontend_client_request(
     mutation: bool,
     error_buffer: *mut c_char,
     error_capacity: usize,
+) -> *mut c_char {
+    unsafe {
+        cmux_frontend_client_request_cancellable(
+            client,
+            operation,
+            params_json,
+            mutation,
+            error_buffer,
+            error_capacity,
+            REQUEST_TIMEOUT.as_millis() as u64,
+            std::ptr::null(),
+        )
+    }
+}
+
+/// Executes one public resource operation with a deadline and cancellation.
+///
+/// # Safety
+///
+/// String pointers must be readable and NUL terminated. `cancellation` must be
+/// null or remain live until this function returns. The returned string must be
+/// released with `cmux_frontend_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_client_request_cancellable(
+    client: *mut CmuxFrontendClient,
+    operation: *const c_char,
+    params_json: *const c_char,
+    mutation: bool,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+    cancellation: *const CmuxFrontendAttachCancellation,
 ) -> *mut c_char {
     let Some(client) = (unsafe { client.as_ref() }) else {
         copy_utf8("frontend client is null", error_buffer, error_capacity);
@@ -681,7 +862,14 @@ pub unsafe extern "C" fn cmux_frontend_client_request(
             return std::ptr::null_mut();
         }
     };
-    match client.request(operation, params, mutation) {
+    let cancellation = unsafe { cancellation.as_ref() };
+    match client.request(
+        operation,
+        params,
+        mutation,
+        Duration::from_millis(timeout_milliseconds),
+        cancellation,
+    ) {
         Ok(result) => match serde_json::to_string(&result)
             .map_err(|error| error.to_string())
             .and_then(|result| CString::new(result).map_err(|error| error.to_string()))
@@ -741,6 +929,65 @@ pub unsafe extern "C" fn cmux_frontend_attach_cancellation_cancel(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_frontend_attach_cancellation_free(
     cancellation: *mut CmuxFrontendAttachCancellation,
+) {
+    if !cancellation.is_null() {
+        drop(unsafe { Box::from_raw(cancellation) });
+    }
+}
+
+/// Creates the atomic state machine for one queued Swift FFI operation.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_frontend_queue_cancellation_new() -> *mut CmuxFrontendQueueCancellation {
+    Box::into_raw(Box::new(CmuxFrontendQueueCancellation::new()))
+}
+
+/// Claims a queued operation for execution.
+///
+/// # Safety
+///
+/// `cancellation` must point to a live queue cancellation state.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_queue_cancellation_begin_execution(
+    cancellation: *const CmuxFrontendQueueCancellation,
+) -> bool {
+    unsafe { cancellation.as_ref() }.is_some_and(CmuxFrontendQueueCancellation::begin_execution)
+}
+
+/// Marks an executing operation as complete.
+///
+/// # Safety
+///
+/// `cancellation` must point to a live queue cancellation state.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_queue_cancellation_finish_execution(
+    cancellation: *const CmuxFrontendQueueCancellation,
+) {
+    if let Some(cancellation) = unsafe { cancellation.as_ref() } {
+        cancellation.finish_execution();
+    }
+}
+
+/// Cancels a queued or executing operation and transfers callback ownership.
+///
+/// # Safety
+///
+/// `cancellation` must point to a live queue cancellation state.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_queue_cancellation_cancel(
+    cancellation: *const CmuxFrontendQueueCancellation,
+) -> u8 {
+    unsafe { cancellation.as_ref() }
+        .map_or(QUEUE_CANCEL_NONE, CmuxFrontendQueueCancellation::cancel)
+}
+
+/// Releases a queue cancellation state after its queue operation returns.
+///
+/// # Safety
+///
+/// `cancellation` must be null or an owned state returned by this library.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_queue_cancellation_free(
+    cancellation: *mut CmuxFrontendQueueCancellation,
 ) {
     if !cancellation.is_null() {
         drop(unsafe { Box::from_raw(cancellation) });
@@ -903,14 +1150,29 @@ pub unsafe extern "C" fn cmux_frontend_terminal_copy_next_render_event(
     true
 }
 
+/// Discards the leased render event and every queued render event.
+///
+/// # Safety
+///
+/// `terminal` must be a live pointer returned by the frontend attach API.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_terminal_discard_render_events(
+    terminal: *mut CmuxFrontendTerminal,
+) {
+    let Some(terminal) = (unsafe { terminal.as_ref() }) else { return };
+    let mut state = terminal.state.lock().unwrap();
+    state.native_render_event_lease = None;
+    if let Some(events) = state.native_render_events.as_mut() {
+        events.clear();
+    }
+    state.native_render_event_bytes = 0;
+    state.status = "renderer-discarded".into();
+}
+
 fn enqueue_terminal(terminal: &CmuxFrontendTerminal, frame: Frame) -> bool {
-    let Ok(encoded) = encode_frame(&frame) else { return false };
     let active = terminal.active.lock().unwrap();
     let Some(active) = active.as_ref() else { return false };
-    if active.closed.load(Ordering::Acquire) {
-        return false;
-    }
-    active.command_sender.try_send(Bytes::from(encoded)).is_ok()
+    enqueue_active_terminal(active, &terminal.state, frame)
 }
 
 /// Registers a signal-only callback for one terminal's rendered state.
@@ -971,7 +1233,13 @@ pub unsafe extern "C" fn cmux_frontend_terminal_send_key(
             return false;
         }
     };
-    let encoded_result = terminal.state.lock().unwrap().encode_key(chord, repeat);
+    let encoded_result = {
+        let mut state = terminal.state.lock().unwrap();
+        if !super::client_state_accepts_terminal_commands(&state) {
+            return false;
+        }
+        state.encode_key(chord, repeat)
+    };
     let encoded = match encoded_result {
         Ok(encoded) => encoded,
         Err(error) => {
@@ -1069,6 +1337,24 @@ pub unsafe extern "C" fn cmux_frontend_terminal_has_exited(
     terminal.state.lock().unwrap().exited
 }
 
+fn terminal_is_closed(closed: Option<&AtomicBool>) -> bool {
+    closed.is_none_or(|closed| closed.load(Ordering::Acquire))
+}
+
+/// Returns whether this terminal attachment can no longer recover its stream.
+///
+/// # Safety
+///
+/// The terminal must remain live during this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_terminal_is_closed(
+    terminal: *const CmuxFrontendTerminal,
+) -> bool {
+    let Some(terminal) = (unsafe { terminal.as_ref() }) else { return true };
+    let active = terminal.active.lock().unwrap();
+    terminal_is_closed(active.as_ref().map(|active| active.closed.as_ref()))
+}
+
 /// Closes and consumes one terminal attachment without closing the frontend.
 ///
 /// # Safety
@@ -1164,6 +1450,41 @@ mod tests {
             cancellation.cancel();
             waiter.await.unwrap();
         });
+    }
+
+    #[test]
+    fn frontend_connect_stage_observes_cancellation() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let cancellation = Arc::new(CmuxFrontendAttachCancellation::new());
+            let waiting_cancellation = cancellation.clone();
+            let (ready, ready_rx) = oneshot::channel();
+            let waiter = tokio::spawn(async move {
+                let pending = async move {
+                    let _ = ready.send(());
+                    std::future::pending::<Result<(), String>>().await
+                };
+                run_frontend_connect_stage(pending, None, Some(waiting_cancellation.as_ref())).await
+            });
+            let _ = ready_rx.await;
+            cancellation.cancel();
+            assert_eq!(waiter.await.unwrap().unwrap_err(), FRONTEND_CONNECTION_CANCELLED_ERROR);
+        });
+    }
+
+    #[test]
+    fn queue_cancellation_transfers_callback_ownership_once() {
+        let queued = CmuxFrontendQueueCancellation::new();
+        assert_eq!(queued.cancel(), QUEUE_CANCEL_BEFORE_EXECUTION);
+        assert!(!queued.begin_execution());
+        assert_eq!(queued.cancel(), QUEUE_CANCEL_NONE);
+
+        let running = CmuxFrontendQueueCancellation::new();
+        assert!(running.begin_execution());
+        assert_eq!(running.cancel(), QUEUE_CANCEL_DURING_EXECUTION);
+        assert_eq!(running.cancel(), QUEUE_CANCEL_NONE);
+        running.finish_execution();
+        assert_eq!(running.cancel(), QUEUE_CANCEL_NONE);
     }
 
     #[test]
@@ -1308,6 +1629,15 @@ mod tests {
     }
 
     #[test]
+    fn terminal_closed_state_is_explicit_and_fail_closed() {
+        let closed = AtomicBool::new(false);
+        assert!(!terminal_is_closed(Some(&closed)));
+        closed.store(true, Ordering::Release);
+        assert!(terminal_is_closed(Some(&closed)));
+        assert!(terminal_is_closed(None));
+    }
+
+    #[test]
     fn native_render_payload_copy_survives_resync() {
         let runtime = Runtime::new().unwrap();
         let state = Arc::new(Mutex::new(
@@ -1378,6 +1708,21 @@ mod tests {
         assert_eq!(classify_resource_request("pane.split", true), Lane::Interactive);
         assert_eq!(classify_resource_request("session.snapshot", false), Lane::Bulk);
         assert_eq!(classify_resource_request("workspace.list", false), Lane::Control);
+    }
+
+    #[test]
+    fn ambiguous_mutation_failure_retains_its_idempotency_key() {
+        let encoded = mutation_indeterminate_error(
+            "workspace.create",
+            "native-test-42",
+            "resource request timed out",
+        );
+        let error: Value = serde_json::from_str(&encoded).unwrap();
+
+        assert_eq!(error["code"], "mutation.indeterminate");
+        assert_eq!(error["details"]["operation"], "workspace.create");
+        assert_eq!(error["details"]["idempotency_key"], "native-test-42");
+        assert_eq!(error["details"]["cause"], "resource request timed out");
     }
 
     #[test]

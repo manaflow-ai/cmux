@@ -3,18 +3,92 @@ import Foundation
 import Dispatch
 
 enum FrontendServiceError: LocalizedError {
-  case message(String)
+  case localized(String)
+  case connectionFailure(String, localization: Localization)
+  case requestRejected(String, localization: Localization)
+  case terminalAttachFailure(String, localization: Localization)
+  case requestQueueFull(localization: Localization)
+  case requestQueueTimedOut(localization: Localization)
+  case terminalAttachQueueFull(localization: Localization)
+  case terminalAttachQueueTimedOut(localization: Localization)
+  case mutationIndeterminate(
+    operation: String,
+    idempotencyKey: String,
+    localization: Localization
+  )
+
+  static func requestFailure(
+    _ message: String,
+    localization: Localization
+  ) -> FrontendServiceError {
+    guard let data = message.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      object["code"] as? String == "mutation.indeterminate",
+      let details = object["details"] as? [String: Any],
+      let operation = details["operation"] as? String,
+      let idempotencyKey = details["idempotency_key"] as? String
+    else {
+      return .requestRejected(message, localization: localization)
+    }
+    return .mutationIndeterminate(
+      operation: operation,
+      idempotencyKey: idempotencyKey,
+      localization: localization
+    )
+  }
+
+  var requiresAuthoritativeReconciliation: Bool {
+    if case .mutationIndeterminate = self { return true }
+    return false
+  }
 
   var errorDescription: String? {
     switch self {
-    case .message(let message):
-      if let data = message.data(using: .utf8),
-        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        let readable = object["message"] as? String
-      {
-        return readable
-      }
-      return message
+    case .localized(let message): return message
+    case .connectionFailure(_, let localization):
+      return localization.text(
+        "error.connection_failure",
+        "The frontend could not connect. See diagnostics for details."
+      )
+    case .requestRejected(_, let localization):
+      return localization.text(
+        "error.request_failure",
+        "The frontend request failed. See diagnostics for details."
+      )
+    case .terminalAttachFailure(_, let localization):
+      return localization.text("error.terminal_attach", "The terminal could not be attached.")
+    case .requestQueueFull(let localization):
+      return localization.text(
+        "error.request_queue_full",
+        "Too many frontend requests are waiting. Try again after they finish."
+      )
+    case .requestQueueTimedOut(let localization):
+      return localization.text(
+        "error.request_failure",
+        "The frontend request failed. See diagnostics for details."
+      )
+    case .terminalAttachQueueFull(let localization):
+      return localization.text(
+        "error.terminal_attach_queue_full",
+        "Too many terminal attachments are waiting. Try again after they finish."
+      )
+    case .terminalAttachQueueTimedOut(let localization):
+      return localization.text("error.terminal_attach", "The terminal could not be attached.")
+    case .mutationIndeterminate(_, _, let localization):
+      return localization.text(
+        "error.mutation_indeterminate",
+        "The operation result is not known. The view will refresh."
+      )
+    }
+  }
+
+  var diagnosticDescription: String? {
+    switch self {
+    case .connectionFailure(let message, _), .requestRejected(let message, _),
+      .terminalAttachFailure(let message, _): return message
+    case .localized, .requestQueueFull, .requestQueueTimedOut,
+      .terminalAttachQueueFull, .terminalAttachQueueTimedOut, .mutationIndeterminate:
+      return nil
     }
   }
 }
@@ -59,12 +133,64 @@ private func decodeError(_ buffer: [CChar]) -> String {
   )
 }
 
+typealias FFITimeoutScheduler = @Sendable (
+  _ nanoseconds: UInt64,
+  _ action: @escaping @Sendable () async -> Void
+) -> Task<Void, Never>
+
+private func continuousClockFFITimeout(
+  nanoseconds: UInt64,
+  action: @escaping @Sendable () async -> Void
+) -> Task<Void, Never> {
+  Task {
+    do {
+      try await ContinuousClock().sleep(
+        for: .nanoseconds(Int64(clamping: nanoseconds))
+      )
+    } catch {
+      return
+    }
+    await action()
+  }
+}
+
+private actor FFIPendingOperationLimit {
+  private let maximum: Int
+  private var count = 0
+
+  init(maximum: Int) {
+    self.maximum = max(1, maximum)
+  }
+
+  func reserve() -> Bool {
+    guard count < maximum else { return false }
+    count += 1
+    return true
+  }
+
+  func release() {
+    count -= 1
+  }
+}
+
 // Safe because the queue is the sole executor for each handle's blocking C
 // calls; callers never access the raw handle outside this serialized path.
 final class SerialFFIExecutor: @unchecked Sendable {
   private let queue: DispatchQueue
+  private let timeoutScheduler: FFITimeoutScheduler
+  private let pendingCancellableOperations: FFIPendingOperationLimit
 
-  init(label: String) { queue = DispatchQueue(label: label) }
+  init(
+    label: String,
+    maximumPendingCancellableOperations: Int = 16,
+    timeoutScheduler: @escaping FFITimeoutScheduler = continuousClockFFITimeout
+  ) {
+    queue = DispatchQueue(label: label)
+    pendingCancellableOperations = FFIPendingOperationLimit(
+      maximum: maximumPendingCancellableOperations
+    )
+    self.timeoutScheduler = timeoutScheduler
+  }
 
   func run<T: Sendable>(
     _ operation: @escaping @Sendable () -> T,
@@ -78,53 +204,130 @@ final class SerialFFIExecutor: @unchecked Sendable {
 
   func runCancellable<T: Sendable>(
     cancellation: FFICancellation,
+    timeoutNanoseconds: UInt64? = nil,
     _ operation: @escaping @Sendable () -> T,
     onEnqueued: (@Sendable () -> Void)? = nil
-  ) async -> T? {
-    await withTaskCancellationHandler {
-      await withCheckedContinuation { continuation in
-        queue.async {
-          guard cancellation.beginExecution() else {
-            continuation.resume(returning: nil)
-            return
-          }
-          continuation.resume(returning: operation())
+  ) async throws -> T {
+    guard await pendingCancellableOperations.reserve() else {
+      throw SerialFFIExecutorError.queueFull
+    }
+    let waiter = FFIResultWaiter<T>()
+    let operationLimit = pendingCancellableOperations
+    queue.async {
+      guard cancellation.beginExecution() else {
+        Task {
+          await operationLimit.release()
+          await waiter.complete(.cancelled)
         }
-        onEnqueued?()
+        return
       }
+      let result = operation()
+      cancellation.finishExecution()
+      Task {
+        await operationLimit.release()
+        await waiter.complete(.value(result))
+      }
+    }
+    if let timeoutNanoseconds {
+      let timeoutTask = timeoutScheduler(timeoutNanoseconds) {
+        if cancellation.cancel() { await waiter.complete(.timedOut) }
+      }
+      await waiter.installTimeoutTask(timeoutTask)
+    }
+    onEnqueued?()
+    let result = await withTaskCancellationHandler {
+      await waiter.value()
     } onCancel: {
-      cancellation.cancel()
+      if cancellation.cancel() {
+        Task { await waiter.complete(.cancelled) }
+      }
+    }
+    switch result {
+    case .value(let value): return value
+    case .cancelled: throw CancellationError()
+    case .timedOut: throw SerialFFIExecutorError.timedOut
     }
   }
 }
 
+enum SerialFFIExecutorError: Error {
+  case queueFull
+  case timedOut
+}
+
+private enum FFIWaitResult<T: Sendable>: Sendable {
+  case value(T)
+  case cancelled
+  case timedOut
+}
+
+private actor FFIResultWaiter<T: Sendable> {
+  private var continuation: CheckedContinuation<FFIWaitResult<T>, Never>?
+  private var completed = false
+  private var result: FFIWaitResult<T>?
+  private var timeoutTask: Task<Void, Never>?
+
+  func value() async -> FFIWaitResult<T> {
+    if let result { return result }
+    return await withCheckedContinuation { continuation in
+      self.continuation = continuation
+    }
+  }
+
+  func installTimeoutTask(_ task: Task<Void, Never>) {
+    if completed {
+      task.cancel()
+    } else {
+      timeoutTask = task
+    }
+  }
+
+  func complete(_ result: FFIWaitResult<T>) {
+    guard !completed else { return }
+    completed = true
+    self.result = result
+    let continuation = continuation
+    self.continuation = nil
+    timeoutTask?.cancel()
+    timeoutTask = nil
+    continuation?.resume(returning: result)
+  }
+}
+
+// Safe because raw points to a Rust-owned atomic state machine. The queue
+// block and cancellation handler retain this owner until their calls finish.
 final class FFICancellation: @unchecked Sendable {
-  private let lock = NSLock()
-  private var isCancelled = false
+  private let raw: OpaquePointer
   private let onCancel: @Sendable () -> Void
 
   init(onCancel: @escaping @Sendable () -> Void) {
+    raw = cmux_frontend_queue_cancellation_new()!
     self.onCancel = onCancel
   }
 
-  func beginExecution() -> Bool {
-    lock.lock()
-    defer { lock.unlock() }
-    return !isCancelled
+  deinit {
+    cmux_frontend_queue_cancellation_free(raw)
   }
 
-  func cancel() {
-    lock.lock()
-    guard !isCancelled else {
-      lock.unlock()
-      return
-    }
-    isCancelled = true
-    lock.unlock()
+  func beginExecution() -> Bool {
+    cmux_frontend_queue_cancellation_begin_execution(raw)
+  }
+
+  func finishExecution() {
+    cmux_frontend_queue_cancellation_finish_execution(raw)
+  }
+
+  @discardableResult
+  func cancel() -> Bool {
+    let result = cmux_frontend_queue_cancellation_cancel(raw)
+    guard result != UInt8(CMUX_FRONTEND_QUEUE_CANCEL_NONE) else { return false }
     onCancel()
+    return result == UInt8(CMUX_FRONTEND_QUEUE_CANCEL_BEFORE_EXECUTION)
   }
 }
 
+// Safe because raw points to a Rust object whose cancellation flag and wakeup
+// primitive are thread-safe, and this Swift owner releases it only after use.
 final class FrontendAttachCancellation: @unchecked Sendable {
   let raw: OpaquePointer
 
@@ -159,34 +362,82 @@ func copyFrontendCString(
 }
 
 actor FrontendService {
+  private static let requestTimeoutMilliseconds: UInt64 = 15_000
+  private static let requestTimeoutNanoseconds = requestTimeoutMilliseconds * 1_000_000
+  private static let maximumPendingRequests = 16
+  private static let maximumPendingAttaches = 8
+
   private var raw: OpaquePointer?
-  private let ffiQueue = SerialFFIExecutor(label: "cmux.native-frontend.ffi")
+  private let localization: Localization
+  private let controlQueue = SerialFFIExecutor(
+    label: "cmux.native-frontend.control",
+    maximumPendingCancellableOperations: FrontendService.maximumPendingRequests
+  )
+  // One attach lane limits blocking handshakes without delaying resource control.
+  private let attachQueue = SerialFFIExecutor(
+    label: "cmux.native-frontend.attach",
+    maximumPendingCancellableOperations: FrontendService.maximumPendingAttaches
+  )
+  private var requestCancellations: [UUID: FFICancellation] = [:]
+  private var attachCancellations: [UUID: FFICancellation] = [:]
+  private var isShuttingDown = false
   private var updateSink: FrontendUpdateSink?
   private var updateGeneration: UInt64 = 0
 
-  private init(rawAddress: UInt) {
+  private init(rawAddress: UInt, localization: Localization) {
     raw = OpaquePointer(bitPattern: rawAddress)
+    self.localization = localization
+  }
+
+  static func transferAttachedTerminal(
+    _ address: UInt,
+    cancellationRequested: Bool,
+    disconnect: @escaping @Sendable (UInt) async -> Void
+  ) async throws -> UInt {
+    guard cancellationRequested else { return address }
+    await disconnect(address)
+    throw CancellationError()
   }
 
   private func enqueue<T: Sendable>(_ operation: @escaping @Sendable () -> T) async -> T {
-    await ffiQueue.run(operation)
+    await controlQueue.run(operation)
   }
 
-  static func connect(invitation: String) async throws -> FrontendService {
-    let result = await Task.detached(priority: .userInitiated) {
-      var error = [CChar](repeating: 0, count: 2_048)
-      let handle = invitation.withCString {
-        cmux_frontend_client_connect_with_timeout($0, &error, error.count, 20_000)
-      }
-      return ConnectedFrontend(
-        rawAddress: handle.map { UInt(bitPattern: $0) },
-        error: decodeError(error)
-      )
-    }.value
-    guard let rawAddress = result.rawAddress else {
-      throw FrontendServiceError.message(result.error)
+  static func connect(
+    invitation: String,
+    localization: Localization = .fallback
+  ) async throws -> FrontendService {
+    let cancellation = FrontendAttachCancellation()
+    let result = await withTaskCancellationHandler {
+      await Task.detached(priority: .userInitiated) {
+        var error = [CChar](repeating: 0, count: 2_048)
+        let handle = invitation.withCString {
+          cmux_frontend_client_connect_cancellable(
+            $0,
+            &error,
+            error.count,
+            20_000,
+            cancellation.raw
+          )
+        }
+        return ConnectedFrontend(
+          rawAddress: handle.map { UInt(bitPattern: $0) },
+          error: decodeError(error)
+        )
+      }.value
+    } onCancel: {
+      cancellation.cancel()
     }
-    return FrontendService(rawAddress: rawAddress)
+    guard let rawAddress = result.rawAddress else {
+      if Task.isCancelled { throw CancellationError() }
+      throw FrontendServiceError.connectionFailure(result.error, localization: localization)
+    }
+    let service = FrontendService(rawAddress: rawAddress, localization: localization)
+    if Task.isCancelled {
+      await service.shutdown()
+      throw CancellationError()
+    }
+    return service
   }
 
   func request<T: Decodable & Sendable>(
@@ -195,34 +446,57 @@ actor FrontendService {
     mutation: Bool = false,
     as type: T.Type = T.self
   ) async throws -> T {
-    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
-      throw FrontendServiceError.message(
-        L10n.text("error.connection_closed", "The frontend connection is closed.")
+    guard !isShuttingDown,
+      let rawAddress = raw.map({ UInt(bitPattern: $0) })
+    else {
+      throw FrontendServiceError.localized(
+        localization.text("error.connection_closed", "The frontend connection is closed.")
       )
     }
     let paramsJSON = try params.encodedJSON()
-    let response: Result<String, DetachedRequestFailure> = await enqueue {
-      var error = [CChar](repeating: 0, count: 4_096)
-      let result = operation.withCString { operationPointer in
-        paramsJSON.withCString { paramsPointer in
-          cmux_frontend_client_request(
-            OpaquePointer(bitPattern: rawAddress)!,
-            operationPointer,
-            paramsPointer,
-            mutation,
-            &error,
-            error.count
-          )
+    let requestCancellation = FrontendAttachCancellation()
+    let queueCancellation = FFICancellation(onCancel: requestCancellation.cancel)
+    let requestID = UUID()
+    requestCancellations[requestID] = queueCancellation
+    defer { requestCancellations[requestID] = nil }
+    let queuedResponse: Result<String, DetachedRequestFailure>
+    do {
+      queuedResponse = try await controlQueue.runCancellable(
+        cancellation: queueCancellation,
+        timeoutNanoseconds: Self.requestTimeoutNanoseconds
+      ) {
+        var error = [CChar](repeating: 0, count: 4_096)
+        let result = operation.withCString { operationPointer in
+          paramsJSON.withCString { paramsPointer in
+            cmux_frontend_client_request_cancellable(
+              OpaquePointer(bitPattern: rawAddress)!,
+              operationPointer,
+              paramsPointer,
+              mutation,
+              &error,
+              error.count,
+              FrontendService.requestTimeoutMilliseconds,
+              requestCancellation.raw
+            )
+          }
         }
+        guard let result else {
+          return .failure(DetachedRequestFailure(message: decodeError(error)))
+        }
+        defer { cmux_frontend_string_free(result) }
+        return .success(String(cString: result))
       }
-      guard let result else { return .failure(DetachedRequestFailure(message: decodeError(error))) }
-      defer { cmux_frontend_string_free(result) }
-      return .success(String(cString: result))
+    } catch SerialFFIExecutorError.queueFull {
+      throw FrontendServiceError.requestQueueFull(localization: localization)
+    } catch SerialFFIExecutorError.timedOut {
+      throw FrontendServiceError.requestQueueTimedOut(localization: localization)
     }
+    try Task.checkCancellation()
     let payload: String
-    switch response {
+    switch queuedResponse {
     case .success(let value): payload = value
-    case .failure(let error): throw FrontendServiceError.message(error.message)
+    case .failure(let error):
+      throw FrontendServiceError.requestFailure(error.message, localization: localization)
     }
     let data = Data(payload.utf8)
     return try JSONDecoder().decode(type, from: data)
@@ -242,37 +516,67 @@ actor FrontendService {
   }
 
   func attachTerminal(id: String) async throws -> TerminalHandle {
-    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
-      throw FrontendServiceError.message(
-        L10n.text("error.connection_closed", "The frontend connection is closed.")
+    guard !isShuttingDown,
+      let rawAddress = raw.map({ UInt(bitPattern: $0) })
+    else {
+      throw FrontendServiceError.localized(
+        localization.text("error.connection_closed", "The frontend connection is closed.")
       )
     }
     let attachCancellation = FrontendAttachCancellation()
     let queueCancellation = FFICancellation(onCancel: attachCancellation.cancel)
-    let queuedResult: Result<UInt, DetachedRequestFailure>? = await ffiQueue.runCancellable(
-      cancellation: queueCancellation
-    ) {
-      var error = [CChar](repeating: 0, count: 2_048)
-      let terminal = id.withCString {
-        cmux_frontend_client_attach_terminal_cancellable(
-          OpaquePointer(bitPattern: rawAddress)!,
-          $0,
-          &error,
-          error.count,
-          15_000,
-          attachCancellation.raw
-        )
+    guard attachCancellations.count < Self.maximumPendingAttaches else {
+      throw FrontendServiceError.terminalAttachQueueFull(localization: localization)
+    }
+    let attachID = UUID()
+    attachCancellations[attachID] = queueCancellation
+    defer { attachCancellations[attachID] = nil }
+    let queuedResult: Result<UInt, DetachedRequestFailure>
+    do {
+      queuedResult = try await attachQueue.runCancellable(
+        cancellation: queueCancellation,
+        timeoutNanoseconds: Self.requestTimeoutNanoseconds
+      ) {
+        var error = [CChar](repeating: 0, count: 2_048)
+        let terminal = id.withCString {
+          cmux_frontend_client_attach_terminal_cancellable(
+            OpaquePointer(bitPattern: rawAddress)!,
+            $0,
+            &error,
+            error.count,
+            FrontendService.requestTimeoutMilliseconds,
+            attachCancellation.raw
+          )
+        }
+        guard let terminal else {
+          return .failure(DetachedRequestFailure(message: decodeError(error)))
+        }
+        return .success(UInt(bitPattern: terminal))
       }
-      guard let terminal else { return .failure(DetachedRequestFailure(message: decodeError(error))) }
-      return .success(UInt(bitPattern: terminal))
+    } catch SerialFFIExecutorError.queueFull {
+      throw FrontendServiceError.terminalAttachQueueFull(localization: localization)
+    } catch SerialFFIExecutorError.timedOut {
+      throw FrontendServiceError.terminalAttachQueueTimedOut(localization: localization)
     }
-    guard let result = queuedResult else { throw CancellationError() }
-    let address: UInt
-    switch result {
-    case .success(let value): address = value
-    case .failure(let error): throw FrontendServiceError.message(error.message)
+    switch queuedResult {
+    case .success(let value):
+      let queue = attachQueue
+      let address = try await Self.transferAttachedTerminal(
+        value,
+        cancellationRequested: Task.isCancelled
+      ) { address in
+        await queue.run {
+          cmux_frontend_terminal_disconnect(OpaquePointer(bitPattern: address)!)
+        }
+      }
+      return TerminalHandle(rawAddress: address)
+    case .failure(let error):
+      try Task.checkCancellation()
+      throw FrontendServiceError.terminalAttachFailure(
+        error.message,
+        localization: localization
+      )
     }
-    return TerminalHandle(rawAddress: address)
   }
 
   func updates() async -> FrontendUpdateSubscription {
@@ -316,6 +620,13 @@ actor FrontendService {
     return batch
   }
 
+  func discardResourceUpdates() async {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return }
+    await enqueue {
+      cmux_frontend_client_discard_resource_updates(OpaquePointer(bitPattern: rawAddress))
+    }
+  }
+
   func stopUpdates(generation: UInt64? = nil) async {
     if let generation, generation != updateGeneration { return }
     guard let sink = updateSink else { return }
@@ -336,7 +647,12 @@ actor FrontendService {
   }
 
   func shutdown() async {
+    guard !isShuttingDown else { return }
+    isShuttingDown = true
+    for cancellation in requestCancellations.values { cancellation.cancel() }
+    for cancellation in attachCancellations.values { cancellation.cancel() }
     await stopUpdates()
+    await attachQueue.run {}
     guard let raw else { return }
     self.raw = nil
     let address = UInt(bitPattern: raw)
@@ -414,15 +730,25 @@ actor TerminalHandle {
     }
   }
 
+  func isClosed() async -> Bool {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return true }
+    return await enqueue {
+      cmux_frontend_terminal_is_closed(OpaquePointer(bitPattern: rawAddress))
+    }
+  }
+
   func drainRenderEvents() async -> TerminalRenderEventBatch {
     guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
-      return TerminalRenderEventBatch(events: [], hasMore: false)
+      return TerminalRenderEventBatch(events: [], hasMore: false, overflowed: false)
     }
     return await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
-      return drainTerminalRenderEvents { descriptor, buffer, capacity in
-        cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, buffer, capacity)
-      }
+      return drainTerminalRenderEvents(
+        discard: { cmux_frontend_terminal_discard_render_events(raw) },
+        copy: { descriptor, buffer, capacity in
+          cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, buffer, capacity)
+        }
+      )
     }
   }
 
@@ -464,10 +790,15 @@ struct TerminalRenderEvent: Sendable {
 struct TerminalRenderEventBatch: Sendable {
   let events: [TerminalRenderEvent]
   let hasMore: Bool
+  let overflowed: Bool
 }
 
 func drainTerminalRenderEvents(
-  maximumEvents: Int = 64,
+  maximumEvents: Int = 16,
+  maximumEventBytes: Int = Int(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE),
+  maximumBytesEventBytes: Int = 65_536,
+  maximumBytes: Int = 262_144,
+  discard: () -> Void = {},
   copy: (
     _ descriptor: inout CmuxFrontendRenderEvent,
     _ buffer: UnsafeMutablePointer<UInt8>?,
@@ -475,12 +806,29 @@ func drainTerminalRenderEvents(
   ) -> Bool
 ) -> TerminalRenderEventBatch {
   let eventBudget = max(1, maximumEvents)
+  let eventByteBudget = max(1, maximumEventBytes)
+  let bytesEventByteBudget = max(1, min(eventByteBudget, maximumBytesEventBytes))
+  let byteBudget = max(1, maximumBytes)
   var processed = 0
+  var retainedBytes = 0
   var result: [TerminalRenderEvent] = []
   result.reserveCapacity(eventBudget)
   while processed < eventBudget {
     var descriptor = CmuxFrontendRenderEvent()
     guard copy(&descriptor, nil, 0) else { break }
+    let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind)
+    let payloadByteBudget = descriptor.kind == TerminalRenderEvent.Kind.reset.rawValue
+      ? eventByteBudget
+      : bytesEventByteBudget
+    if descriptor.payload_length > payloadByteBudget {
+      discard()
+      return TerminalRenderEventBatch(events: [], hasMore: false, overflowed: true)
+    }
+    if retainedBytes > 0,
+      descriptor.payload_length > byteBudget - min(retainedBytes, byteBudget)
+    {
+      return TerminalRenderEventBatch(events: result, hasMore: true, overflowed: false)
+    }
     var payload = Data()
     if descriptor.payload_length > 0 {
       payload = Data(count: descriptor.payload_length)
@@ -494,12 +842,17 @@ func drainTerminalRenderEvents(
       guard copied else { break }
     }
     processed += 1
-    guard let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind) else { continue }
+    retainedBytes += payload.count
+    guard let kind else { continue }
     result.append(TerminalRenderEvent(
       kind: kind,
       geometry: TerminalGeometry(cols: descriptor.cols, rows: descriptor.rows),
       payload: payload
     ))
   }
-  return TerminalRenderEventBatch(events: result, hasMore: processed >= eventBudget)
+  return TerminalRenderEventBatch(
+    events: result,
+    hasMore: processed >= eventBudget,
+    overflowed: false
+  )
 }
