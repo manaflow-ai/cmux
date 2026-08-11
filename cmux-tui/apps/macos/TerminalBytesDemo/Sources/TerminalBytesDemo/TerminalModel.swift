@@ -934,14 +934,18 @@ final class TerminalModel {
 
     private func beginUpdates(from client: TerminalClientHandle, operation: UInt64) {
         updateTask?.cancel()
+        let renderClock = clock
         updateTask = Task { [weak self] in
             let updates = await client.updates()
-            var nextRender = clock.now
+            var nextRender = renderClock.now
             for await _ in updates.stream {
                 guard !Task.isCancelled else { break }
-                if clock.now < nextRender {
+                if renderClock.now < nextRender {
                     do {
-                        try await clock.sleep(until: nextRender, tolerance: .milliseconds(2))
+                        try await renderClock.sleep(
+                            until: nextRender,
+                            tolerance: .milliseconds(2)
+                        )
                     } catch {
                         break
                     }
@@ -952,7 +956,7 @@ final class TerminalModel {
                     !self.isShuttingDown
                 else { break }
                 self.apply(snapshot, from: client)
-                nextRender = clock.now.advanced(by: .milliseconds(33))
+                nextRender = renderClock.now.advanced(by: .milliseconds(33))
             }
             await client.stopUpdates(generation: updates.generation)
         }
