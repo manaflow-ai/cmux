@@ -5330,6 +5330,11 @@ fn journal_agent_live_session_events_wait_in_journal_for_pending_rebuild() {
     let session = "journal-agent-live-during-rebuild";
     let database = root.join(session_storage_component(session)).join(WORKSPACE_REGISTRY_FILE);
     let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
     {
         let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
         commit_terminal_topology(&mut registry, "journal-agent-live-during-rebuild-topology");
@@ -5357,7 +5362,7 @@ fn journal_agent_live_session_events_wait_in_journal_for_pending_rebuild() {
         let producer = JournalProducer { kind: "test".into(), id: "live-rebuild".into() };
         let payload = json!({});
         let tx = registry.connection.unchecked_transaction().unwrap();
-        for index in 0..EVENT_COUNT {
+        for index in 0..(EVENT_COUNT - 1) {
             let event_id = format!("event_agent_live_rebuild_{index:04}");
             session_journal::append_journal_record(
                 &tx,
@@ -5384,6 +5389,21 @@ fn journal_agent_live_session_events_wait_in_journal_for_pending_rebuild() {
             .unwrap();
         }
         tx.commit().unwrap();
+        let historical = crate::agent_hook_journal_ingress(
+            "pi",
+            "SessionStart",
+            Some(terminal_id.as_str()),
+            json!({"session_id":"historical-rebuild-session"}),
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &historical,
+                &validated,
+                "client_live_during_rebuild",
+                "journal_agent_historical_during_rebuild",
+            )
+            .unwrap();
     }
     Connection::open(&database)
         .unwrap()
@@ -5400,11 +5420,6 @@ fn journal_agent_live_session_events_wait_in_journal_for_pending_rebuild() {
 
     let mut reopened = WorkspaceRegistry::open(&root, session).unwrap();
     assert!(reopened.agent_projection_rebuild_pending().unwrap());
-    let validated = crate::journal_kernel::ValidatedJournalIngress {
-        class: JournalClass::Observation,
-        replay: JournalReplayPolicy::Advisory,
-        sensitivity: JournalSensitivity::Sensitive,
-    };
     for (event, key) in [
         ("SessionStart", "journal_agent_live_during_rebuild_start"),
         ("AgentStart", "journal_agent_live_during_rebuild_turn"),
