@@ -27,7 +27,7 @@ public struct NotificationFeedPreviewView: View {
         self.showsLabControls = showsLabControls
         let referenceDate = Date()
         _referenceDate = State(initialValue: referenceDate)
-        _items = State(initialValue: makeNotificationFeedPreviewItems(referenceDate: referenceDate))
+        _items = State(initialValue: Self.makePreviewItems(referenceDate: referenceDate))
     }
 
     /// The preview fixture's production-style tab and feed body.
@@ -209,7 +209,7 @@ public struct NotificationFeedPreviewView: View {
 
     private func resetFixture() {
         let nextReferenceDate = Date()
-        let nextItems = makeNotificationFeedPreviewItems(referenceDate: nextReferenceDate)
+        let nextItems = Self.makePreviewItems(referenceDate: nextReferenceDate)
         let nextProjection = NotificationFeedProjection(referenceDate: nextReferenceDate)
         nextProjection.update(items: nextItems, referenceDate: nextReferenceDate)
         selectedTab = .notifications
@@ -309,6 +309,19 @@ public struct NotificationFeedPreviewView: View {
         )
     }
 
+    private static func makePreviewItems(
+        referenceDate: Date
+    ) -> [MobileNotificationFeedItem] {
+        if let stressCount = UITestConfig.notificationFeedPreviewItemCount {
+            makeNotificationFeedPreviewStressItems(
+                referenceDate: referenceDate,
+                count: stressCount
+            )
+        } else {
+            makeNotificationFeedPreviewFixtureItems(referenceDate: referenceDate)
+        }
+    }
+
 }
 
 private struct NotificationFeedPreviewLabControls: View {
@@ -377,16 +390,6 @@ private struct NotificationFeedPreviewLabControls: View {
         }
         .buttonStyle(.bordered)
         .accessibilityIdentifier("MobileNotificationFeedLabReset")
-    }
-}
-
-private func makeNotificationFeedPreviewItems(
-    referenceDate: Date
-) -> [MobileNotificationFeedItem] {
-    if let stressCount = UITestConfig.notificationFeedPreviewItemCount {
-        makeNotificationFeedPreviewStressItems(referenceDate: referenceDate, count: stressCount)
-    } else {
-        makeNotificationFeedPreviewFixtureItems(referenceDate: referenceDate)
     }
 }
 
