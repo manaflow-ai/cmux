@@ -484,10 +484,14 @@ jobs:
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
 
       - name: Run native Windows tests
-        shell: bash
+        shell: pwsh
         run: |
-          unset CMUX_GHOSTTY_SRC
-          cd cmux-tui
+          Remove-Item Env:CMUX_GHOSTTY_SRC -ErrorAction SilentlyContinue
+          $testTemp = Join-Path $env:LOCALAPPDATA "cmux-tui-test-tmp"
+          New-Item -ItemType Directory -Force -Path $testTemp | Out-Null
+          $env:TEMP = $testTemp
+          $env:TMP = $testTemp
+          Set-Location cmux-tui
           # The published Rust SDK, sidebar wrapper, and terminal-host client use Unix sockets.
           # Test every Windows-capable workspace crate on the hosted Windows runner.
           cargo test --workspace --exclude cmux-sdk --exclude cmux-sidebar --exclude cmux-terminal-client --locked --target x86_64-pc-windows-gnu

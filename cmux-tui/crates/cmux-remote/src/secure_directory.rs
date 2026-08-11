@@ -479,19 +479,29 @@ mod windows_tests {
         );
         let base = local_app_data.join(format!("cmux-secure-junction-{suffix}"));
         ensure_secure_directory(&base, DirectoryAccess::OwnerControlled).unwrap();
-        let outside = tempfile::tempdir().unwrap();
+        let outside =
+            local_app_data.parent().unwrap().join(format!("cmux-junction-target-{suffix}"));
+        fs::create_dir(&outside).unwrap();
         let junction = base.join("redirect");
-        let command =
-            format!("mklink /J \"{}\" \"{}\" >NUL", junction.display(), outside.path().display());
+        let output = Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&outside)
+            .output()
+            .unwrap();
         assert!(
-            Command::new("cmd.exe").args(["/D", "/S", "/C", &command]).status().unwrap().success()
+            output.status.success(),
+            "mklink failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
         );
         let through_junction = junction.join("created");
 
         let result = ensure_secure_directory(&through_junction, DirectoryAccess::OwnerControlled);
-        let escaped = outside.path().join("created").exists();
+        let escaped = outside.join("created").exists();
         fs::remove_dir(&junction).unwrap();
         fs::remove_dir(&base).unwrap();
+        fs::remove_dir(&outside).unwrap();
 
         assert!(result.is_err());
         assert!(!escaped, "a rejected junction created a directory outside LOCALAPPDATA");

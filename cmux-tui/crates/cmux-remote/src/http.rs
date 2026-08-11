@@ -705,6 +705,7 @@ mod tests {
         assert_eq!(retries[0].1, retries[1].1);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn authenticated_rest_action_applies_native_codex_patch() {
         let directory = tempdir().unwrap();
