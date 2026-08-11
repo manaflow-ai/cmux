@@ -1208,30 +1208,36 @@ impl PtyTerminalRuntime {
 }
 
 #[cfg(test)]
-#[derive(Default)]
-struct TerminalHostProxyCompletion {
-    finished: Mutex<bool>,
+struct TerminalRuntimeOwnerCompletion {
+    active_workers: Mutex<usize>,
     changed: Condvar,
 }
 
 #[cfg(test)]
-impl TerminalHostProxyCompletion {
-    fn finish(&self) {
-        let mut finished = self.finished.lock().unwrap();
-        *finished = true;
-        self.changed.notify_all();
+impl TerminalRuntimeOwnerCompletion {
+    fn new(active_workers: usize) -> Self {
+        Self { active_workers: Mutex::new(active_workers), changed: Condvar::new() }
+    }
+
+    fn finish_worker(&self) {
+        let mut active_workers = self.active_workers.lock().unwrap();
+        assert_ne!(*active_workers, 0, "terminal runtime worker finished more than once");
+        *active_workers -= 1;
+        if *active_workers == 0 {
+            self.changed.notify_all();
+        }
     }
 
     fn wait_until_finished(&self, deadline: Instant) -> bool {
-        let mut finished = self.finished.lock().unwrap();
-        while !*finished {
+        let mut active_workers = self.active_workers.lock().unwrap();
+        while *active_workers != 0 {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return false;
             }
-            let (next, timeout) = self.changed.wait_timeout(finished, remaining).unwrap();
-            finished = next;
-            if timeout.timed_out() && !*finished {
+            let (next, timeout) = self.changed.wait_timeout(active_workers, remaining).unwrap();
+            active_workers = next;
+            if timeout.timed_out() && *active_workers != 0 {
                 return false;
             }
         }
@@ -1240,14 +1246,12 @@ impl TerminalHostProxyCompletion {
 }
 
 #[cfg(test)]
-struct TerminalHostProxyCompletionGuard(Arc<Surface>);
+struct TerminalRuntimeOwnerLease(Arc<PtyTerminalRuntime>);
 
 #[cfg(test)]
-impl Drop for TerminalHostProxyCompletionGuard {
+impl Drop for TerminalRuntimeOwnerLease {
     fn drop(&mut self) {
-        if let Some(pty) = self.0.as_pty() {
-            pty.host_proxy_completion.finish();
-        }
+        self.0.owner_completion.finish_worker();
     }
 }
 
@@ -1292,7 +1296,7 @@ pub struct PtyTerminalRuntime {
     /// must retain the host record so a fresh snapshot can recover it.
     host_connection_state: AtomicU8,
     #[cfg(test)]
-    host_proxy_completion: TerminalHostProxyCompletion,
+    owner_completion: TerminalRuntimeOwnerCompletion,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     dirty: AtomicBool,
@@ -2225,7 +2229,7 @@ impl Surface {
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 #[cfg(test)]
-                host_proxy_completion: TerminalHostProxyCompletion::default(),
+                owner_completion: TerminalRuntimeOwnerCompletion::new(2),
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
@@ -2271,6 +2275,10 @@ impl Surface {
         std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
             let surface = surface.clone();
             move || {
+                #[cfg(test)]
+                let _owner = TerminalRuntimeOwnerLease(
+                    surface.as_pty().expect("surface reader got non-pty surface").terminal.clone(),
+                );
                 let mut buf = [0u8; 64 * 1024];
                 loop {
                     let n = match reader.read(&mut buf) {
@@ -2372,6 +2380,10 @@ impl Surface {
         std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
             let surface = surface.clone();
             move || {
+                #[cfg(test)]
+                let _owner = TerminalRuntimeOwnerLease(
+                    surface.as_pty().expect("surface reaper got non-pty surface").terminal.clone(),
+                );
                 let exit = wait_for_native_child_status(child.as_mut());
                 if let Some(pty) = surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
@@ -2614,7 +2626,7 @@ impl Surface {
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 #[cfg(test)]
-                host_proxy_completion: TerminalHostProxyCompletion::default(),
+                owner_completion: TerminalRuntimeOwnerCompletion::new(1),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(title),
                 pwd: Mutex::new(pwd),
@@ -2665,7 +2677,9 @@ impl Surface {
             let scrollback = opts.scrollback;
             move || {
                 #[cfg(test)]
-                let _completion = TerminalHostProxyCompletionGuard(surface.clone());
+                let _owner = TerminalRuntimeOwnerLease(
+                    surface.as_pty().expect("host proxy got non-pty surface").terminal.clone(),
+                );
                 let mut sequence_boundary = sequence_boundary;
                 let mut protocol_version = protocol_version;
                 'connection: loop {
@@ -3482,7 +3496,7 @@ impl Surface {
                 dead: AtomicBool::new(true),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
-                host_proxy_completion: TerminalHostProxyCompletion::default(),
+                owner_completion: TerminalRuntimeOwnerCompletion::new(0),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
@@ -3707,7 +3721,7 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
-                host_proxy_completion: TerminalHostProxyCompletion::default(),
+                owner_completion: TerminalRuntimeOwnerCompletion::new(0),
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
@@ -4906,13 +4920,12 @@ impl Surface {
     }
 
     #[cfg(test)]
-    pub(crate) fn wait_for_terminal_host_proxy_finish_for_test(
+    pub(crate) fn wait_for_terminal_runtime_owners_for_test(
         &self,
         deadline: Instant,
     ) -> Option<bool> {
         let pty = self.as_pty()?;
-        pty.host_identity.as_ref()?;
-        Some(pty.host_proxy_completion.wait_until_finished(deadline))
+        Some(pty.owner_completion.wait_until_finished(deadline))
     }
 
     /// Ask the host to mint a one-use renderer credential. The durable owner

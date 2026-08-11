@@ -13770,12 +13770,13 @@ mod tests {
         drop(writer);
         terminal_surface.shutdown_for_daemon();
         assert_eq!(
-            terminal_surface.wait_for_terminal_host_proxy_finish_for_test(
+            terminal_surface.wait_for_terminal_runtime_owners_for_test(
                 Instant::now() + Duration::from_secs(10)
             ),
             Some(true),
-            "terminal host proxy did not release the first mux"
+            "terminal runtime owners did not release the first mux"
         );
+        first.flush_terminal_journal().unwrap();
         first.shutdown();
         assert_eq!(Arc::strong_count(&first), 1, "terminal workers retained the first mux");
         drop(terminal_surface);
