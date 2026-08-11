@@ -18,8 +18,8 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
 use cmux_terminal_host_protocol::{
     Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MAX_KITTY_IMAGE_BYTES,
-    MAX_KITTY_IMAGES, MAX_KITTY_INFLIGHT_BYTES, MAX_KITTY_PLACEMENTS,
-    MAX_TERMINAL_REPLAY_BYTES, MessageKind, RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
+    MAX_KITTY_IMAGES, MAX_KITTY_INFLIGHT_BYTES, MAX_KITTY_PLACEMENTS, MAX_TERMINAL_REPLAY_BYTES,
+    MessageKind, RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
 };
 #[cfg(feature = "text-renderer")]
 use ghostty_vt::{
