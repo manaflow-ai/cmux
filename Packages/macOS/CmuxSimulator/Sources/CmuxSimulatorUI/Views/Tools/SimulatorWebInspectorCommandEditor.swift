@@ -11,7 +11,7 @@ struct SimulatorWebInspectorCommandEditor: View {
 
     var body: some View {
         HStack {
-            Button(
+            SimulatorLocalizedButton(
                 isHighlighted ? simulatorStrings.unhighlightPage : simulatorStrings.highlightPage
             ) {
                 setHighlight(!isHighlighted)
