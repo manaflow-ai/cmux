@@ -37,7 +37,7 @@ impl Mux {
             "name": name,
         });
         let mux = std::sync::Arc::clone(self);
-        self.commit_resource_mutation_plan(
+        let commit = self.commit_resource_mutation_plan(
             mutation,
             "terminal.project",
             &fingerprint,
@@ -234,7 +234,18 @@ impl Mux {
                     },
                 ))
             },
-        )
+        )?;
+        if !commit.replayed
+            && let Some(surface) = commit.result["tab"]
+                .as_str()
+                .and_then(|tab| TabPublicId::parse(tab.to_string()).ok())
+                .and_then(|tab| {
+                    self.with_state(|state| state.resource_indexes.tabs.get(&tab).copied())
+                })
+        {
+            self.emit_terminal_view_title(surface);
+        }
+        Ok(commit)
     }
 
     pub(crate) fn resource_move_terminal_selected(

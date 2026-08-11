@@ -668,7 +668,13 @@ impl Mux {
         operation: ResourceOperation,
         commit: &ResourcePatchCommit,
     ) {
+        let created_terminal = (!commit.replayed && topology_effect_creates_terminal(operation))
+            .then(|| self.resource_surface_for_created_path(&commit.result).ok())
+            .flatten();
         if matches!(operation, ResourceOperation::PaneCreate | ResourceOperation::PaneSplit) {
+            if let Some(surface) = created_terminal {
+                self.emit_terminal_view_title(surface);
+            }
             return;
         }
         self.emit(MuxEvent::TreeChanged);
@@ -694,6 +700,9 @@ impl Mux {
             })
         {
             self.emit(MuxEvent::LayoutChanged(screen));
+        }
+        if let Some(surface) = created_terminal {
+            self.emit_terminal_view_title(surface);
         }
     }
 
