@@ -428,20 +428,21 @@ extension DockSplitStore {
             icon: panel.displayIcon,
             kind: Self.surfaceKind(for: panel),
             isDirty: panel.isDirty,
+            showsNotificationBadge: snapshot.isManuallyUnread,
             isLoading: (panel as? BrowserPanel)?.isLoading ?? false,
             isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
-            isPinned: false,
+            isPinned: snapshot.isPinned,
             inPane: paneId
         ) else {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         bindSurface(tabId, toPanelId: panel.id)
-        installSubscription(for: panel)
-        applyWindowDockUnreadState(
+        adoptManualUnreadState(
             snapshot.isManuallyUnread,
             panelId: panel.id
         )
+        installSubscription(for: panel)
         applyVisibility(to: panel)
         return tabId
     }

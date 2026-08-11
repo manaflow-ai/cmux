@@ -27,6 +27,7 @@ extension DockSplitStore {
         managedAgentResumeBindingsByPanelId.removeAll()
         invalidatedCachedTransferAgentSessionPanelIds.removeAll()
         replacedCachedTransferAgentSessionPanelIds.removeAll()
+        manualUnreadPanelIds.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
     }

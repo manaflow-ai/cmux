@@ -624,6 +624,7 @@ extension Workspace {
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 isMuted: browserPanel.isMuted,
+                chromeVisibility: browserPanel.chromeVisibility,
                 omnibarVisible: browserPanel.isOmnibarVisible,
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
@@ -3298,7 +3299,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 workspaceId: self.id,
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
-                omnibarVisible: initialBrowserOmnibarVisible,
+                chromeVisibility: BrowserChromeVisibility(
+                    omnibarVisible: initialBrowserOmnibarVisible
+                ),
                 transparentBackground: initialBrowserTransparentBackground
             )
             configureBrowserPanel(browserPanel)
@@ -4734,6 +4737,24 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             restorePinState()
             return
         }
+    }
+
+    func panelIsUnread(_ panelId: UUID) -> Bool {
+        guard panels[panelId] != nil else { return false }
+        return manualUnreadPanelIds.contains(panelId) ||
+            restoredUnreadPanelIds.contains(panelId) ||
+            hasUnreadNotification(panelId: panelId)
+    }
+
+    @discardableResult
+    func togglePanelUnread(_ panelId: UUID) -> Bool {
+        guard panels[panelId] != nil else { return false }
+        if panelIsUnread(panelId) {
+            markPanelRead(panelId)
+        } else {
+            markPanelUnread(panelId)
+        }
+        return true
     }
 
     func markPanelUnread(_ panelId: UUID) {
@@ -8490,7 +8511,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         allowsExternalBrowserFallback: Bool = true,
-        omnibarVisible: Bool = true,
+        chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil,
@@ -8535,7 +8556,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
-            omnibarVisible: omnibarVisible,
+            chromeVisibility: chromeVisibility,
             transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
@@ -8613,7 +8634,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         allowsExternalBrowserFallback: Bool = true,
-        omnibarVisible: Bool = true,
+        chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
         websiteDataStore: WKWebsiteDataStore? = nil
@@ -8651,7 +8672,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
-            omnibarVisible: omnibarVisible,
+            chromeVisibility: chromeVisibility,
             transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
@@ -10219,7 +10240,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard !browserPanel.shouldSuppressOmnibarAutofocus() else { return }
         guard browserPanel.isShowingNewTabPage || browserPanel.preferredURLStringForOmnibar() == nil else { return }
 
-        _ = browserPanel.requestAddressBarFocus()
+        guard browserPanel.requestAddressBarFocus() != nil else { return }
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: browserPanel.id)
     }
 
@@ -11283,7 +11304,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             url: browser.currentURLForTabDuplication,
             focus: focus,
             preferredProfileID: browser.profileID,
-            omnibarVisible: browser.isOmnibarVisible,
+            chromeVisibility: browser.chromeVisibility,
             bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
             websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return nil }

@@ -209,7 +209,7 @@ extension DockSplitStore {
                 forTabId: workspaceId,
                 surfaceId: panelId
             ) == true
-            : transfer?.manuallyUnread ?? false
+            : manualUnreadPanelIds.contains(panelId)
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
@@ -337,6 +337,7 @@ extension DockSplitStore {
                 pageZoom: Double(browser.currentPageZoomFactor()),
                 developerToolsVisible: browser.isDeveloperToolsVisible(),
                 isMuted: browser.isMuted,
+                chromeVisibility: browser.chromeVisibility,
                 omnibarVisible: browser.isOmnibarVisible,
                 backHistoryURLStrings: history.backHistoryURLStrings,
                 forwardHistoryURLStrings: history.forwardHistoryURLStrings,
@@ -367,7 +368,7 @@ extension DockSplitStore {
             customTitleSource: titleMetadata.customTitleSource,
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
-            isPinned: false,
+            isPinned: tab?.isPinned ?? transfer?.isPinned ?? false,
             isManuallyUnread: isManuallyUnread,
             listeningPorts: [],
             ttyName: transfer?.ttyName,
