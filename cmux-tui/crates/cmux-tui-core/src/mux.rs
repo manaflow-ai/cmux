@@ -21623,6 +21623,48 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn public_terminal_close_rejects_newer_incarnation_with_a_different_public_id() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let public_id = surface.terminal_public_id().cloned().unwrap();
+        let resource_revision = mux.with_state(|state| state.resource_revision);
+        let old_runtime = mux.remove_surface_runtime_for_test(surface.id).unwrap();
+        mux.remove_terminal_catalog_for_test(&public_id).unwrap();
+
+        let mut new_incarnation = host.incarnation.clone();
+        let replacement = if new_incarnation.starts_with('0') { "1" } else { "0" };
+        new_incarnation.replace_range(0..1, replacement);
+        let new_public_id = restore_terminal_id(904);
+        let new_surface = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: host.terminal_id.clone(),
+                incarnation: new_incarnation,
+            },
+            new_public_id.clone(),
+        )
+        .unwrap();
+        insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), new_surface.clone()).unwrap();
+
+        let error = mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap_err();
+
+        assert!(error.to_string().contains("terminal_incarnation_mismatch"));
+        assert!(mux.surface(new_surface.id).is_some());
+        assert_eq!(new_surface.terminal_public_id(), Some(&new_public_id));
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+        assert_eq!(
+            mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
+            TerminalLifecycle::Running
+        );
+        old_runtime.kill();
+        new_surface.kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn terminal_placement_discovery_accepts_exact_host_with_stale_public_id() {
         let mux = test_mux();
         let host = TerminalHostIdentity {

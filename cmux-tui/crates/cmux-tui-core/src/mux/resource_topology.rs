@@ -2505,6 +2505,12 @@ impl Mux {
                 "terminal_incarnation_mismatch"
             );
         }
+        ensure_terminal_host_indexes_match_incarnation(
+            self,
+            &state,
+            terminal_id,
+            planned_incarnation,
+        )?;
         let catalog_public_ids =
             terminal_catalog_public_ids_by_host(self, &state, terminal_id, planned_incarnation);
         let target = terminal_content_placements(
