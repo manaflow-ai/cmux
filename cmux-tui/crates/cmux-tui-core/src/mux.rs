@@ -5804,8 +5804,7 @@ impl Mux {
         if topology_pending {
             return true;
         }
-        let Ok(Some(_surface)) =
-            self.terminal_host_callback_target(&state, runtime_id, identity)
+        let Ok(Some(_surface)) = self.terminal_host_callback_target(&state, runtime_id, identity)
         else {
             return false;
         };
@@ -5871,8 +5870,7 @@ impl Mux {
         if topology_pending {
             return true;
         }
-        let Ok(Some(surface)) =
-            self.terminal_host_callback_target(&state, runtime_id, identity)
+        let Ok(Some(surface)) = self.terminal_host_callback_target(&state, runtime_id, identity)
         else {
             return false;
         };
