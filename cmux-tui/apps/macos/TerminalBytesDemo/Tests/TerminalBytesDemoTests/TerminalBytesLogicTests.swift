@@ -1,13 +1,117 @@
 import AppKit
 import Foundation
+import Observation
 import Testing
 
 @testable import TerminalBytesDemo
+
+private final class TestSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generationStorage: UInt64 = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    var generation: UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return generationStorage
+    }
+
+    func signal() {
+        lock.lock()
+        generationStorage &+= 1
+        let ready = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for continuation in ready {
+            continuation.resume()
+        }
+    }
+
+    func wait(after observedGeneration: UInt64) async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if generationStorage != observedGeneration {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+}
+
+private final class ManualTerminalClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var time: Duration = .zero
+    private let ticks: AsyncStream<Void>
+    private let tickContinuation: AsyncStream<Void>.Continuation
+    private let sleepRequests: AsyncStream<Duration>
+    private let requestContinuation: AsyncStream<Duration>.Continuation
+
+    init() {
+        let tickEvents = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        ticks = tickEvents.stream
+        tickContinuation = tickEvents.continuation
+        let requests = AsyncStream.makeStream(
+            of: Duration.self,
+            bufferingPolicy: .unbounded
+        )
+        sleepRequests = requests.stream
+        requestContinuation = requests.continuation
+    }
+
+    var clock: TerminalModelClock {
+        TerminalModelClock(
+            now: { [self] in now },
+            sleepUntil: { [self] deadline, _ in
+                try await sleep(until: deadline)
+            }
+        )
+    }
+
+    var now: Duration {
+        lock.lock()
+        defer { lock.unlock() }
+        return time
+    }
+
+    func advance(by duration: Duration) {
+        lock.lock()
+        time += duration
+        lock.unlock()
+        tickContinuation.yield()
+    }
+
+    func nextSleepDeadline() async -> Duration {
+        for await deadline in sleepRequests {
+            return deadline
+        }
+        Issue.record("The manual clock stopped before receiving a sleep request.")
+        return .zero
+    }
+
+    private func sleep(until deadline: Duration) async throws {
+        requestContinuation.yield(deadline)
+        var iterator = ticks.makeAsyncIterator()
+        while now < deadline {
+            guard await iterator.next() != nil else {
+                try Task.checkCancellation()
+                throw CancellationError()
+            }
+            try Task.checkCancellation()
+        }
+    }
+}
 
 private final class LockedFlag: @unchecked Sendable {
     // NSLock protects every access to storage, including calls from injected
     // C-operation closures that the compiler must treat as concurrent.
     private let lock = NSLock()
+    private let signal = TestSignal()
     private var storage = false
 
     var value: Bool {
@@ -20,12 +124,22 @@ private final class LockedFlag: @unchecked Sendable {
         lock.lock()
         storage = true
         lock.unlock()
+        signal.signal()
+    }
+
+    func waitUntilSet() async {
+        while !value {
+            let generation = signal.generation
+            if value { return }
+            await signal.wait(after: generation)
+        }
     }
 }
 
 private final class LockedCounter: @unchecked Sendable {
     // NSLock protects every access from injected concurrent client operations.
     private let lock = NSLock()
+    private let signal = TestSignal()
     private var storage = 0
 
     var value: Int {
@@ -38,11 +152,21 @@ private final class LockedCounter: @unchecked Sendable {
         lock.lock()
         storage += 1
         lock.unlock()
+        signal.signal()
+    }
+
+    func wait(until predicate: @Sendable (Int) -> Bool) async {
+        while !predicate(value) {
+            let generation = signal.generation
+            if predicate(value) { return }
+            await signal.wait(after: generation)
+        }
     }
 }
 
 private final class LockedInputs: @unchecked Sendable {
     private let lock = NSLock()
+    private let signal = TestSignal()
     private var storage: [String] = []
 
     var values: [String] {
@@ -54,9 +178,74 @@ private final class LockedInputs: @unchecked Sendable {
     @discardableResult
     func record(_ value: String) -> Int {
         lock.lock()
-        defer { lock.unlock() }
         storage.append(value)
-        return storage.count
+        let count = storage.count
+        lock.unlock()
+        signal.signal()
+        return count
+    }
+
+    func wait(until predicate: @Sendable ([String]) -> Bool) async {
+        while !predicate(values) {
+            let generation = signal.generation
+            if predicate(values) { return }
+            await signal.wait(after: generation)
+        }
+    }
+}
+
+private final class LockedString: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = ""
+
+    var value: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func set(_ value: String) {
+        lock.lock()
+        storage = value
+        lock.unlock()
+    }
+}
+
+private final class LockedUpdateCallback: @unchecked Sendable {
+    private let lock = NSLock()
+    private let registration = TestSignal()
+    private var callback: TerminalUpdateCallback?
+    private var context: UnsafeMutableRawPointer?
+
+    func set(_ callback: TerminalUpdateCallback?, context: UnsafeMutableRawPointer?) {
+        lock.lock()
+        self.callback = callback
+        self.context = context
+        lock.unlock()
+        registration.signal()
+    }
+
+    private var isRegistered: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return callback != nil
+    }
+
+    func waitUntilRegistered() async {
+        while !isRegistered {
+            let generation = registration.generation
+            if !isRegistered {
+                await registration.wait(after: generation)
+            }
+        }
+    }
+
+    func send() {
+        lock.lock()
+        let callback = callback
+        let context = context
+        lock.unlock()
+        callback?(context)
     }
 }
 
@@ -164,14 +353,27 @@ private final class LockedClientCalls: @unchecked Sendable {
 @Suite
 struct TerminalBytesLogicTests {
     @MainActor
-    private func waitUntil(
+    private func waitUntilObserved(
         _ predicate: @escaping @MainActor () -> Bool
-    ) async -> Bool {
-        for _ in 0..<100 {
-            if predicate() { return true }
-            try? await Task.sleep(for: .milliseconds(10))
+    ) async {
+        while true {
+            var satisfied = false
+            let changes = AsyncStream.makeStream(
+                of: Void.self,
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            withObservationTracking({
+                satisfied = predicate()
+            }, onChange: {
+                changes.continuation.yield()
+                changes.continuation.finish()
+            })
+            if satisfied {
+                changes.continuation.finish()
+                return
+            }
+            for await _ in changes.stream { break }
         }
-        return predicate()
     }
 
     @Test
@@ -390,13 +592,99 @@ struct TerminalBytesLogicTests {
         )
 
         model.resize(to: TerminalGeometry(cols: 120, rows: 40))
-        #expect(await waitUntil { attempts.value > 0 })
+        await attempts.wait { $0 > 0 }
         for _ in 0..<100 {
             model.resize(to: TerminalGeometry(cols: 120, rows: 40))
         }
-        #expect(await waitUntil { attempts.value >= 4 })
+        await attempts.wait { $0 >= 4 }
         await Task.yield()
         #expect(attempts.value == 4)
+        model.shutdown()
+    }
+
+    @Test @MainActor
+    func rejectedResizeRetryUsesTheInjectedClockAndCancelsOnShutdown() async throws {
+        let attempts = LockedCounter()
+        let clock = ManualTerminalClock()
+        let handle = TerminalClientHandle(
+            rawAddress: 11,
+            attachClient: { _, _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, _, _ in },
+            resizeClient: { _, _, _ in
+                attempts.increment()
+                return false
+            },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            initiallyConnected: true,
+            clock: clock.clock
+        )
+
+        model.resize(to: TerminalGeometry(cols: 120, rows: 40))
+        await attempts.wait { $0 == 1 }
+        #expect(await clock.nextSleepDeadline() == .milliseconds(50))
+
+        clock.advance(by: .milliseconds(50))
+        await attempts.wait { $0 == 2 }
+        #expect(await clock.nextSleepDeadline() == .milliseconds(150))
+
+        model.shutdown()
+        clock.advance(by: .seconds(1))
+        await Task.yield()
+        #expect(attempts.value == 2)
+    }
+
+    @Test @MainActor
+    func renderThrottleUsesTheInjectedClockAndStopsOnShutdown() async throws {
+        let updates = LockedUpdateCallback()
+        let frame = LockedString()
+        let clock = ManualTerminalClock()
+        let handle = TerminalClientHandle(
+            rawAddress: 12,
+            attachClient: { _, _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, callback, context in
+                updates.set(callback, context: context)
+            },
+            copyFrameClient: { _, buffer, capacity in
+                copyTestCString(frame.value, buffer: buffer, capacity: capacity)
+            },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            clock: clock.clock
+        )
+
+        model.connect()
+        await updates.waitUntilRegistered()
+        frame.set("first")
+        updates.send()
+        await waitUntilObserved { model.frame == "first" }
+
+        frame.set("second")
+        updates.send()
+        #expect(await clock.nextSleepDeadline() == .milliseconds(33))
+        #expect(model.frame == "first")
+
+        clock.advance(by: .milliseconds(33))
+        await waitUntilObserved { model.frame == "second" }
         model.shutdown()
     }
 
@@ -487,14 +775,14 @@ struct TerminalBytesLogicTests {
         )
 
         model.submit(.bytes(Data("0".utf8)))
-        #expect(await waitUntil { firstStarted.value })
+        await firstStarted.waitUntilSet()
         for value in 1...300 {
             model.submit(.bytes(Data(String(value).utf8)))
         }
         #expect(!model.errorMessage.isEmpty)
 
         releaseFirst.signal()
-        #expect(await waitUntil { inputs.values.count == 257 })
+        await inputs.wait { $0.count == 257 }
         #expect(inputs.values == (0...256).map(String.init))
         model.shutdown()
     }
@@ -503,7 +791,7 @@ struct TerminalBytesLogicTests {
     func terminalInputRejectsAnOversizedPayloadBeforeTheEntryLimit() async throws {
         let harness = makeBlockingInputHarness()
         harness.model.submit(.bytes(Data("blocked".utf8)))
-        #expect(await waitUntil { harness.firstStarted.value })
+        await harness.firstStarted.waitUntilSet()
 
         harness.model.submit(.bytes(Data(repeating: 0x61, count: 1_048_577)))
         #expect(!harness.model.errorMessage.isEmpty)
@@ -516,7 +804,7 @@ struct TerminalBytesLogicTests {
     func terminalInputRejectsAggregateBytesBeforeTheEntryLimit() async throws {
         let harness = makeBlockingInputHarness()
         harness.model.submit(.bytes(Data("blocked".utf8)))
-        #expect(await waitUntil { harness.firstStarted.value })
+        await harness.firstStarted.waitUntilSet()
 
         let chunk = Data(repeating: 0x61, count: 1_048_576)
         for _ in 0..<5 {
@@ -557,11 +845,11 @@ struct TerminalBytesLogicTests {
 
         model.connect()
         #expect(model.isConnecting)
-        #expect(await waitUntil { attachStarted.value })
+        await attachStarted.waitUntilSet()
         #expect(model.isConnecting)
 
         releaseAttach.signal()
-        #expect(await waitUntil { model.isConnected && !model.isConnecting })
+        await waitUntilObserved { model.isConnected && !model.isConnecting }
         model.shutdown()
     }
 
@@ -581,11 +869,13 @@ struct TerminalBytesLogicTests {
         )
 
         model.connect()
-        #expect(await waitUntil { attempts.value == 1 && !model.isConnecting })
+        await attempts.wait { $0 == 1 }
+        await waitUntilObserved { !model.isConnecting }
         #expect(!model.errorMessage.isEmpty)
 
         model.connect()
-        #expect(await waitUntil { attempts.value == 2 && !model.isConnecting })
+        await attempts.wait { $0 == 2 }
+        await waitUntilObserved { !model.isConnecting }
         #expect(!model.errorMessage.isEmpty)
         model.shutdown()
     }
@@ -621,15 +911,13 @@ struct TerminalBytesLogicTests {
         )
 
         model.connect()
-        #expect(await waitUntil { timeouts.values == ["15000"] && !model.isConnecting })
+        await timeouts.wait { $0 == ["15000"] }
+        await waitUntilObserved { !model.isConnecting }
         #expect(!model.errorMessage.isEmpty)
 
         model.connect()
-        #expect(
-            await waitUntil {
-                timeouts.values == ["15000", "15000"] && !model.isConnecting
-            }
-        )
+        await timeouts.wait { $0 == ["15000", "15000"] }
+        await waitUntilObserved { !model.isConnecting }
         #expect(!model.errorMessage.isEmpty)
         model.shutdown()
     }
@@ -668,12 +956,9 @@ struct TerminalBytesLogicTests {
         model.invitation = "cmux://enroll/new"
         model.connect()
 
-        #expect(
-            await waitUntil {
-                invitations.values == ["cmux://enroll/new"] && destroyed.value
-                    && !model.isConnecting
-            }
-        )
+        await invitations.wait { $0 == ["cmux://enroll/new"] }
+        await destroyed.waitUntilSet()
+        await waitUntilObserved { !model.isConnecting }
         #expect(!attached.value)
         model.shutdown()
     }
@@ -707,11 +992,11 @@ struct TerminalBytesLogicTests {
         model.disconnect()
         #expect(!model.isConnected)
         #expect(model.isConnecting)
-        #expect(await waitUntil { detachStarted.value })
+        await detachStarted.waitUntilSet()
         #expect(model.isConnecting)
 
         releaseDetach.signal()
-        #expect(await waitUntil { !model.isConnecting })
+        await waitUntilObserved { !model.isConnecting }
         model.shutdown()
     }
 
@@ -744,7 +1029,7 @@ struct TerminalBytesLogicTests {
         )
 
         model.connect()
-        #expect(await waitUntil { model.frame == "terminal A" })
+        await waitUntilObserved { model.frame == "terminal A" }
         model.disconnect()
         #expect(model.frame.isEmpty)
         model.shutdown()
@@ -786,7 +1071,7 @@ struct TerminalBytesLogicTests {
         )
 
         model.connect()
-        #expect(await waitUntil { model.diagnostics == exitedDiagnostics })
+        await waitUntilObserved { model.diagnostics == exitedDiagnostics }
         #expect(!model.isConnected)
         model.submit(.bytes(Data("x".utf8)))
         #expect(model.errorMessage.isEmpty)

@@ -11353,13 +11353,13 @@ mod tests {
         assert!(first.persist_terminal_exit_for_test(&terminal_id, &exit).unwrap());
         assert_eq!(first.resource_surface_for_terminal(&terminal_id), None);
         assert!(disconnect_client(&first, client, false));
+        assert!(
+            scheduler.close_and_wait(Duration::from_secs(10)),
+            "connection dispatcher did not release the first mux"
+        );
         drop(scheduler);
         drop(writer);
         first.shutdown();
-        let shutdown_deadline = Instant::now() + Duration::from_secs(10);
-        while Arc::strong_count(&first) > 1 && Instant::now() < shutdown_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
         assert_eq!(Arc::strong_count(&first), 1, "terminal workers retained the first mux");
         drop(first);
 

@@ -354,9 +354,28 @@ struct UpdateCallbackRegistration {
     context: usize,
 }
 
-#[derive(Default)]
 struct ClientUpdates {
     callback: Mutex<Option<UpdateCallbackRegistration>>,
+    #[cfg(test)]
+    test_events: tokio::sync::watch::Sender<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalTaskPhase {
+    Running,
+    Stopped,
+}
+
+impl Default for ClientUpdates {
+    fn default() -> Self {
+        #[cfg(test)]
+        let (test_events, _) = tokio::sync::watch::channel(0);
+        Self {
+            callback: Mutex::new(None),
+            #[cfg(test)]
+            test_events,
+        }
+    }
 }
 
 impl ClientUpdates {
@@ -378,12 +397,20 @@ impl ClientUpdates {
             // holds this same mutex across invocation and synchronous removal.
             unsafe { (registered.callback)(registered.context as *mut c_void) };
         }
+        #[cfg(test)]
+        self.test_events.send_modify(|generation| *generation = generation.wrapping_add(1));
+    }
+
+    #[cfg(test)]
+    fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.test_events.subscribe()
     }
 }
 
 struct ActiveTerminal {
     streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
     closed: Arc<AtomicBool>,
+    shutdown: tokio::sync::watch::Sender<TerminalTaskPhase>,
     command_sender: tokio::sync::mpsc::Sender<Bytes>,
     receiver_task: tokio::task::JoinHandle<()>,
     command_task: tokio::task::JoinHandle<()>,
@@ -392,6 +419,7 @@ struct ActiveTerminal {
 impl ActiveTerminal {
     async fn close(self) {
         self.closed.store(true, Ordering::Release);
+        self.shutdown.send_replace(TerminalTaskPhase::Stopped);
         self.receiver_task.abort();
         self.command_task.abort();
         let stream = self.streams.send_replace(None);
@@ -1195,9 +1223,11 @@ async fn supervise_terminal_stream(
     initial_stream: Arc<ServiceStream>,
     streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
     closed: Arc<AtomicBool>,
+    shutdown: tokio::sync::watch::Sender<TerminalTaskPhase>,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
 ) {
+    let mut shutdown_events = shutdown.subscribe();
     let mut stream = initial_stream;
     loop {
         let outcome = receive_frames(stream.clone(), state.clone(), updates.clone()).await;
@@ -1207,6 +1237,7 @@ async fn supervise_terminal_stream(
         }
         if outcome == StreamOutcome::Stop {
             closed.store(true, Ordering::Release);
+            shutdown.send_replace(TerminalTaskPhase::Stopped);
             return;
         }
         if closed.load(Ordering::Acquire) {
@@ -1229,10 +1260,32 @@ async fn supervise_terminal_stream(
                 }
                 Err(error) => {
                     set_client_status(&state, &updates, format!("reconnect: {error}"));
-                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    if !wait_for_reconnect_backoff(
+                        &mut shutdown_events,
+                        std::time::Duration::from_millis(250),
+                    )
+                    .await
+                    {
+                        return;
+                    }
                 }
             }
         }
+    }
+}
+
+async fn wait_for_reconnect_backoff(
+    shutdown: &mut tokio::sync::watch::Receiver<TerminalTaskPhase>,
+    delay: std::time::Duration,
+) -> bool {
+    if *shutdown.borrow() == TerminalTaskPhase::Stopped {
+        return false;
+    }
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => true,
+        changed = shutdown.changed() => {
+            changed.is_ok() && *shutdown.borrow() == TerminalTaskPhase::Running
+        },
     }
 }
 
@@ -1245,6 +1298,7 @@ fn start_terminal_tasks(
     updates: Arc<ClientUpdates>,
 ) -> ActiveTerminal {
     let closed = Arc::new(AtomicBool::new(false));
+    let (shutdown, _) = tokio::sync::watch::channel(TerminalTaskPhase::Running);
     let (streams, mut command_streams) = tokio::sync::watch::channel(Some(stream.clone()));
     let receiver_task = runtime.spawn(supervise_terminal_stream(
         multiplexer,
@@ -1252,6 +1306,7 @@ fn start_terminal_tasks(
         stream,
         streams.clone(),
         closed.clone(),
+        shutdown.clone(),
         state.clone(),
         updates.clone(),
     ));
@@ -1301,7 +1356,7 @@ fn start_terminal_tasks(
             }
         }
     });
-    ActiveTerminal { streams, closed, command_sender, receiver_task, command_task }
+    ActiveTerminal { streams, closed, shutdown, command_sender, receiver_task, command_task }
 }
 
 impl CmuxTerminalClient {
@@ -2528,13 +2583,15 @@ mod tests {
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, terminal_id.clone()).unwrap(),
             ));
+            let updates = Arc::new(ClientUpdates::default());
+            let mut update_events = updates.subscribe();
             let active = start_terminal_tasks(
                 runtime.handle(),
                 stream,
                 client.clone(),
                 terminal_id,
                 state.clone(),
-                Arc::new(ClientUpdates::default()),
+                updates,
             );
 
             tokio::time::timeout(std::time::Duration::from_secs(3), async {
@@ -2549,7 +2606,7 @@ mod tests {
                     if recovered {
                         break;
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    update_events.changed().await.expect("client update stream closed");
                 }
             })
             .await
@@ -2610,10 +2667,16 @@ mod tests {
                 Arc::new(ClientUpdates::default()),
             );
 
+            let mut shutdown = active.shutdown.subscribe();
             tokio::time::timeout(std::time::Duration::from_secs(3), async {
-                while !active.closed.load(Ordering::Acquire) {
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                if *shutdown.borrow() == TerminalTaskPhase::Running {
+                    shutdown.changed().await.expect("terminal shutdown stream closed");
                 }
+                assert_eq!(
+                    *shutdown.borrow(),
+                    TerminalTaskPhase::Stopped,
+                    "terminal exit must publish shutdown"
+                );
             })
             .await
             .expect("terminal exit did not close the smart client input path");
@@ -2627,6 +2690,26 @@ mod tests {
             daemon_task.await.unwrap();
             client.shutdown().await;
             daemon.shutdown().await;
+        });
+    }
+
+    #[test]
+    fn reconnect_backoff_stops_when_terminal_shutdown_is_published() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (shutdown, mut shutdown_events) =
+                tokio::sync::watch::channel(TerminalTaskPhase::Running);
+            let waiter = tokio::spawn(async move {
+                wait_for_reconnect_backoff(&mut shutdown_events, std::time::Duration::from_secs(60))
+                    .await
+            });
+            tokio::task::yield_now().await;
+            shutdown.send_replace(TerminalTaskPhase::Stopped);
+            let completed = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+                .await
+                .expect("shutdown did not wake reconnect backoff")
+                .expect("reconnect backoff task panicked");
+            assert!(!completed, "shutdown must cancel reconnect backoff");
         });
     }
 }
