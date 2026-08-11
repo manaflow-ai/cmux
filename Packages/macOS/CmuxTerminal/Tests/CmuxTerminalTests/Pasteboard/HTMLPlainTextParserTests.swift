@@ -24,6 +24,7 @@ struct HTMLPlainTextParserTests {
         <script>document.write("hidden")</script>
         <template>hidden template</template>
         <noscript>hidden fallback</noscript>
+        <iframe>hidden iframe fallback</iframe>
         <div>Visible</div>
         """
 
