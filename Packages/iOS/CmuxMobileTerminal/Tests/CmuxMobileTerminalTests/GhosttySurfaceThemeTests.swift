@@ -151,7 +151,7 @@ import UIKit
     #expect(surface.composerDockProbeValue.contains("keyboardHeight=640.000"))
     #expect(!surface.hasLocalKeyboardFirstResponder)
 
-    NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+    surface.debugHandleAppDidBecomeActiveForTesting()
 
     #expect(surface.composerDockProbeValue.contains("keyboardHeight=0.000"))
 }

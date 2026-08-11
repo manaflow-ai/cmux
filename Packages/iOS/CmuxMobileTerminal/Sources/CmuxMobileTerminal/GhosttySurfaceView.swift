@@ -917,6 +917,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    #if DEBUG
+    /// Exercises activation reconciliation without broadcasting a synthetic app
+    /// lifecycle event to other surfaces in the test process.
+    func debugHandleAppDidBecomeActiveForTesting() {
+        handleAppDidBecomeActive()
+    }
+    #endif
+
     @objc private func handleAppWillEnterForeground() {
         guard surface != nil, window != nil else { return }
         // The Mac drops this device's sticky viewport pin a few seconds after the
