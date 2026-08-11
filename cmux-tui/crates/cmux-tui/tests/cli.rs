@@ -4061,17 +4061,12 @@ fn configured_websocket_server_does_not_attach_to_existing_session() {
         &["--socket", server.socket.to_str().unwrap()],
         &[("CMUX_TUI_CONFIG", config.as_os_str())],
     );
-    let deadline = Instant::now() + Duration::from_secs(10);
-
-    while Instant::now() < deadline {
-        if let Some(status) = tui.child.try_wait().unwrap() {
-            assert!(!status.success(), "server launch unexpectedly succeeded");
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-
-    panic!("configured WebSocket server attached instead of preserving server mode");
+    let status = wait_for_child_exit(
+        native_pty_child(tui.child.as_mut()),
+        Duration::from_secs(10),
+        "configured WebSocket server attached instead of preserving server mode",
+    );
+    assert!(!status.success(), "server launch unexpectedly succeeded");
 }
 
 #[cfg(unix)]
