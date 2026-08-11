@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
@@ -205,6 +206,39 @@ struct MobileTaskModelCatalogClientTests {
     }
 
     @MainActor
+    @Test func connectionAvailabilityPublishesModelRefreshIdentity() async throws {
+        let store = try await makeRoutingConnectedStore(
+            router: RoutingHostRouter(),
+            hostCapabilities: []
+        )
+        let secondaryRouter = RoutingHostRouter()
+
+        try await confirmation("selected model connection becomes available") {
+            didChange in
+            withObservationTracking {
+                #expect(store.taskModelConnectionIdentity(
+                    macDeviceID: "secondary-mac",
+                    instanceTag: nil
+                ) == nil)
+            } onChange: {
+                didChange()
+            }
+
+            try installSecondaryClient(
+                on: store,
+                macDeviceID: "secondary-mac",
+                router: secondaryRouter,
+                supportedHostCapabilities: []
+            )
+        }
+
+        #expect(store.taskModelConnectionIdentity(
+            macDeviceID: "secondary-mac",
+            instanceTag: nil
+        ) != nil)
+    }
+
+    @MainActor
     @Test func focusedClientProbeDoesNotDependOnTerminalHealthState() async throws {
         let router = RoutingHostRouter()
         await router.setTaskModels(
@@ -220,6 +254,10 @@ struct MobileTaskModelCatalogClientTests {
             router: router,
             hostCapabilities: []
         )
+        let connectionIdentity = store.taskModelConnectionIdentity(
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        )
 
         // Terminal stream health can enter recovery while the owned RPC
         // client remains usable. Read-only discovery should probe that exact
@@ -232,6 +270,11 @@ struct MobileTaskModelCatalogClientTests {
         )
 
         #expect(result.models.map(\.id) == ["host-next-999"])
+        #expect(connectionIdentity != nil)
+        #expect(store.taskModelConnectionIdentity(
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        ) == connectionIdentity)
         #expect(await router.recordedTaskModelListProviders() == ["claude"])
     }
 
@@ -259,6 +302,14 @@ struct MobileTaskModelCatalogClientTests {
             router: secondaryRouter,
             supportedHostCapabilities: []
         )
+        let foregroundIdentity = store.taskModelConnectionIdentity(
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        )
+        let secondaryIdentity = store.taskModelConnectionIdentity(
+            macDeviceID: "secondary-mac",
+            instanceTag: nil
+        )
 
         let result = try await store.fetchTaskModels(
             provider: .claude,
@@ -267,6 +318,9 @@ struct MobileTaskModelCatalogClientTests {
         )
 
         #expect(result.models.map(\.id) == ["secondary-host-next-999"])
+        #expect(foregroundIdentity != nil)
+        #expect(secondaryIdentity != nil)
+        #expect(secondaryIdentity != foregroundIdentity)
         #expect(await secondaryRouter.recordedTaskModelListProviders() == ["claude"])
         #expect(await foregroundRouter.recordedTaskModelListProviders().isEmpty)
         #expect(store.foregroundMacDeviceID == "test-mac")

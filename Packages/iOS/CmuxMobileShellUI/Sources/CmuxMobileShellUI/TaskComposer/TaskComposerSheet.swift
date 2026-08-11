@@ -455,7 +455,11 @@ struct TaskComposerSheet: View {
             provider: selectedTemplate.flatMap {
                 MobileTaskAgentProvider(command: $0.command)
             },
-            macPairingID: selectedMacPairingID
+            macPairingID: selectedMacPairingID,
+            connectionIdentity: store.taskModelConnectionIdentity(
+                macDeviceID: selectedMacDeviceID,
+                instanceTag: selectedMacInstanceTag
+            )
         )
     }
 

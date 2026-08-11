@@ -5,5 +5,6 @@ import CmuxMobileShellModel
 struct TaskComposerModelRefreshID: Hashable {
     let provider: MobileTaskAgentProvider?
     let macPairingID: String
+    let connectionIdentity: String?
 }
 #endif

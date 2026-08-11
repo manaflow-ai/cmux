@@ -19,6 +19,23 @@ private struct MobileTaskModelRequestContext {
 }
 
 extension MobileShellComposite {
+    /// Identity of the live read connection currently serving one paired Mac.
+    ///
+    /// The identity stays stable when the same client moves between focused
+    /// and control roles, changes when that client is replaced, and is `nil`
+    /// until a usable client has been published. Composer discovery observes
+    /// this value so a backend-only refresh is retried when the host becomes
+    /// reachable, without changing the foreground Mac.
+    public func taskModelConnectionIdentity(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> String? {
+        captureTaskModelRequestContext(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )?.client.instanceID
+    }
+
     /// Resolves a secondary control subscription for a physical Mac: the
     /// exact pairing when a tag is given, otherwise any same-device pairing.
     /// Mirrors the pre-MacPairingKey device-id lookup these capability
