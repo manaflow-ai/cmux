@@ -441,9 +441,10 @@ extension DockSplitStore {
                 ?? tabs.first?.id else {
             return true
         }
-        return closeDockTabsFromContextMenu(
+        return closeDockTabs(
             tabs.lazy.filter { $0.id != selectedTabId }.map(\.id),
-            inPane: paneId
+            inPane: paneId,
+            confirmationPolicy: .allTabs
         )
     }
 

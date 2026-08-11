@@ -3,6 +3,11 @@ import Bonsplit
 import CmuxSettings
 import Foundation
 
+nonisolated enum DockBatchCloseConfirmationPolicy: Sendable {
+    case tabsRequiringConfirmation
+    case allTabs
+}
+
 extension DockSplitStore {
     func splitTabBar(
         _ controller: BonsplitController,
@@ -27,21 +32,24 @@ extension DockSplitStore {
         case .copyIdentifiers:
             copyDockIdentifiers(panelId: panelId, paneId: pane)
         case .closeToLeft:
-            _ = closeDockTabsFromContextMenu(
+            _ = closeDockTabs(
                 dockTabIds(toLeftOf: tab.id, inPane: pane),
-                inPane: pane
+                inPane: pane,
+                confirmationPolicy: .tabsRequiringConfirmation
             )
         case .closeToRight:
-            _ = closeDockTabsFromContextMenu(
+            _ = closeDockTabs(
                 dockTabIds(toRightOf: tab.id, inPane: pane),
-                inPane: pane
+                inPane: pane,
+                confirmationPolicy: .tabsRequiringConfirmation
             )
         case .closeOthers:
-            _ = closeDockTabsFromContextMenu(
+            _ = closeDockTabs(
                 controller.tabs(inPane: pane).lazy
                     .filter { $0.id != tab.id }
                     .map(\.id),
-                inPane: pane
+                inPane: pane,
+                confirmationPolicy: .tabsRequiringConfirmation
             )
         case .move:
             if let destination = dockTabMoveDestinations(
@@ -114,9 +122,10 @@ extension DockSplitStore {
     }
 
     @discardableResult
-    func closeDockTabsFromContextMenu<S: Sequence>(
+    func closeDockTabs<S: Sequence>(
         _ tabIds: S,
-        inPane paneId: PaneID
+        inPane paneId: PaneID,
+        confirmationPolicy: DockBatchCloseConfirmationPolicy
     ) -> Bool where S.Element == TabID {
         let candidates = tabIds.compactMap { tabId -> (
             tabId: TabID,
@@ -145,8 +154,14 @@ extension DockSplitStore {
         guard manager?.isCloseConfirmationInFlight != true else {
             return true
         }
-        let needsConfirmation = candidates.contains {
-            $0.needsConfirmation
+        let needsConfirmation: Bool
+        switch confirmationPolicy {
+        case .tabsRequiringConfirmation:
+            needsConfirmation = candidates.contains {
+                $0.needsConfirmation
+            }
+        case .allTabs:
+            needsConfirmation = true
         }
         let warningStore = CloseTabWarningStore(
             defaults: manager?.closeTabWarningDefaults ?? .standard
