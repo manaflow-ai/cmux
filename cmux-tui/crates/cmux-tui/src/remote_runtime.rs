@@ -5783,7 +5783,8 @@ mod tests {
         use std::ffi::OsString;
         use std::os::unix::fs::PermissionsExt;
 
-        static WINDOWS_COMPANION_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        static WINDOWS_COMPANION_ENV_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+            std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 
         struct RestoreEnv {
             previous: Option<OsString>,
@@ -5801,7 +5802,7 @@ mod tests {
             }
         }
 
-        let _lock = WINDOWS_COMPANION_ENV_LOCK.lock().unwrap();
+        let _lock = WINDOWS_COMPANION_ENV_LOCK.lock().await;
         let directory = tempfile::tempdir().unwrap();
         let ssh_script = directory.path().join("ssh");
         let scp_script = directory.path().join("scp");
