@@ -1148,13 +1148,13 @@ private func requireTeardownTicket(
         let owners = try (0..<2).map { _ in
             try #require(admission.reserve())
         }
+        let recoveryID = UUID()
         defer {
             admission.cancelRecovery(recoveryID)
             for owner in owners {
                 admission.release(owner)
             }
         }
-        let recoveryID = UUID()
         var firstFailureCount = 0
         var updatedFailureCount = 0
 
