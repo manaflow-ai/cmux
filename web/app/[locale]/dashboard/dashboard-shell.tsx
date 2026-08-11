@@ -88,7 +88,7 @@ export function DashboardShell({
             {t("brand")}
           </Link>
         </div>
-        <DashboardNav groups={groups} className="flex-1 overflow-y-auto px-2 py-3 pb-20" />
+        <DashboardNav groups={groups} className="flex-1 overflow-y-auto px-2 py-3 pb-28" />
       </aside>
 
       <div className="min-w-0">
@@ -120,7 +120,7 @@ export function DashboardShell({
             groups={groups}
             hidden={!mobileNavOpen}
             onNavigate={() => setMobileNavOpen(false)}
-            className="max-h-[calc(100vh-2.75rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
+            className="max-h-[calc(100vh-6rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
           />
         </header>
         <main className="min-w-0">{children}</main>
