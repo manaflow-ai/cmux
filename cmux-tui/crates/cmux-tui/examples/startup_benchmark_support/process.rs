@@ -2055,7 +2055,7 @@ fn json_cli(
     command.args(args);
     let captured = run_captured(command, deadline)?;
     if captured.status.success() {
-        let value = serde_json::from_slice(&captured.stdout).with_context(|| {
+        let value: Value = serde_json::from_slice(&captured.stdout).with_context(|| {
             format!(
                 "socket RPC {:?} returned invalid JSON: {}",
                 args,
