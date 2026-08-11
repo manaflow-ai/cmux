@@ -280,6 +280,115 @@ impl ProcessExitSignal {
     }
 }
 
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FixtureProcessState {
+    Captured,
+    GracefulExit,
+    ForceSignaled,
+    ExitPublished,
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+struct FixtureProcessOwner {
+    pid: u32,
+    exit: ProcessExitSignal,
+    durable_record:
+        Option<(std::path::PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)>,
+    durable_exit_validated: bool,
+    state: FixtureProcessState,
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+impl FixtureProcessOwner {
+    fn capture(
+        pid: u32,
+        durable_record: Option<(
+            std::path::PathBuf,
+            cmux_tui_core::terminal_host_runtime::TerminalHostRecord,
+        )>,
+    ) -> std::io::Result<Self> {
+        Ok(Self {
+            pid,
+            exit: ProcessExitSignal::observe(pid)?,
+            durable_exit_validated: durable_record.is_none(),
+            durable_record,
+            state: FixtureProcessState::Captured,
+        })
+    }
+
+    fn wait_for_graceful_exit(&mut self, deadline: Instant) -> anyhow::Result<bool> {
+        anyhow::ensure!(self.state == FixtureProcessState::Captured);
+        if !self.exit.wait_until(deadline)? {
+            return Ok(false);
+        }
+        self.state = FixtureProcessState::GracefulExit;
+        self.validate_durable_exit()?;
+        Ok(true)
+    }
+
+    fn force_stop_and_wait(&mut self, deadline: Instant) -> anyhow::Result<()> {
+        match self.state {
+            FixtureProcessState::GracefulExit | FixtureProcessState::ExitPublished => return Ok(()),
+            FixtureProcessState::Captured => {
+                if self.exit.wait_until(Instant::now())? {
+                    self.state = FixtureProcessState::GracefulExit;
+                    self.validate_durable_exit()?;
+                    return Ok(());
+                }
+                signal_test_process_group(self.pid, libc::SIGKILL);
+                self.state = FixtureProcessState::ForceSignaled;
+            }
+            FixtureProcessState::ForceSignaled => {}
+        }
+        anyhow::ensure!(
+            self.exit.wait_until(deadline)?,
+            "fixture process {} did not publish exit after SIGKILL",
+            self.pid
+        );
+        self.state = FixtureProcessState::ExitPublished;
+        self.validate_durable_exit()
+    }
+
+    fn remove_durable_record(&self) -> anyhow::Result<()> {
+        let Some((record_path, record)) = &self.durable_record else {
+            return Ok(());
+        };
+        anyhow::ensure!(
+            self.durable_exit_validated
+                && matches!(
+                    self.state,
+                    FixtureProcessState::GracefulExit | FixtureProcessState::ExitPublished
+                ),
+            "durable fixture record is not safe to remove"
+        );
+        match cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
+            record_path,
+            record,
+        ) {
+            Ok(true) => Ok(()),
+            Ok(false) => anyhow::bail!("durable fixture record remained live after process exit"),
+            Err(_) if !record_path.exists() => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn validate_durable_exit(&mut self) -> anyhow::Result<()> {
+        let Some((record_path, record)) = &self.durable_record else {
+            return Ok(());
+        };
+        anyhow::ensure!(
+            cmux_tui_core::terminal_host_runtime::terminal_host_record_liveness(
+                record_path,
+                record,
+            )? == cmux_tui_core::terminal_host_runtime::TerminalHostLiveness::Dead,
+            "durable fixture host did not release its exact liveness proof"
+        );
+        self.durable_exit_validated = true;
+        Ok(())
+    }
+}
+
 #[cfg(unix)]
 fn signal_test_process_group(pid: u32, signal: libc::c_int) {
     let Ok(pid) = libc::pid_t::try_from(pid) else { return };
@@ -1183,14 +1292,14 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
         .expect("load sidebar terminal-host record");
     let used_durable_host = !records.is_empty();
-    let mut owned_pids = vec![plugin_pid];
-    owned_pids.extend(records.iter().map(|(_, record)| record.host_pid));
-    let owned_process_exits = owned_pids
-        .iter()
-        .copied()
-        .map(ProcessExitSignal::observe)
-        .collect::<std::io::Result<Vec<_>>>()
-        .expect("observe server-owned process exits");
+    let mut process_owners = vec![
+        FixtureProcessOwner::capture(plugin_pid, None)
+            .expect("capture sidebar plugin process owner"),
+    ];
+    process_owners.extend(records.iter().map(|(record_path, record)| {
+        FixtureProcessOwner::capture(record.host_pid, Some((record_path.clone(), record.clone())))
+            .expect("capture durable sidebar process owner")
+    }));
 
     let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
     let shutdown_deadline = Instant::now() + Duration::from_secs(10);
@@ -1200,35 +1309,29 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
         &mut server.child,
         shutdown_deadline.saturating_duration_since(Instant::now()),
     );
-    let process_exits_published = owned_process_exits
-        .iter()
-        .map(|process_exit| {
-            process_exit.wait_until(shutdown_deadline).expect("wait for server-owned process exit")
-        })
-        .collect::<Vec<_>>();
+    let mut owned_processes_stopped = true;
+    for owner in &mut process_owners {
+        owned_processes_stopped &= owner
+            .wait_for_graceful_exit(shutdown_deadline)
+            .expect("wait for server-owned process exit");
+    }
     // The successful fixture has no durable host and one direct /bin/cat
     // process. cmux-pty executes that program directly, and /bin/cat does not
     // fork, so its exact PID exit also proves this fixture cannot retain a
     // process-group descendant. The pre-captured pidfd/kqueue event proves
     // that exit without racing zombie reaping or PID reuse.
     // Unexpected durable hosts stay in this result and fail below.
-    let owned_processes_stopped = process_exits_published.iter().all(|published| *published);
-
     // Keep lifecycle regressions leak-free. Every captured process group and
     // record belongs to this fixture's private state root.
-    // Never signal a numeric PID after its exact exit event. PID or process
-    // group reuse could target unrelated work.
-    for (pid, process_exit_published) in owned_pids.iter().zip(&process_exits_published) {
-        if !*process_exit_published {
-            signal_test_process_group(*pid, libc::SIGKILL);
-        }
-    }
     if !owned_processes_stopped || used_durable_host {
-        for (record_path, record) in &records {
-            let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
-                record_path,
-                record,
-            );
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        for owner in &mut process_owners {
+            owner
+                .force_stop_and_wait(cleanup_deadline)
+                .expect("force and reap live sidebar fixture process");
+        }
+        for owner in &process_owners {
+            owner.remove_durable_record().expect("remove exited durable sidebar fixture record");
         }
     }
 
