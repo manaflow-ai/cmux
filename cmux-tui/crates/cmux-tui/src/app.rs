@@ -25585,12 +25585,24 @@ mod tests {
             Some(Screen::Alternate)
         );
 
-        let (mut app, _events) = test_app_with_events(session);
+        let (mut app, events) = test_app_with_events(session);
         app.sidebar_visible = false;
         app.replace_tree(tree);
         let action =
             app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
         assert_eq!(action, RenderAction::None);
+        loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let clear_history_succeeded = matches!(
+                &event,
+                AppEvent::ClearHistorySucceeded { surface: completed, .. }
+                    if *completed == surface.id
+            );
+            app.handle(event).unwrap();
+            if clear_history_succeeded {
+                break;
+            }
+        }
 
         let expected = b"\x1b[107;9u";
         let deadline = Instant::now() + Duration::from_secs(1);
