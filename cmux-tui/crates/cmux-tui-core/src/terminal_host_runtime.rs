@@ -7249,7 +7249,11 @@ mod unix {
                 )
                 .is_err()
             );
-            assert!(started.elapsed() < Duration::from_secs(1));
+            let elapsed = started.elapsed();
+            assert!(
+                elapsed < HOST_CONNECT_RETRY_WINDOW + Duration::from_secs(1),
+                "stalled handshake exceeded its bounded retry window: {elapsed:?}"
+            );
             stalled.join().unwrap();
             let _ = fs::remove_file(endpoint);
             drop(lease);
