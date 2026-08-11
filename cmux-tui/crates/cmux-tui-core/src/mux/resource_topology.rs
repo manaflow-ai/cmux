@@ -2776,16 +2776,31 @@ impl Mux {
                 self.emit_terminal_registry_changed(&registry, terminal.revision);
             }
             let closed_incarnation = terminal.result["incarnation"].as_str().map(str::to_owned);
-            let catalog_public_ids = terminal_catalog_public_ids_by_host(
+            let mut cleanup_public_ids = terminal_catalog_public_ids_by_host(
                 self,
                 &state,
                 terminal_id,
                 closed_incarnation.as_deref(),
             );
-            let mut waiter_public_ids = catalog_public_ids.iter().cloned().collect::<HashSet<_>>();
-            waiter_public_ids.extend(durable_public_id);
-            let targets =
+            if let Some(public_id) = durable_public_id
+                && !cleanup_public_ids.contains(&public_id)
+            {
+                cleanup_public_ids.push(public_id);
+            }
+            cleanup_public_ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+            let waiter_public_ids = cleanup_public_ids.iter().cloned().collect::<HashSet<_>>();
+            let mut targets =
                 terminal_host_placements(self, &state, terminal_id, closed_incarnation.as_deref());
+            for public_id in &cleanup_public_ids {
+                targets.extend(terminal_content_placements(
+                    self,
+                    &state,
+                    public_id,
+                    Some((terminal_id, closed_incarnation.as_deref())),
+                ));
+            }
+            targets.sort_unstable();
+            targets.dedup();
             let target = targets.first().copied();
             let changed_screens = unique_screen_ids(
                 targets.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
@@ -2793,7 +2808,7 @@ impl Mux {
             let (runtime, removed, _) = remove_terminal_catalogs_and_targets_from_state(
                 self,
                 &mut state,
-                &catalog_public_ids,
+                &cleanup_public_ids,
                 &targets,
             );
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
