@@ -270,7 +270,7 @@ start_fixture silent silent-owner-exit 30 30 3
 (
   set +e
   cmux_wait_for_remote_demo_ready 8
-  printf '%s\n' "$?" >&9
+  printf '%s %s\n' "$?" "$CMUX_REMOTE_DEMO_LAUNCHER_STATUS" >&9
 ) &
 WAITER_PID=$!
 if ! IFS= read -r -u 4 OWNER_EVENT || [[ "$OWNER_EVENT" != "owner-exited" ]]; then
@@ -278,7 +278,7 @@ if ! IFS= read -r -u 4 OWNER_EVENT || [[ "$OWNER_EVENT" != "owner-exited" ]]; th
   exit 1
 fi
 set +e
-IFS= read -r -t 3 -u 9 STATUS
+IFS=' ' read -r -t 3 -u 9 STATUS PUBLISHED_LAUNCHER_STATUS
 RESULT_STATUS=$?
 set -e
 if [[ "$RESULT_STATUS" != "0" ]]; then
@@ -294,7 +294,7 @@ if [[ "$STATUS" != "10" ]]; then
   echo "A silent launcher exit returned $STATUS instead of status 10." >&2
   exit 1
 fi
-if [[ "$CMUX_REMOTE_DEMO_LAUNCHER_STATUS" != "10" ]]; then
+if [[ "$PUBLISHED_LAUNCHER_STATUS" != "10" ]]; then
   echo "The silent launcher did not publish its explicit terminal status." >&2
   exit 1
 fi

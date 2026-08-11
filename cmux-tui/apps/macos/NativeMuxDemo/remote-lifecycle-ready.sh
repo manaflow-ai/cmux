@@ -24,7 +24,7 @@ use warnings;
 use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK O_RDWR O_WRONLY);
 use IO::Handle;
 use IO::Select;
-use POSIX qw(WNOHANG);
+use POSIX qw(WNOHANG setsid);
 use Time::HiRes qw(CLOCK_MONOTONIC clock_gettime);
 
 my ($output_path, $progress_path, $transfer_timeout, $startup_timeout,
@@ -36,6 +36,7 @@ $output->autoflush(1);
 sysopen(my $progress, $progress_path, O_RDWR | O_NONBLOCK)
     or die "open $progress_path: $!";
 pipe(my $signals, my $signal_writer) or die "pipe: $!";
+pipe(my $group_ready, my $group_ready_writer) or die "pipe: $!";
 for my $handle ($signals, $signal_writer) {
     my $flags = fcntl($handle, F_GETFL, 0);
     defined($flags) or die "fcntl get: $!";
@@ -62,8 +63,23 @@ if ($child_pid == 0) {
     close($progress);
     close($signals);
     close($signal_writer);
+    close($group_ready);
+    setsid() >= 0 or exit 126;
+    syswrite($group_ready_writer, "R") == 1 or exit 126;
+    close($group_ready_writer);
     exec { $command[0] } @command;
     exit 127;
+}
+close($group_ready_writer);
+my $group_ready_byte = "";
+my $group_ready_count = sysread($group_ready, $group_ready_byte, 1);
+close($group_ready);
+if (!defined($group_ready_count) || $group_ready_count != 1
+    || $group_ready_byte ne "R") {
+    waitpid($child_pid, 0);
+    my $setup_status = ($? & 127) ? 128 + ($? & 127) : ($? >> 8);
+    print {$output} "owner-started\nlauncher-exited $setup_status\n";
+    exit($setup_status);
 }
 
 my $phase = "transfer";
@@ -80,7 +96,7 @@ sub publish {
 sub begin_termination {
     my ($signal_name) = @_;
     return unless defined($child_pid);
-    kill($signal_name, $child_pid);
+    kill($signal_name, -$child_pid);
     $phase = "exit";
     $deadline = clock_gettime(CLOCK_MONOTONIC) + $exit_timeout;
 }
@@ -119,6 +135,7 @@ sub reap_child {
     $child_status = ($wait_status & 127)
         ? 128 + ($wait_status & 127)
         : ($wait_status >> 8);
+    kill("KILL", -$child_pid);
     undef($child_pid);
     publish("launcher-exited $child_status");
     return 1;
