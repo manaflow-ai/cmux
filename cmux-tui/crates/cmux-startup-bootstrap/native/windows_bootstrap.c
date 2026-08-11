@@ -12,7 +12,7 @@
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "advapi32.lib")
 
-#define SCHEMA_VERSION 3u
+#define SCHEMA_VERSION 4u
 #define MAX_CONFIG_BYTES (64u * 1024u)
 #define MAX_WIDE_CHARS 32767u
 #define CONFIG_HEADER_BYTES 104u
@@ -61,6 +61,7 @@
 
 static const unsigned char CONFIG_MAGIC[8] = {'C','M','U','X','B','0','0','1'};
 static const unsigned char ARM_MAGIC[8] = {'C','M','U','X','A','0','0','1'};
+static const unsigned char PRODUCT_HANDLES_ADOPTED_MAGIC[8] = {'C','M','U','X','K','0','0','1'};
 static const unsigned char EVENT_MAGIC[8] = {'C','M','U','X','E','0','0','1'};
 static const unsigned char ENTRY_MAGIC[8] = {'C','M','U','X','N','0','0','1'};
 static const unsigned char TIMING_MAGIC[8] = {'C','M','U','X','T','0','0','1'};
@@ -225,6 +226,11 @@ static void write_u32(unsigned char *value, uint32_t number) {
     value[1] = (unsigned char)((number >> 8) & 0xffu);
     value[2] = (unsigned char)((number >> 16) & 0xffu);
     value[3] = (unsigned char)((number >> 24) & 0xffu);
+}
+
+static void write_u64(unsigned char *value, uint64_t number) {
+    write_u32(value, (uint32_t)number);
+    write_u32(value + 4, (uint32_t)(number >> 32));
 }
 
 static int write_all(HANDLE handle, const unsigned char *bytes, DWORD length) {
@@ -1135,6 +1141,8 @@ failure:
     return 0;
 }
 
+static int read_product_handles_adopted(HANDLE input, const unsigned char nonce[32]);
+
 static int create_product(
     const BootstrapConfig *config,
     TimingPage *timing,
@@ -1150,7 +1158,7 @@ static int create_product(
     WCHAR *command_line = NULL;
     DWORD resume_count;
     HANDLE product_token = NULL;
-    unsigned char payload[16];
+    unsigned char payload[40];
     uint32_t flags;
     DWORD error;
     int result = 0;
@@ -1207,7 +1215,18 @@ static int create_product(
     write_u32(payload + 4, proof->token.authentication_id.LowPart);
     write_u32(payload + 8, (uint32_t)proof->token.authentication_id.HighPart);
     write_u32(payload + 12, proof->resume_previous_count);
-    if (!send_event(config->control_write, config->nonce, EVENT_PRODUCT_STARTED, flags, payload, 16)) {
+    write_u32(payload + 16, process.dwProcessId);
+    write_u32(payload + 20, process.dwThreadId);
+    write_u64(payload + 24, (uint64_t)(uintptr_t)process.hProcess);
+    write_u64(payload + 32, (uint64_t)(uintptr_t)process.hThread);
+    if (!send_event(config->control_write, config->nonce, EVENT_PRODUCT_STARTED, flags, payload, 40)) {
+        error = GetLastError();
+        TerminateProcess(process.hProcess, 125);
+        WaitForSingleObject(process.hProcess, INFINITE);
+        SetLastError(error);
+        goto process_cleanup;
+    }
+    if (!read_product_handles_adopted(config->control_read, config->nonce)) {
         error = GetLastError();
         TerminateProcess(process.hProcess, 125);
         WaitForSingleObject(process.hProcess, INFINITE);
@@ -1237,6 +1256,19 @@ static int read_arm(HANDLE input, const unsigned char nonce[32]) {
         && read_u32(record + 8) == SCHEMA_VERSION
         && read_u32(record + 12) == (uint32_t)sizeof(record)
         && bytes_equal(record + 16, nonce, 32);
+}
+
+static int read_product_handles_adopted(HANDLE input, const unsigned char nonce[32]) {
+    unsigned char record[48];
+    if (!read_all(input, record, (DWORD)sizeof(record))) return 0;
+    if (!bytes_equal(record, PRODUCT_HANDLES_ADOPTED_MAGIC, 8)
+        || read_u32(record + 8) != SCHEMA_VERSION
+        || read_u32(record + 12) != (uint32_t)sizeof(record)
+        || !bytes_equal(record + 16, nonce, 32)) {
+        SetLastError(ERROR_INVALID_DATA);
+        return 0;
+    }
+    return 1;
 }
 
 static int decode_nonce(const WCHAR *text, unsigned char nonce[32]) {

@@ -352,6 +352,8 @@ struct SandboxPreflightEvidence {
     windows_product_no_enabled_privileges: Option<bool>,
     windows_product_exact_job: Option<bool>,
     windows_product_resume_previous_count: Option<u32>,
+    windows_product_process_id: Option<u32>,
+    windows_product_primary_thread_id: Option<u32>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
@@ -364,7 +366,7 @@ impl SandboxPreflightEvidence {
         supervisor_sha256: &str,
         windows_bootstrap_sha256: Option<&str>,
     ) -> Result<()> {
-        if self.schema_version != 6
+        if self.schema_version != 7
             || self.backend != backend
             || self.policy != "fixture-root-only-write"
             || self.handshake != "nonce-bound-ready-arm-with-pre-exec-t0"
@@ -446,6 +448,8 @@ impl SandboxPreflightEvidence {
                     && self.windows_product_no_enabled_privileges == Some(true)
                     && self.windows_product_exact_job == Some(true)
                     && self.windows_product_resume_previous_count == Some(1)
+                    && self.windows_product_process_id.is_some_and(|value| value != 0)
+                    && self.windows_product_primary_thread_id.is_some_and(|value| value != 0)
             }
             _ => false,
         };
@@ -492,6 +496,8 @@ impl SandboxPreflightEvidence {
             && self.windows_product_no_enabled_privileges.is_none()
             && self.windows_product_exact_job.is_none()
             && self.windows_product_resume_previous_count.is_none()
+            && self.windows_product_process_id.is_none()
+            && self.windows_product_primary_thread_id.is_none()
     }
 
     fn linux_provenance_absent(&self) -> bool {

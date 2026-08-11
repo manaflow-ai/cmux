@@ -127,7 +127,7 @@ if hashlib.sha256(preflight_bytes).hexdigest() != get(
 ):
     raise SystemExit("sandbox preflight file does not match its attested SHA-256")
 preflight = json.loads(preflight_bytes)
-if not isinstance(preflight, dict) or preflight.get("schema_version") != 6:
+if not isinstance(preflight, dict) or preflight.get("schema_version") != 7:
     raise SystemExit("sandbox preflight evidence has the wrong schema")
 windows_preflight_fields = (
     "windows_bootstrap_sha256",
@@ -157,6 +157,8 @@ windows_preflight_fields = (
     "windows_product_restricting_sid_match",
     "windows_product_exact_job",
     "windows_product_resume_previous_count",
+    "windows_product_process_id",
+    "windows_product_primary_thread_id",
 )
 if any(field not in preflight for field in windows_preflight_fields):
     raise SystemExit("sandbox preflight evidence is missing a Windows bootstrap field")
@@ -221,6 +223,8 @@ if os.environ["RUNNER_OS"] == "Windows":
     ready_elapsed_ms = preflight["windows_bootstrap_ready_elapsed_ms"]
     restricting_sid = preflight["windows_restricting_sid"]
     broker_authentication_id = preflight["windows_broker_authentication_id"]
+    product_process_id = preflight["windows_product_process_id"]
+    product_primary_thread_id = preflight["windows_product_primary_thread_id"]
     if (
         preflight["windows_bootstrap_sha256"] != bootstrap_sha256
         or not isinstance(preflight["windows_bootstrap_config_nonce"], str)
@@ -260,6 +264,12 @@ if os.environ["RUNNER_OS"] == "Windows":
         or preflight["windows_product_restricting_sid_match"] is not True
         or preflight["windows_product_exact_job"] is not True
         or preflight["windows_product_resume_previous_count"] != 1
+        or not isinstance(product_process_id, int)
+        or isinstance(product_process_id, bool)
+        or product_process_id <= 0
+        or not isinstance(product_primary_thread_id, int)
+        or isinstance(product_primary_thread_id, bool)
+        or product_primary_thread_id <= 0
     ):
         raise SystemExit("sandbox preflight has invalid native Windows bootstrap proof")
 elif any(get(dotted) is not None for dotted in windows_bootstrap_fields):

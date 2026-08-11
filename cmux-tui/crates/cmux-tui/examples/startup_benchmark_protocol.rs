@@ -35,8 +35,11 @@ pub const BOOTSTRAP_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::
 pub const BOOTSTRAP_HANG_CAPTURE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 pub const MAX_BOOTSTRAP_HANG_REPORT_BYTES: u64 = 256 * 1024;
 pub const MAX_BOOTSTRAP_HANG_DUMP_BYTES: u64 = 16 * 1024 * 1024;
+pub const MAX_PRODUCT_FAILURE_STDOUT_TAIL_BYTES: usize = 8 * 1024;
+pub const BOOTSTRAP_FAILURE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum BootstrapStage {
     PublicControlConnected,
@@ -63,7 +66,8 @@ pub enum BootstrapStage {
     RestrictedProductTokenReady,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum BootstrapTerminal {
     Ready,
@@ -85,35 +89,46 @@ pub enum BootstrapObservedEvent {
     Error,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BootstrapStageObservation {
     pub stage: BootstrapStage,
     pub elapsed_ms: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BootstrapCleanupResult {
-    pub state: &'static str,
+    pub state: String,
     pub detail: Option<String>,
 }
 
 impl BootstrapCleanupResult {
     pub fn completed() -> Self {
-        Self { state: "completed", detail: None }
+        Self { state: "completed".into(), detail: None }
     }
 
     pub fn failed(detail: impl Into<String>) -> Self {
-        Self { state: "failed", detail: Some(detail.into()) }
+        Self { state: "failed".into(), detail: Some(detail.into()) }
     }
 
     pub fn not_started() -> Self {
-        Self { state: "not-started", detail: None }
+        Self { state: "not-started".into(), detail: None }
+    }
+
+    fn validate(&self) -> Result<()> {
+        match (self.state.as_str(), &self.detail) {
+            ("completed" | "not-started", None) => Ok(()),
+            ("failed", Some(detail)) if !detail.is_empty() && detail.len() <= 1_024 => Ok(()),
+            _ => bail!("bootstrap cleanup result is invalid"),
+        }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BootstrapStartupTrace {
-    #[serde(skip)]
+    #[serde(skip, default = "Instant::now")]
     started_at: Instant,
     pub stages: Vec<BootstrapStageObservation>,
     pub config_bytes: Option<u64>,
@@ -193,9 +208,91 @@ pub struct BootstrapFailureCheckpoint<'a> {
     pub config_present_after_failure: bool,
     pub trace: &'a BootstrapStartupTrace,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_lifecycle: Option<&'a BootstrapProductLifecycleEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hang_diagnostic: Option<&'a BootstrapHangArtifactReference>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hang_diagnostic_error: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapProductLifecycleEvidence {
+    pub product_process_id: u32,
+    pub product_primary_thread_id: u32,
+    pub native_exit_received: bool,
+    pub native_exit_code: Option<u32>,
+}
+
+impl BootstrapProductLifecycleEvidence {
+    pub fn validate(&self) -> Result<()> {
+        if self.product_process_id == 0
+            || self.product_primary_thread_id == 0
+            || self.native_exit_received != self.native_exit_code.is_some()
+        {
+            bail!("bootstrap product lifecycle evidence is invalid");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootstrapControllerFailureObservation {
+    pub schema_version: u32,
+    pub record_type: String,
+    pub nonce: String,
+    pub raw_stdout_tail_hex: String,
+    pub raw_stdout_tail_bytes: u64,
+    pub complete_stdout_lines: u64,
+    pub stdout_closed: bool,
+    pub stdout_error: Option<String>,
+}
+
+impl BootstrapControllerFailureObservation {
+    pub fn validate(&self, expected_nonce: &str) -> Result<()> {
+        let expected_hex_bytes = usize::try_from(self.raw_stdout_tail_bytes)?
+            .checked_mul(2)
+            .context("product stdout tail hex length overflow")?;
+        if self.schema_version != BOOTSTRAP_FAILURE_SCHEMA_VERSION
+            || self.record_type != "controller-observation"
+            || self.nonce != expected_nonce
+            || self.raw_stdout_tail_bytes > u64::try_from(MAX_PRODUCT_FAILURE_STDOUT_TAIL_BYTES)?
+            || self.raw_stdout_tail_hex.len() != expected_hex_bytes
+            || !self.raw_stdout_tail_hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || self
+                .stdout_error
+                .as_ref()
+                .is_some_and(|error| error.is_empty() || error.len() > 2_048)
+        {
+            bail!("bootstrap controller failure observation is invalid");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BootstrapFailureCheckpointRecord {
+    schema_version: u32,
+    record_type: String,
+    nonce: String,
+    reason: String,
+    config_present_after_failure: bool,
+    trace: BootstrapStartupTrace,
+    product_lifecycle: Option<BootstrapProductLifecycleEvidence>,
+    hang_diagnostic: Option<BootstrapHangArtifactReference>,
+    hang_diagnostic_error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BootstrapCleanupCheckpointRecord {
+    schema_version: u32,
+    record_type: String,
+    nonce: String,
+    containment_cleanup: BootstrapCleanupResult,
+    bootstrap_cleanup: BootstrapCleanupResult,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -407,41 +504,50 @@ pub struct BootstrapCleanupCheckpoint<'a> {
 }
 
 pub fn validate_bootstrap_failure_records(bytes: &[u8], expected_nonce: &str) -> Result<()> {
-    let records = bytes
-        .split(|byte| *byte == b'\n')
-        .filter(|record| !record.is_empty())
-        .map(serde_json::from_slice::<serde_json::Value>)
-        .collect::<serde_json::Result<Vec<_>>>()
-        .context("validate bootstrap checkpoint JSON records")?;
-    let valid_record = |index: usize, record_type: &str| {
-        records.get(index).is_some_and(|record| {
-            record.get("schema_version").and_then(serde_json::Value::as_u64) == Some(1)
-                && record.get("record_type").and_then(serde_json::Value::as_str)
-                    == Some(record_type)
-                && record.get("nonce").and_then(serde_json::Value::as_str) == Some(expected_nonce)
-        })
-    };
-    if records.len() != 2
-        || !valid_record(0, "startup-failure")
-        || !valid_record(1, "cleanup-result")
+    let records =
+        bytes.split(|byte| *byte == b'\n').filter(|record| !record.is_empty()).collect::<Vec<_>>();
+    if !(2..=3).contains(&records.len()) {
+        bail!("bootstrap checkpoint identity, schema, or ordered records are invalid");
+    }
+    let failure: BootstrapFailureCheckpointRecord =
+        serde_json::from_slice(records[0]).context("parse bootstrap startup failure checkpoint")?;
+    let cleanup: BootstrapCleanupCheckpointRecord =
+        serde_json::from_slice(records[1]).context("parse bootstrap cleanup checkpoint")?;
+    if failure.schema_version != BOOTSTRAP_FAILURE_SCHEMA_VERSION
+        || failure.record_type != "startup-failure"
+        || failure.nonce != expected_nonce
+        || failure.reason.is_empty()
+        || failure.reason.len() > 2_048
+        || cleanup.schema_version != BOOTSTRAP_FAILURE_SCHEMA_VERSION
+        || cleanup.record_type != "cleanup-result"
+        || cleanup.nonce != expected_nonce
     {
         bail!("bootstrap checkpoint identity, schema, or ordered records are invalid");
     }
-    let hang_diagnostic = records[0].get("hang_diagnostic").filter(|value| !value.is_null());
-    let hang_diagnostic_error =
-        records[0].get("hang_diagnostic_error").filter(|value| !value.is_null());
-    if hang_diagnostic.is_some() && hang_diagnostic_error.is_some() {
+    cleanup.containment_cleanup.validate()?;
+    cleanup.bootstrap_cleanup.validate()?;
+    let _ = failure.config_present_after_failure;
+    let _ = &failure.trace;
+    if let Some(lifecycle) = &failure.product_lifecycle {
+        lifecycle.validate()?;
+    }
+    if failure.hang_diagnostic.is_some() && failure.hang_diagnostic_error.is_some() {
         bail!("bootstrap hang diagnostic result is ambiguous");
     }
-    if let Some(reference) = hang_diagnostic {
-        let reference = serde_json::from_value::<BootstrapHangArtifactReference>(reference.clone())
-            .context("parse bootstrap hang artifact reference")?;
+    if let Some(reference) = &failure.hang_diagnostic {
         reference.validate()?;
     }
-    if hang_diagnostic_error.is_some_and(|value| {
-        value.as_str().is_none_or(|error| error.is_empty() || error.len() > 2_048)
-    }) {
+    if failure
+        .hang_diagnostic_error
+        .as_ref()
+        .is_some_and(|error| error.is_empty() || error.len() > 2_048)
+    {
         bail!("bootstrap hang diagnostic error is invalid");
+    }
+    if let Some(record) = records.get(2) {
+        let observation: BootstrapControllerFailureObservation = serde_json::from_slice(record)
+            .context("parse bootstrap controller failure observation")?;
+        observation.validate(expected_nonce)?;
     }
     Ok(())
 }
@@ -455,14 +561,8 @@ pub fn bootstrap_failure_hang_artifact(
         .split(|byte| *byte == b'\n')
         .find(|record| !record.is_empty())
         .context("bootstrap failure checkpoint has no startup record")?;
-    let record = serde_json::from_slice::<serde_json::Value>(first)?;
-    record
-        .get("hang_diagnostic")
-        .filter(|value| !value.is_null())
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .context("parse bootstrap hang artifact reference")
+    let record: BootstrapFailureCheckpointRecord = serde_json::from_slice(first)?;
+    Ok(record.hang_diagnostic)
 }
 
 pub fn setup_line(nonce: &str) -> String {
@@ -509,6 +609,25 @@ pub fn parse_product_started_line(
         bail!("supervisor product-started line was not canonical");
     }
     Ok(evidence)
+}
+
+pub fn product_exit_line(nonce: &str, code: u32) -> Result<String> {
+    validate_hex(nonce, NONCE_BYTES * 2, "product-exit nonce")?;
+    Ok(format!("PRODUCT_EXIT {nonce} {code}\n"))
+}
+
+pub fn parse_product_exit_line(line: &str, nonce: &str) -> Result<u32> {
+    validate_hex(nonce, NONCE_BYTES * 2, "product-exit nonce")?;
+    let prefix = format!("PRODUCT_EXIT {nonce} ");
+    let code = line
+        .strip_prefix(&prefix)
+        .context("product-exit line identity mismatch")?
+        .parse::<u32>()
+        .context("product-exit code is invalid")?;
+    if product_exit_line(nonce, code)?.trim_end() != line {
+        bail!("product-exit line is not canonical");
+    }
+    Ok(code)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -844,17 +963,18 @@ mod tests {
         let containment = BootstrapCleanupResult::completed();
         let bootstrap = BootstrapCleanupResult::completed();
         let failure = BootstrapFailureCheckpoint {
-            schema_version: 1,
+            schema_version: BOOTSTRAP_FAILURE_SCHEMA_VERSION,
             record_type: "startup-failure",
             nonce: "nonce",
             reason: "bootstrap exited",
             config_present_after_failure: false,
             trace: &trace,
+            product_lifecycle: None,
             hang_diagnostic,
             hang_diagnostic_error,
         };
         let cleanup = BootstrapCleanupCheckpoint {
-            schema_version: 1,
+            schema_version: BOOTSTRAP_FAILURE_SCHEMA_VERSION,
             record_type: "cleanup-result",
             nonce: "nonce",
             containment_cleanup: &containment,
@@ -931,6 +1051,8 @@ mod tests {
             product_no_enabled_privileges: true,
             product_exact_job: true,
             product_resume_previous_count: 1,
+            product_process_id: 41,
+            product_primary_thread_id: 42,
         };
         let line = product_started_line(&nonce, &evidence).unwrap();
         assert_eq!(
@@ -944,6 +1066,16 @@ mod tests {
         assert!(
             parse_product_started_line(&(line + " "), &nonce, Some(&bootstrap_sha256)).is_err()
         );
+    }
+
+    #[test]
+    fn product_exit_line_is_nonce_bound_and_canonical() {
+        let nonce = "ab".repeat(NONCE_BYTES);
+        let line = product_exit_line(&nonce, 125).unwrap();
+
+        assert_eq!(parse_product_exit_line(line.trim_end(), &nonce).unwrap(), 125);
+        assert!(parse_product_exit_line(line.trim_end(), &"cd".repeat(NONCE_BYTES)).is_err());
+        assert!(parse_product_exit_line(&format!("PRODUCT_EXIT {nonce} 0125"), &nonce).is_err());
     }
 
     #[test]
@@ -1051,7 +1183,7 @@ mod tests {
         let containment = BootstrapCleanupResult::completed();
         let bootstrap = BootstrapCleanupResult::failed("exit wait exceeded deadline");
         let checkpoint = BootstrapCleanupCheckpoint {
-            schema_version: 1,
+            schema_version: BOOTSTRAP_FAILURE_SCHEMA_VERSION,
             record_type: "cleanup-result",
             nonce: "nonce",
             containment_cleanup: &containment,
@@ -1073,6 +1205,60 @@ mod tests {
         validate_bootstrap_failure_records(&records, "nonce").unwrap();
         assert!(validate_bootstrap_failure_records(&records, "different").is_err());
         assert!(bootstrap_failure_hang_artifact(&records, "nonce").unwrap().is_none());
+    }
+
+    #[test]
+    fn bootstrap_checkpoint_preserves_product_lifecycle_and_controller_tail() {
+        let mut records = bootstrap_failure_records(None, None);
+        let first_newline = records.iter().position(|byte| *byte == b'\n').unwrap();
+        let mut first: serde_json::Value =
+            serde_json::from_slice(&records[..first_newline]).unwrap();
+        first["product_lifecycle"] = serde_json::json!({
+            "product_process_id": 41,
+            "product_primary_thread_id": 42,
+            "native_exit_received": false,
+            "native_exit_code": null
+        });
+        let mut with_lifecycle = serde_json::to_vec(&first).unwrap();
+        with_lifecycle.extend_from_slice(&records[first_newline..]);
+        let observation = BootstrapControllerFailureObservation {
+            schema_version: BOOTSTRAP_FAILURE_SCHEMA_VERSION,
+            record_type: "controller-observation".into(),
+            nonce: "nonce".into(),
+            raw_stdout_tail_hex: "1b5b366e".into(),
+            raw_stdout_tail_bytes: 4,
+            complete_stdout_lines: 0,
+            stdout_closed: true,
+            stdout_error: Some("product stdout closed with a partial line".into()),
+        };
+        with_lifecycle.extend(serde_json::to_vec(&observation).unwrap());
+        with_lifecycle.push(b'\n');
+
+        validate_bootstrap_failure_records(&with_lifecycle, "nonce").unwrap();
+
+        let lifecycle_newline = with_lifecycle.iter().position(|byte| *byte == b'\n').unwrap();
+        first["unexpected"] = serde_json::Value::Bool(true);
+        records = serde_json::to_vec(&first).unwrap();
+        records.extend_from_slice(&with_lifecycle[lifecycle_newline..]);
+        assert!(validate_bootstrap_failure_records(&records, "nonce").is_err());
+    }
+
+    #[test]
+    fn bootstrap_checkpoint_rejects_mismatched_native_exit_state() {
+        let mut records = bootstrap_failure_records(None, None);
+        let first_newline = records.iter().position(|byte| *byte == b'\n').unwrap();
+        let mut first: serde_json::Value =
+            serde_json::from_slice(&records[..first_newline]).unwrap();
+        first["product_lifecycle"] = serde_json::json!({
+            "product_process_id": 41,
+            "product_primary_thread_id": 42,
+            "native_exit_received": false,
+            "native_exit_code": 125
+        });
+        let mut invalid = serde_json::to_vec(&first).unwrap();
+        invalid.extend_from_slice(&records[first_newline..]);
+
+        assert!(validate_bootstrap_failure_records(&invalid, "nonce").is_err());
     }
 
     #[test]

@@ -13,7 +13,8 @@ use anyhow::{Context, Result, bail};
 use cmux_startup_bootstrap::{
     BOOTSTRAP_SCHEMA_VERSION, BootstrapChildStage, BootstrapConfig, BootstrapLaunchEvidence,
     BootstrapMessage, BootstrapProductLaunch, NativeEntryCheckpointStage,
-    decode_native_entry_checkpoint, encode_arm, encode_config, read_event,
+    decode_native_entry_checkpoint, encode_arm, encode_config, encode_product_handles_adopted,
+    read_event,
 };
 use cmux_tui_core::platform::transport;
 #[cfg(any(target_os = "linux", windows))]
@@ -24,10 +25,11 @@ use startup_benchmark_protocol::CONTROL_TIMEOUT;
 use startup_benchmark_protocol::macos_account_identity;
 #[cfg(windows)]
 use startup_benchmark_protocol::{
-    BOOTSTRAP_CLEANUP_TIMEOUT, BOOTSTRAP_STARTUP_TIMEOUT, BootstrapCleanupCheckpoint,
-    BootstrapCleanupResult, BootstrapFailureCheckpoint, BootstrapObservedEvent, BootstrapStage,
-    BootstrapStartupTrace, SECURITY_PREPARATION_TIMEOUT, failure_line, product_started_line,
-    setup_line,
+    BOOTSTRAP_CLEANUP_TIMEOUT, BOOTSTRAP_FAILURE_SCHEMA_VERSION, BOOTSTRAP_STARTUP_TIMEOUT,
+    BootstrapCleanupCheckpoint, BootstrapCleanupResult, BootstrapFailureCheckpoint,
+    BootstrapObservedEvent, BootstrapProductLifecycleEvidence, BootstrapStage,
+    BootstrapStartupTrace, SECURITY_PREPARATION_TIMEOUT, failure_line, product_exit_line,
+    product_started_line, setup_line,
 };
 use startup_benchmark_protocol::{
     STARTUP_LINE_TIMEOUT, TimingSink, arm_line, read_control_line, ready_line, write_control_line,
@@ -945,8 +947,9 @@ mod platform {
     };
     use windows_sys::Win32::System::Threading::{
         CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithTokenW,
-        GetCurrentProcess, GetExitCodeProcess, INFINITE, OpenProcessToken, PROCESS_INFORMATION,
-        ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
+        GetCurrentProcess, GetExitCodeProcess, GetProcessId, GetThreadId, INFINITE,
+        OpenProcessToken, PROCESS_INFORMATION, ResumeThread, STARTUPINFOW, TerminateProcess,
+        WaitForSingleObject,
     };
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
@@ -1028,6 +1031,24 @@ mod platform {
             }
             bootstrap.arm_and_wait(&launch.nonce, launch.prove_private_job, &mut control)
         })();
+        if launch.prove_private_job && result.is_err() {
+            let mut error = result.expect_err("checked product launch failure");
+            if bootstrap.product_status_timed_out && bootstrap.product_process.is_some() {
+                if let Err(diagnostic) = bootstrap.capture_product_hang_snapshot(&owner, launch) {
+                    error = error.context(format!(
+                        "trusted restricted-product hang diagnostic also failed: {diagnostic:#}"
+                    ));
+                }
+            }
+            return finish_failed_bootstrap_startup(
+                launch,
+                &mut control,
+                trace,
+                error,
+                Some(&mut owner),
+                Some(&mut bootstrap),
+            );
+        }
         let cleanup_deadline = Instant::now()
             .checked_add(BOOTSTRAP_CLEANUP_TIMEOUT)
             .context("Windows containment cleanup deadline overflow")?;
@@ -1520,6 +1541,12 @@ mod platform {
         target_cmux_bench_environment_filtered: bool,
         restricting_sid: String,
         product_started_relayed: bool,
+        product_process: Option<OwnedHandle>,
+        product_primary_thread: Option<OwnedHandle>,
+        product_process_id: Option<u32>,
+        product_primary_thread_id: Option<u32>,
+        native_exit_code: Option<u32>,
+        product_status_timed_out: bool,
     }
 
     struct BootstrapIdentity {
@@ -1621,6 +1648,12 @@ mod platform {
                 target_cmux_bench_environment_filtered,
                 restricting_sid,
                 product_started_relayed: false,
+                product_process: None,
+                product_primary_thread: None,
+                product_process_id: None,
+                product_primary_thread_id: None,
+                native_exit_code: None,
+                product_status_timed_out: false,
             })
         }
 
@@ -1649,6 +1682,95 @@ mod platform {
                     Err(error)
                 }
             }
+        }
+
+        fn capture_product_hang_snapshot(
+            &mut self,
+            owner: &WindowsLaunchOwner,
+            launch: &Launch,
+        ) -> Result<()> {
+            let process = self
+                .product_process
+                .as_ref()
+                .context("restricted product process handle was not retained")?;
+            let primary_thread = self
+                .product_primary_thread
+                .as_ref()
+                .context("restricted product primary-thread handle was not retained")?;
+            let process_id = self
+                .product_process_id
+                .context("restricted product process ID was not retained")?;
+            let primary_thread_id = self
+                .product_primary_thread_id
+                .context("restricted product primary-thread ID was not retained")?;
+            match startup_benchmark_windows_diagnostic::capture(CaptureRequest {
+                process: process.0,
+                primary_thread: primary_thread.0,
+                process_id,
+                primary_thread_id,
+                private_job: owner.job.0,
+                fixture_root: &self.fixture_root,
+                nonce: &self.nonce,
+                supervisor_sha256: &launch.supervisor_sha256,
+                target_cmux_bench_environment_filtered: self.target_cmux_bench_environment_filtered,
+            }) {
+                Ok(reference) => {
+                    self.hang_diagnostic = Some(reference);
+                    Ok(())
+                }
+                Err(error) => {
+                    self.hang_diagnostic_error = Some(bounded_text(&format!("{error:#}"), 2_048));
+                    Err(error)
+                }
+            }
+        }
+
+        fn retain_product_handles(
+            &mut self,
+            process_id: u32,
+            primary_thread_id: u32,
+            remote_process_handle: u64,
+            remote_primary_thread_handle: u64,
+        ) -> Result<()> {
+            if self.product_process.is_some()
+                || self.product_primary_thread.is_some()
+                || self.product_process_id.is_some()
+                || self.product_primary_thread_id.is_some()
+            {
+                bail!("restricted product handle identity was sent more than once");
+            }
+            if process_id == 0 || primary_thread_id == 0 {
+                bail!("restricted product process or thread ID was zero");
+            }
+            let process = duplicate_from_process(
+                self.process.0,
+                remote_process_handle,
+                "restricted product process",
+            )?;
+            let primary_thread = duplicate_from_process(
+                self.process.0,
+                remote_primary_thread_handle,
+                "restricted product primary thread",
+            )?;
+            if unsafe { GetProcessId(process.0) } != process_id
+                || unsafe { GetThreadId(primary_thread.0) } != primary_thread_id
+            {
+                bail!("restricted product transferred handle identity mismatch");
+            }
+            self.product_process = Some(process);
+            self.product_primary_thread = Some(primary_thread);
+            self.product_process_id = Some(process_id);
+            self.product_primary_thread_id = Some(primary_thread_id);
+            Ok(())
+        }
+
+        fn product_lifecycle(&self) -> Option<BootstrapProductLifecycleEvidence> {
+            Some(BootstrapProductLifecycleEvidence {
+                product_process_id: self.product_process_id?,
+                product_primary_thread_id: self.product_primary_thread_id?,
+                native_exit_received: self.native_exit_code.is_some(),
+                native_exit_code: self.native_exit_code,
+            })
         }
 
         fn wait_ready(&mut self, nonce: &str, trace: &mut BootstrapStartupTrace) -> Result<()> {
@@ -1767,6 +1889,8 @@ mod platform {
                             product_no_enabled_privileges: false,
                             product_exact_job: false,
                             product_resume_previous_count: 0,
+                            product_process_id: 0,
+                            product_primary_thread_id: 0,
                         });
                         fs::remove_file(&self.entry_checkpoint_path).with_context(|| {
                             format!(
@@ -1864,7 +1988,16 @@ mod platform {
                 .context("restricted product status deadline overflow")?;
             let mut product_started = false;
             let (code, contained) = loop {
-                match self.receive_until(deadline, "wait for restricted product status")? {
+                let event = match self.receive_until(deadline, "wait for restricted product status")
+                {
+                    Ok(event) => event,
+                    Err(error) if Instant::now() >= deadline => {
+                        self.product_status_timed_out = true;
+                        return Err(error);
+                    }
+                    Err(error) => return Err(error),
+                };
+                match event {
                     BootstrapEvent::Message(BootstrapMessage::ProductStarted {
                         nonce: observed,
                         private_job_descendant_contained,
@@ -1876,6 +2009,10 @@ mod platform {
                         product_restricting_sid_match,
                         product_authentication_id,
                         resume_previous_count,
+                        product_process_id,
+                        product_primary_thread_id,
+                        product_process_handle,
+                        product_primary_thread_handle,
                     }) if observed == nonce => {
                         if product_started
                             || !private_job_descendant_contained
@@ -1889,6 +2026,12 @@ mod platform {
                         {
                             bail!("restricted bootstrap product-started evidence mismatch");
                         }
+                        self.retain_product_handles(
+                            product_process_id,
+                            product_primary_thread_id,
+                            product_process_handle,
+                            product_primary_thread_handle,
+                        )?;
                         let evidence = self
                             .evidence
                             .as_mut()
@@ -1906,7 +2049,16 @@ mod platform {
                         evidence.product_no_enabled_privileges = product_no_enabled_privileges;
                         evidence.product_exact_job = private_job_descendant_contained;
                         evidence.product_resume_previous_count = resume_previous_count;
+                        evidence.product_process_id = product_process_id;
+                        evidence.product_primary_thread_id = product_primary_thread_id;
                         evidence.validate(&self.nonce, &self.bootstrap_sha256)?;
+                        let adoption = encode_product_handles_adopted(nonce)?;
+                        let writer = self
+                            .writer
+                            .as_mut()
+                            .context("Windows bootstrap command pipe is closed")?;
+                        writer.write_all(&adoption)?;
+                        writer.flush()?;
                         write_control_line(
                             public_control,
                             &product_started_line(&self.nonce, evidence)?,
@@ -1926,6 +2078,7 @@ mod platform {
                         product_restricting_sid_match,
                         product_authentication_id,
                     }) if observed == nonce => {
+                        self.native_exit_code = Some(code);
                         let evidence = self
                             .evidence
                             .as_mut()
@@ -1942,6 +2095,9 @@ mod platform {
                                 != evidence.product_authentication_id
                         {
                             bail!("restricted bootstrap exit evidence changed after product start");
+                        }
+                        if require_descendant {
+                            write_control_line(public_control, &product_exit_line(nonce, code)?)?;
                         }
                         break (code, private_job_descendant_contained);
                     }
@@ -2079,13 +2235,15 @@ mod platform {
         let hang_diagnostic = bootstrap.as_deref().and_then(|value| value.hang_diagnostic.as_ref());
         let hang_diagnostic_error =
             bootstrap.as_deref().and_then(|value| value.hang_diagnostic_error.as_deref());
+        let product_lifecycle = bootstrap.as_deref().and_then(BootstrapSession::product_lifecycle);
         let checkpoint = BootstrapFailureCheckpoint {
-            schema_version: 1,
+            schema_version: BOOTSTRAP_FAILURE_SCHEMA_VERSION,
             record_type: "startup-failure",
             nonce: &launch.nonce,
             reason: &reason,
             config_present_after_failure: config_present,
             trace: &trace,
+            product_lifecycle: product_lifecycle.as_ref(),
             hang_diagnostic,
             hang_diagnostic_error,
         };
@@ -2106,7 +2264,7 @@ mod platform {
         let containment_cleanup = cleanup_checkpoint(&containment_result, containment_started);
         let bootstrap_cleanup = cleanup_checkpoint(&bootstrap_result, bootstrap_started);
         let cleanup_checkpoint = BootstrapCleanupCheckpoint {
-            schema_version: 1,
+            schema_version: BOOTSTRAP_FAILURE_SCHEMA_VERSION,
             record_type: "cleanup-result",
             nonce: &launch.nonce,
             containment_cleanup: &containment_cleanup,
@@ -2261,6 +2419,29 @@ mod platform {
             &format!("duplicate Windows {name}"),
         )?;
         Ok(target as usize)
+    }
+
+    fn duplicate_from_process(process: HANDLE, source: u64, name: &str) -> Result<OwnedHandle> {
+        let source = usize::try_from(source)? as HANDLE;
+        if source.is_null() || source == INVALID_HANDLE_VALUE {
+            bail!("Windows {name} handle identity is invalid");
+        }
+        let mut target = null_mut();
+        check(
+            unsafe {
+                DuplicateHandle(
+                    process,
+                    source,
+                    GetCurrentProcess(),
+                    &mut target,
+                    0,
+                    0,
+                    DUPLICATE_SAME_ACCESS,
+                )
+            },
+            &format!("duplicate Windows {name} handle from bootstrap"),
+        )?;
+        Ok(OwnedHandle(target))
     }
 
     fn bootstrap_config_path(launch: &Launch) -> PathBuf {

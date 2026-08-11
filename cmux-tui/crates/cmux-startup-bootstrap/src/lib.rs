@@ -4,11 +4,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 3;
+pub const BOOTSTRAP_SCHEMA_VERSION: u32 = 4;
 pub const MAX_BOOTSTRAP_CONFIG_BYTES: usize = 64 * 1024;
 pub const MAX_BOOTSTRAP_RECORD_BYTES: usize = 4 * 1024;
 pub const CONFIG_MAGIC: [u8; 8] = *b"CMUXB001";
 pub const ARM_MAGIC: [u8; 8] = *b"CMUXA001";
+pub const PRODUCT_HANDLES_ADOPTED_MAGIC: [u8; 8] = *b"CMUXK001";
 pub const EVENT_MAGIC: [u8; 8] = *b"CMUXE001";
 pub const NATIVE_ENTRY_CHECKPOINT_MAGIC: [u8; 8] = *b"CMUXN001";
 
@@ -228,6 +229,10 @@ pub enum BootstrapMessage {
         product_restricting_sid_match: bool,
         product_authentication_id: AuthenticationId,
         resume_previous_count: u32,
+        product_process_id: u32,
+        product_primary_thread_id: u32,
+        product_process_handle: u64,
+        product_primary_thread_handle: u64,
     },
     Error {
         nonce: String,
@@ -279,6 +284,8 @@ pub struct BootstrapLaunchEvidence {
     pub product_no_enabled_privileges: bool,
     pub product_exact_job: bool,
     pub product_resume_previous_count: u32,
+    pub product_process_id: u32,
+    pub product_primary_thread_id: u32,
 }
 
 impl BootstrapLaunchEvidence {
@@ -309,6 +316,8 @@ impl BootstrapLaunchEvidence {
             || !self.product_no_enabled_privileges
             || !self.product_exact_job
             || self.product_resume_previous_count != 1
+            || self.product_process_id == 0
+            || self.product_primary_thread_id == 0
         {
             bail!("Windows bootstrap evidence identity or containment proof failed");
         }
@@ -451,6 +460,27 @@ pub fn decode_arm(bytes: &[u8]) -> Result<String> {
     Ok(encode_hex(&bytes[16..48]))
 }
 
+pub fn encode_product_handles_adopted(nonce: &str) -> Result<Vec<u8>> {
+    let nonce = decode_hex_32(nonce, "bootstrap product-handle adoption nonce")?;
+    let mut bytes = vec![0; 48];
+    bytes[..8].copy_from_slice(&PRODUCT_HANDLES_ADOPTED_MAGIC);
+    put_u32(&mut bytes, 8, BOOTSTRAP_SCHEMA_VERSION)?;
+    put_u32(&mut bytes, 12, 48)?;
+    bytes[16..48].copy_from_slice(&nonce);
+    Ok(bytes)
+}
+
+pub fn decode_product_handles_adopted(bytes: &[u8]) -> Result<String> {
+    if bytes.len() != 48 {
+        bail!("Windows bootstrap product-handle adoption record had the wrong length");
+    }
+    require_magic(bytes, &PRODUCT_HANDLES_ADOPTED_MAGIC, "product-handle adoption")?;
+    if read_u32(bytes, 8)? != BOOTSTRAP_SCHEMA_VERSION || read_u32(bytes, 12)? != 48 {
+        bail!("Windows bootstrap product-handle adoption record header changed");
+    }
+    Ok(encode_hex(&bytes[16..48]))
+}
+
 pub fn read_event(reader: &mut impl Read) -> Result<Option<BootstrapMessage>> {
     let mut header = [0_u8; RECORD_HEADER_BYTES];
     let mut first = [0_u8; 1];
@@ -561,7 +591,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
             windows_error: read_u32(bytes, 56)?,
             stage: read_u32(bytes, 60)?,
         }),
-        5 if bytes.len() == 72 && flags & !EXIT_ALL_FLAGS == 0 => {
+        5 if bytes.len() == 96 && flags & !EXIT_ALL_FLAGS == 0 => {
             let contained = read_u32(bytes, 56)?;
             if contained > 1 {
                 bail!("Windows bootstrap product-started containment flag was invalid");
@@ -581,6 +611,10 @@ pub fn decode_event(bytes: &[u8]) -> Result<BootstrapMessage> {
                     high_part: read_u32(bytes, 64)? as i32,
                 },
                 resume_previous_count: read_u32(bytes, 68)?,
+                product_process_id: read_u32(bytes, 72)?,
+                product_primary_thread_id: read_u32(bytes, 76)?,
+                product_process_handle: read_u64(bytes, 80)?,
+                product_primary_thread_handle: read_u64(bytes, 88)?,
             })
         }
         _ => bail!("Windows bootstrap event type, flags, or length changed"),
@@ -684,6 +718,10 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             product_restricting_sid_match,
             product_authentication_id,
             resume_previous_count,
+            product_process_id,
+            product_primary_thread_id,
+            product_process_handle,
+            product_primary_thread_handle,
         } => {
             let mut flags = 0;
             flags |= u32::from(*create_process_as_user_succeeded)
@@ -697,6 +735,10 @@ fn encode_event(message: &BootstrapMessage) -> Result<Vec<u8>> {
             payload.extend_from_slice(&product_authentication_id.low_part.to_le_bytes());
             payload.extend_from_slice(&(product_authentication_id.high_part as u32).to_le_bytes());
             payload.extend_from_slice(&resume_previous_count.to_le_bytes());
+            payload.extend_from_slice(&product_process_id.to_le_bytes());
+            payload.extend_from_slice(&product_primary_thread_id.to_le_bytes());
+            payload.extend_from_slice(&product_process_handle.to_le_bytes());
+            payload.extend_from_slice(&product_primary_thread_handle.to_le_bytes());
             (5, flags, nonce, payload)
         }
     };
@@ -940,6 +982,17 @@ mod tests {
     }
 
     #[test]
+    fn product_handle_adoption_record_is_fixed_and_nonce_bound() {
+        let nonce = "23".repeat(32);
+        let bytes = encode_product_handles_adopted(&nonce).unwrap();
+        assert_eq!(bytes.len(), 48);
+        assert_eq!(decode_product_handles_adopted(&bytes).unwrap(), nonce);
+        let mut changed = bytes;
+        changed[0] ^= 1;
+        assert!(decode_product_handles_adopted(&changed).is_err());
+    }
+
+    #[test]
     fn event_decoder_preserves_type_flags_nonce_and_clean_eof() {
         let message = BootstrapMessage::Ready {
             nonce: "34".repeat(32),
@@ -992,6 +1045,10 @@ mod tests {
             product_restricting_sid_match: true,
             product_authentication_id: AuthenticationId { low_part: 7, high_part: 9 },
             resume_previous_count: 1,
+            product_process_id: 41,
+            product_primary_thread_id: 42,
+            product_process_handle: 0x1234,
+            product_primary_thread_handle: 0x5678,
         };
         assert_eq!(
             decode_event(&encode_event(&product_started).unwrap()).unwrap(),
@@ -1071,6 +1128,8 @@ mod tests {
             product_no_enabled_privileges: true,
             product_exact_job: true,
             product_resume_previous_count: 1,
+            product_process_id: 41,
+            product_primary_thread_id: 42,
         };
         evidence.validate(&"ab".repeat(32), &"ef".repeat(32)).unwrap();
         let mut wrong_resume = evidence.clone();
@@ -1082,6 +1141,9 @@ mod tests {
         let mut wrong_product_resume = evidence.clone();
         wrong_product_resume.product_resume_previous_count = 2;
         assert!(wrong_product_resume.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
+        let mut missing_product_identity = evidence.clone();
+        missing_product_identity.product_process_id = 0;
+        assert!(missing_product_identity.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());
         let mut late = evidence;
         late.ready_elapsed_ms = 30_001;
         assert!(late.validate(&"ab".repeat(32), &"ef".repeat(32)).is_err());

@@ -15,15 +15,17 @@ use cmux_startup_bootstrap::BootstrapLaunchEvidence;
 use cmux_tui_core::platform::transport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(windows)]
+use startup_benchmark_protocol::{
+    BOOTSTRAP_FAILURE_SCHEMA_VERSION, BootstrapControllerFailureObservation,
+    MAX_PRODUCT_FAILURE_STDOUT_TAIL_BYTES, PRODUCT_STARTED_TIMEOUT, parse_product_exit_line,
+    parse_product_started_line, read_product_started_control_line,
+};
 use startup_benchmark_protocol::{
     BootstrapHangDiagnosticReport, CONTROL_TIMEOUT, MAX_BOOTSTRAP_HANG_DUMP_BYTES,
     MAX_BOOTSTRAP_HANG_REPORT_BYTES, STARTUP_LINE_TIMEOUT, SupervisorStartupLine, TimingPage,
     arm_line, bootstrap_failure_hang_artifact, monotonic_ns, parse_supervisor_startup_line,
     read_control_line, validate_bootstrap_failure_records, write_control_line,
-};
-#[cfg(windows)]
-use startup_benchmark_protocol::{
-    PRODUCT_STARTED_TIMEOUT, parse_product_started_line, read_product_started_control_line,
 };
 use wait_timeout::ChildExt;
 
@@ -86,9 +88,22 @@ struct PreflightEvidence {
     windows_product_no_enabled_privileges: Option<bool>,
     windows_product_exact_job: Option<bool>,
     windows_product_resume_previous_count: Option<u32>,
+    windows_product_process_id: Option<u32>,
+    windows_product_primary_thread_id: Option<u32>,
     supervisor_ready: bool,
     timing_records: u64,
     supervisor_sha256: String,
+}
+
+#[cfg(windows)]
+#[derive(Serialize)]
+struct RelayedProductFailureEvidence<'a> {
+    schema_version: u32,
+    record_type: &'static str,
+    nonce: &'a str,
+    bootstrap_evidence: &'a BootstrapLaunchEvidence,
+    controller_observation: &'a BootstrapControllerFailureObservation,
+    native_exit_code: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -115,9 +130,16 @@ struct InboundProbeEvidence {
 
 enum SupervisorStartupEvent {
     Connected(io::Result<Box<dyn transport::Stream>>),
-    ProductLine(io::Result<Vec<u8>>),
+    ProductOutput(Vec<u8>),
     ProductOutputClosed(io::Result<()>),
     StderrClosed(io::Result<Vec<u8>>),
+    PostArmControl(io::Result<String>),
+}
+
+enum ProductAwaitOutcome {
+    Line(Vec<u8>),
+    StartupFailure { checkpoint_name: Option<String> },
+    NativeExit { code: u32 },
 }
 
 enum PreflightProtocolOutcome {
@@ -142,8 +164,16 @@ struct SupervisorEventOwner {
     control_thread: Option<thread::JoinHandle<()>>,
     output_thread: Option<thread::JoinHandle<()>>,
     stderr_thread: Option<thread::JoinHandle<()>>,
+    post_arm_control_thread: Option<thread::JoinHandle<()>>,
+    sender: mpsc::Sender<SupervisorStartupEvent>,
     stderr: Option<Vec<u8>>,
     output_closed: bool,
+    product_buffer: Vec<u8>,
+    product_tail: Vec<u8>,
+    complete_product_lines: u64,
+    product_output_error: Option<String>,
+    native_exit_code: Option<u32>,
+    post_arm_nonce: Option<String>,
 }
 
 impl SupervisorEventOwner {
@@ -161,7 +191,7 @@ impl SupervisorEventOwner {
                 self.stderr = Some(stderr.context("read early preflight supervisor stderr")?);
                 self.fail("preflight supervisor exited before READY", "stderr closed")
             }
-            Ok(SupervisorStartupEvent::ProductLine(_)) => self.fail(
+            Ok(SupervisorStartupEvent::ProductOutput(_)) => self.fail(
                 "preflight supervisor protocol failed before READY",
                 "product output arrived before ARM",
             ),
@@ -174,31 +204,168 @@ impl SupervisorEventOwner {
                 unblock_control_listener(&self.control_path);
                 self.fail("preflight supervisor did not connect", error)
             }
+            Ok(SupervisorStartupEvent::PostArmControl(_)) => self.fail(
+                "preflight supervisor protocol failed before READY",
+                "post-ARM control arrived before ARM",
+            ),
         }
     }
 
+    fn watch_post_arm_control(
+        &mut self,
+        mut stream: Box<dyn transport::Stream>,
+        deadline: Instant,
+        nonce: &str,
+    ) -> Result<()> {
+        if self.post_arm_control_thread.is_some() {
+            bail!("preflight post-ARM control reader already exists");
+        }
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .context("preflight post-ARM control deadline expired")?;
+        stream.set_read_timeout(Some(remaining))?;
+        self.post_arm_nonce = Some(nonce.into());
+        let sender = self.sender.clone();
+        self.post_arm_control_thread = Some(thread::spawn(move || {
+            let result = read_control_line(&mut stream);
+            let _ = sender.send(SupervisorStartupEvent::PostArmControl(result));
+        }));
+        Ok(())
+    }
+
     fn product_line(&mut self, description: &str) -> Result<Vec<u8>> {
-        match self.receiver.recv_timeout(CONTROL_TIMEOUT) {
-            Ok(SupervisorStartupEvent::ProductLine(line)) => {
-                line.with_context(|| format!("read {description}"))
+        let deadline = Instant::now()
+            .checked_add(CONTROL_TIMEOUT)
+            .context("preflight product-event deadline overflow")?;
+        match self.product_line_until(description, deadline, None)? {
+            ProductAwaitOutcome::Line(line) => Ok(line),
+            ProductAwaitOutcome::StartupFailure { .. } => {
+                self.fail(format!("preflight supervisor failed before {description}"), "FAILURE")
             }
-            Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
-                self.stderr = Some(stderr.context("read preflight supervisor stderr")?);
-                self.fail(
-                    format!("preflight supervisor exited before {description}"),
-                    "stderr closed",
-                )
-            }
-            Ok(SupervisorStartupEvent::ProductOutputClosed(result)) => {
-                result.with_context(|| format!("read product output before {description}"))?;
-                self.output_closed = true;
-                self.fail(format!("preflight product output closed before {description}"), "EOF")
-            }
-            Ok(SupervisorStartupEvent::Connected(_)) => self.fail(
-                format!("preflight supervisor protocol failed before {description}"),
-                "a second control connection arrived",
+            ProductAwaitOutcome::NativeExit { code } => self.fail(
+                format!("preflight product exited before {description}"),
+                format!("native exit {code}"),
             ),
-            Err(error) => self.fail(format!("preflight {description} deadline expired"), error),
+        }
+    }
+
+    fn product_line_until(
+        &mut self,
+        description: &str,
+        deadline: Instant,
+        nonce: Option<&str>,
+    ) -> Result<ProductAwaitOutcome> {
+        loop {
+            if let Some(line) = self.take_product_line()? {
+                return Ok(ProductAwaitOutcome::Line(line));
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return self.fail(format!("preflight {description} deadline expired"), "timeout");
+            }
+            match self.receiver.recv_timeout(remaining) {
+                Ok(SupervisorStartupEvent::ProductOutput(bytes)) => {
+                    self.record_product_output(&bytes)?;
+                }
+                Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
+                    self.stderr = Some(stderr.context("read preflight supervisor stderr")?);
+                }
+                Ok(SupervisorStartupEvent::ProductOutputClosed(result)) => {
+                    self.record_product_output_closed(result);
+                }
+                Ok(SupervisorStartupEvent::PostArmControl(line)) => {
+                    let nonce = nonce.context("post-ARM control arrived without a nonce owner")?;
+                    let line = line.context("read preflight post-ARM control")?;
+                    if let Ok(SupervisorStartupLine::Failure { checkpoint_name }) =
+                        parse_supervisor_startup_line(&line, nonce)
+                    {
+                        return Ok(ProductAwaitOutcome::StartupFailure { checkpoint_name });
+                    }
+                    let code = parse_product_exit_line(&line, nonce)
+                        .context("validate preflight post-ARM control line")?;
+                    self.native_exit_code = Some(code);
+                    return Ok(ProductAwaitOutcome::NativeExit { code });
+                }
+                Ok(SupervisorStartupEvent::Connected(_)) => {
+                    return self.fail(
+                        format!("preflight supervisor protocol failed before {description}"),
+                        "a second control connection arrived",
+                    );
+                }
+                Err(error) => {
+                    return self.fail(format!("preflight {description} deadline expired"), error);
+                }
+            }
+        }
+    }
+
+    fn record_product_output(&mut self, bytes: &[u8]) -> Result<()> {
+        if bytes.len() >= MAX_PRODUCT_FAILURE_STDOUT_TAIL_BYTES {
+            self.product_tail.clear();
+            self.product_tail
+                .extend_from_slice(&bytes[bytes.len() - MAX_PRODUCT_FAILURE_STDOUT_TAIL_BYTES..]);
+        } else {
+            let excess = self
+                .product_tail
+                .len()
+                .saturating_add(bytes.len())
+                .saturating_sub(MAX_PRODUCT_FAILURE_STDOUT_TAIL_BYTES);
+            if excess > 0 {
+                self.product_tail.drain(..excess);
+            }
+            self.product_tail.extend_from_slice(bytes);
+        }
+        self.product_buffer.extend_from_slice(bytes);
+        if self
+            .product_buffer
+            .split(|byte| *byte == b'\n')
+            .any(|line| line.len() > MAX_PRODUCT_EVENT_BYTES)
+        {
+            bail!("product event exceeded its byte limit");
+        }
+        Ok(())
+    }
+
+    fn take_product_line(&mut self) -> Result<Option<Vec<u8>>> {
+        let Some(newline) = self.product_buffer.iter().position(|byte| *byte == b'\n') else {
+            return Ok(None);
+        };
+        if newline > MAX_PRODUCT_EVENT_BYTES {
+            bail!("product event exceeded its byte limit");
+        }
+        let mut line = self.product_buffer.drain(..=newline).collect::<Vec<_>>();
+        line.pop();
+        self.complete_product_lines = self
+            .complete_product_lines
+            .checked_add(1)
+            .context("product stdout line count overflow")?;
+        Ok(Some(line))
+    }
+
+    fn record_product_output_closed(&mut self, result: io::Result<()>) {
+        self.output_closed = true;
+        self.product_output_error = match result {
+            Ok(()) if self.product_buffer.is_empty() => None,
+            Ok(()) => Some("product stdout closed with a partial line".into()),
+            Err(error) => Some(bounded_text(&error.to_string(), 2_048)),
+        };
+    }
+
+    fn controller_failure_observation(&self, nonce: &str) -> BootstrapControllerFailureObservation {
+        BootstrapControllerFailureObservation {
+            schema_version: BOOTSTRAP_FAILURE_SCHEMA_VERSION,
+            record_type: "controller-observation".into(),
+            nonce: nonce.into(),
+            raw_stdout_tail_hex: self
+                .product_tail
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+            raw_stdout_tail_bytes: u64::try_from(self.product_tail.len()).unwrap_or(u64::MAX),
+            complete_stdout_lines: self.complete_product_lines,
+            stdout_closed: self.output_closed,
+            stdout_error: self.product_output_error.clone(),
         }
     }
 
@@ -225,21 +392,26 @@ impl SupervisorEventOwner {
                 return self.fail("preflight supervisor exceeded its deadline", "process timeout");
             }
         };
-        while self.stderr.is_none() || !self.output_closed {
+        while self.stderr.is_none()
+            || !self.output_closed
+            || (cfg!(windows) && self.native_exit_code.is_none())
+        {
             let remaining = deadline.saturating_duration_since(Instant::now());
             match self.receiver.recv_timeout(remaining) {
                 Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
                     self.stderr = Some(stderr.context("read preflight supervisor stderr")?);
                 }
                 Ok(SupervisorStartupEvent::ProductOutputClosed(result)) => {
-                    result.context("read preflight product output")?;
-                    self.output_closed = true;
+                    self.record_product_output_closed(result);
                 }
-                Ok(SupervisorStartupEvent::ProductLine(_)) => {
-                    return self.fail(
-                        "preflight product emitted an unexpected event",
-                        "extra product output line",
-                    );
+                Ok(SupervisorStartupEvent::ProductOutput(bytes)) => {
+                    self.record_product_output(&bytes)?;
+                    if self.take_product_line()?.is_some() {
+                        return self.fail(
+                            "preflight product emitted an unexpected event",
+                            "extra product output line",
+                        );
+                    }
                 }
                 Ok(SupervisorStartupEvent::Connected(_)) => {
                     return self.fail(
@@ -247,8 +419,82 @@ impl SupervisorEventOwner {
                         "a second control connection arrived",
                     );
                 }
+                Ok(SupervisorStartupEvent::PostArmControl(line)) => {
+                    let line = line.context("read preflight completion control")?;
+                    let nonce = self
+                        .post_arm_nonce
+                        .as_deref()
+                        .context("preflight completion control has no nonce owner")?;
+                    if parse_supervisor_startup_line(&line, nonce).is_ok() {
+                        return self.fail(
+                            "preflight supervisor failed during completion",
+                            "unexpected FAILURE after product evidence",
+                        );
+                    }
+                    self.native_exit_code = Some(
+                        parse_product_exit_line(&line, nonce)
+                            .context("validate preflight completion product exit")?,
+                    );
+                }
                 Err(error) => {
                     return self.fail("preflight process-tree cleanup deadline expired", error);
+                }
+            }
+        }
+        if !self.product_buffer.is_empty() {
+            return self.fail(
+                "preflight product output closed with a partial event",
+                String::from_utf8_lossy(&self.product_buffer),
+            );
+        }
+        self.join_event_threads()?;
+        Ok((status, self.stderr.take().unwrap_or_default(), self.output_closed))
+    }
+
+    fn finish_failure_until(&mut self, deadline: Instant) -> Result<(ExitStatus, Vec<u8>, bool)> {
+        let process_timeout = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .context("preflight supervisor failure-cleanup deadline expired")?;
+        let status = match self.child.wait_timeout(process_timeout)? {
+            Some(status) => status,
+            None => {
+                return self.fail(
+                    "preflight supervisor exceeded its failure-cleanup deadline",
+                    "process timeout",
+                );
+            }
+        };
+        while self.stderr.is_none() || !self.output_closed {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return self.fail("preflight failure evidence deadline expired", "event timeout");
+            }
+            match self.receiver.recv_timeout(remaining) {
+                Ok(SupervisorStartupEvent::ProductOutput(bytes)) => {
+                    self.record_product_output(&bytes)?;
+                    while self.take_product_line()?.is_some() {}
+                }
+                Ok(SupervisorStartupEvent::ProductOutputClosed(result)) => {
+                    self.record_product_output_closed(result);
+                }
+                Ok(SupervisorStartupEvent::StderrClosed(stderr)) => {
+                    self.stderr = Some(stderr.context("read failed preflight supervisor stderr")?);
+                }
+                Ok(SupervisorStartupEvent::PostArmControl(_)) => {
+                    return self.fail(
+                        "preflight supervisor sent duplicate post-ARM status",
+                        "duplicate control line",
+                    );
+                }
+                Ok(SupervisorStartupEvent::Connected(_)) => {
+                    return self.fail(
+                        "preflight supervisor protocol failed during failure cleanup",
+                        "a second control connection arrived",
+                    );
+                }
+                Err(error) => {
+                    return self.fail("preflight failure evidence deadline expired", error);
                 }
             }
         }
@@ -285,14 +531,20 @@ impl SupervisorEventOwner {
                 .unwrap_or_default();
             match self.receiver.recv_timeout(remaining) {
                 Ok(SupervisorStartupEvent::StderrClosed(Ok(stderr))) => self.stderr = Some(stderr),
-                Ok(SupervisorStartupEvent::ProductOutputClosed(Ok(()))) => {
-                    self.output_closed = true;
+                Ok(SupervisorStartupEvent::ProductOutput(bytes)) => {
+                    let _ = self.record_product_output(&bytes);
+                }
+                Ok(SupervisorStartupEvent::ProductOutputClosed(result)) => {
+                    self.record_product_output_closed(result);
                 }
                 Ok(_) => {}
                 Err(_) => break,
             }
         }
         let _ = self.join_control_thread();
+        if let Some(thread) = self.post_arm_control_thread.take() {
+            let _ = thread.join();
+        }
         if self.output_closed
             && let Some(thread) = self.output_thread.take()
         {
@@ -320,6 +572,9 @@ impl SupervisorEventOwner {
 
     fn join_event_threads(&mut self) -> Result<()> {
         self.join_control_thread()?;
+        if let Some(thread) = self.post_arm_control_thread.take() {
+            thread.join().map_err(|_| anyhow::anyhow!("post-ARM control thread panicked"))?;
+        }
         self.output_thread
             .take()
             .context("preflight product-output thread owner is missing")?
@@ -369,6 +624,7 @@ fn copy_bootstrap_failure_checkpoint(
     output: &Path,
     checkpoint_name: Option<&str>,
     expected_nonce: &str,
+    controller_observation: Option<&BootstrapControllerFailureObservation>,
 ) -> Result<Vec<PathBuf>> {
     let checkpoint_name = checkpoint_name
         .context("preflight supervisor failure did not name a bootstrap checkpoint")?;
@@ -394,8 +650,24 @@ fn copy_bootstrap_failure_checkpoint(
             format!("create copied bootstrap checkpoint {}", destination.display())
         })?;
     file.write_all(&bytes)?;
+    if let Some(observation) = controller_observation {
+        observation.validate(expected_nonce)?;
+        let observation = serde_json::to_vec(observation)?;
+        let final_size = bytes
+            .len()
+            .checked_add(observation.len())
+            .and_then(|size| size.checked_add(1))
+            .context("copied bootstrap checkpoint size overflow")?;
+        if final_size > usize::try_from(MAX_BOOTSTRAP_CHECKPOINT_BYTES)? {
+            bail!("copied bootstrap checkpoint exceeded its bound");
+        }
+        file.write_all(&observation)?;
+        file.write_all(b"\n")?;
+    }
     file.flush()?;
     drop(file);
+    let copied_bytes = fs::read(&destination)?;
+    validate_bootstrap_failure_records(&copied_bytes, expected_nonce)?;
     let mut copied = vec![destination];
     if let Some(reference) = hang_artifact {
         reference.validate()?;
@@ -446,14 +718,24 @@ fn persist_relayed_product_started_evidence(
     evidence: &BootstrapLaunchEvidence,
     expected_nonce: &str,
     expected_bootstrap_sha256: &str,
+    controller_observation: &BootstrapControllerFailureObservation,
+    native_exit_code: Option<u32>,
 ) -> Result<PathBuf> {
     evidence.validate(expected_nonce, expected_bootstrap_sha256)?;
+    controller_observation.validate(expected_nonce)?;
     let stem = output.file_stem().and_then(|value| value.to_str()).unwrap_or("preflight");
     let path = output
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(format!("{stem}-product-bootstrap-failure.json"));
-    let bytes = serde_json::to_vec_pretty(evidence)?;
+    let bytes = serde_json::to_vec_pretty(&RelayedProductFailureEvidence {
+        schema_version: 1,
+        record_type: "relayed-product-failure",
+        nonce: expected_nonce,
+        bootstrap_evidence: evidence,
+        controller_observation,
+        native_exit_code,
+    })?;
     if bytes.len() > MAX_BOOTSTRAP_CHECKPOINT_BYTES as usize {
         bail!("relayed product-started evidence exceeded its file bound");
     }
@@ -624,6 +906,7 @@ fn run_controller(values: &[String]) -> Result<()> {
     let output_thread = thread::spawn(move || {
         read_product_events(supervisor_output, &output_sender);
     });
+    let post_arm_sender = startup_sender.clone();
     let stderr_thread = thread::spawn(move || {
         let stderr = read_bounded_tail(supervisor_stderr, MAX_SUPERVISOR_STDERR_BYTES);
         let _ = startup_sender.send(SupervisorStartupEvent::StderrClosed(stderr));
@@ -636,8 +919,16 @@ fn run_controller(values: &[String]) -> Result<()> {
         control_thread: Some(control_thread),
         output_thread: Some(output_thread),
         stderr_thread: Some(stderr_thread),
+        post_arm_control_thread: None,
+        sender: post_arm_sender,
         stderr: None,
         output_closed: false,
+        product_buffer: Vec::new(),
+        product_tail: Vec::new(),
+        complete_product_lines: 0,
+        product_output_error: None,
+        native_exit_code: None,
+        post_arm_nonce: None,
     };
     #[cfg(windows)]
     let mut relayed_bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
@@ -696,20 +987,63 @@ fn run_controller(values: &[String]) -> Result<()> {
                 },
             }
         }
+        #[cfg(windows)]
+        let post_arm_deadline = Instant::now()
+            .checked_add(PRODUCT_STARTED_TIMEOUT)
+            .context("preflight post-ARM evidence deadline overflow")?;
+        #[cfg(windows)]
+        events.watch_post_arm_control(supervisor_stream, post_arm_deadline, &nonce)?;
+        #[cfg(not(windows))]
         drop(supervisor_stream);
 
-        let inbound_probe: InboundProbeEvidence =
-            serde_json::from_slice(&events.product_line("inbound-network probe evidence")?)
-                .context("parse inbound-network probe evidence")?;
+        #[cfg(windows)]
+        let inbound_line = match events.product_line_until(
+            "inbound-network probe evidence",
+            post_arm_deadline,
+            Some(&nonce),
+        )? {
+            ProductAwaitOutcome::Line(line) => line,
+            ProductAwaitOutcome::StartupFailure { checkpoint_name } => {
+                return Ok(PreflightProtocolOutcome::StartupFailure {
+                    checkpoint_name,
+                    public_deadline: post_arm_deadline,
+                });
+            }
+            ProductAwaitOutcome::NativeExit { code } => {
+                bail!("restricted product exited {code} before inbound-network probe evidence")
+            }
+        };
+        #[cfg(not(windows))]
+        let inbound_line = events.product_line("inbound-network probe evidence")?;
+        let inbound_probe: InboundProbeEvidence = serde_json::from_slice(&inbound_line)
+            .context("parse inbound-network probe evidence")?;
         let inbound_network_denied = match inbound_probe.bound_address {
             None => true,
             Some(address) => TcpStream::connect_timeout(&address, Duration::from_secs(2)).is_err(),
         };
         events.release_product("release inbound-network probe")?;
 
+        #[cfg(windows)]
+        let child_line = match events.product_line_until(
+            "descendant probe evidence",
+            post_arm_deadline,
+            Some(&nonce),
+        )? {
+            ProductAwaitOutcome::Line(line) => line,
+            ProductAwaitOutcome::StartupFailure { checkpoint_name } => {
+                return Ok(PreflightProtocolOutcome::StartupFailure {
+                    checkpoint_name,
+                    public_deadline: post_arm_deadline,
+                });
+            }
+            ProductAwaitOutcome::NativeExit { code } => {
+                bail!("restricted product exited {code} before descendant probe evidence")
+            }
+        };
+        #[cfg(not(windows))]
+        let child_line = events.product_line("descendant probe evidence")?;
         let child_evidence: ChildProbeEvidence =
-            serde_json::from_slice(&events.product_line("descendant probe evidence")?)
-                .context("parse preflight descendant evidence")?;
+            serde_json::from_slice(&child_line).context("parse preflight descendant evidence")?;
         let (status, supervisor_stderr, contained) = events.finish()?;
         Ok(PreflightProtocolOutcome::Success {
             status,
@@ -729,13 +1063,15 @@ fn run_controller(values: &[String]) -> Result<()> {
                 child_evidence,
             }) => (status, supervisor_stderr, contained, inbound_network_denied, child_evidence),
             Ok(PreflightProtocolOutcome::StartupFailure { checkpoint_name, public_deadline }) => {
+                let finished = events.finish_failure_until(public_deadline);
+                let observation = events.controller_failure_observation(&nonce);
                 let copied = copy_bootstrap_failure_checkpoint(
                     &root,
                     &output,
                     checkpoint_name.as_deref(),
                     &nonce,
+                    Some(&observation),
                 );
-                let finished = events.finish_until(public_deadline);
                 return match (copied, finished) {
                     (Ok(paths), Ok((status, stderr, _))) => Err(anyhow::anyhow!(
                         "preflight supervisor reported bounded startup failure; artifacts {}; exit {status}; stderr: {}",
@@ -756,13 +1092,20 @@ fn run_controller(values: &[String]) -> Result<()> {
                 };
             }
             Err(error) => {
+                let error = match events.abort::<()>(error) {
+                    Err(error) => error,
+                    Ok(()) => anyhow::anyhow!("preflight abort unexpectedly succeeded"),
+                };
                 #[cfg(windows)]
                 let error = if let Some(evidence) = relayed_bootstrap_evidence.as_ref() {
+                    let observation = events.controller_failure_observation(&nonce);
                     match persist_relayed_product_started_evidence(
                         &output,
                         evidence,
                         &nonce,
                         &windows_bootstrap_sha256,
+                        &observation,
+                        events.native_exit_code,
                     ) {
                         Ok(path) => error.context(format!(
                             "relayed product-started evidence: {}",
@@ -774,7 +1117,7 @@ fn run_controller(values: &[String]) -> Result<()> {
                 } else {
                     error
                 };
-                return events.abort(error);
+                return Err(error);
             }
         };
     let event_ns = monotonic_ns()?;
@@ -803,7 +1146,7 @@ fn run_controller(values: &[String]) -> Result<()> {
     #[cfg(not(windows))]
     let bootstrap_evidence: Option<BootstrapLaunchEvidence> = None;
     let evidence = PreflightEvidence {
-        schema_version: 6,
+        schema_version: 7,
         backend,
         policy: "fixture-root-only-write",
         handshake: "nonce-bound-ready-arm-with-pre-exec-t0",
@@ -916,6 +1259,12 @@ fn run_controller(values: &[String]) -> Result<()> {
         windows_product_resume_previous_count: bootstrap_evidence
             .as_ref()
             .map(|evidence| evidence.product_resume_previous_count),
+        windows_product_process_id: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_process_id),
+        windows_product_primary_thread_id: bootstrap_evidence
+            .as_ref()
+            .map(|evidence| evidence.product_primary_thread_id),
         supervisor_ready: true,
         timing_records: if timing_result.is_ok() { 1 } else { 0 },
         supervisor_sha256,
@@ -1188,6 +1537,8 @@ fn platform_proofs_pass(evidence: &PreflightEvidence) -> bool {
             && evidence.windows_product_no_enabled_privileges == Some(true)
             && evidence.windows_product_exact_job == Some(true)
             && evidence.windows_product_resume_previous_count == Some(1)
+            && evidence.windows_product_process_id.is_some_and(|value| value != 0)
+            && evidence.windows_product_primary_thread_id.is_some_and(|value| value != 0)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
@@ -1216,6 +1567,8 @@ fn windows_account_broker_proofs_absent(evidence: &PreflightEvidence) -> bool {
         && evidence.windows_product_no_enabled_privileges.is_none()
         && evidence.windows_product_exact_job.is_none()
         && evidence.windows_product_resume_previous_count.is_none()
+        && evidence.windows_product_process_id.is_none()
+        && evidence.windows_product_primary_thread_id.is_none()
 }
 
 #[cfg(target_os = "linux")]
@@ -1518,16 +1871,20 @@ fn read_bounded_tail(mut reader: impl Read, limit: usize) -> io::Result<Vec<u8>>
 }
 
 fn read_product_events(mut reader: impl Read, sender: &mpsc::Sender<SupervisorStartupEvent>) {
+    let mut bytes = [0_u8; 4 * 1024];
     loop {
-        match read_bounded_line(&mut reader, MAX_PRODUCT_EVENT_BYTES) {
-            Ok(Some(line)) => {
-                if sender.send(SupervisorStartupEvent::ProductLine(Ok(line))).is_err() {
-                    return;
-                }
-            }
-            Ok(None) => {
+        match reader.read(&mut bytes) {
+            Ok(0) => {
                 let _ = sender.send(SupervisorStartupEvent::ProductOutputClosed(Ok(())));
                 return;
+            }
+            Ok(count) => {
+                if sender
+                    .send(SupervisorStartupEvent::ProductOutput(bytes[..count].to_vec()))
+                    .is_err()
+                {
+                    return;
+                }
             }
             Err(error) => {
                 let _ = sender.send(SupervisorStartupEvent::ProductOutputClosed(Err(error)));
@@ -1556,9 +1913,45 @@ fn read_bounded_line(reader: &mut impl Read, limit: usize) -> io::Result<Option<
     }
 }
 
+fn bounded_text(value: &str, maximum: usize) -> String {
+    if value.len() <= maximum {
+        return value.to_string();
+    }
+    let mut end = maximum;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &value[..end])
+}
+
 fn unblock_control_listener(path: &Path) {
     if let Ok(stream) = transport::connect(path) {
         let _ = stream.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::*;
+
+    #[test]
+    fn product_reader_delivers_partial_bytes_before_eof() {
+        let (sender, receiver) = mpsc::channel();
+
+        read_product_events(Cursor::new(b"partial-without-newline"), &sender);
+
+        match receiver.recv().unwrap() {
+            SupervisorStartupEvent::ProductOutput(bytes) => {
+                assert_eq!(bytes, b"partial-without-newline")
+            }
+            _ => panic!("product reader did not preserve its partial bytes"),
+        }
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            SupervisorStartupEvent::ProductOutputClosed(Ok(()))
+        ));
     }
 }
 
