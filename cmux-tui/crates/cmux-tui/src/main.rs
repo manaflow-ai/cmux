@@ -6,6 +6,9 @@
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
 
+#[cfg(unix)]
+mod agent_browser_provider;
+mod agent_hook_install;
 mod app;
 mod browser_input;
 mod cli;
@@ -62,6 +65,7 @@ mod remote_cli {
 mod remote_runtime;
 mod session;
 mod sidebar_files;
+mod sidebar_projection;
 mod ui;
 
 #[cfg(target_os = "linux")]
@@ -69,8 +73,14 @@ use std::ffi::CStr;
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::Shutdown;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(unix)]
+use std::sync::atomic::AtomicI32;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
@@ -87,11 +97,17 @@ use machine_provider_client::{
 };
 #[cfg(unix)]
 use machine_provider_runtime::ProviderMachineController;
-use machine_runtime::MachineRuntime;
+use machine_runtime::{
+    MachineConnection, MachineConnectionHub, MachineConnectionLease, MachineRuntime,
+};
 use session::{RemoteSession, Session};
 use zeroize::Zeroize;
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+#[cfg(unix)]
+static SIGNAL_WAKE_READER: AtomicI32 = AtomicI32::new(-1);
+#[cfg(unix)]
+static SIGNAL_WAKE_WRITER: AtomicI32 = AtomicI32::new(-1);
 #[cfg(unix)]
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
@@ -104,6 +120,15 @@ unsafe extern "C" {
 #[cfg(unix)]
 extern "C" fn handle_signal(_: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Release);
+    let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
+    if writer >= 0 {
+        let byte = 1_u8;
+        // SAFETY: write(2) is async-signal-safe, `writer` is a process-lifetime
+        // socket descriptor, and the one-byte source remains valid for the call.
+        unsafe {
+            let _ = libc::write(writer, std::ptr::from_ref(&byte).cast(), 1);
+        }
+    }
 }
 
 pub(crate) fn shutdown_requested() -> bool {
@@ -112,10 +137,27 @@ pub(crate) fn shutdown_requested() -> bool {
 
 #[cfg(unix)]
 fn install_signal_handlers() -> io::Result<()> {
+    let (wake_reader, wake_writer) = UnixStream::pair()?;
+    for descriptor in [wake_reader.as_raw_fd(), wake_writer.as_raw_fd()] {
+        // UnixStream currently creates close-on-exec descriptors, but enforce
+        // the ownership contract before these descriptors become process-wide.
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    wake_writer.set_nonblocking(true)?;
+    SIGNAL_WAKE_READER.store(wake_reader.as_raw_fd(), Ordering::Release);
+    SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
         action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
         if libc::sigemptyset(&mut action.sa_mask) != 0 {
+            SIGNAL_WAKE_READER.store(-1, Ordering::Release);
+            SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
             return Err(io::Error::last_os_error());
         }
         // Termination must interrupt startup and teardown syscalls. In
@@ -124,11 +166,41 @@ fn install_signal_handlers() -> io::Result<()> {
         action.sa_flags = 0;
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
+                SIGNAL_WAKE_READER.store(-1, Ordering::Release);
+                SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
                 return Err(io::Error::last_os_error());
             }
         }
     }
+    // The signal handler and one cancellation watcher own these descriptors
+    // for the process lifetime. CLI exit and daemon shutdown reclaim them.
+    std::mem::forget(wake_reader);
+    std::mem::forget(wake_writer);
     Ok(())
+}
+
+#[cfg(unix)]
+pub(crate) fn wait_for_shutdown_signal() {
+    if shutdown_requested() {
+        return;
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return;
+    }
+    let mut byte = 0_u8;
+    loop {
+        // SAFETY: `reader` is the process-lifetime socket descriptor installed
+        // before signal handlers, and the one-byte destination is writable.
+        let result = unsafe { libc::read(reader, std::ptr::from_mut(&mut byte).cast(), 1) };
+        if result > 0 || shutdown_requested() {
+            return;
+        }
+        if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        return;
+    }
 }
 
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the
@@ -399,6 +471,7 @@ struct Args {
     iroh: bool,
     advertised_routes: Vec<String>,
     term: Option<String>,
+    agent_browser_provider: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -468,6 +541,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         iroh: false,
         advertised_routes: Vec::new(),
         term: None,
+        agent_browser_provider: false,
     };
     let mut args = args.into_iter().peekable();
     match args.peek().map(|s| s.as_str()) {
@@ -671,6 +745,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--term" => {
                 out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
             }
+            // Private launch contract used by cmux-browser. It configures
+            // Vercel agent-browser to attach through the local provider
+            // adapter instead of starting an unrelated Chrome process.
+            "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
                 print!("{}", usage());
                 std::process::exit(0);
@@ -684,6 +762,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     }
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
+    }
+    #[cfg(not(unix))]
+    if out.agent_browser_provider {
+        return Err(format!("--agent-browser-provider is unsupported on {}", std::env::consts::OS));
     }
     Ok(out)
 }
@@ -1064,6 +1146,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.term.is_some() {
         conflicts.push("--term");
     }
+    if args.agent_browser_provider {
+        conflicts.push("--agent-browser-provider");
+    }
     if !conflicts.is_empty() {
         anyhow::bail!("machine provider mode cannot be combined with {}", conflicts.join(", "));
     }
@@ -1072,6 +1157,10 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 
 fn main() {
     let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
+        std::process::exit(agent_browser_provider::run());
+    }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
     // before installing the interactive daemon's signal handlers: the host
@@ -1467,6 +1556,15 @@ fn run_server(
     }
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    #[cfg(unix)]
+    if args.agent_browser_provider {
+        agent_browser_provider::configure_surface_options(&mut surface_options)?;
+    }
+    if let Some(helper) = agent_hook_install::runtime_helper_path() {
+        surface_options
+            .extra_env
+            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
+    }
 
     let state_root = if args.ephemeral {
         None
@@ -1581,8 +1679,16 @@ fn run_server(
         None
     };
 
-    let machine_runtime = (config.machine_sidebar.enabled || !config.machines.is_empty())
-        .then(|| MachineRuntime::new(socket_path.clone(), config.machines.clone()));
+    let machine_runtime = (config.machine_sidebar.enabled
+        || !config.machine_sidebar.create_sources.is_empty()
+        || !config.machines.is_empty())
+    .then(|| {
+        MachineRuntime::with_creation_sources(
+            socket_path.clone(),
+            config.machines.clone(),
+            config.machine_sidebar.create_sources.clone(),
+        )
+    });
     let result = if args.headless {
         #[cfg(unix)]
         {
@@ -1607,12 +1713,32 @@ fn run_server(
         }
     };
     #[cfg(unix)]
-    if let Some(runtime) = remote_runtime {
-        runtime.shutdown()?;
+    let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
+    #[cfg(unix)]
+    {
+        finish_server_shutdown(websocket_server, &mux, &socket_path, remote_shutdown, result)
     }
+    #[cfg(not(unix))]
+    {
+        drop(websocket_server);
+        mux.shutdown();
+        cmux_tui_core::server::cleanup(&socket_path);
+        result
+    }
+}
+
+#[cfg(unix)]
+fn finish_server_shutdown<W, R>(
+    websocket_server: Option<W>,
+    mux: &Arc<Mux>,
+    socket_path: &Path,
+    remote_shutdown: anyhow::Result<Option<R>>,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
     drop(websocket_server);
     mux.shutdown();
-    cmux_tui_core::server::cleanup(&socket_path);
+    cmux_tui_core::server::cleanup(socket_path);
+    remote_shutdown.map(|_| ())?;
     result
 }
 
@@ -1659,7 +1785,10 @@ enum SessionClientMode {
 }
 
 fn session_client_mode(config: &config::Config) -> SessionClientMode {
-    if config.machine_sidebar.enabled || !config.machines.is_empty() {
+    if config.machine_sidebar.enabled
+        || !config.machine_sidebar.create_sources.is_empty()
+        || !config.machines.is_empty()
+    {
         SessionClientMode::Machines
     } else {
         SessionClientMode::Plain
@@ -1679,27 +1808,46 @@ fn run_connected_session_client(
     match session_client_mode(&config) {
         SessionClientMode::Plain => run_tui(session, session_label, None),
         SessionClientMode::Machines => {
-            let runtime = MachineRuntime::new(socket_path, config.machines);
-            run_machine_client_with_initial(runtime, session)
+            let runtime = MachineRuntime::with_creation_sources(
+                socket_path,
+                config.machines,
+                config.machine_sidebar.create_sources,
+            );
+            run_machine_client_with_initial(runtime, session, None)
         }
     }
 }
 
-fn run_machine_client(mut runtime: MachineRuntime) -> anyhow::Result<()> {
+fn run_machine_client(runtime: MachineRuntime) -> anyhow::Result<()> {
     let active = runtime.initial_key();
-    let session = runtime.connect(active)?;
-    run_machine_client_with_initial(runtime, session)
+    let connections = MachineConnectionHub::new(runtime.connection_connectors());
+    let session = connections.connect(active)?;
+    run_machine_client_with_hub(runtime, session, connections)
 }
 
 fn run_machine_client_with_initial(
     runtime: MachineRuntime,
     session: Session,
+    active_lease: Option<Box<dyn MachineConnectionLease>>,
+) -> anyhow::Result<()> {
+    let active = runtime.initial_key();
+    let connections = MachineConnectionHub::new(runtime.connection_connectors());
+    connections
+        .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
+    run_machine_client_with_hub(runtime, session, connections)
+}
+
+fn run_machine_client_with_hub(
+    runtime: MachineRuntime,
+    session: Session,
+    connections: MachineConnectionHub,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
-    let machine_ui = MachineUiState::new(runtime.snapshot(active));
+    let mut machine_ui = runtime.ui_state(active);
+    machine_ui.set_connection_phases(connections.phases());
     let controller: Box<dyn MachineController> =
-        Box::new(StaticMachineController { runtime, active, pending_active: None });
+        Box::new(StaticMachineController { runtime, active, connections, pending: None });
     match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
@@ -1711,7 +1859,8 @@ fn run_machine_client_with_initial(
 struct StaticMachineController {
     runtime: MachineRuntime,
     active: machine::MachineKey,
-    pending_active: Option<machine::MachineKey>,
+    connections: MachineConnectionHub,
+    pending: Option<machine::MachineKey>,
 }
 
 impl MachineController for StaticMachineController {
@@ -1720,6 +1869,7 @@ impl MachineController for StaticMachineController {
             MachineRequest::Switch(machine) => self.switch(machine),
             MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
                 let machine = self.runtime.connect_machine(&target)?;
+                self.register(machine)?;
                 self.switch(machine)
             }
             MachineRequest::Connect { route: MachineConnectRoute::Provider, .. } => Ok(self
@@ -1728,6 +1878,18 @@ impl MachineController for StaticMachineController {
                 )),
             MachineRequest::Create => {
                 Ok(self.notice(localization::catalog().sidebar.machine_catalog_create_unsupported))
+            }
+            MachineRequest::CreateFrom { source_id } => {
+                let (machine, name) = self.runtime.create_from(&source_id)?;
+                self.register(machine)?;
+                let message =
+                    format!("{}: {name}", localization::catalog().sidebar.prototype_machine_added);
+                Ok(self.notice(message))
+            }
+            MachineRequest::RenameClientMachine { machine, name } => {
+                let name = self.runtime.rename_machine(machine, &name)?;
+                let result = MachineActionResult::ui(self.ui_state(self.active));
+                Ok(if machine == self.active { result.with_session_label(name) } else { result })
             }
             MachineRequest::SelectProviderScope(_)
             | MachineRequest::InvokeProviderAction { .. }
@@ -1749,31 +1911,58 @@ impl MachineController for StaticMachineController {
         }
     }
 
-    fn commit_replacement(&mut self) -> anyhow::Result<()> {
-        self.active = self.pending_active.take().ok_or_else(|| {
+    fn commit_replacement(&mut self, present: bool) -> anyhow::Result<()> {
+        let machine = self.pending.take().ok_or_else(|| {
             anyhow::anyhow!(localization::catalog().sidebar.machine_replacement_target_missing)
         })?;
+        if present {
+            self.active = machine;
+        }
         Ok(())
     }
 
     fn abort_replacement(&mut self) {
-        self.pending_active = None;
+        if let Some(machine) = self.pending.take()
+            && machine != self.active
+        {
+            self.connections.remove(machine);
+        }
+    }
+
+    fn close(&mut self) {
+        self.pending = None;
+        self.connections.close();
     }
 }
 
 impl StaticMachineController {
     fn switch(&mut self, machine: machine::MachineKey) -> anyhow::Result<MachineActionResult> {
-        let session = self.runtime.connect(machine)?;
+        self.register(machine)?;
+        let session = self.connections.connect(machine)?;
         let label = self.runtime.name(machine).unwrap_or("machine").to_string();
-        self.pending_active = Some(machine);
-        let ui = MachineUiState::new(self.runtime.snapshot(machine));
+        self.pending = Some(machine);
+        let ui = self.ui_state(machine);
         Ok(MachineActionResult::replace(ui, session, label))
     }
 
     fn notice(&self, notice: impl Into<String>) -> MachineActionResult {
-        let mut ui = MachineUiState::new(self.runtime.snapshot(self.active));
+        let mut ui = self.ui_state(self.active);
         ui.notice = Some(notice.into());
         MachineActionResult::ui(ui)
+    }
+
+    fn register(&self, machine: machine::MachineKey) -> anyhow::Result<()> {
+        let connector = self.runtime.connection_connector(machine).ok_or_else(|| {
+            anyhow::anyhow!(localization::catalog().sidebar.client_machine_unavailable)
+        })?;
+        self.connections.register(machine, connector);
+        Ok(())
+    }
+
+    fn ui_state(&self, active: machine::MachineKey) -> MachineUiState {
+        let mut ui = self.runtime.ui_state(active);
+        ui.set_connection_phases(self.connections.phases());
+        ui
     }
 }
 
@@ -1798,6 +1987,7 @@ fn run_provider_machine_client(
             &error,
         )),
     };
+    runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
     match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
@@ -2015,6 +2205,50 @@ mod tests {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn remote_shutdown_failure_still_stops_the_mux_and_removes_the_socket() {
+        let socket_path = std::env::temp_dir().join(format!(
+            "cmux-remote-shutdown-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&socket_path, b"test socket marker").unwrap();
+        let mux = Mux::new("remote-shutdown-failure", SurfaceOptions::default());
+
+        let error = finish_server_shutdown(
+            Some(()),
+            &mux,
+            &socket_path,
+            Err::<Option<()>, _>(anyhow::anyhow!("injected remote shutdown failure")),
+            Ok(()),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("injected remote shutdown failure"), "{error}");
+        assert!(mux.daemon_shutdown_requested());
+        assert!(!socket_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn browser_owned_server_accepts_the_private_agent_browser_provider_flag() {
+        let parsed = args(&["--headless", "--agent-browser-provider"]);
+        assert!(parsed.headless);
+        assert!(parsed.agent_browser_provider);
+        assert!(!usage().contains("--agent-browser-provider"));
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn browser_owned_server_rejects_the_private_provider_flag() {
+        let error =
+            parse_args_result(["--headless", "--agent-browser-provider"].map(str::to_string))
+                .unwrap_err();
+        assert!(error.contains("unsupported"));
+    }
+
     #[cfg(windows)]
     #[test]
     fn recovery_commands_identify_the_powershell_dialect() {
@@ -2125,7 +2359,9 @@ mod tests {
 
         let runtime = MachineRuntime::new(PathBuf::from("/tmp/static-machine-notice.sock"), vec![]);
         let active = runtime.initial_key();
-        let mut controller = StaticMachineController { runtime, active, pending_active: None };
+        let connections = MachineConnectionHub::new(runtime.connection_connectors());
+        let mut controller =
+            StaticMachineController { runtime, active, connections, pending: None };
 
         assert_eq!(
             controller.perform(MachineRequest::Create).unwrap().ui.notice.as_deref(),
@@ -2140,6 +2376,92 @@ mod tests {
                 .as_deref(),
             Some("このマシンカタログにはプロバイダーアクションがありません")
         );
+    }
+
+    #[test]
+    fn static_machine_creation_does_not_connect_until_selected() {
+        let suffix =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let socket = std::env::temp_dir()
+            .join(format!("cmux-unselected-machine-{}-{suffix}.sock", std::process::id()));
+        let runtime = MachineRuntime::with_creation_sources(
+            socket,
+            vec![],
+            vec![config::MachineCreationSourceConfig {
+                id: "docker".into(),
+                name: "Docker".into(),
+                subtitle: "container prototype".into(),
+            }],
+        );
+        let active = runtime.initial_key();
+        let connections = MachineConnectionHub::new(runtime.connection_connectors());
+        let mut controller =
+            StaticMachineController { runtime, active, connections, pending: None };
+
+        let action =
+            controller.perform(MachineRequest::CreateFrom { source_id: "docker".into() }).unwrap();
+        let created = action
+            .ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == "prototype:docker:1")
+            .unwrap()
+            .key;
+
+        assert_eq!(
+            action.ui.connection_phase(created),
+            machine::MachineConnectionPhase::Disconnected,
+            "created machine transport must not open until the row is selected"
+        );
+        assert!(action.replacement.is_none(), "creation must not replace the active session");
+    }
+
+    #[test]
+    fn static_machine_controller_retains_committed_connection_leases() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountedLease(Arc<AtomicUsize>);
+
+        impl Drop for CountedLease {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let connects = Arc::new(AtomicUsize::new(0));
+        let connector = |key: machine::MachineKey| {
+            let dropped = Arc::clone(&dropped);
+            let connects = Arc::clone(&connects);
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+                connects.fetch_add(1, Ordering::SeqCst);
+                Ok(MachineConnection {
+                    session: Session::Local(Mux::new(
+                        format!("machine-hub-{}", key.0),
+                        SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(CountedLease(Arc::clone(&dropped)))),
+                })
+            });
+            (key, connector)
+        };
+        let first = machine::MachineKey(1);
+        let second = machine::MachineKey(2);
+        let connections = MachineConnectionHub::new([connector(first), connector(second)]);
+
+        connections.connect(first).unwrap();
+        connections.connect(second).unwrap();
+        connections.connect(first).unwrap();
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            0,
+            "switching must keep every connected machine lease warm"
+        );
+        assert_eq!(connects.load(Ordering::SeqCst), 2, "returning to a machine reuses its session");
+
+        connections.close();
+        assert_eq!(dropped.load(Ordering::SeqCst), 2, "all leases close with the connection hub");
     }
 
     #[cfg(unix)]

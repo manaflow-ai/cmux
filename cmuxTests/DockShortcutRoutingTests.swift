@@ -1567,6 +1567,9 @@ struct DockShortcutRoutingTests {
                 let originalTabId = try #require(
                     harness.dock.surfaceId(forPanelId: browserId)
                 )
+                let notificationStore = try #require(
+                    harness.dock.resolvedNotificationStore()
+                )
 
                 harness.dock.bonsplitController.requestTabContextAction(
                     .markAsUnread,
@@ -1574,7 +1577,10 @@ struct DockShortcutRoutingTests {
                     inPane: harness.rootPane
                 )
                 #expect(
-                    harness.dock.manualUnreadPanelIds.contains(browserId)
+                    notificationStore.hasManualUnread(
+                        forTabId: harness.dock.workspaceId,
+                        surfaceId: browserId
+                    )
                 )
                 #expect(
                     harness.dock.bonsplitController.tab(originalTabId)?
@@ -1591,7 +1597,10 @@ struct DockShortcutRoutingTests {
                 )
                 #expect(detached.manuallyUnread)
                 #expect(
-                    !harness.dock.manualUnreadPanelIds.contains(browserId)
+                    !notificationStore.hasManualUnread(
+                        forTabId: harness.dock.workspaceId,
+                        surfaceId: browserId
+                    )
                 )
                 let targetPane = try #require(
                     harness.dock.bonsplitController.allPaneIds.first
@@ -1607,7 +1616,10 @@ struct DockShortcutRoutingTests {
                     harness.dock.surfaceId(forPanelId: browserId)
                 )
                 #expect(
-                    harness.dock.manualUnreadPanelIds.contains(browserId)
+                    notificationStore.hasManualUnread(
+                        forTabId: harness.dock.workspaceId,
+                        surfaceId: browserId
+                    )
                 )
                 #expect(
                     harness.dock.bonsplitController.tab(restoredTabId)?
@@ -1620,7 +1632,10 @@ struct DockShortcutRoutingTests {
                     inPane: targetPane
                 )
                 #expect(
-                    !harness.dock.manualUnreadPanelIds.contains(browserId)
+                    !notificationStore.hasManualUnread(
+                        forTabId: harness.dock.workspaceId,
+                        surfaceId: browserId
+                    )
                 )
                 #expect(
                     harness.dock.sessionSnapshot(includeScrollback: false)
@@ -1681,6 +1696,72 @@ struct DockShortcutRoutingTests {
                 let focusedId = try #require(harness.dock.focusedPanelId)
                 #expect(focusedId != sourceId)
                 #expect(harness.dock.browserPanel(for: focusedId) != nil)
+            }
+        }
+    }
+
+    @Test("Dock browser file fallback opens in its associated workspace")
+    @MainActor
+    func dockBrowserFileFallbackUsesAssociatedWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let workspaceDock = harness.mainWorkspace.dockSplit
+                let cases: [(DockSplitStore, PanelHost)] = [
+                    (
+                        harness.dock,
+                        .windowDock(harness.dock.workspaceId)
+                    ),
+                    (
+                        workspaceDock,
+                        .workspaceDock(harness.mainWorkspace.id)
+                    ),
+                ]
+
+                for (dock, expectedHost) in cases {
+                    let paneID = try #require(
+                        dock.bonsplitController.allPaneIds.first
+                    )
+                    let browserID = try #require(
+                        dock.newSurface(
+                            kind: .browser,
+                            inPane: paneID,
+                            focus: true
+                        )
+                    )
+                    let browser = try #require(
+                        dock.browserPanel(for: browserID)
+                    )
+                    let target = try #require(
+                        harness.appDelegate.browserActionTarget(for: browser)
+                    )
+                    #expect(target.host == expectedHost)
+
+                    let fileURL = URL(
+                        fileURLWithPath:
+                            "/tmp/cmux-dock-preview-\(UUID().uuidString).txt"
+                    )
+                    let workspacePanelCount =
+                        harness.mainWorkspace.panels.count
+                    let dockPanelCount = dock.panels.count
+
+                    #expect(
+                        harness.appDelegate.openFilePreviews(
+                            [fileURL],
+                            relativeTo: target,
+                            zone: .right
+                        )
+                    )
+                    #expect(
+                        harness.mainWorkspace.panels.count ==
+                            workspacePanelCount + 1
+                    )
+                    #expect(dock.panels.count == dockPanelCount)
+                    #expect(
+                        harness.mainWorkspace.panels.values.contains {
+                            ($0 as? FilePreviewPanel)?.filePath == fileURL.path
+                        }
+                    )
+                }
             }
         }
     }

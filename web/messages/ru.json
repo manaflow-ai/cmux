@@ -158,6 +158,7 @@
       "signOut": "Выйти",
       "signingOut": "Выход…",
       "signOutError": "Не удалось выйти. Повторите попытку.",
+      "organizationSwitchError": "Не удалось сменить организацию. Повторите попытку.",
       "signIn": "Войти"
     },
     "aiAccounts": {

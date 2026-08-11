@@ -295,6 +295,7 @@ class TerminalController {
         "file.open", "workspace.todo.open",
         "browser.focus_webview",
         "browser.focus",
+        "browser.focus_mode.set",
         "browser.tab.switch",
         "notification.open",
         "notification.jump_to_unread",
@@ -353,7 +354,9 @@ class TerminalController {
     private var browserDownloadObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
-        for surfaceId in Set(surfaceIds) {
+        let uniqueSurfaceIds = Set(surfaceIds)
+        socketFastPathState.removeShellActivity(panelIds: uniqueSurfaceIds)
+        for surfaceId in uniqueSurfaceIds {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
@@ -2323,8 +2326,24 @@ class TerminalController {
                 return v2Result(id: id, workspaceParamError)
             }
 
+            // `browser.open_split` remains one main-actor UI action, but custom
+            // diff-viewer registration performs its bounded manifest/file/lease
+            // work here on the socket worker before the single main hop.
+            let diffViewerRegistration: DiffViewerSessionPreparation
+            if method == "browser.open_split" {
+                diffViewerRegistration = v2PrepareDiffViewerRegistration(params: params)
+            } else {
+                diffViewerRegistration = .notNeeded
+            }
+
             let outcome = v2MainSync {
-                self.v2MainActorResponse(request: request, id: id, method: method, params: params)
+                self.v2MainActorResponse(
+                    request: request,
+                    id: id,
+                    method: method,
+                    params: params,
+                    diffViewerRegistration: diffViewerRegistration
+                )
             }
             switch outcome {
             case .callResult(let result):
@@ -2345,7 +2364,13 @@ class TerminalController {
     /// before `controlCommandCoordinator.handle` here must also be added
     /// there, or the tranche-D worker-lane verbs silently fork from the
     /// main lane.
-    private func v2MainActorResponse(request: ControlRequest, id: Any?, method: String, params: [String: Any]) -> V2MainHopOutcome {
+    private func v2MainActorResponse(
+        request: ControlRequest,
+        id: Any?,
+        method: String,
+        params: [String: Any],
+        diffViewerRegistration: DiffViewerSessionPreparation = .notNeeded
+    ) -> V2MainHopOutcome {
         v2RefreshKnownRefs()
 
         // Domains migrated into CmuxControlSocket's ControlCommandCoordinator
@@ -2355,7 +2380,12 @@ class TerminalController {
         if let coordinatorResult = controlCommandCoordinator.handle(request) {
             return .callResult(coordinatorResult)
         }
-        return .encoded(v2LegacyMainActorResponse(id: id, method: method, params: params))
+        return .encoded(v2LegacyMainActorResponse(
+            id: id,
+            method: method,
+            params: params,
+            diffViewerRegistration: diffViewerRegistration
+        ))
     }
 
     /// The not-yet-migrated v2 main-actor command bodies.
@@ -2366,7 +2396,12 @@ class TerminalController {
     /// returning `V2CallResult` for the dispatcher's off-main encode tail in
     /// `processParsedV2Command`, its serialization cost leaves the main
     /// thread.
-    private func v2LegacyMainActorResponse(id: Any?, method: String, params: [String: Any]) -> String {
+    private func v2LegacyMainActorResponse(
+        id: Any?,
+        method: String,
+        params: [String: Any],
+        diffViewerRegistration: DiffViewerSessionPreparation
+    ) -> String {
             switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
@@ -2477,7 +2512,13 @@ class TerminalController {
 
         // Browser
         case "browser.open_split":
-            return v2Result(id: id, self.v2BrowserOpenSplit(params: params))
+            return v2Result(
+                id: id,
+                self.v2BrowserOpenSplit(
+                    params: params,
+                    diffViewerRegistration: diffViewerRegistration
+                )
+            )
         // Browser automation methods that can wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker (see
         // ControlCommandExecutionPolicy.socketWorkerMethods and
@@ -6814,7 +6855,10 @@ class TerminalController {
         return result
     }
 
-    private func v2BrowserOpenSplit(params: [String: Any]) -> V2CallResult {
+    private func v2BrowserOpenSplit(
+        params: [String: Any],
+        diffViewerRegistration: DiffViewerSessionPreparation
+    ) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -6916,7 +6960,11 @@ class TerminalController {
             }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
-        if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
+        if let error = v2RegisterDiffViewerURLIfNeeded(
+            params: params,
+            url: url,
+            preparation: diffViewerRegistration
+        ) {
             return error
         }
 
@@ -7148,6 +7196,7 @@ class TerminalController {
         guard let url = v2String(params, "url") else {
             return .err(code: "invalid_params", message: "Missing url", data: nil)
         }
+        let diffViewerNavigation = v2PrepareDiffViewerNavigation(params: params)
         var basePayload: [String: Any]?
         var resolutionError: V2CallResult?
         var navigationPanel: BrowserPanel?
@@ -7161,6 +7210,13 @@ class TerminalController {
             }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
+            if let error = v2InstallDiffViewerNavigationPreparationIfNeeded(
+                rawURL: url,
+                preparation: diffViewerNavigation
+            ) {
+                resolutionError = error
+                return
+            }
             guard let navigation = context.browserPanel.beginAutomationNavigationFromCLI(
                 url,
                 expectedURL: v2String(params, "expected_url")
@@ -8822,13 +8878,24 @@ class TerminalController {
                 guard let context = dockResolution.context else { return }
                 let willActivate = enterAliases.contains(mode)
                     || (mode == "toggle" && !context.browserPanel.isBrowserFocusModeActive)
-                if willActivate,
-                   context.browserPanel.searchState == nil,
-                   let dock = DockSplitStore.liveStores.first(where: {
-                       $0.containsPanel(context.surfaceId)
-                   }),
-                   dock.focusedPanelId != context.surfaceId {
-                    dock.focusPanel(context.surfaceId)
+                if willActivate, context.browserPanel.searchState == nil {
+                    guard let appDelegate = AppDelegate.shared,
+                          BrowserActionDispatcher(
+                              appDelegate: appDelegate
+                          ).perform(
+                              .focus,
+                              on: BrowserActionTarget(
+                                  host: context.host,
+                                  panelId: context.surfaceId
+                              )
+                          ) else {
+                        result = .err(
+                            code: "unavailable",
+                            message: dockUnavailableMessage(),
+                            data: nil
+                        )
+                        return
+                    }
                 }
                 let handled: Bool
                 if enterAliases.contains(mode) {
@@ -8995,16 +9062,20 @@ class TerminalController {
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
             let browserPanel = context.browserPanel
-            if let appDelegate = AppDelegate.shared {
-                _ = BrowserActionDispatcher(
-                    appDelegate: appDelegate
-                ).perform(
-                    .focus,
-                    on: BrowserActionTarget(
-                        host: context.host,
-                        panelId: surfaceId
-                    )
+            guard let appDelegate = AppDelegate.shared,
+                  BrowserActionDispatcher(appDelegate: appDelegate).perform(
+                      .focus,
+                      on: BrowserActionTarget(
+                          host: context.host,
+                          panelId: surfaceId
+                      )
+                  ) else {
+                result = .err(
+                    code: "unavailable",
+                    message: dockUnavailableMessage(),
+                    data: nil
                 )
+                return
             }
 
             // Prevent omnibar auto-focus from immediately stealing first responder back.
@@ -14215,6 +14286,18 @@ class TerminalController {
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.first?.lowercased() == "right_sidebar" else { return false }
         return Self.rightSidebarCommandAllowsInAppFocusMutations(args: parts.count > 1 ? parts[1] : "")
+    }
+
+    func socketCommandAllowsInAppFocusMutationsForTesting(
+        commandKey: String,
+        isV2: Bool = true,
+        params: [String: Any] = [:]
+    ) -> Bool {
+        Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: commandKey,
+            isV2: isV2,
+            params: params
+        )
     }
 #endif
 

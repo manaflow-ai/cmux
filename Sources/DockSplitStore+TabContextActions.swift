@@ -351,7 +351,7 @@ extension DockSplitStore {
         unread: Bool
     ) {
         adoptManualUnreadState(unread, panelId: panelId)
-        let notificationStore = AppDelegate.shared?.notificationStore
+        let notificationStore = resolvedNotificationStore()
         if !unread {
             notificationStore?.markRead(
                 forTabId: workspaceId,
@@ -384,13 +384,18 @@ extension DockSplitStore {
         return true
     }
 
-    /// Adopts durable Dock-owned unread state without dismissing or creating a
-    /// notification. Session restore and live surface transfer use this path;
-    /// explicit context-menu actions add their notification side effects above.
+    /// Adopts durable unread state through the authority for this Dock scope.
+    /// Window Docks use their injected notification store; legacy workspace
+    /// Docks retain local state because they do not have a window-Dock target.
     func adoptManualUnreadState(
         _ unread: Bool,
         panelId: UUID
     ) {
+        if scope == .global {
+            manualUnreadPanelIds.remove(panelId)
+            applyWindowDockUnreadState(unread, panelId: panelId)
+            return
+        }
         if unread {
             manualUnreadPanelIds.insert(panelId)
         } else {

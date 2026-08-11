@@ -208,11 +208,12 @@ extension AppDelegate {
         }
 
         if let splitTarget, let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId) {
-            _ = destinationWorkspace.bonsplitController.splitPane(
+            _ = destinationWorkspace.splitPaneMovingTab(
                 resolvedPane,
                 orientation: splitTarget.orientation,
                 movingTab: movedTabId,
-                insertFirst: splitTarget.insertFirst
+                insertFirst: splitTarget.insertFirst,
+                focusIntent: focus ? .activateMovedTab : .preserveCurrent
             )
         }
         destinationWorkspace.scheduleTerminalGeometryReconcile()

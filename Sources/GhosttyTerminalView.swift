@@ -377,7 +377,7 @@ class GhosttyApp {
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
 
-    /// The process-wide serialized native-surface free queue (was the
+    /// The process-wide bounded native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
 
@@ -731,7 +731,7 @@ class GhosttyApp {
         startUptime: ProcessInfo.processInfo.systemUptime
     )
     private var appObservers: [NSObjectProtocol] = []
-    private var bellAudioSound: NSSound?
+    @MainActor private lazy var terminalBellService = TerminalBellService()
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
@@ -2767,25 +2767,32 @@ class GhosttyApp {
         return Float(min(1.0, max(0.0, value)))
     }
 
-    private func ringBell() {
+    @MainActor
+    private func ringBell(surface: TerminalSurface?) {
         let features = bellFeatures()
+        let customAudioEnabled = (features & (1 << 1)) != 0
+        ringBell(
+            surface: surface,
+            presentation: TerminalBellPresentation(
+                systemSoundEnabled: (features & (1 << 0)) != 0,
+                customAudioPath: customAudioEnabled ? bellAudioPath() : nil,
+                customAudioVolume: customAudioEnabled ? bellAudioVolume() : 0.5,
+                visualBellEnabled: (features & (1 << 2)) != 0
+            )
+        )
+    }
 
-        if (features & (1 << 0)) != 0 {
-            NSSound.beep()
-        }
-
-        if (features & (1 << 1)) != 0,
-           let path = bellAudioPath(),
-           let sound = NSSound(contentsOfFile: path, byReference: false) {
-            sound.volume = bellAudioVolume()
-            bellAudioSound = sound
-            if !sound.play() {
-                bellAudioSound = nil
-            }
-        }
-
-        if (features & (1 << 2)) != 0 {
-            NSApp.requestUserAttention(.informationalRequest)
+    /// Presents one terminal bell without exposing process-level attention.
+    @MainActor
+    func ringBell(
+        surface: TerminalSurface?,
+        presentation: TerminalBellPresentation
+    ) {
+        terminalBellService.ring(
+            presentation: presentation
+        )
+        if presentation.visualBellEnabled {
+            surface?.onVisualBell?()
         }
     }
 
@@ -3108,7 +3115,7 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {
                 performOnMain {
-                    self.ringBell()
+                    self.ringBell(surface: nil)
                 }
                 return true
             }
@@ -3191,7 +3198,12 @@ class GhosttyApp {
                 return tabManager.createSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
         case GHOSTTY_ACTION_RING_BELL:
-            performOnMain { self.ringBell() }
+            performOnMain {
+                self.ringBell(
+                    surface: callbackContext?.terminalSurface
+                        ?? surfaceView.terminalSurface
+                )
+            }
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
             surfaceView.selectionAccessibilitySignal.request()
@@ -3335,9 +3347,14 @@ class GhosttyApp {
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
-               let sourceSurface = surfaceView.terminalSurface {
+               let sourceSurface = surfaceView.terminalSurface,
+               let terminalLifecycleID = callbackContext?.terminalLifecycleID {
                 surfaceView.titleUpdateIngress.submit(
-                    tabId: tabId, surfaceId: sourceSurface.id, sourceSurface: sourceSurface, title: title
+                    tabId: tabId,
+                    surfaceId: sourceSurface.id,
+                    sourceSurface: sourceSurface,
+                    terminalLifecycleID: terminalLifecycleID,
+                    title: title
                 )
             }
             return true
@@ -3438,17 +3455,31 @@ class GhosttyApp {
                     return true
                 }
                 let preferredColorScheme = self.effectiveTerminalColorSchemePreference
-                surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
-                    preferredColorScheme: preferredColorScheme
-                )
-                self.reloadSurfaceConfiguration(
-                    target.target.surface,
+                GhosttySurfaceConfigurationRefresh.applyConfigurationReload(
+                    to: target.target.surface,
                     soft: soft,
                     source: source,
-                    preferredColorScheme: preferredColorScheme
+                    redrawReason: "surface.reloadConfig",
+                    reloadSurfaceConfiguration: { surface, soft, source in
+                        self.reloadSurfaceConfiguration(
+                            surface,
+                            soft: soft,
+                            source: source,
+                            preferredColorScheme: preferredColorScheme
+                        )
+                    },
+                    applySurfaceColorScheme: {
+                        surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+                            preferredColorScheme: preferredColorScheme
+                        )
+                    },
+                    refreshHostBackground: {
+                        surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
+                    },
+                    forceRefresh: { reason in
+                        surfaceView.terminalSurface?.forceRefresh(reason: reason)
+                    }
                 )
-                surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
-                surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true
             }
         case GHOSTTY_ACTION_KEY_SEQUENCE:
@@ -5146,14 +5177,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @IBAction func paste(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
+        if performBindingAction("paste_from_clipboard") {
+            terminalSurface?.didAcceptExplicitInput()
+        }
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
-        _ = performBindingAction("paste_from_clipboard")
+        if performBindingAction("paste_from_clipboard") {
+            terminalSurface?.didAcceptExplicitInput()
+        }
     }
 
     private func applyConfiguredMenuShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
@@ -5669,7 +5704,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
         var ensureSurfaceMs: Double = 0
         var rightSidebarShortcutMs: Double = 0
-        var dismissNotificationMs: Double = 0
         var keyboardCopyModeMs: Double = 0
         var interpretMs: Double = 0
         var syncPreeditMs: Double = 0
@@ -5684,7 +5718,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 parts: [
                     ("ensureSurfaceMs", ensureSurfaceMs),
                     ("rightSidebarShortcutMs", rightSidebarShortcutMs),
-                    ("dismissNotificationMs", dismissNotificationMs),
                     ("keyboardCopyModeMs", keyboardCopyModeMs),
                     ("interpretMs", interpretMs),
                     ("syncPreeditMs", syncPreeditMs),
@@ -5723,18 +5756,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = appDelegate.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
             return
         }
-        if let terminalSurface {
-#if DEBUG
-            let dismissNotificationStart = ProcessInfo.processInfo.systemUptime
-#endif
-            AppDelegate.shared?.tabManager?.dismissNotificationOnTerminalInteraction(
-                tabId: terminalSurface.tabId,
-                surfaceId: terminalSurface.id
-            )
-#if DEBUG
-            dismissNotificationMs = (ProcessInfo.processInfo.systemUptime - dismissNotificationStart) * 1000.0
-#endif
-        }
         let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         if !cmuxFindEventIsPlainEscape(event) { endFindEscapeSuppression() }
         if shouldConsumeSuppressedFindEscape(event) { return }
@@ -5749,6 +5770,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
             keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
+            terminalSurface?.didAcceptExplicitInput()
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
@@ -6120,11 +6142,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if let keyCode = UInt16(exactly: keyEvent.keycode) {
                         manualNamedKeyConsumedKeyUps.insert(keyCode)
                     }
+                    terminalSurface?.didAcceptExplicitInput()
                     return true
                 }
             }
         }
-        return ghostty_surface_key(surface, keyEvent)
+        let handled = ghostty_surface_key(surface, keyEvent)
+        if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
+            terminalSurface?.didAcceptExplicitInput()
+        }
+        return handled
     }
 
 #if DEBUG
@@ -6499,12 +6526,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
-        if let terminalSurface {
-            AppDelegate.shared?.tabManager?.dismissNotificationOnTerminalInteraction(
-                tabId: terminalSurface.tabId,
-                surfaceId: terminalSurface.id
-            )
-        }
+        terminalSurface?.didAcceptExplicitInput()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -7220,16 +7242,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
-        terminalSurface?.didReceiveExplicitInput()
+        focusFromPointerDown()
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
-            requestPointerFocusRecovery()
             super.rightMouseDown(with: event)
             return
         }
 
-        requestPointerFocusRecovery()
-        window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
@@ -7254,6 +7273,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
+        terminalSurface?.didAcceptExplicitInput()
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
@@ -8170,6 +8190,8 @@ final class GhosttySurfaceScrollView: NSView {
         case navigation
         case notification
     }
+
+    private static let flashAnimationKey = "cmux.flash"
 
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> FlashStyle {
         switch reason {
@@ -9944,32 +9966,38 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
 
     func triggerFlash(style: FlashStyle = .navigation) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.lastFlashStyle = style
-            #if DEBUG
-            if let surfaceId = self.surfaceView.terminalSurface?.id {
-                Self.recordFlash(for: surfaceId)
-            }
-#endif
-            self.updateFlashPath(style: style)
-            self.updateFlashAppearance(style: style)
-            self.flashLayer.removeAllAnimations()
-            self.flashLayer.opacity = 0
-            let animation = CAKeyframeAnimation(keyPath: "opacity")
-            animation.values = FocusFlashPattern.values.map { NSNumber(value: $0) }
-            animation.keyTimes = FocusFlashPattern.keyTimes.map { NSNumber(value: $0) }
-            animation.duration = FocusFlashPattern.duration
-            animation.timingFunctions = FocusFlashPattern.curves.map { curve in
-                switch curve {
-                case .easeIn:
-                    return CAMediaTimingFunction(name: .easeIn)
-                case .easeOut:
-                    return CAMediaTimingFunction(name: .easeOut)
-                }
-            }
-            self.flashLayer.add(animation, forKey: "cmux.flash")
+        // Terminal BELs can arrive in bursts. Their persistent unread state is
+        // recorded separately, so one in-flight visual flash is sufficient.
+        // Navigation flashes remain restartable because they reflect explicit
+        // user intent.
+        if case .notification = style,
+           flashLayer.animation(forKey: Self.flashAnimationKey) != nil {
+            return
         }
+
+        lastFlashStyle = style
+        #if DEBUG
+        if let surfaceId = surfaceView.terminalSurface?.id {
+            Self.recordFlash(for: surfaceId)
+        }
+#endif
+        updateFlashPath(style: style)
+        updateFlashAppearance(style: style)
+        flashLayer.removeAllAnimations()
+        flashLayer.opacity = 0
+        let animation = CAKeyframeAnimation(keyPath: "opacity")
+        animation.values = FocusFlashPattern.values.map { NSNumber(value: $0) }
+        animation.keyTimes = FocusFlashPattern.keyTimes.map { NSNumber(value: $0) }
+        animation.duration = FocusFlashPattern.duration
+        animation.timingFunctions = FocusFlashPattern.curves.map { curve in
+            switch curve {
+            case .easeIn:
+                return CAMediaTimingFunction(name: .easeIn)
+            case .easeOut:
+                return CAMediaTimingFunction(name: .easeOut)
+            }
+        }
+        flashLayer.add(animation, forKey: Self.flashAnimationKey)
     }
 
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }

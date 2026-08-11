@@ -158,6 +158,7 @@
       "signOut": "Se déconnecter",
       "signingOut": "Déconnexion…",
       "signOutError": "Impossible de se déconnecter. Réessayez.",
+      "organizationSwitchError": "Impossible de changer d’organisation. Réessayez.",
       "signIn": "Se connecter"
     },
     "aiAccounts": {

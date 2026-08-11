@@ -158,6 +158,7 @@
       "signOut": "登出",
       "signingOut": "正在登出…",
       "signOutError": "無法登出，請再試一次。",
+      "organizationSwitchError": "無法切換組織，請再試一次。",
       "signIn": "登入"
     },
     "aiAccounts": {

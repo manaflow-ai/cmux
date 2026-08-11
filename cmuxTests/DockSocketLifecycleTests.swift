@@ -12,6 +12,24 @@ import Testing
 struct DockSocketLifecycleTests {
     private static let socketWorkerQueue = DispatchQueue(label: "DockSocketLifecycleTests.socketWorker")
 
+    @Test("Browser focus mode is explicit socket focus intent")
+    func browserFocusModeIsExplicitSocketFocusIntent() {
+#if DEBUG
+        #expect(
+            TerminalController.shared
+                .socketCommandAllowsInAppFocusMutationsForTesting(
+                    commandKey: "browser.focus_mode.set"
+                )
+        )
+        #expect(
+            !TerminalController.shared
+                .socketCommandAllowsInAppFocusMutationsForTesting(
+                    commandKey: "browser.reload"
+                )
+        )
+#endif
+    }
+
     @MainActor
     private func v2Envelope(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [

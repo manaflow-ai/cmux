@@ -199,6 +199,7 @@ impl MachineAgentMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MenuMessages {
+    pub copy_message: &'static str,
     pub maximize_pane: &'static str,
     pub restore_pane_layout: &'static str,
     pub show_sidebar: &'static str,
@@ -206,6 +207,10 @@ pub(crate) struct MenuMessages {
     pub compact_sidebar: &'static str,
     pub full_sidebar: &'static str,
     pub focus_sidebar: &'static str,
+    pub sidebar_layout: &'static str,
+    pub sidebar_profiles: &'static str,
+    pub show_sidebar_view: &'static str,
+    pub hide_sidebar_view: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -344,6 +349,7 @@ impl LayoutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RuntimeMessages {
     pub unknown_panic: &'static str,
+    pub terminal_capacity_exhausted: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
     signal_handlers_failed: &'static str,
@@ -716,9 +722,17 @@ impl AttachMessages {
 pub(crate) struct SidebarMessages {
     pub machines: &'static str,
     pub workspaces: &'static str,
+    pub panes: &'static str,
+    pub tabs: &'static str,
+    pub agents: &'static str,
+    pub projection_path_separator: &'static str,
     pub new_machine: &'static str,
     pub connect_machine: &'static str,
     pub no_machines: &'static str,
+    pub no_workspaces: &'static str,
+    pub no_panes: &'static str,
+    pub no_tabs: &'static str,
+    pub no_agents: &'static str,
     pub recoverable_machine: &'static str,
     pub rename_machine: &'static str,
     pub delete_machine: &'static str,
@@ -745,8 +759,21 @@ pub(crate) struct SidebarMessages {
     pub sleeping: &'static str,
     pub stopped: &'static str,
     pub unavailable: &'static str,
+    pub working: &'static str,
+    pub blocked: &'static str,
+    pub idle: &'static str,
+    pub done: &'static str,
+    pub unknown: &'static str,
     pub connect_prompt: &'static str,
     pub connect_host_prompt: &'static str,
+    pub connecting_to: &'static str,
+    pub starting_on: &'static str,
+    pub failed_to_connect: &'static str,
+    pub retry_connection: &'static str,
+    pub close_dialog: &'static str,
+    pub ssh_hosts: &'static str,
+    pub type_to_filter: &'static str,
+    pub other_host: &'static str,
     pub personal_scope: &'static str,
     pub team_scope: &'static str,
     pub scope: &'static str,
@@ -787,6 +814,10 @@ pub(crate) struct SidebarMessages {
     pub machine_managed_authority_unsupported: &'static str,
     pub machine_managed_authority_invalid: &'static str,
     pub machine_catalog_create_unsupported: &'static str,
+    pub machine_creation_source_unavailable: &'static str,
+    pub machine_name_required: &'static str,
+    pub client_machine_unavailable: &'static str,
+    pub prototype_machine_added: &'static str,
     pub machine_catalog_provider_actions_unsupported: &'static str,
     pub machine_catalog_updates_failed: &'static str,
     pub machine_catalog_restart_failed: &'static str,
@@ -795,9 +826,22 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_stale: &'static str,
     pub machine_replacement_not_pending: &'static str,
     pub machine_replacement_target_missing: &'static str,
+    pub managed_ssh_requires_unix: &'static str,
 }
 
 impl SidebarMessages {
+    pub(crate) fn connecting_to_message(&self, target: &str) -> String {
+        self.connecting_to.replace("{target}", target)
+    }
+
+    pub(crate) fn starting_on_message(&self, target: &str) -> String {
+        self.starting_on.replace("{target}", target)
+    }
+
+    pub(crate) fn failed_to_connect_message(&self, target: &str) -> String {
+        self.failed_to_connect.replace("{target}", target)
+    }
+
     pub(crate) fn provider_action_label(&self, action_id: &str) -> Option<&'static str> {
         match action_id {
             provider_action_id::LIST_WORKSPACE_PORTS => Some(self.action_list_workspace_ports),
@@ -1053,6 +1097,7 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_argument: "Unknown machine-agent argument: {argument}",
     },
     menu: MenuMessages {
+        copy_message: "Copy message",
         maximize_pane: "Maximize pane",
         restore_pane_layout: "Restore pane layout",
         show_sidebar: "Show sidebar",
@@ -1060,6 +1105,10 @@ edits shell files. Authenticate with the configured host before retrying.
         compact_sidebar: "Use compact sidebar",
         full_sidebar: "Use full sidebar",
         focus_sidebar: "Focus sidebar",
+        sidebar_layout: "Sidebar",
+        sidebar_profiles: "Layouts",
+        show_sidebar_view: "Show {view}",
+        hide_sidebar_view: "Hide {view}",
     },
     shortcuts: ShortcutMessages {
         title: "Keyboard shortcuts",
@@ -1116,6 +1165,7 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     runtime: RuntimeMessages {
         unknown_panic: "unknown panic",
+        terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session, then retry.",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
         signal_handlers_failed: "failed to install signal handlers: {error}",
@@ -1356,9 +1406,17 @@ OPTIONS:
     sidebar: SidebarMessages {
         machines: "machines",
         workspaces: "workspaces",
+        panes: "panes",
+        tabs: "tabs",
+        agents: "agents",
+        projection_path_separator: " › ",
         new_machine: "new machine",
         connect_machine: "connect machine",
         no_machines: "no machines",
+        no_workspaces: "no workspaces",
+        no_panes: "no panes",
+        no_tabs: "no tabs",
+        no_agents: "no agents",
         recoverable_machine: "recoverable",
         rename_machine: "Rename machine",
         delete_machine: "Delete machine",
@@ -1385,8 +1443,21 @@ OPTIONS:
         sleeping: "sleeping",
         stopped: "stopped",
         unavailable: "unavailable",
+        working: "working",
+        blocked: "blocked",
+        idle: "idle",
+        done: "done",
+        unknown: "unknown",
         connect_prompt: "Host address or pairing code",
-        connect_host_prompt: "Host address",
+        connect_host_prompt: "SSH host or user@host",
+        connecting_to: "Connecting to {target}…",
+        starting_on: "Starting a session on {target}…",
+        failed_to_connect: "Could not connect to {target}",
+        retry_connection: "Retry",
+        close_dialog: "Close",
+        ssh_hosts: "SSH hosts",
+        type_to_filter: "type to filter",
+        other_host: "Add SSH host…",
         personal_scope: "personal",
         team_scope: "team",
         scope: "scope",
@@ -1427,6 +1498,10 @@ OPTIONS:
         machine_managed_authority_unsupported: "This provider cannot authorize managed workspace mirrors; upgrade the machine provider",
         machine_managed_authority_invalid: "The machine provider returned an invalid managed workspace authority binding",
         machine_catalog_create_unsupported: "This machine catalog cannot create machines",
+        machine_creation_source_unavailable: "This machine creation source is unavailable",
+        machine_name_required: "Enter a machine name",
+        client_machine_unavailable: "This client-owned machine is unavailable",
+        prototype_machine_added: "Added prototype machine",
         machine_catalog_provider_actions_unsupported: "This machine catalog has no provider actions",
         machine_catalog_updates_failed: "Machine catalog updates could not start",
         machine_catalog_restart_failed: "Machine switched without live catalog updates",
@@ -1435,6 +1510,7 @@ OPTIONS:
         machine_replacement_stale: "Machine replacement decision is stale",
         machine_replacement_not_pending: "Machine replacement is no longer pending",
         machine_replacement_target_missing: "Machine replacement target is missing",
+        managed_ssh_requires_unix: "Managed SSH machine connections require Unix",
     },
 };
 
@@ -1570,6 +1646,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_argument: "不明な machine-agent 引数です: {argument}",
     },
     menu: MenuMessages {
+        copy_message: "メッセージをコピー",
         maximize_pane: "ペインを最大化",
         restore_pane_layout: "ペイン配置を復元",
         show_sidebar: "サイドバーを表示",
@@ -1577,6 +1654,10 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         compact_sidebar: "サイドバーをコンパクト表示",
         full_sidebar: "サイドバーを通常表示",
         focus_sidebar: "サイドバーにフォーカス",
+        sidebar_layout: "サイドバー",
+        sidebar_profiles: "レイアウト",
+        show_sidebar_view: "{view}を表示",
+        hide_sidebar_view: "{view}を非表示",
     },
     shortcuts: ShortcutMessages {
         title: "キーボードショートカット",
@@ -1633,6 +1714,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     runtime: RuntimeMessages {
         unknown_panic: "不明なパニック",
+        terminal_capacity_exhausted: "疑似ターミナルの空きがありません。不要なターミナルセッションを閉じてから再試行してください。",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
         signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
@@ -1870,9 +1952,17 @@ ID とセッション:
     sidebar: SidebarMessages {
         machines: "マシン",
         workspaces: "ワークスペース",
+        panes: "ペイン",
+        tabs: "タブ",
+        agents: "エージェント",
+        projection_path_separator: " › ",
         new_machine: "新規マシン",
         connect_machine: "マシンを接続",
         no_machines: "マシンがありません",
+        no_workspaces: "ワークスペースがありません",
+        no_panes: "ペインがありません",
+        no_tabs: "タブがありません",
+        no_agents: "エージェントがありません",
         recoverable_machine: "復元可能",
         rename_machine: "マシン名を変更",
         delete_machine: "マシンを削除",
@@ -1899,8 +1989,21 @@ ID とセッション:
         sleeping: "スリープ中",
         stopped: "停止",
         unavailable: "利用不可",
+        working: "作業中",
+        blocked: "ブロック中",
+        idle: "待機中",
+        done: "完了",
+        unknown: "不明",
         connect_prompt: "ホストアドレスまたはペアリングコード",
-        connect_host_prompt: "ホストアドレス",
+        connect_host_prompt: "SSH ホストまたは user@host",
+        connecting_to: "{target} に接続中…",
+        starting_on: "{target} でセッションを開始中…",
+        failed_to_connect: "{target} に接続できませんでした",
+        retry_connection: "再試行",
+        close_dialog: "閉じる",
+        ssh_hosts: "SSH ホスト",
+        type_to_filter: "入力して絞り込み",
+        other_host: "SSH ホストを追加…",
         personal_scope: "個人",
         team_scope: "チーム",
         scope: "スコープ",
@@ -1941,6 +2044,10 @@ ID とセッション:
         machine_managed_authority_unsupported: "このプロバイダーは管理ワークスペースのミラーを認可できません。マシンプロバイダーをアップグレードしてください",
         machine_managed_authority_invalid: "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました",
         machine_catalog_create_unsupported: "このマシンカタログではマシンを作成できません",
+        machine_creation_source_unavailable: "このマシン作成元は利用できません",
+        machine_name_required: "マシン名を入力してください",
+        client_machine_unavailable: "このクライアント管理マシンは利用できません",
+        prototype_machine_added: "プロトタイプマシンを追加しました",
         machine_catalog_provider_actions_unsupported: "このマシンカタログにはプロバイダーアクションがありません",
         machine_catalog_updates_failed: "マシンカタログの更新を開始できませんでした",
         machine_catalog_restart_failed: "マシンは切り替わりましたが、カタログのライブ更新を再開できませんでした",
@@ -1949,6 +2056,7 @@ ID とセッション:
         machine_replacement_stale: "マシン切り替えの状態が古くなっています",
         machine_replacement_not_pending: "保留中のマシン切り替えがありません",
         machine_replacement_target_missing: "マシン切り替え先が見つかりません",
+        managed_ssh_requires_unix: "管理 SSH マシン接続には Unix が必要です",
     },
 };
 
@@ -2156,8 +2264,28 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"
         );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt, "Host address");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt, "ホストアドレス");
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt,
+            "SSH host or user@host"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt,
+            "SSH ホストまたは user@host"
+        );
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.ssh_hosts, "SSH hosts");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.ssh_hosts, "SSH ホスト");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.type_to_filter, "type to filter");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.type_to_filter, "入力して絞り込み");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.other_host, "Add SSH host…");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.other_host, "SSH ホストを追加…");
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.machine_name_required,
+            "Enter a machine name"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_name_required,
+            "マシン名を入力してください"
+        );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
             "マシン操作に失敗しました"

@@ -158,6 +158,7 @@
       "signOut": "Cerrar sesión",
       "signingOut": "Cerrando sesión…",
       "signOutError": "No se pudo cerrar la sesión. Inténtalo de nuevo.",
+      "organizationSwitchError": "No se pudo cambiar de organización. Inténtalo de nuevo.",
       "signIn": "Iniciar sesión"
     },
     "aiAccounts": {

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import WebKit
 
 extension AppDelegate {
@@ -168,6 +169,32 @@ extension AppDelegate {
         return manager.tabs.first(where: { $0.id == workspaceId })
     }
 
+    /// Opens browser file-drop fallbacks in the workspace split tree associated
+    /// with the browser host. Dock trees intentionally contain only terminal
+    /// and browser panels, so their previews are placed beside the currently
+    /// focused main-area pane instead of being rejected or misrouted.
+    @discardableResult
+    func openFilePreviews(
+        _ urls: [URL],
+        relativeTo target: BrowserActionTarget,
+        zone: DropZone
+    ) -> Bool {
+        guard let placement = browserFilePreviewPlacement(
+            resolving: target
+        ) else {
+            return false
+        }
+        return placement.workspace.handleExternalFileDrop(
+            BonsplitController.ExternalFileDropRequest(
+                urls: urls,
+                destination: PaneDropRouting.filePreviewDestination(
+                    targetPane: placement.paneID,
+                    zone: zone
+                )
+            )
+        )
+    }
+
     func panelHost(for dock: DockSplitStore) -> PanelHost {
         switch dock.scope {
         case .workspace:
@@ -221,6 +248,31 @@ extension AppDelegate {
             }
             return candidate
         }
+    }
+
+    private func browserFilePreviewPlacement(
+        resolving target: BrowserActionTarget
+    ) -> (workspace: Workspace, paneID: PaneID)? {
+        let workspace: Workspace?
+        let preferredPanelID: UUID?
+        switch target.host {
+        case .workspace:
+            workspace = self.workspace(resolving: target)
+            preferredPanelID = target.panelId
+        case .workspaceDock(let workspaceID):
+            workspace = workspaceFor(tabId: workspaceID)
+            preferredPanelID = workspace?.focusedPanelId
+        case .windowDock(let windowID):
+            workspace = tabManagerFor(windowId: windowID)?.selectedWorkspace
+            preferredPanelID = workspace?.focusedPanelId
+        }
+        guard let workspace else { return nil }
+        let paneID = preferredPanelID.flatMap {
+            workspace.paneId(forPanelId: $0)
+        } ?? workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first
+        guard let paneID else { return nil }
+        return (workspace, paneID)
     }
 
     private func activateBrowserHostWindow(for manager: TabManager) {

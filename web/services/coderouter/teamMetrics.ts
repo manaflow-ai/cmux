@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 
 import { coderouterTeamAnalyticsId } from "./analyticsIdentity";
 import { CODEROUTER_API_RATE_CARD_VERSION } from "./apiEquivalentPricing";
+import { reportCoderouterFailure } from "./observability";
 
 const PERIOD_DAYS = 30;
 const QUERY_TIMEOUT_MS = 5_000;
@@ -30,6 +31,7 @@ type MetricsDependencies = {
   readonly config: () => PostHogMetricsConfig | null;
   readonly fetch: typeof fetch;
   readonly now: () => Date;
+  readonly reportFailure?: (reason: string, status?: number) => void;
 };
 
 export type CoderouterTeamMetricsTotals = {
@@ -63,6 +65,16 @@ const defaultDependencies: MetricsDependencies = {
   config: postHogMetricsConfig,
   fetch,
   now: () => new Date(),
+  reportFailure: (reason, status) => {
+    reportCoderouterFailure(
+      "analytics_query",
+      new Error("CodeRouter analytics query failed"),
+      {
+        reason,
+        ...(status === undefined ? {} : { status }),
+      },
+    );
+  },
 };
 
 const cachedTeamMetrics = unstable_cache(
@@ -83,7 +95,10 @@ async function queryCoderouterTeamMetrics(
   dependencies: MetricsDependencies,
 ): Promise<CoderouterTeamMetrics> {
   const config = dependencies.config();
-  if (!config) return { kind: "unavailable" };
+  if (!config) {
+    dependencies.reportFailure?.("configuration_missing");
+    return { kind: "unavailable" };
+  }
   try {
     const response = await dependencies.fetch(
       `${config.apiHost}/api/projects/${
@@ -106,12 +121,23 @@ async function queryCoderouterTeamMetrics(
         signal: AbortSignal.timeout(QUERY_TIMEOUT_MS),
       },
     );
-    if (!response.ok) return { kind: "unavailable" };
-    const body = await response.json() as {
-      readonly columns?: unknown;
-      readonly results?: unknown;
-      readonly hasMore?: unknown;
-    };
+    if (!response.ok) {
+      dependencies.reportFailure?.("endpoint_status", response.status);
+      return { kind: "unavailable" };
+    }
+    const responseText = await response.text();
+    let parsedBody: unknown;
+    try {
+      parsedBody = JSON.parse(responseText);
+    } catch {
+      dependencies.reportFailure?.("malformed_response");
+      return { kind: "unavailable" };
+    }
+    if (!isPlainRecord(parsedBody)) {
+      dependencies.reportFailure?.("malformed_response");
+      return { kind: "unavailable" };
+    }
+    const body = parsedBody;
     const columns = body.columns;
     const results = body.results;
     if (
@@ -124,11 +150,14 @@ async function queryCoderouterTeamMetrics(
       !Array.isArray(results) ||
       results.length > MAX_ROWS
     ) {
+      dependencies.reportFailure?.("malformed_response");
       return { kind: "unavailable" };
     }
-    return metricsFromRows(results, dependencies.now()) ??
-      { kind: "unavailable" };
+    const metrics = metricsFromRows(results, dependencies.now());
+    if (!metrics) dependencies.reportFailure?.("invalid_metrics");
+    return metrics ?? { kind: "unavailable" };
   } catch {
+    dependencies.reportFailure?.("request_failed");
     return { kind: "unavailable" };
   }
 }

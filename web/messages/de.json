@@ -158,6 +158,7 @@
       "signOut": "Abmelden",
       "signingOut": "Wird abgemeldet…",
       "signOutError": "Abmeldung fehlgeschlagen. Erneut versuchen.",
+      "organizationSwitchError": "Organisation konnte nicht gewechselt werden. Erneut versuchen.",
       "signIn": "Anmelden"
     },
     "aiAccounts": {

@@ -158,6 +158,7 @@
       "signOut": "退出登录",
       "signingOut": "正在退出…",
       "signOutError": "无法退出登录，请重试。",
+      "organizationSwitchError": "无法切换组织，请重试。",
       "signIn": "登录"
     },
     "aiAccounts": {

@@ -158,6 +158,7 @@
       "signOut": "로그아웃",
       "signingOut": "로그아웃 중…",
       "signOutError": "로그아웃할 수 없습니다. 다시 시도하세요.",
+      "organizationSwitchError": "조직을 전환할 수 없습니다. 다시 시도하세요.",
       "signIn": "로그인"
     },
     "aiAccounts": {

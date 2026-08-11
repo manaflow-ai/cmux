@@ -25,11 +25,13 @@ struct MobileConnectionMethodSection: View {
                     defaultValue: "Auto-Connect"
                 ))
                 .tag(MobileConnectionMethod.automatic)
+                .accessibilityIdentifier("MobileSettingsConnectionMethodAutomatic")
                 Text(L10n.string(
                     "mobile.settings.connectionMethod.tailscale",
                     defaultValue: "Tailscale Only"
                 ))
                 .tag(MobileConnectionMethod.tailscale)
+                .accessibilityIdentifier("MobileSettingsConnectionMethodTailscale")
             }
             .accessibilityIdentifier("MobileSettingsConnectionMethod")
             if store.method == .tailscale, startPairingScanner != nil {
