@@ -7,6 +7,7 @@ cmux_wait_for_remote_demo_ready() {
   local launcher_pid="$2"
   local transfer_timeout="$3"
   local startup_timeout="$4"
+  local app_pid
   local event
   local startup_deadline
   local remaining
@@ -31,8 +32,11 @@ cmux_wait_for_remote_demo_ready() {
       return 21
     fi
     case "$event" in
-      app-started\ [1-9][0-9]*)
-        CMUX_REMOTE_DEMO_APP_PID="${event#app-started }"
+      app-started\ *)
+        app_pid="${event#app-started }"
+        [[ -z "$CMUX_REMOTE_DEMO_APP_PID" ]] || return 22
+        [[ "$app_pid" =~ ^[1-9][0-9]*$ ]] || return 22
+        CMUX_REMOTE_DEMO_APP_PID="$app_pid"
         ;;
       ready)
         [[ "$CMUX_REMOTE_DEMO_APP_PID" =~ ^[1-9][0-9]*$ ]] || return 22
