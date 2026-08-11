@@ -5106,32 +5106,67 @@ fn journal_agent_projection_rebuild_is_bounded_and_resumable() {
 fn journal_agent_generation_backfill_runs_once() {
     let root = temp_root("journal-agent-generation-backfill-once");
     let session = "journal-agent-generation-backfill-once";
+    let terminal_id = terminal_resource(TERMINAL_ONE);
     {
-        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        commit_terminal_topology(&mut registry, "journal-agent-generation-backfill-once-topology");
+        let current = json!({
+            "id":agent_resource(&terminal_id),
+            "session_id":registry.session_id(),
+            "terminal_id":terminal_id,
+            "state":"working",
+            "source":"socket",
+            "updated_at_ms":"1",
+            "source_session":"current-generation-session",
+            "extra":{"provider":"pi"},
+        });
+        registry
+            .commit_agent_projection(
+                &WorkspaceMutation::new("journal-agent-current-generation", "socket-test")
+                    .unwrap(),
+                &json!({"source_session":"current-generation-session"}),
+                Some(1),
+                &terminal_id,
+                &current,
+                &json!([]),
+            )
+            .unwrap();
+        let late_historical = canonical_json(&json!({
+            "id":agent_resource(&terminal_id),
+            "session_id":registry.session_id(),
+            "terminal_id":terminal_id,
+            "state":"done",
+            "source":"socket",
+            "updated_at_ms":"2",
+            "source_session":"late-historical-generation",
+            "extra":{"provider":"pi"},
+        }))
+        .unwrap();
         registry
             .connection
             .execute(
                 "INSERT INTO resource_mutations(
                    idempotency_key, origin, operation, fingerprint,
                    result_json, committed_revision
-                 ) VALUES('journal-agent-invalid-historical-report', 'test',
-                          'agent.report', 'invalid-json', '{', 1)",
-                [],
+                 ) VALUES('journal-agent-late-historical-report', 'test',
+                          'agent.report', 'late-historical', ?1, 2)",
+                [late_historical],
             )
             .unwrap();
     }
 
     let reopened = WorkspaceRegistry::open(&root, session).unwrap();
-    let retained = reopened
+    let imported = reopened
         .connection
         .query_row(
-            "SELECT COUNT(*) FROM resource_mutations
-             WHERE idempotency_key = 'journal-agent-invalid-historical-report'",
-            [],
+            "SELECT COUNT(*) FROM resource_agent_session_generations
+             WHERE terminal_id = ?1 AND provider = 'pi'
+               AND source_session = 'late-historical-generation'",
+            [terminal_id.as_str()],
             |row| row.get::<_, i64>(0),
         )
         .unwrap();
-    assert_eq!(retained, 1);
+    assert_eq!(imported, 0);
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
