@@ -8,7 +8,7 @@ $binaryPath = (Resolve-Path $Binary).Path
 $testRoot = Join-Path $env:RUNNER_TEMP "cmux-native-ssh"
 $keyPath = Join-Path $testRoot "id_ed25519"
 $knownHosts = Join-Path $testRoot "known_hosts"
-$remoteState = Join-Path $testRoot "remote-state"
+$remoteState = Join-Path $env:LOCALAPPDATA "cmux\remote"
 $session = "hosted-windows-ssh"
 $client = $null
 
@@ -39,6 +39,9 @@ Restart-Service -Name sshd
 
 & ssh-keyscan.exe localhost 2>$null | Set-Content -Encoding ascii $knownHosts
 if ($LASTEXITCODE -ne 0) { throw "ssh-keyscan failed" }
+if (-not (Test-Path $knownHosts) -or (Get-Item $knownHosts).Length -eq 0) {
+    throw "ssh-keyscan returned no host key for localhost"
+}
 
 $sshOptions = @(
     "-i", $keyPath,
@@ -81,13 +84,44 @@ try {
     if (-not $snapshotTask.Wait([TimeSpan]::FromSeconds(20))) {
         throw "native Windows SSH did not publish its local endpoint within 20 seconds"
     }
-    $snapshot = $snapshotTask.Result | ConvertFrom-Json
+    $snapshotLine = $snapshotTask.Result
+    if ([string]::IsNullOrWhiteSpace($snapshotLine)) {
+        $detail = "SSH client closed stdout without an endpoint"
+        if ($client.WaitForExit(5000)) {
+            $stderr = $client.StandardError.ReadToEnd().Trim()
+            if ([string]::IsNullOrWhiteSpace($stderr)) {
+                $detail = "$detail (exit code $($client.ExitCode))"
+            } else {
+                $detail = "$detail (exit code $($client.ExitCode)): $stderr"
+            }
+        }
+        throw "native Windows SSH startup failed: $detail"
+    }
+    $snapshot = $snapshotLine | ConvertFrom-Json
     if ($snapshot.event -ne "connection-snapshot" -or [string]::IsNullOrWhiteSpace($snapshot.local_socket)) {
         throw "native Windows SSH published an invalid connection snapshot"
     }
 
     $listing = & $binaryPath --socket $snapshot.local_socket --json workspace list
-    if ($LASTEXITCODE -ne 0) { throw "native Windows SSH workspace list failed" }
+    if ($LASTEXITCODE -ne 0) {
+        $detail = "SSH bridge did not exit after the failed request"
+        if ($client.WaitForExit(5000)) {
+            $stderr = $client.StandardError.ReadToEnd().Trim()
+            $detail = if ([string]::IsNullOrWhiteSpace($stderr)) {
+                "SSH bridge exited without a diagnostic"
+            } else {
+                $stderr
+            }
+        }
+        $ownerLog = Join-Path $remoteState "sessions\$session\owner.log"
+        if (Test-Path $ownerLog) {
+            $ownerDiagnostic = (Get-Content -Raw $ownerLog).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($ownerDiagnostic)) {
+                $detail = "$detail; owner: $ownerDiagnostic"
+            }
+        }
+        throw "native Windows SSH workspace list failed: $detail"
+    }
     $listing | ConvertFrom-Json | Out-Null
 
     & $binaryPath --socket $snapshot.local_socket --json session current shutdown | Out-Null

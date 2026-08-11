@@ -5482,7 +5482,7 @@ impl Surface {
                             Some(&identity.incarnation),
                         );
                     }
-                    let _ = mux.unregister_kitty_image_surface(self);
+                    mux.retire_killed_kitty_image_surface(self);
                 }
             }
             Surface::Browser(browser) => browser.kill(),

@@ -6790,13 +6790,6 @@ fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option
     (effective_max >= MIN_RAIL_WIDTH).then(|| desired.clamp(MIN_RAIL_WIDTH, effective_max))
 }
 
-#[derive(Clone, Copy, Default)]
-struct SidebarWidthOverrides {
-    workspace: Option<u16>,
-    machine: Option<u16>,
-    tabs: Option<u16>,
-}
-
 fn sidebar_layout_for(
     config: &Config,
     visible: bool,
@@ -21331,7 +21324,6 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::SidebarWidthOverrides;
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,

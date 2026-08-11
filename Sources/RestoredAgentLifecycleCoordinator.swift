@@ -38,6 +38,9 @@ final class RestoredAgentLifecycleCoordinator {
         }
     }
     var invalidatedFingerprintsByPanelId: [UUID: Int] = [:]
+    /// Local resume targets retained while a restored launch owns the terminal.
+    /// Split and tab creation use these to recover from transient shell cwd reports.
+    var resumeWorkingDirectoriesByPanelId: [UUID: String] = [:]
 
     private var completedGenerationsByPanelId: [UUID: RestoredAgentCompletedGeneration] = [:]
 
@@ -100,6 +103,53 @@ final class RestoredAgentLifecycleCoordinator {
         completedGenerationsByPanelId[panelId]
     }
 
+    /// Installs all lifecycle metadata for one newly restored terminal.
+    func seedSessionRestore(
+        panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot?,
+        manualResumeAvailable: Bool,
+        willRunStartupCommand: Bool,
+        willRunStartupInput: Bool,
+        resumeWorkingDirectory: String?
+    ) {
+        let resumeState: Workspace.RestoredAgentResumeState?
+        if willRunStartupCommand {
+            resumeState = .autoResumeCommandRunning
+        } else if willRunStartupInput {
+            resumeState = .awaitingAutoResumeCommand
+        } else if manualResumeAvailable {
+            resumeState = .manualResumeAvailable
+        } else {
+            resumeState = nil
+        }
+        snapshotsByPanelId[panelId] = snapshot
+        resumeStatesByPanelId[panelId] = resumeState
+
+        let ownsStartupResume = resumeState == .awaitingAutoResumeCommand ||
+            resumeState == .autoResumeCommandRunning
+        replaceResumeWorkingDirectory(
+            ownsStartupResume ? resumeWorkingDirectory : nil,
+            panelId: panelId
+        )
+        invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
+    }
+
+    /// Removes continuation metadata without discarding an invalidation fingerprint.
+    func clearSessionRestore(panelId: UUID) {
+        snapshotsByPanelId.removeValue(forKey: panelId)
+        resumeStatesByPanelId.removeValue(forKey: panelId)
+        resumeWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+    }
+
+    /// Resets every restored-session lifecycle collection.
+    func removeAllSessionRestores() {
+        snapshotsByPanelId.removeAll(keepingCapacity: false)
+        resumeStatesByPanelId.removeAll(keepingCapacity: false)
+        invalidatedFingerprintsByPanelId.removeAll(keepingCapacity: false)
+        resumeWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
+        completedGenerationsByPanelId.removeAll(keepingCapacity: false)
+    }
+
     /// Shell integration has observed the restored launch enter its command
     /// phase and has not subsequently reported the prompt returning.
     func confirmsRunningRestoredCommand(panelId: UUID) -> Bool {
@@ -126,7 +176,8 @@ final class RestoredAgentLifecycleCoordinator {
         panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot?,
         resumeState: Workspace.RestoredAgentResumeState?,
-        completedGeneration: RestoredAgentCompletedGeneration?
+        completedGeneration: RestoredAgentCompletedGeneration?,
+        resumeWorkingDirectory: String?
     ) {
         if let snapshot {
             snapshotsByPanelId[panelId] = snapshot
@@ -145,6 +196,16 @@ final class RestoredAgentLifecycleCoordinator {
         } else {
             resumeStatesByPanelId.removeValue(forKey: panelId)
         }
+        replaceResumeWorkingDirectory(resumeWorkingDirectory, panelId: panelId)
+    }
+
+    private func replaceResumeWorkingDirectory(_ directory: String?, panelId: UUID) {
+        guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !directory.isEmpty else {
+            resumeWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+            return
+        }
+        resumeWorkingDirectoriesByPanelId[panelId] = directory
     }
 
     private func observationSupersedesCompletion(

@@ -111852,6 +111852,23 @@
         }
       }
     },
+    "dock.error.focusUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock could not be revealed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockを表示できませんでした"
+          }
+        }
+      }
+    },
     "dock.error.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -212221,6 +212238,23 @@
         }
       }
     },
+    "shortcut.nextWorkspaceInGroup.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Workspace in Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内の次のワークスペース"
+          }
+        }
+      }
+    },
     "shortcut.openBrowser.label": {
       "extractionState": "manual",
       "localizations": {
@@ -212937,6 +212971,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "上一個工作區"
+          }
+        }
+      }
+    },
+    "shortcut.previousWorkspaceInGroup.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Workspace in Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内の前のワークスペース"
           }
         }
       }
