@@ -9187,6 +9187,12 @@ impl Mux {
                 }
                 Self::rebalance_kitty_image_budget_owners(&mut budget);
                 budget.expansion_in_flight = false;
+                if budget.blocked_surfaces.is_empty() {
+                    drop(budget);
+                    mux.kitty_image_budget_changed.notify_all();
+                    failure_streak = 0;
+                    continue;
+                }
                 budget.worker_running = false;
                 drop(budget);
                 mux.kitty_image_budget_changed.notify_all();
@@ -19480,6 +19486,64 @@ mod tests {
             "Kitty quota worker stopped after a transient failure"
         );
         wait_for_kitty_image_budget(&mux);
+    }
+
+    #[test]
+    fn kitty_quota_worker_rebalances_after_retiring_surface_failure() {
+        let mux = test_mux();
+        let survivor = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(survivor.id).unwrap());
+        let retiring = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let retiring_id = retiring.id;
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let attempts = attempts.clone();
+            move |surface, limits, _deadline| {
+                if surface.id == retiring_id {
+                    attempts.fetch_add(1, Ordering::AcqRel);
+                    anyhow::bail!("injected retiring Kitty quota failure");
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }
+        }));
+
+        close_terminal_runtime_for_test(&mux, &retiring);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        let expected = kitty_image_limits_for_capacity(1);
+        let budget = mux.kitty_image_budget.lock().unwrap();
+        assert!(!budget.worker_running, "Kitty quota worker did not settle");
+        assert_eq!(
+            attempts.load(Ordering::Acquire),
+            usize::try_from(KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS).unwrap(),
+            "Kitty quota worker did not exhaust the retiring surface retry budget"
+        );
+        assert!(
+            !budget.entries.contains_key(&retiring.id),
+            "a failed retiring surface remained in the Kitty quota registry"
+        );
+        assert!(budget.blocked_surfaces.is_empty());
+        let survivor_entry = budget.entries.get(&survivor.id).unwrap();
+        assert!(survivor_entry.owns_quota);
+        assert_eq!(
+            survivor_entry.applied, expected,
+            "the survivor kept its stale quota after the retiring surface was removed"
+        );
+        drop(budget);
+        assert_eq!(
+            survivor.with_terminal(|terminal| terminal.kitty_graphics_limits().unwrap()).unwrap(),
+            expected
+        );
     }
 
     #[test]
