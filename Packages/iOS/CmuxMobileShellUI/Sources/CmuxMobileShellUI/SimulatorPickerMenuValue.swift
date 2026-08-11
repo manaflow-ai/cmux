@@ -18,8 +18,9 @@ struct SimulatorPickerMenuValue: Equatable {
         !rows.isEmpty
     }
 
-    /// The current panel wins; otherwise the first authoritative workspace row is deterministic.
+    /// Returns the first panel to enter when Simulator is inactive. An active
+    /// Simulator makes the toolbar control a return action instead.
     var targetPanelID: String? {
-        activePanelID ?? rows.first?.id
+        activePanelID == nil ? rows.first?.id : nil
     }
 }

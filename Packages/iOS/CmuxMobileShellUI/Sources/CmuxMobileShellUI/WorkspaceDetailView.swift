@@ -78,6 +78,8 @@ struct WorkspaceDetailView: View {
     /// not activate its panel over a selection the user made in the meantime,
     /// so completion applies only while its request is still current.
     @State private var browserCreateRequest: UUID?
+    @State private var simulatorCreateRequest: UUID?
+    @State private var simulatorReturnTarget: SimulatorToolbarReturnTarget?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
@@ -639,6 +641,7 @@ struct WorkspaceDetailView: View {
                 activeBrowserStreamPanelID: activeBrowserStream?.id,
                 simulatorStreamRows: simulatorPicker.rows,
                 supportsSimulatorStream: store.supportsSimulatorStream,
+                supportsSimulatorStreamCreate: store.supportsSimulatorStreamCreate,
                 activeSimulatorStreamPanelID: simulatorPicker.activePanelID
             ),
             actions: TerminalPickerMenuActions(
@@ -648,6 +651,7 @@ struct WorkspaceDetailView: View {
                 openBrowser: openBrowserFromToolbar,
                 selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
                 selectSimulatorStream: selectSimulatorStreamFromToolbar,
+                createSimulator: createSimulatorFromToolbar,
                 openTextSheet: openTextSheetFromMenu,
                 copyDebugLogs: {
                     #if DEBUG
@@ -894,6 +898,8 @@ struct WorkspaceDetailView: View {
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
         browserCreateRequest = nil
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
@@ -903,8 +909,29 @@ struct WorkspaceDetailView: View {
         createTerminal()
     }
 
+    private func createSimulatorFromToolbar() {
+        dismissTerminalKeyboardForChrome()
+        guard store.supportsSimulatorStreamCreate else { return }
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        let request = UUID()
+        simulatorCreateRequest = request
+        simulatorReturnTarget = currentSimulatorReturnTarget
+        Task {
+            let descriptor = await store.createMobileSimulatorPanel(workspaceID: workspaceID)
+            guard simulatorCreateRequest == request else { return }
+            simulatorCreateRequest = nil
+            guard let descriptor else {
+                simulatorReturnTarget = nil
+                return
+            }
+            selectSimulatorStreamFromToolbar(descriptor.panelID)
+        }
+    }
+
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         // New Browser creates a real Mac browser pane and streams it, so it
         // shows the same surface as the Mac Browsers rows. The phone-local
         // WKWebView pane remains only as a fallback for Macs that cannot
@@ -932,6 +959,8 @@ struct WorkspaceDetailView: View {
     /// detail view flips to the browser because `activeBrowser` becomes
     /// non-nil; the picker shows a check next to "New Browser" while it is up.
     private func openLocalBrowserFallback() {
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         browserStore.openBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
@@ -942,6 +971,8 @@ struct WorkspaceDetailView: View {
             dismissTerminalKeyboardForChrome()
         }
         browserCreateRequest = nil
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveSimulatorStream()
         if let previous = activeBrowserStream, previous.id != panelID {
@@ -953,10 +984,54 @@ struct WorkspaceDetailView: View {
 
     func selectSimulatorStreamFromToolbar(_ panelID: String) {
         dismissTerminalKeyboardForChrome()
+        simulatorCreateRequest = nil
+        if let activeSimulatorStream, activeSimulatorStream.id != panelID {
+            simulatorReturnTarget = .simulator(activeSimulatorStream.id)
+        } else if activeSimulatorStream == nil, simulatorReturnTarget == nil {
+            simulatorReturnTarget = currentSimulatorReturnTarget
+        }
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         let workspaceID = workspace.rpcWorkspaceID.rawValue
         store.selectMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID)
+    }
+
+    func toggleSimulatorStreamFromToolbar() {
+        if activeSimulatorStream == nil {
+            guard let panelID = simulatorPickerValue.targetPanelID else { return }
+            simulatorReturnTarget = currentSimulatorReturnTarget
+            selectSimulatorStreamFromToolbar(panelID)
+            return
+        }
+
+        let target = SimulatorToolbarReturnTarget.resolve(
+            preferred: simulatorReturnTarget,
+            terminalIDs: workspace.terminals.map(\.id.rawValue),
+            browserStreamPanelIDs: browserStreamStore
+                .panels(in: workspace.rpcWorkspaceID.rawValue)
+                .map(\.panelID),
+            otherSimulatorPanelIDs: simulatorPickerValue.rows
+                .map(\.id)
+                .filter { $0 != activeSimulatorStream?.id }
+        )
+        guard let target else { return }
+        simulatorReturnTarget = nil
+        switch target {
+        case let .terminal(id):
+            selectTerminalFromPicker(MobileTerminalPreview.ID(rawValue: id))
+        case let .browserStream(id):
+            selectBrowserStreamFromToolbar(id)
+        case let .simulator(id):
+            selectSimulatorStreamFromToolbar(id)
+        case .localBrowser:
+            openLocalBrowserFallback()
+        }
+    }
+
+    private var currentSimulatorReturnTarget: SimulatorToolbarReturnTarget? {
+        if activeBrowser != nil { return .localBrowser }
+        if let activeBrowserStream { return .browserStream(activeBrowserStream.id) }
+        return store.selectedTerminalID.map { .terminal($0.rawValue) }
     }
 
     private func stopActiveBrowserStream() {
@@ -973,6 +1048,8 @@ struct WorkspaceDetailView: View {
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         browserCreateRequest = nil
+        simulatorCreateRequest = nil
+        simulatorReturnTarget = nil
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)

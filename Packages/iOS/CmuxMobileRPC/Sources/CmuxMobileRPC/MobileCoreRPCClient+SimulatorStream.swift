@@ -10,6 +10,14 @@ extension MobileCoreRPCClient {
         return try MobileSimulatorListResponse.decode(data).panels
     }
 
+    public func createMobileSimulatorPanel(workspaceID: String) async throws -> MobileSimulatorPanelDescriptor {
+        let data = try await sendSimulatorRequest(
+            method: "mobile.simulator.create",
+            parameters: MobileSimulatorCreateParameters(workspaceID: workspaceID)
+        )
+        return try JSONDecoder().decode(MobileSimulatorPanelDescriptor.self, from: data)
+    }
+
     public func startMobileSimulatorStream(
         panelID: String,
         workspaceID: String

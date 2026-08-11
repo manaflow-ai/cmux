@@ -1347,6 +1347,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "アカウントが一致しません" } }
       }
     },
+    "mobile.simulatorStream.newTab" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Simulator Tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規シミュレータタブ" } }
+      }
+    },
     "mobile.simulatorStream.connectingControl" : {
       "extractionState" : "manual",
       "localizations" : {

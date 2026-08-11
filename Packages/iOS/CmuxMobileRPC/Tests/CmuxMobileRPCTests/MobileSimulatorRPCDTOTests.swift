@@ -100,4 +100,15 @@ import Testing
         #expect(params["x"] as? Double == 0.25)
         #expect(params["y"] as? Double == 0.75)
     }
+
+    @Test func simulatorCreateRequestUsesWorkspaceScopedWireKey() throws {
+        let data = try MobileSimulatorRPCRequestEncoder().requestData(
+            method: "mobile.simulator.create",
+            parameters: MobileSimulatorCreateParameters(workspaceID: "workspace-1")
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["method"] as? String == "mobile.simulator.create")
+        #expect(params["workspace_id"] as? String == "workspace-1")
+    }
 }

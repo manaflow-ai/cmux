@@ -1,5 +1,6 @@
 public struct MobileSimulatorStreamCapability: Sendable {
     public static let current = MobileSimulatorStreamCapability()
+    public static let createIdentifier = "simulator.stream.create.v1"
 
     public let identifier: String
     public let inputIdentifier: String

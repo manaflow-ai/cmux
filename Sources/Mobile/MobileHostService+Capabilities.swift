@@ -57,6 +57,7 @@ extension MobileHostService {
             MobileBrowserStreamCapability.dialogIdentifier,
             MobileBrowserStreamCapability.createIdentifier,
             MobileSimulatorStreamCapability.current.identifier,
+            MobileSimulatorStreamCapability.createIdentifier,
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
             MobileSimulatorStreamCapability.current.keepaliveIdentifier,
@@ -115,6 +116,7 @@ extension MobileHostService {
         if !includingSimulator {
             let simulatorCapabilities: Set<String> = [
                 MobileSimulatorStreamCapability.current.identifier,
+                MobileSimulatorStreamCapability.createIdentifier,
                 MobileSimulatorStreamCapability.current.inputIdentifier,
                 MobileSimulatorStreamCapability.current.ownershipIdentifier,
                 MobileSimulatorStreamCapability.current.keepaliveIdentifier,

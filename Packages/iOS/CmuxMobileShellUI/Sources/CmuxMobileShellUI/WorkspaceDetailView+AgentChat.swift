@@ -121,7 +121,7 @@ extension WorkspaceDetailView {
             if simulatorPicker.isVisible {
                 SimulatorPickerControl(
                     value: simulatorPicker,
-                    selectPanel: selectSimulatorStreamFromToolbar,
+                    toggle: toggleSimulatorStreamFromToolbar,
                     terminalTheme: store.activeTerminalTheme
                 )
             }

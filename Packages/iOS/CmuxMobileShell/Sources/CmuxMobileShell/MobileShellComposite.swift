@@ -116,6 +116,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let browserStreamDialogCapability = MobileBrowserStreamCapability.dialogIdentifier
     static let browserStreamCreateCapability = MobileBrowserStreamCapability.createIdentifier
     static let simulatorStreamCapability = MobileSimulatorStreamCapability.current.identifier
+    static let simulatorStreamCreateCapability = MobileSimulatorStreamCapability.createIdentifier
     static let simulatorInputCapability = MobileSimulatorStreamCapability.current.inputIdentifier
     static let simulatorKeepaliveCapability = MobileSimulatorStreamCapability.current.keepaliveIdentifier
     static let terminalReplayCapability = "terminal.replay.v1"

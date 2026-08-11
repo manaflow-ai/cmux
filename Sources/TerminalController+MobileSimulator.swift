@@ -11,6 +11,8 @@ extension TerminalController {
         switch method {
         case "mobile.simulator.list":
             return v2MobileSimulatorList(params: params, connectionID: connectionID)
+        case "mobile.simulator.create":
+            return v2MobileSimulatorCreate(params: params, connectionID: connectionID)
         case "mobile.simulator.stream.start":
             guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
                 MobileSimulatorDiagnostics.recordStream(
@@ -105,6 +107,38 @@ extension TerminalController {
 
     func mobileSimulatorPanels(in workspace: Workspace) -> [SimulatorPanel] {
         orderedPanels(in: workspace).compactMap { $0 as? SimulatorPanel }
+    }
+
+    private func v2MobileSimulatorCreate(
+        params: [String: Any],
+        connectionID: UUID?
+    ) -> V2CallResult {
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+            return .err(code: "capability_disabled", message: "Simulator tabs are disabled", data: nil)
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+        }
+        if let error = mobileWorkspaceIDValidationError(params: params) { return error }
+        guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let paneID = workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first else {
+            return .err(code: "not_found", message: "Pane not found", data: nil)
+        }
+        guard let panel = workspace.newSimulatorSurface(inPane: paneID, focus: false) else {
+            return .err(code: "unavailable", message: "Simulator creation is unavailable", data: nil)
+        }
+        let encoder = MobileSimulatorWireEncoder()
+        guard let payload = encoder.object(encoder.descriptor(
+            panel: panel,
+            workspaceID: workspace.id,
+            currentConnectionID: connectionID
+        )) else {
+            return .err(code: "internal_error", message: "Simulator creation is unavailable", data: nil)
+        }
+        return .ok(payload)
     }
 
     private func v2MobileSimulatorList(params: [String: Any], connectionID: UUID?) -> V2CallResult {

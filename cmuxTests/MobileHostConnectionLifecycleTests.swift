@@ -608,6 +608,19 @@ extension MobileHostAuthorizationTests {
             enabled.filter { $0 != MobileHostService.workspaceChangesCapability } == disabled
         )
     }
+    @Test func testSimulatorCreateCapabilityFollowsSimulatorFeatureFlag() {
+        let enabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: true,
+            includingSimulator: true
+        )
+        let disabled = MobileHostService.mobileHostCapabilities(
+            includingWorkspaceChanges: true,
+            includingSimulator: false
+        )
+
+        #expect(enabled.contains(MobileSimulatorStreamCapability.createIdentifier))
+        #expect(!disabled.contains(MobileSimulatorStreamCapability.createIdentifier))
+    }
 
     @Test @MainActor func testMobileWorkspaceChangesFlagDefaultsAndRemoteValue() {
         let suiteName = "cmux-tests-mobile-changes-flag-\(UUID().uuidString)"

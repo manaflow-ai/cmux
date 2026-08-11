@@ -4,6 +4,29 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    public func refreshMobileSimulatorPanels(workspaceID: String) async {
+        guard supportsSimulatorStream, let client = remoteClient else {
+            simulatorStreamStore.replaceSimulatorPanels(in: workspaceID, with: [])
+            return
+        }
+        guard let panels = try? await client.listMobileSimulatorPanels(workspaceID: workspaceID),
+              remoteClient === client else { return }
+        simulatorStreamStore.replaceSimulatorPanels(in: workspaceID, with: panels)
+    }
+
+    public func createMobileSimulatorPanel(workspaceID: String) async -> MobileSimulatorPanelDescriptor? {
+        guard connectionState == .connected,
+              supportsSimulatorStreamCreate,
+              let client = remoteClient else { return nil }
+        guard let descriptor = try? await client.createMobileSimulatorPanel(workspaceID: workspaceID),
+              remoteClient === client else {
+            await refreshMobileSimulatorPanels(workspaceID: workspaceID)
+            return nil
+        }
+        simulatorStreamStore.applySimulatorDescriptor(descriptor)
+        return descriptor
+    }
+
     /// Applies the user's selection to the composite-owned presentation state,
     /// then reconciles the matching host RPC transition through the same owner.
     public func selectMobileSimulatorStream(panelID: String, workspaceID: String) {

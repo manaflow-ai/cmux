@@ -5,14 +5,12 @@ import SwiftUI
 /// One-tap workspace-chrome control for discovering an interactive Mac Simulator panel.
 struct SimulatorPickerControl: View {
     let value: SimulatorPickerMenuValue
-    let selectPanel: (String) -> Void
+    let toggle: () -> Void
     let terminalTheme: TerminalTheme
 
     var body: some View {
         Button {
-            if let targetPanelID = value.targetPanelID {
-                selectPanel(targetPanelID)
-            }
+            toggle()
         } label: {
             Label(
                 L10n.string("mobile.simulatorStream.menuTitle", defaultValue: "Mac Simulators"),
@@ -30,6 +28,6 @@ struct SimulatorPickerControl: View {
         .accessibilityValue(
             value.rows.first(where: { $0.id == value.activePanelID })?.label ?? ""
         )
-        .disabled(value.targetPanelID == nil)
+        .disabled(value.rows.isEmpty)
     }
 }

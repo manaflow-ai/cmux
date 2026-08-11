@@ -64528,13 +64528,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Simulator Pane"
+            "value": "New Simulator Tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規シミュレータペイン"
+            "value": "新規シミュレータタブ"
           }
         }
       }
@@ -123557,13 +123557,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Simulator Pane"
+            "value": "New Simulator Tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規シミュレータペイン"
+            "value": "新規シミュレータタブ"
           }
         }
       }

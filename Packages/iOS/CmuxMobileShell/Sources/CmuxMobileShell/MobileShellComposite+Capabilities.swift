@@ -17,6 +17,10 @@ extension MobileShellComposite {
     public var supportsSimulatorStream: Bool {
         supportedHostCapabilities.contains(Self.simulatorStreamCapability)
     }
+    /// Whether the connected Mac can create a Simulator tab for the phone to stream.
+    public var supportsSimulatorStreamCreate: Bool {
+        supportsSimulatorStream && supportedHostCapabilities.contains(Self.simulatorStreamCreateCapability)
+    }
     /// Whether the connected Mac accepts Simulator touch/text/button input from the phone.
     public var supportsSimulatorInput: Bool {
         supportsSimulatorStream && supportedHostCapabilities.contains(Self.simulatorInputCapability)
