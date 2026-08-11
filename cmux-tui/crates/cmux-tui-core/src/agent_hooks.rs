@@ -441,8 +441,8 @@ fn is_child_completion(event: &str) -> bool {
 
 fn normalized_fields(native: &Value, agent_session_id: Option<&str>) -> Map<String, Value> {
     let mut normalized = Map::new();
-    if let Some(value) = agent_session_id
-        .and_then(|value| normalized_provider_string("agent_session_id", value))
+    if let Some(value) =
+        agent_session_id.and_then(|value| normalized_provider_string("agent_session_id", value))
     {
         normalized.insert("agent_session_id".into(), Value::String(value));
     }
