@@ -4003,14 +4003,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.setDisableActions(true)
         var geometryChanged = layer.contentsScale != scale
         layer.contentsScale = scale
+        let rendererGeometry = TerminalRenderLayerGeometry(renderRect: renderRect)
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
-            if sublayer.frame != renderRect {
+            // Native scrolling owns `transform`. CALayer.frame includes that
+            // transform, so comparing or assigning frame here would treat each
+            // sub-row translation as stale geometry and cancel visible pixel
+            // movement on the next Ghostty redraw.
+            if !rendererGeometry.matches(sublayer) {
                 geometryChanged = true
-                sublayer.frame = renderRect
-            }
-            if sublayer.bounds.size != renderRect.size {
-                geometryChanged = true
-                sublayer.bounds = CGRect(origin: .zero, size: renderRect.size)
+                rendererGeometry.apply(to: sublayer)
             }
             if sublayer.contentsScale != scale {
                 geometryChanged = true
