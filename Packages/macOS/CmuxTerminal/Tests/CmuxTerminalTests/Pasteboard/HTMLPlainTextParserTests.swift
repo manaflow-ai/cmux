@@ -104,6 +104,22 @@ struct HTMLPlainTextParserTests {
     }
 
     @Test(
+        "quoted attribute slash does not self-close a raw-text element",
+        arguments: [#""https://example.com""#, "'https://example.com'"]
+    )
+    func omitsScriptWithTrailingSlashAfterQuotedAttribute(
+        source: String
+    ) {
+        let parser = HTMLPlainTextParser()
+        let html = """
+        <script src=\(source)/>hidden</script>
+        <div>Visible</div>
+        """
+
+        #expect(parser.plainText(from: html) == "Visible")
+    }
+
+    @Test(
         "self-closing raw-text elements do not hide later content",
         arguments: ["script", "style", "iframe"]
     )

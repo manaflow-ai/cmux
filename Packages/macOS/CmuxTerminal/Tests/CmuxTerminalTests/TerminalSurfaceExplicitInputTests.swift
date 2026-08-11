@@ -194,7 +194,7 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 2)
     }
 
-    @Test func mobileMouseReleaseWaitsForPasteStartedByPress() {
+    @Test func mobileMousePressAndReleaseStayAtomicWhenPressStartsPaste() {
         let runtimeSurface = allocatedRuntimeSurface()
         let fixture = makeFixture(runtimeSurface: runtimeSurface)
         defer {
@@ -205,16 +205,10 @@ struct TerminalSurfaceExplicitInputTests {
 
         fixture.surface.mobileClick(col: 4, row: 7)
 
-        #expect(fixture.nativeView.mobileMouseButtonEvents == ["press"])
-        #expect(fixture.nativeView.deferredRuntimeInputs.count == 1)
-        #expect(fixture.paneHost.explicitInputCount == 1)
-
-        fixture.nativeView.runtimeInputDeferralResponses = [false]
-        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
-
         #expect(
             fixture.nativeView.mobileMouseButtonEvents == ["press", "release"]
         )
+        #expect(fixture.nativeView.runtimeInputDeferralCallCount == 1)
         #expect(fixture.nativeView.deferredRuntimeInputs.isEmpty)
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
