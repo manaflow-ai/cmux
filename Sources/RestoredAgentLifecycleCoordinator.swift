@@ -44,17 +44,14 @@ final class RestoredAgentLifecycleCoordinator {
             resolvedSnapshot = snapshot
         }
         replaceSnapshot(resolvedSnapshot, panelId: panelId)
-        if resolvedSnapshot == nil {
-            completedGenerationsByPanelId.removeValue(forKey: panelId)
-        }
     }
 
     /// Replaces one panel's resume phase and updates only that panel's derived lifecycle state.
     func setResumeState(_ state: Workspace.RestoredAgentResumeState?, panelId: UUID) {
         replaceResumeState(state, panelId: panelId)
-        if state == .completedAgentExit,
-           snapshotsByPanelId[panelId] != nil {
-            if completedGenerationsByPanelId[panelId] == nil {
+        if state == .completedAgentExit {
+            if completedGenerationsByPanelId[panelId] == nil,
+               snapshotsByPanelId[panelId] != nil {
                 completedGenerationsByPanelId[panelId] = RestoredAgentCompletedGeneration(
                     completedAt: dateProvider(),
                     processIdentities: []
@@ -87,8 +84,7 @@ final class RestoredAgentLifecycleCoordinator {
             replaceQueuedRestoreSnapshot(snapshotsByPanelId[panelId], panelId: panelId)
         }
         completedGenerationsByPanelId = completedGenerationsByPanelId.filter { panelId, _ in
-            resumeStatesByPanelId[panelId] == .completedAgentExit &&
-                snapshotsByPanelId[panelId] != nil
+            resumeStatesByPanelId[panelId] == .completedAgentExit
         }
     }
 
