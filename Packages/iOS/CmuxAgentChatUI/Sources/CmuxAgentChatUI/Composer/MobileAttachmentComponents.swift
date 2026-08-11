@@ -247,6 +247,9 @@ public struct MobileAttachmentCardStrip: View {
                 }
             }
             .buttonStyle(.plain)
+            .frame(width: layout.side, height: layout.side)
+            .clipped()
+            .contentShape(.interaction, Rectangle())
             .accessibilityLabel(String(
                 format: String.mobileAttachmentLocalized("mobile.attachment.preview.named", "Preview %@"),
                 attachment.fileName
