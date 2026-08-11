@@ -5406,6 +5406,93 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    private struct SoftwareKeyboardSnapshot: CustomStringConvertible {
+        let frame: CGRect
+        let overlap: CGFloat
+        let keyCount: Int
+        let sampleLabels: [String]
+
+        var description: String {
+            "frame=\(frame), overlap=\(overlap), keyCount=\(keyCount), sampleLabels=\(sampleLabels)"
+        }
+    }
+
+    @MainActor
+    private func waitForSoftwareKeyboardKeyPlane(
+        in app: XCUIApplication,
+        minimumOverlap: CGFloat,
+        timeout: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> SoftwareKeyboardSnapshot? {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastSnapshot: SoftwareKeyboardSnapshot?
+        while Date() < deadline {
+            if let snapshot = softwareKeyboardSnapshot(in: app) {
+                lastSnapshot = snapshot
+                if snapshot.overlap >= minimumOverlap,
+                   snapshot.frame.height > 120,
+                   snapshot.keyCount >= 10 {
+                    return snapshot
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        XCTFail(
+            "Expected a visible software keyboard key plane. minimumOverlap=\(minimumOverlap), lastSnapshot=\(String(describing: lastSnapshot)), keyboard=\(app.keyboards.firstMatch.debugDescription)",
+            file: file,
+            line: line
+        )
+        return nil
+    }
+
+    @MainActor
+    private func softwareKeyboardSnapshot(in app: XCUIApplication) -> SoftwareKeyboardSnapshot? {
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists,
+              let keyboardFrame = usableFrameNow(of: keyboard) else {
+            return nil
+        }
+        let windowFrame = app.windows.firstMatch.frame
+        guard !windowFrame.isNull,
+              !windowFrame.isEmpty,
+              !windowFrame.origin.x.isNaN,
+              !windowFrame.origin.y.isNaN,
+              !windowFrame.width.isNaN,
+              !windowFrame.height.isNaN else {
+            return nil
+        }
+        let visibleKeys = keyboard.keys.allElementsBoundByIndex.filter { key in
+            guard key.exists,
+                  let keyFrame = usableFrameNow(of: key) else {
+                return false
+            }
+            return keyFrame.intersects(keyboardFrame)
+        }
+        let sampleLabels = visibleKeys.prefix(8).map(\.label).filter { !$0.isEmpty }
+        return SoftwareKeyboardSnapshot(
+            frame: keyboardFrame,
+            overlap: max(0, windowFrame.maxY - keyboardFrame.minY),
+            keyCount: visibleKeys.count,
+            sampleLabels: sampleLabels
+        )
+    }
+
+    @MainActor
+    private func usableFrameNow(of element: XCUIElement) -> CGRect? {
+        let frame = element.frame
+        guard !frame.isNull,
+              !frame.isEmpty,
+              !frame.origin.x.isNaN,
+              !frame.origin.y.isNaN,
+              !frame.width.isNaN,
+              !frame.height.isNaN else {
+            return nil
+        }
+        return frame
+    }
+
     /// Verify the built app's two-part keyboard contract at steady state:
     /// the OS-selected geometry source resolves to the real software-keyboard edge,
     /// and the visible composer/toolbar stack resolves to that same target.
