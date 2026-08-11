@@ -447,7 +447,7 @@ impl MachineConnectCancellation {
         self.cancelled.load(Ordering::Acquire)
     }
 
-    #[cfg(test)]
+    #[cfg(any(windows, test))]
     pub(crate) fn wait_until_cancelled(&self) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while !self.is_cancelled() {

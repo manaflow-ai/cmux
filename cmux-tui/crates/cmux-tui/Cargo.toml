@@ -58,6 +58,7 @@ tokio = { workspace = true, features = ["io-std"] }
 fs4.workspace = true
 uds_windows.workspace = true
 windows-sys.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
