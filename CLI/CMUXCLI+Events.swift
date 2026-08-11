@@ -31,6 +31,11 @@ extension CMUXCLI {
 
         var lastSeq = options.afterSeq
         var emittedEvents = 0
+        var cursorPersistence = options.cursorFile.map { cursorFile in
+            EventCursorPersistenceBatch { sequence in
+                try writeEventCursor(sequence, to: cursorFile)
+            }
+        }
         // The --timeout budget is measured on a MONOTONIC clock so a
         // wall-clock change (NTP step, timezone, manual set) can neither
         // expire the whole command instantly nor extend it indefinitely.
@@ -99,7 +104,12 @@ extension CMUXCLI {
                 try client.streamV2(
                     method: "events.stream",
                     params: params,
-                    deadline: socketDeadline()
+                    deadline: socketDeadline(),
+                    idleHandler: {
+                        let now = budgetClock.now
+                        try cursorPersistence?.flushIfDue(now: now)
+                        return cursorPersistence?.pendingFlushDelay(now: now)
+                    }
                 ) { line in
                     guard !line.isEmpty else { return }
                     let frame = try parseEventStreamFrame(line)
@@ -128,24 +138,24 @@ extension CMUXCLI {
                     }
 
                     if let eventSequence {
-                        if let cursorFile = options.cursorFile {
-                            try writeEventCursor(eventSequence, to: cursorFile)
-                        }
+                        try cursorPersistence?.record(eventSequence, now: budgetClock.now)
                         lastSeq = eventSequence
                         emittedEvents += 1
                         if let limit = options.limit, emittedEvents >= limit {
                             throw EventStreamLimitReached()
                         }
+                    } else {
+                        // Non-event frames opportunistically flush a due batch. The idle
+                        // handler enforces the deadline when no frame arrives.
+                        try cursorPersistence?.flushIfDue(now: budgetClock.now)
                     }
                 }
-            } catch is EventStreamSnapshotCaptured {
-                client.close()
-                return
-            } catch is EventStreamLimitReached {
-                client.close()
-                return
             } catch {
                 client.close()
+                try cursorPersistence?.flush(now: budgetClock.now)
+                if error is EventStreamSnapshotCaptured || error is EventStreamLimitReached {
+                    return
+                }
                 if let remaining = remainingBudget(), remaining <= 0 {
                     throw timeoutError()
                 }
