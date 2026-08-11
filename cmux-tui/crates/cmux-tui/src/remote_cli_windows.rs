@@ -423,10 +423,8 @@ fn proxy_local_connection_over_ssh(
     if let Ok(mut active) = processes.lock() {
         active.retain(|candidate| !Arc::ptr_eq(candidate, &child));
     }
-    let connection_diagnostic = connection_diagnostic
-        .lock()
-        .map(|bytes| sanitize_diagnostic(&bytes))
-        .unwrap_or_default();
+    let connection_diagnostic =
+        connection_diagnostic.lock().map(|bytes| sanitize_diagnostic(&bytes)).unwrap_or_default();
     if !connection_diagnostic.is_empty()
         && let Ok(mut value) = diagnostic.lock()
     {

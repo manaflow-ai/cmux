@@ -8,7 +8,7 @@ $binaryPath = (Resolve-Path $Binary).Path
 $testRoot = Join-Path $env:RUNNER_TEMP "cmux-native-ssh"
 $keyPath = Join-Path $testRoot "id_ed25519"
 $knownHosts = Join-Path $testRoot "known_hosts"
-$remoteState = Join-Path $testRoot "remote-state"
+$remoteState = Join-Path $env:LOCALAPPDATA "cmux\remote"
 $session = "hosted-windows-ssh"
 $client = $null
 
