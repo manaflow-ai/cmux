@@ -1802,19 +1802,16 @@ final class cmuxUITests: XCTestCase {
             waitForNotHittable(mainRow, timeout: 3),
             "Query filter lost on the restored search results (coordinator wiped)"
         )
-        if searchField.exists, let strayFrame = waitForUsableFrame(of: searchField, timeout: 1) {
-            XCTAssertGreaterThan(
-                strayFrame.midY,
-                app.frame.midY,
-                "Search field must not re-present at the top after popping, got \(strayFrame)"
-            )
-        }
         let restoredControl = app.tabBars.buttons
             .matching(NSPredicate(format: "label == %@", "Search"))
             .firstMatch
         XCTAssertTrue(
             restoredControl.waitForExistence(timeout: 3),
             "Bottom search control missing after popping the search detail"
+        )
+        XCTAssertTrue(
+            waitForSearchFieldAwayFromTop(searchField, in: app, timeout: 3),
+            "Search field stayed hosted at the top after popping, got \(searchField.frame)"
         )
         guard let controlFrame = waitForUsableFrame(of: restoredControl, timeout: 3) else {
             return XCTFail("Bottom search control had no usable frame after popping")
@@ -1966,13 +1963,6 @@ final class cmuxUITests: XCTestCase {
         let systemBack = app.navigationBars.buttons.element(boundBy: 0)
         XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
         tap(systemBack, in: app)
-        if searchField.exists, let strayFrame = waitForUsableFrame(of: searchField, timeout: 1) {
-            XCTAssertGreaterThan(
-                strayFrame.midY,
-                app.frame.midY,
-                "Notification search field must not re-present at the top, got \(strayFrame)"
-            )
-        }
         // The opened notification is read now, so the still-active unread
         // filter correctly hides it; the non-matching rows stay hidden under
         // the preserved query.
@@ -1983,13 +1973,20 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
 
-        // One user tap re-expands the field at the bottom with the query.
+        // One user tap re-expands the field at the bottom with the query. The
+        // restored control marks the settled post-pop state; the stray-field
+        // check runs only then, since the field transiently hosts inline while
+        // the tab bar animates back in.
         let restoredControl = app.tabBars.buttons
             .matching(NSPredicate(format: "label == %@", "Search"))
             .firstMatch
         XCTAssertTrue(
             restoredControl.waitForExistence(timeout: 3),
             "Bottom search control missing after popping the notification detail"
+        )
+        XCTAssertTrue(
+            waitForSearchFieldAwayFromTop(searchField, in: app, timeout: 3),
+            "Notification search field stayed hosted at the top after popping, got \(searchField.frame)"
         )
         tap(restoredControl, in: app)
         XCTAssertTrue(
@@ -5929,6 +5926,28 @@ final class cmuxUITests: XCTestCase {
             return frame
         }
         return nil
+    }
+
+    /// After a pop, the inactive search field transiently hosts inline near
+    /// the top while the tab bar animates back in; the no-top-field invariant
+    /// holds for the settled state, so poll until the field disappears or
+    /// sits in the bottom half.
+    @MainActor
+    private func waitForSearchFieldAwayFromTop(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.exists { return true }
+            let frame = element.frame
+            if !frame.isNull, !frame.isEmpty, frame.midY > app.frame.midY {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return !element.exists || element.frame.midY > app.frame.midY
     }
 
     @MainActor
