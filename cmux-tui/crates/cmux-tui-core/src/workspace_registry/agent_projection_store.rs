@@ -356,9 +356,12 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
-    pub(crate) fn hold_agent_projection_rebuild_for_test(&self) -> anyhow::Result<()> {
-        let head = session_journal::session_journal_head(&self.connection)?;
-        store_agent_projection_journal_rebuild_target(&self.connection, head)
+    pub(crate) fn hold_agent_projection_rebuild_for_test(&mut self) -> anyhow::Result<()> {
+        let transaction = self.connection.transaction()?;
+        let head = session_journal::session_journal_head(&transaction)?;
+        store_agent_projection_journal_rebuild_target(&transaction, head)?;
+        transaction.commit()?;
+        Ok(())
     }
 }
 
