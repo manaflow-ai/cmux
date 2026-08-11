@@ -336,7 +336,12 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
                 surfaceID,
                 temporaryDirectory
             )
-            self?.resolve(shims)
+            guard self?.resolve(shims) == true else {
+                if let shims {
+                    await filesystem.removeAgentCommandShims(shims)
+                }
+                return
+            }
         }
         let deadlineTask = Task.detached(priority: .utility) { [weak self] in
             do {
@@ -384,14 +389,15 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
         lock.unlock()
     }
 
+    @discardableResult
     private func resolve(
         _ shims: TerminalSurfaceAgentCommandShimSet?,
         invalidatingInstall: Bool = false
-    ) {
+    ) -> Bool {
         lock.lock()
         guard case .pending = state else {
             lock.unlock()
-            return
+            return false
         }
         state = .resolved(shims)
         let continuation = continuation
@@ -408,6 +414,7 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
         installTask?.cancel()
         deadlineTask?.cancel()
         continuation?.resume(returning: shims)
+        return true
     }
 }
 

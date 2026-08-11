@@ -68,10 +68,20 @@ extension TerminalSurface {
             #endif
             let installTask = Task.detached(priority: .utility, operation: installOperation)
             agentCommandShimInstallTask = installTask
-            agentCommandShimCompletionTask = Task { @MainActor [weak self, weak view] in
+            agentCommandShimCompletionTask = Task { @MainActor [weak self, weak view, runtimeFilesystem] in
                 let shims = await installTask.value
-                guard !Task.isCancelled else { return }
-                guard let self else { return }
+                guard !Task.isCancelled else {
+                    if let shims {
+                        await runtimeFilesystem.removeAgentCommandShims(shims)
+                    }
+                    return
+                }
+                guard let self else {
+                    if let shims {
+                        await runtimeFilesystem.removeAgentCommandShims(shims)
+                    }
+                    return
+                }
                 self.agentCommandShims = shims
                 self.agentCommandShimInstallTask = nil
                 self.agentCommandShimCompletionTask = nil

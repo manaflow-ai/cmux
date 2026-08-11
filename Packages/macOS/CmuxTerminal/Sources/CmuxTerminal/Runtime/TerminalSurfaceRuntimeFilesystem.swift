@@ -313,6 +313,10 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     public let installAgentCommandShims:
         @Sendable (_ wrapperDirectoryURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceAgentCommandShimSet?
 
+    /// Removes a shim set that completed after its launch owner released it.
+    public let removeAgentCommandShims:
+        @Sendable (_ shims: TerminalSurfaceAgentCommandShimSet) async -> Void
+
     /// Returns whether the path points at an executable file.
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
 
@@ -324,11 +328,16 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         agentCommandShimTemporaryDirectory: URL,
         installAgentCommandShims:
             @escaping @Sendable (_ wrapperDirectoryURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceAgentCommandShimSet?,
+        removeAgentCommandShims:
+            @escaping @Sendable (_ shims: TerminalSurfaceAgentCommandShimSet) async -> Void = { shims in
+                try? FileManager.default.removeItem(atPath: shims.directoryPath)
+            },
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool,
         agentCommandShimInstallGate: TerminalSurfaceCommandShimInstallGate = .init()
     ) {
         self.agentCommandShimTemporaryDirectory = agentCommandShimTemporaryDirectory
         self.installAgentCommandShims = installAgentCommandShims
+        self.removeAgentCommandShims = removeAgentCommandShims
         self.isExecutableFile = isExecutableFile
         self.agentCommandShimInstallGate = agentCommandShimInstallGate
     }
