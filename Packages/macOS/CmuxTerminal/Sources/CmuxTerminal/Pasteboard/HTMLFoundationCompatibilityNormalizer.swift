@@ -31,8 +31,11 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
         let closingReplacement = Array("</div".utf8)
         var output: [UInt8] = []
         output.reserveCapacity(source.count)
+        let lastRawTextClosingIndices = lastRawTextClosingTagIndices(
+            in: source
+        )
         var index = 0
-        var rawTextElementName: [UInt8]?
+        var rawTextElementIndex: Int?
 
         while index < source.count {
             guard source[index] == Self.lessThan else {
@@ -40,18 +43,20 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
                 index += 1
                 continue
             }
-            if let activeRawTextElementName = rawTextElementName {
+            if let activeRawTextElementIndex = rawTextElementIndex {
                 guard let closingTag = scanRawTextClosingTag(
                     in: source,
                     at: index,
-                    name: activeRawTextElementName
+                    name: Self.rawTextElementNames[
+                        activeRawTextElementIndex
+                    ]
                 ) else {
                     output.append(source[index])
                     index += 1
                     continue
                 }
                 output.append(contentsOf: source[index..<closingTag.endIndex])
-                rawTextElementName = nil
+                rawTextElementIndex = nil
                 index = closingTag.endIndex
                 continue
             }
@@ -89,12 +94,28 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
                     output.append(Self.greaterThan)
                 }
             } else {
-                output.append(contentsOf: source[index..<tag.endIndex])
-                if !tag.isClosing, tag.selfClosingSlashIndex == nil {
-                    rawTextElementName = matchingRawTextElementName(
+                let matchedRawTextElementIndex = tag.isClosing
+                    ? nil
+                    : matchingRawTextElementIndex(
                         in: source,
                         range: tag.nameRange
                     )
+                if let matchedRawTextElementIndex,
+                   let slashIndex = tag.selfClosingSlashIndex,
+                   let closingIndex = lastRawTextClosingIndices[
+                       matchedRawTextElementIndex
+                   ],
+                   closingIndex >= tag.endIndex {
+                    output.append(contentsOf: source[index..<slashIndex])
+                    output.append(
+                        contentsOf: source[(slashIndex + 1)..<tag.endIndex]
+                    )
+                    rawTextElementIndex = matchedRawTextElementIndex
+                } else {
+                    output.append(contentsOf: source[index..<tag.endIndex])
+                    if tag.selfClosingSlashIndex == nil {
+                        rawTextElementIndex = matchedRawTextElementIndex
+                    }
                 }
             }
             index = tag.endIndex
@@ -326,11 +347,43 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
         )
     }
 
-    private func matchingRawTextElementName(
+    /// Finds the final lexical closing tag for every bounded raw-text name.
+    private func lastRawTextClosingTagIndices(
+        in source: [UInt8]
+    ) -> [Int?] {
+        var result = [Int?](
+            repeating: nil,
+            count: Self.rawTextElementNames.count
+        )
+        var index = 0
+        while index < source.count {
+            guard source[index] == Self.lessThan else {
+                index += 1
+                continue
+            }
+            var matchedEndIndex: Int?
+            for (elementIndex, name) in Self.rawTextElementNames.enumerated() {
+                guard let tag = scanRawTextClosingTag(
+                    in: source,
+                    at: index,
+                    name: name
+                ) else {
+                    continue
+                }
+                result[elementIndex] = index
+                matchedEndIndex = tag.endIndex
+                break
+            }
+            index = matchedEndIndex ?? (index + 1)
+        }
+        return result
+    }
+
+    private func matchingRawTextElementIndex(
         in source: [UInt8],
         range: Range<Int>
-    ) -> [UInt8]? {
-        Self.rawTextElementNames.first {
+    ) -> Int? {
+        Self.rawTextElementNames.firstIndex {
             equalsIgnoringASCIICase(source, range: range, bytes: $0)
         }
     }

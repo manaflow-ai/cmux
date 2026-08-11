@@ -90,40 +90,18 @@ extension TerminalSurface {
                 GHOSTTY_MOUSE_PRESS,
                 on: surface
             )
-        }
-        mobileClickReleaseAfterInputNotification(
-            runtimeGeneration: clickRuntimeGeneration
-        )
-        didAcceptExplicitInput()
-    }
-
-    @MainActor
-    private func mobileClickReleaseAfterInputNotification(
-        runtimeGeneration: UInt64
-    ) {
-        guard self.runtimeSurfaceGeneration == runtimeGeneration else { return }
-        if deferInputDuringRuntimeClipboardRead(
-            estimatedBytes: MemoryLayout<ghostty_input_mouse_state_e>.size,
-            replay: { [weak self] in
-                self?.mobileClickReleaseAfterInputNotification(
-                    runtimeGeneration: runtimeGeneration
-                )
+            guard runtimeSurfaceGeneration == clickRuntimeGeneration,
+                  let releaseSurface = liveSurfaceForGhosttyAccess(
+                    reason: "mobileClickRelease"
+                  ) else {
+                return
             }
-        ) {
-            return
-        }
-        guard self.runtimeSurfaceGeneration == runtimeGeneration else { return }
-        guard let surface = liveSurfaceForGhosttyAccess(
-            reason: "mobileClickRelease"
-        ) else {
-            return
-        }
-        withRuntimeClipboardPasteIntent {
             surfaceView.sendMobileMouseButton(
                 GHOSTTY_MOUSE_RELEASE,
-                on: surface
+                on: releaseSurface
             )
         }
+        didAcceptExplicitInput()
     }
 
     /// Exports the surface grid as a mobile render frame (optionally filtered
