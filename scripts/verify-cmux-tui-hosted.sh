@@ -284,9 +284,13 @@ else
   cancel_owner_pid=$!
   if ! read -r -t 10 cancel_status <&4; then
     stop_owned_process cancel_owner_pid
+    echo "warning: hosted-run cancellation did not finish within 10 seconds; cancel it manually: $run_url" >&2
   else
     wait "$cancel_owner_pid" 2>/dev/null || true
     cancel_owner_pid=""
+    if [[ "$cancel_status" -ne 0 ]]; then
+      echo "warning: hosted-run cancellation failed with status $cancel_status; cancel it manually: $run_url" >&2
+    fi
   fi
   exec 4>&-
   echo "error: hosted verification did not complete within ${timeout_seconds}s: $run_url" >&2
