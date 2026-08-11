@@ -496,18 +496,35 @@ impl TerminalAttachment {
     /// Updates the viewer lease on this attachment's owned stream connection.
     pub fn resize(&mut self, size: Size) -> Result<super::model::ViewerResizeResult> {
         wire::validate_size(size)?;
+        let attachment_lease = self
+            .inner
+            .attachment_lease()
+            .ok_or_else(|| Error::UnexpectedEnvelope("terminal attachment has no lease".into()))?
+            .to_owned();
         wire::decode_exact(
             &self.inner.connection_control(
                 ops::TERMINAL_VIEWER_RESIZE,
-                Params::new().u16(field::COLS, size.cols).u16(field::ROWS, size.rows),
+                Params::new()
+                    .string(field::ATTACHMENT_LEASE, attachment_lease)
+                    .u16(field::COLS, size.cols)
+                    .u16(field::ROWS, size.rows),
             )?,
             "terminal viewer resize result",
         )
     }
 
-    pub fn release(&mut self) -> Result<()> {
-        decode_empty_control(
-            self.inner.connection_control(ops::TERMINAL_VIEWER_RELEASE, Params::new())?,
+    pub fn release(&mut self) -> Result<super::model::ViewerReleaseResult> {
+        let attachment_lease = self
+            .inner
+            .attachment_lease()
+            .ok_or_else(|| Error::UnexpectedEnvelope("terminal attachment has no lease".into()))?
+            .to_owned();
+        wire::decode_exact(
+            &self.inner.connection_control(
+                ops::TERMINAL_VIEWER_RELEASE,
+                Params::new().string(field::ATTACHMENT_LEASE, attachment_lease),
+            )?,
+            "terminal viewer release result",
         )
     }
 
@@ -515,7 +532,7 @@ impl TerminalAttachment {
         self.resize(size)
     }
 
-    pub fn viewer_release(&mut self) -> Result<()> {
+    pub fn viewer_release(&mut self) -> Result<super::model::ViewerReleaseResult> {
         self.release()
     }
 }
@@ -524,10 +541,16 @@ impl BrowserAttachment {
     /// Updates the viewer lease on this attachment's owned stream connection.
     pub fn resize(&mut self, size: PixelSize) -> Result<super::model::BrowserViewerResizeResult> {
         wire::validate_pixel_size(size)?;
+        let attachment_lease = self
+            .inner
+            .attachment_lease()
+            .ok_or_else(|| Error::UnexpectedEnvelope("browser attachment has no lease".into()))?
+            .to_owned();
         wire::decode_exact(
             &self.inner.connection_control(
                 ops::BROWSER_VIEWER_RESIZE,
                 Params::new()
+                    .string(field::ATTACHMENT_LEASE, attachment_lease)
                     .u32(field::WIDTH_PX, size.width_px)
                     .u32(field::HEIGHT_PX, size.height_px),
             )?,
@@ -535,9 +558,18 @@ impl BrowserAttachment {
         )
     }
 
-    pub fn release(&mut self) -> Result<()> {
-        decode_empty_control(
-            self.inner.connection_control(ops::BROWSER_VIEWER_RELEASE, Params::new())?,
+    pub fn release(&mut self) -> Result<super::model::ViewerReleaseResult> {
+        let attachment_lease = self
+            .inner
+            .attachment_lease()
+            .ok_or_else(|| Error::UnexpectedEnvelope("browser attachment has no lease".into()))?
+            .to_owned();
+        wire::decode_exact(
+            &self.inner.connection_control(
+                ops::BROWSER_VIEWER_RELEASE,
+                Params::new().string(field::ATTACHMENT_LEASE, attachment_lease),
+            )?,
+            "browser viewer release result",
         )
     }
 
@@ -548,18 +580,8 @@ impl BrowserAttachment {
         self.resize(size)
     }
 
-    pub fn viewer_release(&mut self) -> Result<()> {
+    pub fn viewer_release(&mut self) -> Result<super::model::ViewerReleaseResult> {
         self.release()
-    }
-}
-
-fn decode_empty_control(value: Value) -> Result<()> {
-    if value.as_object().is_some_and(Map::is_empty) {
-        Ok(())
-    } else {
-        Err(Error::UnexpectedEnvelope(
-            "empty control result must be an object with no fields".to_string(),
-        ))
     }
 }
 

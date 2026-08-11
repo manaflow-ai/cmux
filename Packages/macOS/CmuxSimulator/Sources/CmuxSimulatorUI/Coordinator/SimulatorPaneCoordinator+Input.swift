@@ -183,6 +183,39 @@ extension SimulatorPaneCoordinator {
         enqueue(.pointer(SimulatorPointerEvent(phase: .ended, primary: end, edge: edge)))
     }
 
+    /// Sends one tap at a normalized device point.
+    /// - Parameter point: Top-left-origin normalized simulator coordinates.
+    public func tap(at point: SimulatorPoint) {
+        enqueue(.pointer(SimulatorPointerEvent(phase: .began, primary: point)))
+        enqueue(.pointer(SimulatorPointerEvent(phase: .ended, primary: point)))
+    }
+
+    /// Begins a phone-driven touch sequence at a normalized device point.
+    /// - Parameter point: Top-left-origin normalized simulator coordinates.
+    public func beginTouch(at point: SimulatorPoint) {
+        enqueue(.pointer(SimulatorPointerEvent(phase: .began, primary: point)))
+    }
+
+    /// Moves a phone-driven touch sequence to a normalized device point.
+    /// - Parameter point: Top-left-origin normalized simulator coordinates.
+    public func moveTouch(to point: SimulatorPoint) {
+        enqueue(.pointer(SimulatorPointerEvent(phase: .moved, primary: point)))
+    }
+
+    /// Ends a phone-driven touch sequence at a normalized device point.
+    /// - Parameter point: Top-left-origin normalized simulator coordinates.
+    public func endTouch(at point: SimulatorPoint) {
+        enqueue(.pointer(SimulatorPointerEvent(phase: .ended, primary: point)))
+    }
+
+    /// Sends a deterministic drag sequence without timer-based synchronization.
+    /// - Parameters:
+    ///   - start: First normalized simulator coordinate.
+    ///   - end: Final normalized simulator coordinate.
+    public func drag(from start: SimulatorPoint, to end: SimulatorPoint) {
+        swipe(from: start, to: end)
+    }
+
     /// Releases touch and keyboard state held by the host pane.
     public func releaseInputs() {
         enqueue(.releaseInputs)

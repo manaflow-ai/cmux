@@ -13,6 +13,7 @@ const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
+const REDACTED_AGENT_VALUE: &str = "[redacted]";
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -38,6 +39,7 @@ pub fn agent_hook_journal_ingress(
     validate_agent_source(source)?;
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
+    let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
@@ -72,6 +74,95 @@ pub fn agent_hook_journal_ingress(
         causation_id: None,
         correlation_id: None,
     })
+}
+
+fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
+    if semantic_key(native_event) == "input" {
+        return json!({"redacted":true,"reason":"raw_input"});
+    }
+    redact_agent_fields(&mut native);
+    native
+}
+
+fn redact_agent_fields(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            for (field, value) in fields {
+                if agent_field_is_sensitive(field) {
+                    *value = Value::String(REDACTED_AGENT_VALUE.into());
+                } else {
+                    redact_agent_value(value, agent_string_field_is_structural(field));
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                redact_agent_value(value, false);
+            }
+        }
+        Value::String(_) => *value = Value::String(REDACTED_AGENT_VALUE.into()),
+        _ => {}
+    }
+}
+
+fn redact_agent_value(value: &mut Value, preserve_strings: bool) {
+    match value {
+        Value::String(_) if !preserve_strings => {
+            *value = Value::String(REDACTED_AGENT_VALUE.into());
+        }
+        Value::Object(_) | Value::Array(_) => redact_agent_fields(value),
+        _ => {}
+    }
+}
+
+fn agent_string_field_is_structural(field: &str) -> bool {
+    let field = semantic_key(field);
+    field == "id"
+        || field.ends_with("id")
+        || [
+            "cwd",
+            "directory",
+            "worktree",
+            "path",
+            "name",
+            "type",
+            "state",
+            "status",
+            "relation",
+            "source",
+            "provider",
+            "kind",
+            "role",
+        ]
+        .iter()
+        .copied()
+        .any(|marker| field == marker || field.ends_with(marker))
+}
+
+fn agent_field_is_sensitive(field: &str) -> bool {
+    let field = semantic_key(field);
+    field == "key"
+        || field == "auth"
+        || [
+            "password",
+            "passwd",
+            "passphrase",
+            "secret",
+            "token",
+            "credential",
+            "authorization",
+            "cookie",
+            "privatekey",
+            "apikey",
+            "accesskey",
+            "input",
+            "prompt",
+            "stdin",
+            "paste",
+        ]
+        .iter()
+        .copied()
+        .any(|marker| field.contains(marker))
 }
 
 pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
@@ -156,12 +247,13 @@ fn semantic_kind(
     if tool == "exitplanmode" {
         return "agent.plan_review.requested";
     }
+    if event == "questionasked" {
+        return "agent.question.requested";
+    }
     match (source, event.as_str()) {
         // These providers use their session-end callback as a per-turn
         // boundary and expose a distinct finalization event where available.
-        ("grok" | "antigravity" | "hermes-agent", "sessionend" | "onsessionend") => {
-            "agent.turn.completed"
-        }
+        ("antigravity" | "hermes-agent", "sessionend" | "onsessionend") => "agent.turn.completed",
         ("opencode", "sessioncreated") => "agent.session.started",
         ("opencode", "sessionidle") => "agent.turn.completed",
         ("opencode", "sessiondeleted") => "agent.session.ended",
@@ -182,9 +274,10 @@ fn semantic_kind(
             "stop" | "afteragent" | "afteragentresponse" | "postllmcall" | "oncomplete"
             | "turncompletion" | "agentend" | "taskcompleted" | "turnend" | "agentsettled",
         ) => "agent.turn.completed",
-        (_, "permissionrequest" | "preapprovalrequest" | "ontoolpermission") => {
-            "agent.approval.requested"
-        }
+        (
+            _,
+            "permissionrequest" | "permissionasked" | "preapprovalrequest" | "ontoolpermission",
+        ) => "agent.approval.requested",
         (_, "stopfailure" | "onerror" | "error" | "posttoolusefailure") => "agent.error.reported",
         (_, "sessionend" | "onsessionend" | "onsessionfinalize" | "sessionshutdown") => {
             "agent.session.ended"
@@ -234,6 +327,11 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["properties", "sessionID"][..],
                 &["properties", "sessionId"][..],
                 &["properties", "info", "id"][..],
+                &["event", "properties", "sessionID"][..],
+                &["event", "properties", "sessionId"][..],
+                &["event", "properties", "info", "id"][..],
+                &["event", "properties", "info", "sessionID"][..],
+                &["event", "properties", "info", "sessionId"][..],
                 &["event", "session_id"][..],
                 &["event", "sessionId"][..],
                 &["event", "thread", "id"][..],
@@ -279,6 +377,9 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["workspace", "root"][..],
                 &["properties", "cwd"][..],
                 &["properties", "info", "directory"][..],
+                &["event", "properties", "cwd"][..],
+                &["event", "properties", "directory"][..],
+                &["event", "properties", "info", "directory"][..],
                 &["event", "cwd"][..],
                 &["event", "directory"][..],
                 &["context", "cwd"][..],
@@ -305,6 +406,8 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["tool", "name"][..],
                 &["properties", "tool"][..],
                 &["properties", "tool_name"][..],
+                &["event", "properties", "tool", "name"][..],
+                &["event", "properties", "tool_name"][..],
                 &["event", "tool_name"][..],
                 &["event", "toolName"][..],
                 &["event", "tool", "name"][..],
@@ -320,6 +423,8 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["response"][..],
                 &["summary"][..],
                 &["properties", "message"][..],
+                &["event", "properties", "message"][..],
+                &["event", "properties", "info", "message"][..],
                 &["event", "message"][..],
                 &["event", "last_assistant_message"][..],
                 &["event", "response"][..],
@@ -402,12 +507,16 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["rootSessionId"][..],
                 &["root_thread_id"][..],
                 &["rootThreadId"][..],
+                &["rootThreadID"][..],
                 &["event", "root_session_id"][..],
                 &["event", "rootSessionId"][..],
                 &["event", "root_thread_id"][..],
                 &["event", "rootThreadId"][..],
                 &["context", "root_session_id"][..],
                 &["context", "rootSessionId"][..],
+                &["context", "rootSessionID"][..],
+                &["context", "thread", "root_session_id"][..],
+                &["context", "thread", "rootSessionId"][..],
             ][..],
         ),
         (
@@ -417,12 +526,27 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["parentSessionId"][..],
                 &["parent_thread_id"][..],
                 &["parentThreadId"][..],
+                &["parentThreadID"][..],
+                &["parent_id"][..],
+                &["parentId"][..],
+                &["parentID"][..],
+                &["properties", "parentID"][..],
+                &["properties", "parentId"][..],
+                &["properties", "info", "parentID"][..],
+                &["properties", "info", "parentId"][..],
+                &["event", "properties", "parentID"][..],
+                &["event", "properties", "parentId"][..],
+                &["event", "properties", "info", "parentID"][..],
+                &["event", "properties", "info", "parentId"][..],
                 &["event", "parent_session_id"][..],
                 &["event", "parentSessionId"][..],
                 &["event", "parent_thread_id"][..],
                 &["event", "parentThreadId"][..],
                 &["context", "parent_session_id"][..],
                 &["context", "parentSessionId"][..],
+                &["context", "parentSessionID"][..],
+                &["context", "thread", "parent_session_id"][..],
+                &["context", "thread", "parentSessionId"][..],
             ][..],
         ),
         (
@@ -481,54 +605,82 @@ fn add_agent_topology(
     normalized: &mut Map<String, Value>,
 ) {
     let scope = [
-        "root_agent_session_id",
-        "native_root_agent_id",
-        "parent_agent_session_id",
-        "agent_session_id",
-        "transcript_path",
+        ("root_agent_session_id", "session"),
+        // A session scopes the whole agent tree while provider agent IDs
+        // identify nodes inside it. Keeping that distinction stable also
+        // lets later child events reveal an explicit root-session alias.
+        ("agent_session_id", "session"),
+        ("native_root_agent_id", "agent"),
+        ("parent_agent_session_id", "session"),
+        ("transcript_path", "transcript"),
     ]
     .into_iter()
-    .find_map(|field| normalized.get(field).and_then(Value::as_str))
-    .or_else(|| terminal_id.map(TerminalPublicId::as_str));
-    let Some(scope) = scope else { return };
-    let tree_id = stable_topology_id("agenttree", &[source, scope]);
+    .find_map(|(field, identity_kind)| {
+        normalized
+            .get(field)
+            .and_then(Value::as_str)
+            .map(|identity| (identity_kind, identity.to_string()))
+    })
+    .or_else(|| terminal_id.map(|terminal| ("terminal", terminal.as_str().to_string())));
+    let Some((scope_kind, scope_identity)) = scope else {
+        return;
+    };
+    let tree_id = stable_topology_id("agenttree", &[source, scope_kind, &scope_identity]);
     normalized.insert("agent_tree_id".into(), Value::String(tree_id.clone()));
+    let root_node_id = stable_agent_node_id(&tree_id, scope_kind, &scope_identity);
 
     let event = semantic_key(native_event);
     let child_event = is_child_spawn(&event)
         || is_child_completion(&event)
         || matches!(event.as_str(), "subagentfailed" | "childfailed");
-    let native_agent_id = if child_event {
+    let native_agent_id =
+        normalized.get("native_agent_id").and_then(Value::as_str).map(str::to_owned);
+    let native_root_agent_id =
+        normalized.get("native_root_agent_id").and_then(Value::as_str).map(str::to_owned);
+    let session_id = normalized.get("agent_session_id").and_then(Value::as_str).map(str::to_owned);
+    let parent_session_id =
+        normalized.get("parent_agent_session_id").and_then(Value::as_str).map(str::to_owned);
+    let node_identity = if child_event {
         normalized
             .get("native_child_agent_id")
             .and_then(Value::as_str)
-            .or_else(|| normalized.get("native_agent_id").and_then(Value::as_str))
+            .or(native_agent_id.as_deref())
+            .map(|identity| ("agent", identity, "native"))
     } else {
-        normalized
-            .get("native_agent_id")
-            .and_then(Value::as_str)
-            .or_else(|| normalized.get("native_root_agent_id").and_then(Value::as_str))
-    }
-    .map(str::to_owned);
+        session_id
+            .as_deref()
+            .map(|identity| ("session", identity, "session"))
+            .or_else(|| native_agent_id.as_deref().map(|identity| ("agent", identity, "native")))
+            .or_else(|| {
+                native_root_agent_id.as_deref().map(|identity| ("agent", identity, "native_root"))
+            })
+    };
     let fallback_agent_name =
         child_event.then(|| normalized.get("agent_name").and_then(Value::as_str)).flatten();
-    let node_key = native_agent_id.as_ref().map(|id| (id.clone(), "native")).or_else(|| {
-        fallback_agent_name.and_then(|name| {
+    let (node_id, identity_quality) = match node_identity {
+        Some((identity_kind, identity, quality)) => {
+            let is_root = (identity_kind == scope_kind && identity == scope_identity.as_str())
+                || (identity_kind == "agent"
+                    && native_root_agent_id.as_deref() == Some(identity)
+                    && parent_session_id.is_none());
+            let node_id = if is_root {
+                root_node_id.clone()
+            } else {
+                stable_agent_node_id(&tree_id, identity_kind, identity)
+            };
+            (node_id, quality.to_string())
+        }
+        None if !child_event => (root_node_id.clone(), "session_root".into()),
+        None if fallback_agent_name.is_some() => {
+            let name = fallback_agent_name.expect("presence checked");
             let turn = normalized.get("turn_id").and_then(Value::as_str).unwrap_or("");
             let tool = normalized.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
             if turn.is_empty() && tool.is_empty() {
-                return None;
+                normalized.insert("agent_relation".into(), Value::String("unknown".into()));
+                return;
             }
-            let key = format!("name:{name}\0turn:{turn}\0tool:{tool}");
-            Some((key, "name_fallback"))
-        })
-    });
-    let (node_id, identity_quality) = match node_key {
-        Some((key, quality)) => {
-            (stable_topology_id("agentnode", &[&tree_id, &key]), quality.to_string())
-        }
-        None if !child_event => {
-            (stable_topology_id("agentnode", &[&tree_id, "root"]), "session_root".into())
+            let identity = format!("name:{name}\0turn:{turn}\0tool:{tool}");
+            (stable_agent_node_id(&tree_id, "name_fallback", &identity), "name_fallback".into())
         }
         None => {
             normalized.insert("agent_relation".into(), Value::String("unknown".into()));
@@ -538,27 +690,39 @@ fn add_agent_topology(
     normalized.insert("agent_node_id".into(), Value::String(node_id));
     normalized.insert("agent_identity_quality".into(), Value::String(identity_quality));
 
-    if let Some(parent) =
-        normalized.get("native_parent_agent_id").and_then(Value::as_str).map(str::to_owned)
-    {
-        let parent_id = stable_topology_id("agentnode", &[&tree_id, &parent]);
+    if let Some(parent) = parent_session_id.as_deref() {
+        let parent_id = if scope_kind == "session" && parent == scope_identity.as_str() {
+            root_node_id
+        } else {
+            stable_agent_node_id(&tree_id, "session", parent)
+        };
+        normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
+        normalized.insert("agent_relation".into(), Value::String("explicit".into()));
+    } else if let Some(parent) = normalized.get("native_parent_agent_id").and_then(Value::as_str) {
+        let parent_id = if native_root_agent_id.as_deref() == Some(parent) {
+            root_node_id
+        } else {
+            stable_agent_node_id(&tree_id, "agent", parent)
+        };
         normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
         normalized.insert("agent_relation".into(), Value::String("explicit".into()));
     } else if matches!(source, "claude" | "claude-code") && child_event {
         // Claude Code's command-hook contract exposes a stable child ID but
         // no parent ID, and its subagents cannot spawn subagents. The parent
         // is therefore the root of the shared session tree.
-        let parent_id = stable_topology_id("agentnode", &[&tree_id, "root"]);
-        normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
+        normalized.insert("parent_agent_node_id".into(), Value::String(root_node_id));
         normalized.insert("agent_relation".into(), Value::String("provider_root".into()));
     } else if child_event
-        || native_agent_id.as_deref()
-            != normalized.get("native_root_agent_id").and_then(Value::as_str)
+        || normalized.get("agent_node_id").and_then(Value::as_str) != Some(root_node_id.as_str())
     {
         normalized.insert("agent_relation".into(), Value::String("unknown".into()));
     } else {
         normalized.insert("agent_relation".into(), Value::String("root".into()));
     }
+}
+
+fn stable_agent_node_id(tree_id: &str, identity_kind: &str, identity: &str) -> String {
+    stable_topology_id("agentnode", &[tree_id, identity_kind, identity])
 }
 
 fn stable_topology_id(prefix: &str, components: &[&str]) -> String {
@@ -631,11 +795,49 @@ mod tests {
             let native = json!({"session_id":"native-1","message":"done","opaque":{"v":42}});
             let ingress = agent_hook_journal_ingress(source, event, None, native.clone()).unwrap();
             assert_eq!(ingress.kind, "agent.turn.completed");
-            assert_eq!(ingress.payload["native"], native);
+            assert_eq!(ingress.payload["native"]["session_id"], native["session_id"]);
+            assert_eq!(ingress.payload["native"]["message"], REDACTED_AGENT_VALUE);
+            assert_eq!(ingress.payload["native"]["opaque"]["v"], 42);
             assert_eq!(ingress.payload["normalized"]["agent_session_id"], "native-1");
             assert_eq!(ingress.payload["adapter"]["id"], source);
             assert_eq!(ingress.sensitivity, Some(JournalSensitivity::Sensitive));
         }
+    }
+
+    #[test]
+    fn raw_input_and_credentials_are_redacted_before_ingress() {
+        let ingress = agent_hook_journal_ingress(
+            "pi",
+            "input",
+            None,
+            json!({
+                "input":"do not persist this prompt",
+                "context":{"session_id":"do not persist this token"}
+            }),
+        )
+        .unwrap();
+        assert_eq!(ingress.payload["native"]["redacted"], true);
+        let encoded = serde_json::to_string(&ingress.payload).unwrap();
+        assert!(!encoded.contains("do not persist this prompt"));
+        assert!(!encoded.contains("do not persist this token"));
+
+        let credential = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({
+                "session_id":"safe-session",
+                "api_token":"do not persist this credential",
+                "nested":{"tool_input":"do not persist this tool input","opaque":42}
+            }),
+        )
+        .unwrap();
+        assert_eq!(credential.payload["normalized"]["agent_session_id"], "safe-session");
+        assert_eq!(credential.payload["native"]["nested"]["opaque"], 42);
+        let encoded = serde_json::to_string(&credential.payload).unwrap();
+        assert!(!encoded.contains("do not persist this credential"));
+        assert!(!encoded.contains("do not persist this tool input"));
+        assert!(encoded.contains(REDACTED_AGENT_VALUE));
     }
 
     #[test]
@@ -661,7 +863,6 @@ mod tests {
     #[test]
     fn provider_specific_turn_boundaries_do_not_end_restorable_sessions() {
         for (source, event) in [
-            ("grok", "SessionEnd"),
             ("antigravity", "SessionEnd"),
             ("hermes-agent", "on_session_end"),
             ("copilot", "Notification"),
@@ -675,10 +876,12 @@ mod tests {
             agent_hook_journal_ingress("hermes-agent", "on_session_finalize", None, json!({}))
                 .unwrap();
         assert_eq!(finalized.kind, "agent.session.ended");
+        let grok = agent_hook_journal_ingress("grok", "SessionEnd", None, json!({})).unwrap();
+        assert_eq!(grok.kind, "agent.session.ended");
     }
 
     #[test]
-    fn provider_envelopes_normalize_nested_fields_without_losing_native_data() {
+    fn provider_envelopes_normalize_structural_fields_and_redact_message_data() {
         let native = json!({
             "event": {
                 "thread": {"id":"amp-thread-1"},
@@ -691,12 +894,12 @@ mod tests {
         });
         let ingress = agent_hook_journal_ingress("amp", "Stop", None, native.clone()).unwrap();
         assert_eq!(ingress.kind, "agent.turn.completed");
-        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["native"]["provider_only"], native["provider_only"]);
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "amp-thread-1");
         assert_eq!(ingress.payload["normalized"]["turn_id"], "turn-7");
         assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
         assert_eq!(ingress.payload["normalized"]["tool_name"], "Bash");
-        assert_eq!(ingress.payload["normalized"]["message"], "done");
+        assert_eq!(ingress.payload["normalized"]["message"], REDACTED_AGENT_VALUE);
     }
 
     #[test]
@@ -706,6 +909,46 @@ mod tests {
         let deleted =
             agent_hook_journal_ingress("opencode", "session.deleted", None, json!({})).unwrap();
         assert_eq!(deleted.kind, "agent.session.ended");
+    }
+
+    #[test]
+    fn wrapped_opencode_events_keep_native_shape_and_normalize_properties() {
+        let native = json!({
+            "event": {
+                "type":"session.created",
+                "properties": {
+                    "info": {
+                        "id":"opencode-session",
+                        "directory":"/tmp/opencode"
+                    }
+                }
+            },
+            "context": {"worktree":"/tmp/opencode"}
+        });
+        let ingress =
+            agent_hook_journal_ingress("opencode", "session.created", None, native.clone())
+                .unwrap();
+        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "opencode-session");
+        assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/opencode");
+        assert_eq!(ingress.kind, "agent.session.started");
+
+        let approval = agent_hook_journal_ingress(
+            "opencode",
+            "permission.asked",
+            None,
+            json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+        )
+        .unwrap();
+        assert_eq!(approval.kind, "agent.approval.requested");
+        let question = agent_hook_journal_ingress(
+            "opencode",
+            "question.asked",
+            None,
+            json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+        )
+        .unwrap();
+        assert_eq!(question.kind, "agent.question.requested");
     }
 
     #[test]
@@ -806,6 +1049,99 @@ mod tests {
     }
 
     #[test]
+    fn progressive_root_identity_keeps_parent_and_child_in_one_tree() {
+        let root = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "agent_id":"root-agent",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
+        let child = agent_hook_journal_ingress(
+            "codex",
+            "SubagentStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "root_session_id":"tree-session",
+                "agent_id":"child-agent",
+                "parent_agent_id":"root-agent",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            child.payload["normalized"]["agent_tree_id"],
+            root.payload["normalized"]["agent_tree_id"]
+        );
+        assert_eq!(
+            child.payload["normalized"]["parent_agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+    }
+
+    #[test]
+    fn nested_agent_sessions_form_one_tree_without_provider_agent_ids() {
+        let root = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({"session_id":"root-session","root_session_id":"root-session"}),
+        )
+        .unwrap();
+        let child = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"child-session",
+                "parent_session_id":"root-session",
+                "root_session_id":"root-session"
+            }),
+        )
+        .unwrap();
+        let grandchild = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"grandchild-session",
+                "parent_session_id":"child-session",
+                "root_session_id":"root-session"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(child.payload["normalized"]["agent_relation"], "explicit");
+        assert_eq!(grandchild.payload["normalized"]["agent_relation"], "explicit");
+        assert_eq!(
+            child.payload["normalized"]["parent_agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            grandchild.payload["normalized"]["parent_agent_node_id"],
+            child.payload["normalized"]["agent_node_id"]
+        );
+        assert_ne!(
+            child.payload["normalized"]["agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+        assert_ne!(
+            grandchild.payload["normalized"]["agent_node_id"],
+            child.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            grandchild.payload["normalized"]["agent_tree_id"],
+            root.payload["normalized"]["agent_tree_id"]
+        );
+    }
+
+    #[test]
     fn claude_direct_children_attach_to_the_shared_session_root() {
         for source in ["claude", "claude-code"] {
             let root = agent_hook_journal_ingress(
@@ -902,7 +1238,11 @@ mod tests {
             "codex",
             "Stop",
             None,
-            json!({"session_id":"native-session","opaque":{"v":42}}),
+            json!({
+                "session_id":"native-session",
+                "api_token":"persistent-secret-sentinel",
+                "opaque":{"v":42,"prompt":"persistent-input-sentinel"}
+            }),
         )
         .unwrap();
         let first = mux.append_journal_ingress(&ingress, "client_test", "agent_hook_once").unwrap();
@@ -924,6 +1264,10 @@ mod tests {
         assert_eq!(record.producer.id, AGENT_HOOK_PRODUCER_ID);
         assert_eq!(record.authority.as_ref().unwrap().role, "agent.adapter");
         assert_eq!(record.payload["native"]["opaque"]["v"], 42);
+        let encoded = serde_json::to_string(&record.payload).unwrap();
+        assert!(!encoded.contains("persistent-secret-sentinel"));
+        assert!(!encoded.contains("persistent-input-sentinel"));
+        assert!(encoded.contains(REDACTED_AGENT_VALUE));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

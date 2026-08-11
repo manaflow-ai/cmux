@@ -35,6 +35,8 @@ extension DockSplitStore {
                           inPane: leaf.paneId,
                           excludingStableIdentities: excludingStableIdentities,
                           sourceWorkspaceId: snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
+                          sourceSnapshotWorkspaceId:
+                            snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
                           sourceWorkspaceResolver: sourceWorkspaceResolver
                       ) else {
                     continue
@@ -78,20 +80,43 @@ extension DockSplitStore {
         return oldToNewPanelIds
     }
 
+    /// Recreates one panel inside an existing Dock pane for Dock-local
+    /// closed-item history. Unlike a full session restore, this preserves the
+    /// rest of the live Dock tree.
+    @discardableResult
+    func restoreClosedPanelSessionSnapshot(
+        _ snapshot: SessionPanelSnapshot,
+        inPane paneId: PaneID,
+        sourceWorkspaceId: UUID?,
+        sourceSnapshotWorkspaceId: UUID?,
+        sourceWorkspaceResolver: (UUID) -> Workspace?
+    ) -> UUID? {
+        createSessionRestoredPanel(
+            from: snapshot,
+            inPane: paneId,
+            excludingStableIdentities: [],
+            sourceWorkspaceId: sourceWorkspaceId,
+            sourceSnapshotWorkspaceId: sourceSnapshotWorkspaceId,
+            sourceWorkspaceResolver: sourceWorkspaceResolver
+        )
+    }
+
     private func createSessionRestoredPanel(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
         excludingStableIdentities: Set<UUID>,
         sourceWorkspaceId: UUID?,
+        sourceSnapshotWorkspaceId: UUID?,
         sourceWorkspaceResolver: (UUID) -> Workspace?
     ) -> UUID? {
         if let sourceWorkspaceId,
            let sourceWorkspace = sourceWorkspaceResolver(sourceWorkspaceId),
            let detached = sourceWorkspace.detachedSurfaceForDockSessionRestore(
                snapshot,
-               snapshotWorkspaceId: sourceWorkspaceId,
+               snapshotWorkspaceId:
+                sourceSnapshotWorkspaceId ?? sourceWorkspaceId,
                excludingStableIdentities: excludingStableIdentities
-            ) {
+           ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
             if restoredPanelId == nil {
                 AgentHibernationController.shared.discardTrackingStateForClosedPanel(
@@ -102,7 +127,8 @@ extension DockSplitStore {
             }
             return restoredPanelId
         }
-        if sourceWorkspaceId != nil, snapshot.terminal?.isRemoteTerminal == true {
+        if sourceWorkspaceId != nil,
+           snapshot.terminal?.isRemoteTerminal == true {
             return nil
         }
         switch snapshot.type {
@@ -128,6 +154,10 @@ extension DockSplitStore {
         inPane paneId: PaneID,
         excludingStableIdentities: Set<UUID>
     ) -> UUID? {
+        let snapshot = Workspace.repairedLegacyHermesSessionPanelSnapshot(
+            snapshot,
+            workspaceId: workspaceId
+        )
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
         let restorableAgent = Workspace.restorableAgentForSessionRestore(
@@ -237,6 +267,11 @@ extension DockSplitStore {
         let reusableSurfaceId = GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil
             ? snapshot.id
             : UUID()
+        // A rebuilt shell must not inherit socket-report dedupe state from a
+        // closed surface whose persisted ID it is reusing.
+        TerminalController.shared.cleanupSurfaceState(
+            surfaceIds: [reusableSurfaceId]
+        )
         let terminal = TerminalPanel(
             id: reusableSurfaceId,
             workspaceId: workspaceId,
@@ -272,6 +307,10 @@ extension DockSplitStore {
             }
             return nil
         }
+        armRestoredPanelTitleBoundary(
+            panelId: terminal.id,
+            internallySeededInput: initialInput
+        )
         if let stableSurfaceId = snapshot.stableSurfaceId,
            !excludingStableIdentities.contains(stableSurfaceId) {
             terminal.adoptStableSurfaceId(stableSurfaceId)
@@ -372,7 +411,7 @@ extension DockSplitStore {
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id
-        installSubscription(for: panel, tracksTerminalTitle: true)
+        installSubscription(for: panel)
         applyVisibility(to: panel)
         return tabId
     }

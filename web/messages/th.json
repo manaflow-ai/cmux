@@ -135,6 +135,31 @@
     "faqFeatureA": "เราอยากได้ยิน เปิด <issuesLink>issue</issuesLink> หรือ <prLink>pull request</prLink> บน GitHub หรือ <mailLink>ส่งอีเมลถึงเรา</mailLink>"
   },
   "dashboard": {
+    "nav": {
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "ภาพรวม",
+      "team": "ทีม"
+    },
+    "home": {
+      "coderouterName": "coderouter",
+      "coderouterDescription": "กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน",
+      "coderouterLink": "เปิด coderouter"
+    },
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "จัดการบัญชี AI ที่แชร์และกำหนดเส้นทางคำขอด้วย coderouter",
+      "title": "coderouter",
+      "description": "coderouter กำหนดเส้นทางคำขอ LLM ระหว่างบัญชีผู้ให้บริการ พร้อมการสลับเมื่อขัดข้องและการจัดตารางตามการใช้งาน"
+    },
+    "accountMenu": {
+      "label": "เมนูบัญชี",
+      "settings": "การตั้งค่า",
+      "billing": "การเรียกเก็บเงิน",
+      "signOut": "ออกจากระบบ",
+      "signingOut": "กำลังออกจากระบบ…",
+      "signOutError": "ออกจากระบบไม่ได้ โปรดลองอีกครั้ง",
+      "signIn": "เข้าสู่ระบบ"
+    },
     "aiAccounts": {
       "metaTitle": "บัญชี AI — cmux",
       "metaDescription": "จัดการบัญชีผู้ให้บริการ AI ของทีมสำหรับ cmux",
@@ -3576,7 +3601,6 @@
     "title": "cmux สำหรับ {platform}",
     "tagline": "เบราว์เซอร์ Chromium และพื้นที่ทำงานสำหรับเอเจนต์ที่สร้างเป็นหนึ่งเดียวกัน",
     "logoAlt": "ไอคอนแอป cmux",
-    "portableCta": "ZIP แบบพกพา",
     "featuresTitle": "สร้างมาเพื่องานที่ใช้เอเจนต์",
     "features": {
       "chromium": {
@@ -3598,7 +3622,7 @@
     },
     "installTitle": "ติดตั้ง",
     "releaseTitle": "รุ่นและการอัปเดต",
-    "releaseBody": "ลิงก์เหล่านี้จะชี้ไปยังรุ่นเสถียรล่าสุดบน <github>GitHub Releases</github> เสมอ cmux จะตรวจสอบไฟล์กำกับการอัปเดตที่ลงนามแล้วก่อนติดตั้งการอัปเดต",
+    "releaseBody": "ลิงก์เหล่านี้จะชี้ไปยังรุ่น nightly ล่าสุดบน <github>GitHub Releases</github> เสมอ cmux จะตรวจสอบไฟล์กำกับการอัปเดตที่ลงนามแล้วก่อนติดตั้งการอัปเดต",
     "sourceLink": "ดูซอร์สโค้ดบน GitHub",
     "otherPlatform": "cmux สำหรับ {platform}",
     "macLink": "เทอร์มินัล cmux สำหรับ Mac",
@@ -3608,6 +3632,7 @@
       "metaDescription": "ดาวน์โหลด cmux สำหรับ Windows x64: เบราว์เซอร์ Chromium และพื้นที่ทำงานสำหรับเอเจนต์แบบฟรีและโอเพนซอร์ส พร้อมแท็บตามงานและหน้าจอเทอร์มินัล",
       "subtitle": "บิลด์ x64 แบบเนทีฟพร้อมแท็บ Chromium พื้นที่ทำงาน cmux และรูปแบบแป้นพิมพ์ Windows ที่คุ้นเคย",
       "primaryCta": "ดาวน์โหลดตัวติดตั้ง (.exe)",
+      "secondaryCta": "ZIP แบบพกพา",
       "requirements": "Windows 10 ขึ้นไป · x64",
       "installBody": "เรียกใช้ตัวติดตั้งและทำตามคำแนะนำของ Windows เลือก ZIP แบบพกพาหากต้องการเก็บ cmux ไว้ในโฟลเดอร์โดยไม่ติดตั้งทั่วทั้งระบบ"
     },
@@ -3616,9 +3641,10 @@
       "metaTitle": "ดาวน์โหลด cmux สำหรับ Linux",
       "metaDescription": "ดาวน์โหลด cmux สำหรับ Linux x64: เบราว์เซอร์ Chromium และพื้นที่ทำงานสำหรับเอเจนต์แบบฟรีและโอเพนซอร์ส พร้อมแท็บตามงานและหน้าจอเทอร์มินัล",
       "subtitle": "บิลด์ x64 แบบเนทีฟพร้อมแท็บ Chromium พื้นที่ทำงาน cmux และหน้าจอเทอร์มินัลแบบผสานรวม",
-      "primaryCta": "ดาวน์โหลด .deb",
-      "requirements": "Debian หรือ Ubuntu · x64",
-      "installBody": "ดาวน์โหลดแพ็กเกจ Debian และติดตั้งด้วยตัวจัดการแพ็กเกจ เลือก ZIP แบบพกพาสำหรับการติดตั้งเฉพาะผู้ใช้และการอัปเดตภายในแอป"
+      "primaryCta": "ดาวน์โหลดตัวติดตั้งพร้อมการอัปเดตอัตโนมัติ (.run)",
+      "secondaryCta": "แพ็กเกจ Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "เรียกใช้ตัวติดตั้งแบบรายผู้ใช้หนึ่งครั้ง โปรแกรมจะติดตั้ง cmux ไว้ใน ~/.local โดยไม่ต้องใช้สิทธิ์ root และเปิดใช้การอัปเดตภายในแอปที่มีลายเซ็น หากต้องการให้ตัวจัดการแพ็กเกจเป็นผู้ดูแลการอัปเดต ให้เลือกแพ็กเกจ Debian แทน"
     }
   },
   "emails": {

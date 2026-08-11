@@ -312,6 +312,7 @@ impl Direction {
 pub struct SplitOptions {
     pub direction: Direction,
     pub ratio: Option<f64>,
+    pub viewport_width: Option<f64>,
     pub cwd: Option<String>,
     pub size: Option<Size>,
     pub correlation_key: Option<String>,
@@ -319,7 +320,19 @@ pub struct SplitOptions {
 
 impl SplitOptions {
     pub fn new(direction: Direction) -> Self {
-        Self { direction, ratio: None, cwd: None, size: None, correlation_key: None }
+        Self {
+            direction,
+            ratio: None,
+            viewport_width: None,
+            cwd: None,
+            size: None,
+            correlation_key: None,
+        }
+    }
+
+    pub fn viewport_width(mut self, width: f64) -> Self {
+        self.viewport_width = Some(width);
+        self
     }
 }
 
@@ -745,7 +758,11 @@ pub struct TerminalDefaultsOptions {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProjectionOptions {
+    pub frontend_id: String,
+    pub window_id: String,
+    pub generation: String,
     pub projection: Value,
+    pub expected_projection_revision: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -874,6 +891,7 @@ pub enum JournalRegexField {
     Kind,
     Subjects,
     Payload,
+    TerminalOutput,
     #[default]
     Record,
 }
@@ -884,6 +902,7 @@ impl JournalRegexField {
             Self::Kind => "kind",
             Self::Subjects => "subjects",
             Self::Payload => "payload",
+            Self::TerminalOutput => "terminal_output",
             Self::Record => "record",
         }
     }
@@ -900,6 +919,7 @@ pub struct JournalRegexFilter {
 pub struct SessionJournalOptions {
     pub cursor: Option<Cursor>,
     pub start: Option<JournalStart>,
+    pub follow: Option<bool>,
     pub kinds: Vec<String>,
     pub classes: Vec<JournalClass>,
     pub subjects: Vec<JournalSubjectFilter>,

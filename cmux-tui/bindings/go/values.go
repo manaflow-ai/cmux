@@ -165,6 +165,11 @@ type StreamOpened struct {
 	Cursor   *Cursor  `json:"cursor,omitempty"`
 }
 
+type ViewAttachmentStreamOpened struct {
+	StreamID        StreamID `json:"stream_id"`
+	AttachmentLease string   `json:"attachment_lease"`
+}
+
 type CreationResolutionState string
 
 const (
@@ -624,13 +629,27 @@ type CellPixelsResult struct {
 }
 
 type ViewerResizeResult struct {
-	Accepted bool `json:"accepted"`
-	Size     Size `json:"size"`
+	Accepted bool                  `json:"accepted"`
+	Size     Size                  `json:"size"`
+	Outcome  ViewAttachmentOutcome `json:"outcome"`
 }
 
 type BrowserViewerResizeResult struct {
-	Accepted bool      `json:"accepted"`
-	Size     PixelSize `json:"size"`
+	Accepted bool                  `json:"accepted"`
+	Size     PixelSize             `json:"size"`
+	Outcome  ViewAttachmentOutcome `json:"outcome"`
+}
+
+type ViewAttachmentOutcome string
+
+const (
+	ViewAttachmentApplied    ViewAttachmentOutcome = "applied"
+	ViewAttachmentPassive    ViewAttachmentOutcome = "passive"
+	ViewAttachmentSuperseded ViewAttachmentOutcome = "superseded"
+)
+
+type ViewerReleaseResult struct {
+	Outcome ViewAttachmentOutcome `json:"outcome"`
 }
 
 type Document map[string]JSONValue

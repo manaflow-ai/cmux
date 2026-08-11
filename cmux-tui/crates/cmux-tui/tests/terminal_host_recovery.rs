@@ -21,7 +21,8 @@ use cmux_tui_core::terminal_host_protocol::{
     PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
-    TerminalHostLiveness, TerminalHostRecord, adopt_terminal_host, decode_terminal_color_overrides,
+    TerminalHostLiveness, TerminalHostRecord, acknowledge_terminal_host_exit_record,
+    adopt_terminal_host, decode_terminal_color_overrides, load_terminal_host_exit_records,
     load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_record_liveness,
     terminal_host_root,
 };
@@ -206,7 +207,7 @@ impl Drop for RecoveryHarness {
         let endpoints =
             records.iter().map(|(_, record)| PathBuf::from(&record.endpoint)).collect::<Vec<_>>();
         for (path, record) in &records {
-            if let Ok(host) = adopt_terminal_host(record.clone(), path.clone()) {
+            if let Ok(mut host) = adopt_terminal_host(record.clone(), path.clone()) {
                 let _ = host.terminate();
                 host.disconnect();
             }
@@ -336,7 +337,7 @@ fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
         writer,
         "{}",
         serde_json::json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":"journal-initial-subscribe",
             "operation":"session.journal.subscribe",
@@ -515,9 +516,13 @@ fn terminal_host_survives_daemon_process_group_hangup() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Live,
     );
-    let host = adopt_terminal_host(record, record_path).unwrap();
-    host.terminate().unwrap();
+    let mut host = adopt_terminal_host(record, record_path.clone()).unwrap();
+    let exit = host.terminate_and_wait_for_exit().unwrap();
     host.disconnect();
+    assert!(
+        acknowledge_terminal_host_exit_record(&record_path.with_extension("exit"), &exit).unwrap(),
+        "terminated host exit receipt was not acknowledged"
+    );
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -702,7 +707,7 @@ fn explicit_terminate_escalates_past_a_sighup_ignoring_child() {
     assert!(wait_for_screen(&harness.socket, surface, &marker).contains(&marker));
 
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let mut host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
     let shell_pid = host.snapshot.pid.unwrap() as libc::pid_t;
     host.terminate().unwrap();
     host.disconnect();
@@ -759,7 +764,7 @@ fn explicit_terminate_reaps_descendants_in_the_pty_group() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Live,
     );
-    let host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let mut host = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
     host.terminate().unwrap();
     host.disconnect();
     wait_for_no_host_records(&harness.host_root());
@@ -1955,6 +1960,63 @@ fn client_reserved_create_retry_returns_original_binding_without_second_host() {
 }
 
 #[test]
+fn client_reserved_short_lived_create_replays_its_durable_exit_without_topology() {
+    let harness = RecoveryHarness::start("reserved-short-lived-create");
+    let workspace = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,
+            "cmd":"create-workspace",
+            "name":"Short-lived",
+            "key":"018f6e21-7b70-7e70-8000-000000000046",
+            "origin":"browser",
+            "mutation_id":"workspace-create",
+            "expected_revision":0,
+        }),
+    );
+    let terminal_id = TerminalId::random().unwrap().to_hex();
+    let create = serde_json::json!({
+        "id":2,
+        "cmd":"create-terminal",
+        "key":"018f6e21-7b70-7e70-8000-000000000046",
+        "argv":["/bin/sh","-c","exit 17"],
+        "terminal_id":terminal_id,
+        "origin":"browser",
+        "mutation_id":"terminal-create",
+        "expected_generation":workspace["generation"],
+        "expected_terminal_revision":0,
+        "cols":80,
+        "rows":24,
+    });
+
+    let first = request(&harness.socket, create.clone());
+    assert_eq!(first["terminal_id"], terminal_id);
+    assert_eq!(first["replayed"], false);
+    let already_exited = first["already_exited"].as_bool().unwrap();
+    assert_eq!(first["lifecycle"], if already_exited { "exited" } else { "running" });
+    for field in ["surface", "pane", "screen", "workspace"] {
+        assert_eq!(first[field].is_null(), already_exited, "unexpected {field}: {first}");
+    }
+    if already_exited {
+        assert_eq!(first["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    } else {
+        assert!(first["exit"].is_null());
+    }
+    wait_for_no_host_records(&harness.host_root());
+
+    let retry = request(&harness.socket, create);
+    assert_eq!(retry["replayed"], true);
+    assert_eq!(retry["terminal_id"], terminal_id);
+    assert_eq!(retry["already_exited"], true);
+    assert_eq!(retry["lifecycle"], "exited");
+    assert_eq!(retry["exit"]["outcome"], serde_json::json!({"kind":"exit","code":17}));
+    assert_eq!(retry["surface"], serde_json::Value::Null);
+    assert_eq!(retry["pane"], serde_json::Value::Null);
+    assert_eq!(retry["screen"], serde_json::Value::Null);
+    assert_eq!(retry["workspace"], serde_json::Value::Null);
+}
+
+#[test]
 fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     let harness = RecoveryHarness::start("stalled-renderer");
     let created = request(
@@ -1994,9 +2056,10 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "cmd": "send",
             "surface": surface,
             // A finite burst can fit in Darwin's dynamically sized socket
-            // buffers under some scheduler interleavings. Keep producing
-            // until the bounded host tap closes this unread renderer.
-            "text": "while :; do /usr/bin/head -c 1048576 /dev/zero; done\n",
+            // buffers under some scheduler interleavings. One streaming
+            // process fills the bounded host tap without per-megabyte process
+            // launches competing with the parallel recovery suite.
+            "text": "/bin/cat /dev/zero\n",
         }),
     );
     assert!(
@@ -2231,7 +2294,7 @@ fn failed_terminate_and_rejected_resize_leave_live_record_discoverable() {
     );
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
 
-    let disconnected = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
+    let mut disconnected = adopt_terminal_host(record.clone(), record_path.clone()).unwrap();
     disconnected.disconnect();
     assert!(disconnected.terminate().is_err());
     assert!(record_path.exists(), "failed Terminate unlinked a live host record");
@@ -2707,7 +2770,7 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
     let mut harness = RecoveryHarness::start_with_host_ready_delay("public-create-recovery", 2_000);
     let create = serde_json::json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"request",
         "id":"public-create-request",
         "operation":"workspace.create",
@@ -2818,6 +2881,38 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         }),
         Some("public-create-close"),
     );
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
+fn rapid_public_create_close_acknowledges_every_exit_sidecar() {
+    let harness = RecoveryHarness::start("public-create-close-stress");
+    for index in 0..12 {
+        let created = resource_request(
+            &harness.socket,
+            &format!("rapid-create-{index}"),
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "name":format!("Rapid close {index}"),
+                "initial_content":"terminal",
+                "correlation_key":format!("rapid-close-{index}"),
+            }),
+            Some(&format!("rapid-create-{index}")),
+        );
+        resource_request(
+            &harness.socket,
+            &format!("rapid-close-{index}"),
+            "terminal.close",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":created["value"]["terminal_id"],
+            }),
+            Some(&format!("rapid-close-{index}")),
+        );
+    }
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -3089,6 +3184,39 @@ fn request_response(path: &Path, value: serde_json::Value) -> serde_json::Value 
     serde_json::from_str(&line).unwrap()
 }
 
+#[test]
+fn terminal_launch_rejection_preserves_the_host_error() {
+    let mut harness = RecoveryHarness::start_unstarted("launch-rejection-detail");
+    let child = harness.daemon_command().spawn().unwrap();
+    harness.child = Some(child);
+    wait_for_socket(&harness.socket);
+
+    let missing = format!("/tmp/cmux-terminal-host-missing-{}", std::process::id());
+    let response = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": [missing],
+            "new_workspace": true,
+            "name": "must-fail",
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+
+    assert_eq!(response["ok"], false, "missing command unexpectedly launched: {response}");
+    let error = response["error"].as_str().expect("rejection includes an error string");
+    assert!(
+        error.contains("No such file") || error.contains("not found"),
+        "terminal host discarded its launch error: {error}"
+    );
+    assert!(
+        !error.contains("closed before launch ready"),
+        "launcher exposed transport fallout instead of the host error: {error}"
+    );
+}
+
 fn resource_request(
     path: &Path,
     id: &str,
@@ -3097,7 +3225,7 @@ fn resource_request(
     idempotency_key: Option<&str>,
 ) -> serde_json::Value {
     let mut value = serde_json::json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"request",
         "id":id,
         "operation":operation,
@@ -3107,7 +3235,7 @@ fn resource_request(
         value["idempotency_key"] = serde_json::json!(idempotency_key);
     }
     let response = request_response(path, value);
-    assert_eq!(response["protocol"], "cmux.protocol/1", "request failed: {response}");
+    assert_eq!(response["protocol"], "cmux.protocol/2", "request failed: {response}");
     assert_eq!(response["type"], "response", "request failed: {response}");
     assert_eq!(response["id"], id, "request failed: {response}");
     assert_eq!(response["ok"], true, "request failed: {response}");
@@ -3156,12 +3284,16 @@ fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, Terminal
 fn wait_for_no_host_records(root: &Path) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if load_terminal_host_records(root).unwrap().is_empty() {
+        if load_terminal_host_records(root).unwrap().is_empty()
+            && load_terminal_host_exit_records(root).unwrap().is_empty()
+        {
             return;
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    panic!("terminal host record was not removed after close");
+    let records = load_terminal_host_records(root).unwrap();
+    let exits = load_terminal_host_exit_records(root).unwrap();
+    panic!("terminal host records or exit sidecars remained after close: {records:?}; {exits:?}");
 }
 
 fn wait_for_socket_hangup(stream: &UnixStream, timeout: Duration) -> bool {

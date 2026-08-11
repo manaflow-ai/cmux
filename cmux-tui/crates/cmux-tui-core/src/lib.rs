@@ -10,6 +10,7 @@
 
 mod agent_hooks;
 mod browser;
+mod browser_provider;
 mod event_bus;
 mod journal_checkpoint;
 mod journal_hooks;
@@ -35,6 +36,8 @@ pub mod server;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
+#[cfg(unix)]
+pub mod unix_process_scope;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
@@ -64,6 +67,7 @@ pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
+pub use surface::apply_terminal_color_overrides;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
@@ -79,9 +83,10 @@ pub use workspace_registry::{
     JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,
     JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry, JournalIngress,
     JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
-    JournalSensitivity, JournalSubject, ProjectionCommit, RegistryCommit, RegistryEvent,
-    RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
-    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    JournalSensitivity, JournalSubject, PersistentSessionStateReset,
+    PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
+    RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace, SessionJournalPage,
+    SessionJournalRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;

@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-/// Indexed Hermes sessions do not carry cwd metadata and cannot be filtered by working directory.
+/// A Hermes CLI/TUI session indexed from `state.db`.
 public struct HermesAgentIndexedSession: Equatable, Sendable {
     public let sessionId: String
     public let source: String
@@ -9,6 +9,8 @@ public struct HermesAgentIndexedSession: Equatable, Sendable {
     public let model: String?
     public let modified: Date
     public let preview: String?
+    /// The working directory persisted by Hermes, when its schema provides one.
+    public let cwd: String?
 
     public init(
         sessionId: String,
@@ -16,7 +18,8 @@ public struct HermesAgentIndexedSession: Equatable, Sendable {
         title: String,
         model: String?,
         modified: Date,
-        preview: String?
+        preview: String?,
+        cwd: String? = nil
     ) {
         self.sessionId = sessionId
         self.source = source
@@ -24,6 +27,7 @@ public struct HermesAgentIndexedSession: Equatable, Sendable {
         self.model = model
         self.modified = modified
         self.preview = preview
+        self.cwd = cwd
     }
 }
 
@@ -54,7 +58,8 @@ public enum HermesAgentIndexError: Error, Equatable, Sendable {
     case sqlite(String)
 }
 
-private struct HermesAgentDatabaseSnapshot {
+/// A disposable copy of Hermes's database and its live WAL sidecars.
+struct HermesAgentDatabaseSnapshot {
     let databaseURL: URL
     private let directoryURL: URL
 
@@ -71,18 +76,13 @@ private struct HermesAgentDatabaseSnapshot {
 public enum HermesAgentIndex {
     private static let contentJSONPrefix = "\u{0}json:"
     // Keep this list aligned with source kinds resumeCommand knows how to relaunch.
-    private static let knownSources = ["cli", "tui"]
+    static let knownSources = ["cli", "tui"]
 
     public static func defaultStateDBPath(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
-        if let rawHome = normalized(env["HERMES_HOME"]) {
-            return (expandedPath(rawHome, env: env) as NSString).appendingPathComponent("state.db")
-        }
-        let home = normalized(env["HOME"]) ?? NSHomeDirectory()
-        return ((home as NSString).appendingPathComponent(".hermes") as NSString)
-            .appendingPathComponent("state.db")
+        HermesAgentSessionResolver.stateDBPath(env: env)
     }
 
-    /// Loads Hermes sessions from state.db. Hermes does not store cwd metadata, so any non-nil cwdFilter returns no sessions and no errors.
+    /// Loads Hermes CLI/TUI sessions from state.db, optionally scoped to a working directory.
     public static func loadSessions(
         needle: String,
         cwdFilter: String?,
@@ -97,7 +97,9 @@ public enum HermesAgentIndex {
         guard !overflow else {
             return HermesAgentIndexResult(sessions: [], errors: [])
         }
-        guard cwdFilter == nil else {
+        let stateDBResolver = HermesAgentStateDBResolver()
+        let cwdCandidates = cwdFilter.map { stateDBResolver.cwdMatchCandidates(for: $0) } ?? []
+        guard cwdFilter == nil || !cwdCandidates.isEmpty else {
             return HermesAgentIndexResult(sessions: [], errors: [])
         }
 
@@ -117,7 +119,13 @@ public enum HermesAgentIndex {
 
         do {
             return try withDatabase(snapshot.databaseURL.path) { db in
-                try loadSessions(db: db, needle: needle, offset: offset, limit: limit)
+                try loadSessions(
+                    db: db,
+                    needle: needle,
+                    cwdCandidates: cwdCandidates,
+                    offset: offset,
+                    limit: limit
+                )
             }
         } catch {
             return HermesAgentIndexResult(
@@ -146,11 +154,17 @@ public enum HermesAgentIndex {
     private static func loadSessions(
         db: OpaquePointer,
         needle: String,
+        cwdCandidates: [String],
         offset: Int,
         limit: Int
     ) throws -> HermesAgentIndexResult {
+        let hasCwdColumn = HermesAgentStateDBResolver().sessionsHaveCwdColumn(db)
+        if !cwdCandidates.isEmpty, !hasCwdColumn {
+            return HermesAgentIndexResult(sessions: [], errors: [])
+        }
         let trimmedNeedle = needle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let hasNeedle = !trimmedNeedle.isEmpty
+        let cwdColumn = hasCwdColumn ? "s.cwd" : "NULL AS cwd"
         var sql = """
             SELECT
               s.id,
@@ -166,11 +180,16 @@ public enum HermesAgentIndex {
                   AND COALESCE(m2.content, '') <> ''
                 ORDER BY m2.timestamp DESC, m2.id DESC
                 LIMIT 1
-              ) AS preview
+              ) AS preview,
+              \(cwdColumn)
             FROM sessions s
             LEFT JOIN messages m ON m.session_id = s.id
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
             """
+        if !cwdCandidates.isEmpty {
+            let placeholders = cwdCandidates.map { _ in "?" }.joined(separator: ", ")
+            sql += "\n  AND s.cwd IN (\(placeholders))"
+        }
         if hasNeedle {
             sql += """
                  AND (
@@ -203,13 +222,21 @@ public enum HermesAgentIndex {
         }
         defer { sqlite3_finalize(stmt) }
 
+        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        var bindIndex: Int32 = 1
+        for candidate in cwdCandidates {
+            guard sqlite3_bind_text(stmt, bindIndex, candidate, -1, destructor) == SQLITE_OK else {
+                throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
+            }
+            bindIndex += 1
+        }
         if hasNeedle {
             let likePattern = "%\(trimmedNeedle)%"
-            let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-            for index in 1...5 {
-                guard sqlite3_bind_text(stmt, Int32(index), likePattern, -1, destructor) == SQLITE_OK else {
+            for _ in 0..<5 {
+                guard sqlite3_bind_text(stmt, bindIndex, likePattern, -1, destructor) == SQLITE_OK else {
                     throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
                 }
+                bindIndex += 1
             }
         }
 
@@ -226,6 +253,7 @@ public enum HermesAgentIndex {
             let model = sqliteText(stmt, 3)
             let modified = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
             let preview = decodedContentText(sqliteText(stmt, 5))
+            let cwd = normalized(sqliteText(stmt, 6))
             let title = normalized(rawTitle) ?? firstLine(preview) ?? sessionId
             sessions.append(HermesAgentIndexedSession(
                 sessionId: sessionId,
@@ -233,7 +261,8 @@ public enum HermesAgentIndex {
                 title: title,
                 model: model,
                 modified: modified,
-                preview: preview
+                preview: preview,
+                cwd: cwd
             ))
             stepResult = sqlite3_step(stmt)
         }
@@ -290,7 +319,8 @@ public enum HermesAgentIndex {
         return turns
     }
 
-    private static func makeSnapshot(stateDBPath: String, prefix: String) throws -> HermesAgentDatabaseSnapshot? {
+    /// Copies a Hermes database and any WAL sidecars into a private directory.
+    static func makeSnapshot(stateDBPath: String, prefix: String) throws -> HermesAgentDatabaseSnapshot? {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: stateDBPath) else { return nil }
 
@@ -315,9 +345,14 @@ public enum HermesAgentIndex {
         return HermesAgentDatabaseSnapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
     }
 
-    private static func withDatabase<T>(_ path: String, _ body: (OpaquePointer) throws -> T) throws -> T {
+    /// Opens a private snapshot for the duration of a synchronous read.
+    static func withDatabase<T>(_ path: String, _ body: (OpaquePointer) throws -> T) throws -> T {
         var db: OpaquePointer?
-        let openResult = sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil)
+        // `path` is always a private temporary snapshot. Hermes can leave the
+        // main database in persistent WAL mode after removing its sidecars;
+        // SQLite must be allowed to recreate transient `-wal`/`-shm` files in
+        // the snapshot directory before it can read that fully checkpointed DB.
+        let openResult = sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE, nil)
         guard openResult == SQLITE_OK, let db else {
             let message = sqliteMessage(db) ?? "open failed with code \(openResult)"
             sqlite3_close(db)
@@ -369,7 +404,7 @@ public enum HermesAgentIndex {
         return value.components(separatedBy: .newlines).first.map { String($0.prefix(120)) }
     }
 
-    private static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+    static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
         guard sqlite3_column_type(stmt, index) != SQLITE_NULL,
               let bytes = sqlite3_column_text(stmt, index) else {
             return nil
@@ -378,7 +413,7 @@ public enum HermesAgentIndex {
         return String(data: Data(bytes: bytes, count: count), encoding: .utf8)
     }
 
-    private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
+    static func sqliteMessage(_ db: OpaquePointer?) -> String? {
         guard let db, let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
     }
@@ -395,18 +430,9 @@ public enum HermesAgentIndex {
         return error.localizedDescription
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    static func normalized(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func expandedPath(_ path: String, env: [String: String]) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed == "~" || trimmed.hasPrefix("~/") else {
-            return NSString(string: trimmed).expandingTildeInPath
-        }
-        let home = normalized(env["HOME"]) ?? NSHomeDirectory()
-        guard trimmed != "~" else { return home }
-        return (home as NSString).appendingPathComponent(String(trimmed.dropFirst(2)))
-    }
 }

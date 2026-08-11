@@ -187,6 +187,7 @@ pub(crate) enum SharedJournalRead {
 struct JournalFanoutState {
     epoch: u64,
     requested_epoch: u64,
+    shutdown_requested: bool,
     head_sequence: u64,
     records: VecDeque<Arc<JournalDocument>>,
     record_bytes: usize,
@@ -200,6 +201,7 @@ struct JournalFanoutState {
 pub(crate) struct JournalKernel {
     state: Mutex<JournalFanoutState>,
     changed: Condvar,
+    tailer: Mutex<Option<std::thread::JoinHandle<()>>>,
     enabled: bool,
     producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
 }
@@ -240,6 +242,7 @@ impl JournalKernel {
                 state: Mutex::new(JournalFanoutState {
                     epoch: 0,
                     requested_epoch: 0,
+                    shutdown_requested: false,
                     head_sequence: 0,
                     records: VecDeque::new(),
                     record_bytes: 0,
@@ -248,6 +251,7 @@ impl JournalKernel {
                     database_reader_count: 0,
                 }),
                 changed: Condvar::new(),
+                tailer: Mutex::new(None),
                 enabled: false,
                 producers: RwLock::new(producers),
             }));
@@ -259,6 +263,7 @@ impl JournalKernel {
             state: Mutex::new(JournalFanoutState {
                 epoch: 0,
                 requested_epoch: 0,
+                shutdown_requested: false,
                 head_sequence,
                 records: VecDeque::new(),
                 record_bytes: 0,
@@ -267,6 +272,7 @@ impl JournalKernel {
                 database_reader_count: 1,
             }),
             changed: Condvar::new(),
+            tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(producers),
         });
@@ -280,9 +286,10 @@ impl JournalKernel {
         head_sequence: u64,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(kernel);
-        std::thread::Builder::new()
+        let tailer = std::thread::Builder::new()
             .name("mux-session-journal-fanout".into())
             .spawn(move || run_tailer(weak, reader, head_sequence))?;
+        *kernel.tailer.lock().unwrap() = Some(tailer);
         Ok(())
     }
 
@@ -320,6 +327,20 @@ impl JournalKernel {
         // observable even when the signal arrives just before wait() locks.
         state.epoch = state.epoch.wrapping_add(1);
         self.changed.notify_all();
+    }
+
+    pub(crate) fn shutdown(&self) {
+        {
+            let mut state = self.state.lock().unwrap();
+            state.shutdown_requested = true;
+            state.epoch = state.epoch.wrapping_add(1);
+            self.changed.notify_all();
+        }
+        if let Some(tailer) = self.tailer.lock().unwrap().take()
+            && tailer.join().is_err()
+        {
+            eprintln!("cmux-tui: session journal tailer panicked during shutdown");
+        }
     }
 
     pub(crate) fn read_after(&self, sequence: u64, limit: usize) -> SharedJournalRead {
@@ -376,7 +397,14 @@ impl JournalKernel {
     }
 
     pub(crate) fn install_prepared_producer(&self, producer: PreparedJournalProducer) {
-        self.producers.write().unwrap().insert(producer.producer_id, producer.compiled);
+        let mut producers = self.producers.write().unwrap();
+        if producers
+            .get(&producer.producer_id)
+            .is_some_and(|current| current.manifest_version > producer.compiled.manifest_version)
+        {
+            return;
+        }
+        producers.insert(producer.producer_id, producer.compiled);
     }
 
     pub(crate) fn validate_ingress(
@@ -399,6 +427,10 @@ impl JournalKernel {
                 || anyhow::anyhow!("journal event kind or schema version is not declared"),
             )?;
         let sensitivity = ingress.sensitivity.unwrap_or(event.sensitivity);
+        anyhow::ensure!(
+            sensitivity != JournalSensitivity::Secret,
+            "secret journal payload storage is unavailable until encrypted retention is implemented"
+        );
         anyhow::ensure!(
             sensitivity_rank(sensitivity) <= sensitivity_rank(producer.max_sensitivity),
             "journal event sensitivity exceeds producer authority"
@@ -429,6 +461,11 @@ fn compile_journal_producers(
 fn compile_journal_producer(
     manifest: &JournalProducerManifest,
 ) -> anyhow::Result<CompiledJournalProducer> {
+    anyhow::ensure!(
+        manifest.max_sensitivity != JournalSensitivity::Secret
+            && manifest.events.iter().all(|event| event.sensitivity != JournalSensitivity::Secret),
+        "secret journal payload storage is unavailable until encrypted retention is implemented"
+    );
     let events = manifest
         .events
         .iter()
@@ -467,6 +504,9 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         let requested_epoch = {
             let mut state = kernel.state.lock().unwrap();
             loop {
+                if state.shutdown_requested {
+                    return;
+                }
                 if state.requested_epoch != observed_request_epoch {
                     break state.requested_epoch;
                 }
@@ -512,6 +552,9 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
 
         let Some(kernel) = weak.upgrade() else { break };
         let mut state = kernel.state.lock().unwrap();
+        if state.shutdown_requested {
+            return;
+        }
         state.available = !read_failed;
         if !read_failed {
             for record in appended {
@@ -545,7 +588,9 @@ fn push_bounded_journal_document(
 #[cfg(test)]
 mod performance_tests {
     use super::*;
-    use crate::{JournalAuthority, JournalProducer, JournalSubject, SessionJournalRecord};
+    use crate::{
+        JournalAuthority, JournalEventSchema, JournalProducer, JournalSubject, SessionJournalRecord,
+    };
     use std::time::Instant;
 
     fn record(sequence: u64) -> SessionJournalRecord {
@@ -578,6 +623,54 @@ mod performance_tests {
             previous_resource_revision: None,
             terminal_output: None,
         }
+    }
+
+    fn producer_manifest() -> JournalProducerManifest {
+        JournalProducerManifest {
+            producer_id: "kernel_test".into(),
+            namespace: "plugin.kernel_test".into(),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Sensitive,
+            permissions: vec!["journal.append.plugin.kernel_test".into()],
+            events: vec![JournalEventSchema {
+                kind: "plugin.kernel_test.event".into(),
+                schema_version: 1,
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload_schema: json!({"type":"object"}),
+            }],
+        }
+    }
+
+    #[test]
+    fn persisted_secret_producer_manifests_fail_closed() {
+        let mut manifest = producer_manifest();
+        manifest.max_sensitivity = JournalSensitivity::Secret;
+        let error = JournalKernel::new(None, &[manifest]).err().unwrap().to_string();
+        assert!(error.contains("encrypted retention"), "{error}");
+    }
+
+    #[test]
+    fn runtime_secret_sensitivity_overrides_fail_closed() {
+        let manifest = producer_manifest();
+        let kernel = JournalKernel::new(None, std::slice::from_ref(&manifest)).unwrap();
+        let error = kernel
+            .validate_ingress(&JournalIngress {
+                producer_id: manifest.producer_id,
+                manifest_version: manifest.manifest_version,
+                kind: manifest.events[0].kind.clone(),
+                schema_version: manifest.events[0].schema_version,
+                occurred_at_ms: None,
+                subjects: Vec::new(),
+                sensitivity: Some(JournalSensitivity::Secret),
+                payload: json!({}),
+                causation_id: None,
+                correlation_id: None,
+            })
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("encrypted retention"), "{error}");
     }
 
     fn linear_read_after(kernel: &JournalKernel, sequence: u64, limit: usize) -> SharedJournalRead {
@@ -619,6 +712,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 7,
                 requested_epoch: 0,
+                shutdown_requested: false,
                 head_sequence: 0,
                 records: VecDeque::new(),
                 record_bytes: 0,
@@ -626,6 +720,7 @@ mod performance_tests {
                 database_reader_count: 0,
             }),
             changed: Condvar::new(),
+            tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
         };
@@ -669,6 +764,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 1,
                 requested_epoch: 1,
+                shutdown_requested: false,
                 head_sequence: JOURNAL_FANOUT_CAPACITY as u64,
                 records,
                 record_bytes,
@@ -676,6 +772,7 @@ mod performance_tests {
                 database_reader_count: 0,
             }),
             changed: Condvar::new(),
+            tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
         };

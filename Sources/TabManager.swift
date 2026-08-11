@@ -194,6 +194,8 @@ class TabManager: ObservableObject {
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
     private(set) var workspacesById: [UUID: Workspace] = [:]
+    private let windowDockTitleRoutingStores =
+        NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -377,7 +379,11 @@ class TabManager: ObservableObject {
         let tabId: UUID
         let panelId: UUID
     }
-    private struct PendingPanelTitleUpdate { let title: String; weak var sourceSurface: TerminalSurface? }
+    private struct PendingPanelTitleUpdate {
+        let title: String
+        weak var sourceSurface: TerminalSurface?
+        let sourceTerminalLifecycleId: UUID
+    }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: PendingPanelTitleUpdate] = [:]
     private let panelTitleUpdateCoalescer: NotificationBurstCoalescer
 
@@ -574,11 +580,25 @@ class TabManager: ObservableObject {
         ) { [weak self] notification in
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
-                guard let change = GhosttyTitleChange(notification: notification),
-                      let workspace = workspacesById[change.tabId],
-                      workspace.owningTabManager === self,
-                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface, change.matches(sourceSurface: sourceSurface) else { return }
-                enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
+                guard let change = GhosttyTitleChange(notification: notification) else { return }
+                if let workspace = workspacesById[change.tabId],
+                   workspace.owningTabManager === self {
+                    if let terminal = workspace.terminalPanel(for: change.surfaceId) {
+                        let sourceSurface = (notification.object as? TerminalSurface) ?? terminal.surface
+                        if change.matches(
+                            sourceSurface: sourceSurface,
+                            terminalLifecycleID: sourceSurface.terminalLifecycleId
+                        ),
+                           terminal.surface === sourceSurface {
+                            enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
+                            return
+                        }
+                    }
+                }
+                _ = dockSplitStore(
+                    ownerID: change.tabId,
+                    containingPanel: change.surfaceId
+                )?.applyTerminalTitleChange(change)
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -1026,13 +1046,41 @@ class TabManager: ObservableObject {
     }
 
     func makeWindowDockStore(windowId: UUID) -> DockSplitStore {
-        DockSplitStore(
+        let store = DockSplitStore(
             workspaceId: windowId,
             scope: .global,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local },
             settings: settings
         )
+        windowDockTitleRoutingStores.setObject(
+            store,
+            forKey: windowId as NSUUID
+        )
+        return store
+    }
+
+    /// Resolves a Dock panel through the owner's keyed store instead of the
+    /// process-wide weak store collection. `ownerID` is either a workspace id
+    /// or a window-Dock id; containment rejects stale owner bindings and panel
+    /// ids that have already moved elsewhere.
+    func dockSplitStore(
+        ownerID: UUID,
+        containingPanel panelID: UUID
+    ) -> DockSplitStore? {
+        if let workspace = workspacesById[ownerID],
+           workspace.owningTabManager === self,
+           let store = workspace._dockSplit,
+           store.containsPanel(panelID) {
+            return store
+        }
+        guard let store = windowDockTitleRoutingStores.object(
+                  forKey: ownerID as NSUUID
+              ),
+              store.containsPanel(panelID) else {
+            return nil
+        }
+        return store
     }
 
     func applyCreationChromeInheritance(
@@ -2797,7 +2845,14 @@ class TabManager: ObservableObject {
     /// They must not escalate into workspace/window-close semantics for "last tab".
     func closeRuntimeSurfaceWithConfirmation(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: false); return }
+        if tab.panels[surfaceId] == nil {
+            tab.closeDockPanelAndClearNotifications(
+                surfaceId,
+                force: false,
+                recordsHistory: false
+            )
+            return
+        }
 
         let requiresConfirmation: Bool
         if let terminalPanel = tab.terminalPanel(for: surfaceId),
@@ -2826,7 +2881,14 @@ class TabManager: ObservableObject {
     /// This path must only close the addressed surface and must never close the workspace window.
     func closeRuntimeSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
+        if tab.panels[surfaceId] == nil {
+            tab.closeDockPanelAndClearNotifications(
+                surfaceId,
+                force: true,
+                recordsHistory: false
+            )
+            return
+        }
 
 #if DEBUG
         cmuxDebugLog(
@@ -2858,7 +2920,14 @@ class TabManager: ObservableObject {
         keepSurfaceVisible: Bool = false
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
+        if tab.panels[surfaceId] == nil {
+            tab.closeDockPanelAndClearNotifications(
+                surfaceId,
+                force: true,
+                recordsHistory: false
+            )
+            return
+        }
         if let runtimeSurface, tab.terminalPanel(for: surfaceId)?.surface !== runtimeSurface { return }
         let ownsRemoteChildExit = tab.isRemoteTerminalSurface(surfaceId) ||
             tab.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId) || tab.remoteDisconnectPlaceholderPanelIds.contains(surfaceId)
@@ -3388,7 +3457,11 @@ class TabManager: ObservableObject {
         }
 #endif
         let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
-        pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(title: trimmed, sourceSurface: sourceSurface)
+        pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
+            title: trimmed,
+            sourceSurface: sourceSurface,
+            sourceTerminalLifecycleId: sourceSurface.terminalLifecycleId
+        )
         panelTitleUpdateCoalescer.signal(
             delay: PanelTitleUpdateCoalescingSettings.delay(settings: settings)
         ) { [weak self] in
@@ -3405,7 +3478,10 @@ class TabManager: ObservableObject {
         }
 #endif
         for (key, update) in updates {
-            guard let sourceSurface = update.sourceSurface else { continue }
+            guard let sourceSurface = update.sourceSurface,
+                  sourceSurface.terminalLifecycleId == update.sourceTerminalLifecycleId else {
+                continue
+            }
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: update.title, sourceSurface: sourceSurface)
         }
     }

@@ -12,7 +12,7 @@ use super::{
 };
 use crate::resource::{
     FrontendProjectionPublicId, PairingRequestPublicId, ResourceError, ResourceOperation, Selector,
-    SessionPublicId, SidebarViewPublicId, TerminalPublicId,
+    SessionPublicId, SidebarViewPublicId, TerminalPublicId, WireDecimal,
 };
 use crate::sidebar_resource::{resolve_sidebar_view, sidebar_snapshot, sidebar_view_id};
 use crate::{AgentSource, AgentState, Mux, ResourceSelectors, ResourceTarget, WorkspaceMutation};
@@ -74,24 +74,18 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
     let session_id = resolve_session(mux, &request.selectors)?;
     let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
     let state = request.fields.get("state").map(parse_agent_state).transpose()?;
+    let state_filter = state.map(AgentState::as_str);
     // Public agents are durable terminal projections. They remain listable
     // after process exit detaches the runtime and every tab view.
-    let mut values = mux
+    let values = mux
         .with_resource_projection(|registry, _state| {
             Ok(registry
-                .public_agent_projections()?
+                .public_agent_projections(terminal.as_ref(), state_filter)?
                 .into_iter()
-                .filter(|agent| {
-                    terminal.as_ref().is_none_or(|terminal| agent.terminal_id == *terminal)
-                })
-                .filter(|agent| state.is_none_or(|state| agent.state.as_str() == state.as_str()))
                 .map(|agent| agent.into_public_snapshot(&session_id))
                 .collect::<Vec<_>>())
         })
         .map_err(resource_operation_error)?;
-    values.sort_by(|left, right| {
-        left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
-    });
     Ok(Value::Array(values))
 }
 
@@ -151,11 +145,11 @@ fn get_frontend_projection(
         .get_frontend_projection("resource-api", "session", projection_id.as_str())
         .map_err(resource_operation_error)?
         .ok_or_else(|| ResourceError::not_found("frontend_projection", projection_id.as_str()))?;
-    Ok(json!({
-        "id":projection_id,
-        "session_id":session_id,
-        "projection":projection.projection,
-    }))
+    crate::resource_api::public_frontend_projection_snapshot(
+        &session_id,
+        &projection_id,
+        &projection,
+    )
 }
 
 fn put_frontend_projection(
@@ -165,12 +159,24 @@ fn put_frontend_projection(
     let projection_id = resolve_projection_id(&request.selectors)?;
     let mutation = mutation(&request)?;
     let projection = request.fields.get("projection").expect("catalog requires projection");
+    let stored_projection = json!({
+        "frontend_id":request.fields["frontend_id"],
+        "window_id":request.fields["window_id"],
+        "generation":request.fields["generation"],
+        "projection":projection,
+    });
+    let expected_projection_revision =
+        request.fields.get("expected_projection_revision").map(|value| {
+            serde_json::from_value::<WireDecimal>(value.clone())
+                .expect("catalog validates projection revisions")
+                .get()
+        });
     let commit = mux
         .resource_put_frontend_projection_selected(
             request.selectors,
             &projection_id,
-            projection,
-            expected_revision(&request.fields)?,
+            &stored_projection,
+            expected_projection_revision,
             &mutation,
         )
         .map_err(resource_operation_error)?;
@@ -738,6 +744,34 @@ mod tests {
     }
 
     #[test]
+    fn filtered_agent_list_does_not_decode_unrelated_projections() {
+        let mux = Mux::new_for_test("filtered-agent-list", SurfaceOptions::default());
+        let requested = mux.new_workspace(Some("requested".into()), None).unwrap();
+        let unrelated = mux.new_workspace(Some("unrelated".into()), None).unwrap();
+        let requested_terminal = requested.terminal_public_id().cloned().unwrap();
+        let unrelated_terminal = unrelated.terminal_public_id().cloned().unwrap();
+
+        for (surface, session) in [(requested.id, "requested"), (unrelated.id, "unrelated")] {
+            mux.report_agent(surface, AgentState::Working, AgentSource::Hook, Some(session.into()))
+                .unwrap();
+        }
+        mux.corrupt_agent_projection_for_test(&unrelated_terminal);
+
+        let listed = dispatch(
+            &mux,
+            request(
+                ResourceOperation::AgentList,
+                None,
+                session_selectors(),
+                json!({"terminal_id":requested_terminal,"state":"working"}),
+            ),
+        )
+        .expect("the selected query must not decode an unrelated projection");
+        assert_eq!(listed.as_array().unwrap().len(), 1);
+        assert_eq!(listed[0]["terminal_id"], requested_terminal.as_str());
+    }
+
+    #[test]
     fn pairing_resolution_replays_without_resolving_twice() {
         let mux = Mux::new_for_test("aux-pairing-resolve", SurfaceOptions::default());
         let (challenge, response) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
@@ -776,7 +810,12 @@ mod tests {
                 ResourceOperation::FrontendProjectionPut,
                 Some("projection-put-once"),
                 selected.clone(),
-                json!({"projection":{"columns":[{"workspace":"α"}]}}),
+                json!({
+                    "frontend_id":"cmux-test",
+                    "window_id":"window-test",
+                    "generation":"launch-test",
+                    "projection":{"columns":[{"workspace":"α"}]},
+                }),
             )
         };
         let first = dispatch(&mux, put_request()).unwrap();
@@ -800,6 +839,65 @@ mod tests {
         )
         .unwrap();
         assert_eq!(got, first["value"]);
+    }
+
+    #[test]
+    fn frontend_projection_cas_is_window_local() {
+        let mux = Mux::new_for_test("aux-projection-window-cas", SurfaceOptions::default());
+        let first_id = FrontendProjectionPublicId::random().unwrap();
+        let second_id = FrontendProjectionPublicId::random().unwrap();
+        let fields = |window: &str, generation: &str, selected: &str| {
+            json!({
+                "frontend_id":"cmux-swift",
+                "window_id":window,
+                "generation":generation,
+                "projection":{"selected_workspace":selected},
+            })
+        };
+        let mut first = session_selectors();
+        first.frontend_projection = Some(first_id.to_string());
+        let mut second = session_selectors();
+        second.frontend_projection = Some(second_id.to_string());
+
+        let initial = dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-first"),
+                first.clone(),
+                fields("window-a", "launch-a", "alpha"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(initial["value"]["projection_revision"], "1");
+
+        dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-second"),
+                second,
+                fields("window-b", "launch-b", "beta"),
+            ),
+        )
+        .unwrap();
+
+        let updated = dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-first-update"),
+                first,
+                {
+                    let mut fields = fields("window-a", "launch-a", "gamma");
+                    fields["expected_projection_revision"] = json!("1");
+                    fields
+                },
+            ),
+        )
+        .unwrap();
+        assert_eq!(updated["value"]["projection_revision"], "2");
+        assert_eq!(updated["value"]["projection"]["selected_workspace"], "gamma");
     }
 
     #[test]

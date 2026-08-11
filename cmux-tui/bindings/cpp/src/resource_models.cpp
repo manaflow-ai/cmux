@@ -974,8 +974,6 @@ TerminalSnapshot parse_terminal(const Json& value) {
         },
         {
             "id",
-            "tab_id",
-            "tab_ids",
             "title",
             "cols",
             "rows",
@@ -1001,22 +999,39 @@ TerminalSnapshot parse_terminal(const Json& value) {
         exit.has_value() != (lifecycle == TerminalLifecycle::exited)) {
         fail("terminal running, lifecycle, and exit fields are inconsistent");
     }
-    auto tab_id = required_nullable_id_value<TabId>(
-        object, "tab_id", "terminal tab_id");
-    auto tab_ids = array_value<TabId>(
-        field(object, "tab_ids", "terminal"),
-        "terminal tab_ids",
-        [](const Json& item) {
-            return id_value<TabId>(item, "terminal tab_id");
-        });
-    if (tab_id.has_value() != !tab_ids.empty() ||
-        (tab_id.has_value() && tab_id.value() != tab_ids.front())) {
+    const auto legacy_field = object.find("tab_id");
+    const bool has_legacy_tab_id = legacy_field != object.end();
+    std::optional<TabId> legacy_tab_id;
+    if (has_legacy_tab_id && !legacy_field->second.is_null()) {
+        legacy_tab_id = id_value<TabId>(
+            legacy_field->second, "terminal tab_id");
+    }
+    const auto tab_ids_field = object.find("tab_ids");
+    std::vector<TabId> tab_ids;
+    if (tab_ids_field != object.end()) {
+        tab_ids = array_value<TabId>(
+            tab_ids_field->second,
+            "terminal tab_ids",
+            [](const Json& item) {
+                return id_value<TabId>(item, "terminal tab_id");
+            });
+    } else if (has_legacy_tab_id) {
+        if (legacy_tab_id.has_value()) {
+            tab_ids.push_back(legacy_tab_id.value());
+        }
+    } else {
+        fail("terminal snapshot requires tab_ids or tab_id");
+    }
+    if (has_legacy_tab_id &&
+        (legacy_tab_id.has_value() != !tab_ids.empty() ||
+         (legacy_tab_id.has_value() &&
+          legacy_tab_id.value() != tab_ids.front()))) {
         fail("terminal tab_id must be the first tab_ids item");
     }
     return {
         id_value<TerminalId>(
             field(object, "id", "terminal"), "terminal id"),
-        std::move(tab_id),
+        legacy_tab_id,
         std::move(tab_ids),
         string_value(
             field(object, "title", "terminal"), "terminal title"),
@@ -1353,8 +1368,14 @@ PairingRequestSnapshot parse_pairing(const Json& value) {
 FrontendProjectionSnapshot parse_projection(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"id", "session_id", "projection", "extra"},
-        {"id", "session_id", "projection"},
+        {
+            "id", "session_id", "frontend_id", "window_id", "generation",
+            "projection", "projection_revision", "extra",
+        },
+        {
+            "id", "session_id", "frontend_id", "window_id", "generation",
+            "projection", "projection_revision",
+        },
         "frontend projection snapshot");
     return {
         id_value<FrontendProjectionId>(
@@ -1362,7 +1383,19 @@ FrontendProjectionSnapshot parse_projection(const Json& value) {
         id_value<SessionId>(
             field(object, "session_id", "projection"),
             "projection session_id"),
+        string_value(
+            field(object, "frontend_id", "projection"),
+            "projection frontend_id"),
+        string_value(
+            field(object, "window_id", "projection"),
+            "projection window_id"),
+        string_value(
+            field(object, "generation", "projection"),
+            "projection generation"),
         field(object, "projection", "projection"),
+        decimal_value(
+            field(object, "projection_revision", "projection"),
+            "projection revision"),
         extra_value(object, "frontend projection snapshot"),
     };
 }
@@ -2035,28 +2068,62 @@ CellPixelsResult parse_cell_pixels(const Json& value) {
 ViewerResizeResult parse_viewer_resize(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"accepted", "size"},
-        {"accepted", "size"},
+        {"accepted", "size", "outcome"},
+        {"accepted", "size", "outcome"},
         "viewer resize result");
     return {
         bool_value(
             field(object, "accepted", "viewer resize"),
             "viewer resize accepted"),
         parse_size(field(object, "size", "viewer resize")),
+        enum_value<ViewerResizeResult::Outcome>(
+            field(object, "outcome", "viewer resize"),
+            {
+                {"applied", ViewerResizeResult::Outcome::applied},
+                {"passive", ViewerResizeResult::Outcome::passive},
+                {"superseded", ViewerResizeResult::Outcome::superseded},
+            },
+            "view attachment outcome"),
     };
 }
 
 BrowserViewerResizeResult parse_browser_viewer_resize(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"accepted", "size"},
-        {"accepted", "size"},
+        {"accepted", "size", "outcome"},
+        {"accepted", "size", "outcome"},
         "browser viewer resize result");
     return {
         bool_value(
             field(object, "accepted", "browser viewer resize"),
             "browser viewer resize accepted"),
         parse_pixel_size(field(object, "size", "browser viewer resize")),
+        enum_value<ViewerResizeResult::Outcome>(
+            field(object, "outcome", "browser viewer resize"),
+            {
+                {"applied", ViewerResizeResult::Outcome::applied},
+                {"passive", ViewerResizeResult::Outcome::passive},
+                {"superseded", ViewerResizeResult::Outcome::superseded},
+            },
+            "view attachment outcome"),
+    };
+}
+
+ViewerReleaseResult parse_viewer_release(const Json& value) {
+    const auto& object = exact_object(
+        value,
+        {"outcome"},
+        {"outcome"},
+        "viewer release result");
+    return {
+        enum_value<ViewerResizeResult::Outcome>(
+            field(object, "outcome", "viewer release"),
+            {
+                {"applied", ViewerResizeResult::Outcome::applied},
+                {"passive", ViewerResizeResult::Outcome::passive},
+                {"superseded", ViewerResizeResult::Outcome::superseded},
+            },
+            "view attachment outcome"),
     };
 }
 
@@ -2386,6 +2453,7 @@ CMUX_DEFINE_DECODER(RendererGrant, parse_renderer_grant)
 CMUX_DEFINE_DECODER(CellPixelsResult, parse_cell_pixels)
 CMUX_DEFINE_DECODER(ViewerResizeResult, parse_viewer_resize)
 CMUX_DEFINE_DECODER(BrowserViewerResizeResult, parse_browser_viewer_resize)
+CMUX_DEFINE_DECODER(ViewerReleaseResult, parse_viewer_release)
 CMUX_DEFINE_DECODER(CreationResolution, parse_creation_resolution)
 
 template <>
@@ -2873,6 +2941,10 @@ Result<ViewerResizeResult> decode_viewer_resize(const Json& value) {
 Result<BrowserViewerResizeResult> decode_browser_viewer_resize(
     const Json& value) {
     return decode_value<BrowserViewerResizeResult>(value);
+}
+
+Result<ViewerReleaseResult> decode_viewer_release(const Json& value) {
+    return decode_value<ViewerReleaseResult>(value);
 }
 
 Result<EmptyResult> decode_empty_result(const Json& value) {

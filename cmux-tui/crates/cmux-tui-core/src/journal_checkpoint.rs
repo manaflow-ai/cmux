@@ -28,6 +28,7 @@ const RESOURCE_COLLECTIONS: [&str; 10] = [
     "sidebar_views",
 ];
 
+#[derive(Debug)]
 pub(crate) struct CapturedCheckpoint {
     pub(crate) source_sequence: u64,
     pub(crate) state: Value,
@@ -35,6 +36,10 @@ pub(crate) struct CapturedCheckpoint {
 }
 
 pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
+    // Drain every output frame that reached ingress before the capture fence.
+    // Per-terminal epochs below reject a parser snapshot taken while its
+    // corresponding journal frame is still being enqueued.
+    mux.flush_terminal_journal()?;
     let head_before = mux.session_journal_after(0, 1)?.head_sequence;
     let snapshot = crate::resource_api::public_session_snapshot(mux)
         .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
@@ -65,11 +70,25 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     let mut blobs = Vec::new();
     for terminal_id in terminal_ids {
         let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
+        let epoch_before = surface
+            .terminal_journal_capture_epoch()
+            .context("checkpoint terminal is not a PTY surface")?;
+        anyhow::ensure!(
+            epoch_before & 1 == 0,
+            "terminal journal ingress is unsettled during checkpoint capture"
+        );
         let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
             terminal
                 .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
                 .map(|replay| (terminal.cols(), terminal.rows(), replay))
         })??;
+        let epoch_after = surface
+            .terminal_journal_capture_epoch()
+            .context("checkpoint terminal is not a PTY surface")?;
+        anyhow::ensure!(
+            epoch_before == epoch_after && epoch_after & 1 == 0,
+            "terminal changed during checkpoint capture"
+        );
         let replay_value = json!({
             "format":"cmux.vt-replay.v1",
             "cols":cols,
@@ -124,6 +143,7 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         )?);
     }
 
+    mux.flush_terminal_journal()?;
     let head_after = mux.session_journal_after(0, 1)?.head_sequence;
     let cursor_after = crate::resource_api::public_session_snapshot(mux)
         .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?["cursor"]
@@ -908,6 +928,75 @@ mod tests {
     }
 
     #[test]
+    fn replaying_an_old_producer_put_keeps_the_current_validator() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-producer-replay-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "producer-replay-validator",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let original = JournalProducerManifest {
+            producer_id: "producer_replay_test".into(),
+            namespace: "plugin.producer_replay_test".into(),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.producer_replay_test".into()],
+            events: vec![JournalEventSchema {
+                kind: "plugin.producer_replay_test.event".into(),
+                schema_version: 1,
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Metadata,
+                payload_schema: json!({
+                    "type":"object",
+                    "required":["old"],
+                    "properties":{"old":{"type":"boolean"}},
+                    "additionalProperties":false,
+                }),
+            }],
+        };
+        mux.put_journal_producer(&original, "client_test", "producer_original").unwrap();
+        let mut current = original.clone();
+        current.manifest_version = 2;
+        current.events[0].payload_schema = json!({
+            "type":"object",
+            "required":["current"],
+            "properties":{"current":{"type":"boolean"}},
+            "additionalProperties":false,
+        });
+        mux.put_journal_producer(&current, "client_test", "producer_current").unwrap();
+
+        let replay =
+            mux.put_journal_producer(&original, "client_test", "producer_original").unwrap();
+        assert!(replay.replayed);
+        mux.append_journal_ingress(
+            &crate::JournalIngress {
+                producer_id: current.producer_id.clone(),
+                manifest_version: current.manifest_version,
+                kind: current.events[0].kind.clone(),
+                schema_version: current.events[0].schema_version,
+                occurred_at_ms: None,
+                subjects: vec![],
+                sensitivity: None,
+                payload: json!({"current":true}),
+                causation_id: None,
+                correlation_id: None,
+            },
+            "client_test",
+            "producer_current_event",
+        )
+        .unwrap();
+
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn segment_compression_never_holds_the_session_writer() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-segment-writer-{}-{}",
@@ -1007,6 +1096,40 @@ mod tests {
         let captured = capture(&mux).unwrap();
         assert_eq!(captured.blobs.len(), 1);
         assert!(captured.blobs[0].reference.terminal_id.starts_with("term_"));
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkpoint_rejects_terminal_state_ahead_of_journal_ingress() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-checkpoint-fence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("checkpoint-fence", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000072",
+                "10000000000040008000000000000072",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        {
+            let mut pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+            assert!(pending_output.activate(), "terminal journal update must be active");
+            let error = match capture(&mux) {
+                Ok(_) => panic!("checkpoint accepted unsettled terminal output"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("terminal journal ingress is unsettled"));
+        }
+
+        drop(surface);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

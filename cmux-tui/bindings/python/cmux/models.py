@@ -149,7 +149,6 @@ TerminalLifecycle = Literal["launching", "running", "exited"]
 
 @dataclass(frozen=True)
 class TerminalSnapshot(Snapshot[TerminalId]):
-    tab_id: Optional[TabId]
     tab_ids: Tuple[TabId, ...]
     title: str
     cols: int
@@ -244,7 +243,11 @@ class PairingRequestSnapshot(Snapshot[PairingRequestId]):
 @dataclass(frozen=True)
 class FrontendProjectionSnapshot(Snapshot[ProjectionId]):
     session_id: SessionId
+    frontend_id: str
+    window_id: str
+    generation: str
     projection: Any
+    projection_revision: str
     extra: JsonObject = field(default_factory=dict)
 
 
@@ -394,12 +397,22 @@ class ProcessInfoResult:
 class ViewerResizeResult:
     accepted: bool
     size: "Size"
+    outcome: "ViewAttachmentOutcome"
 
 
 @dataclass(frozen=True)
 class BrowserViewerResizeResult:
     accepted: bool
     size: "PixelSize"
+    outcome: "ViewAttachmentOutcome"
+
+
+ViewAttachmentOutcome = Literal["applied", "passive", "superseded"]
+
+
+@dataclass(frozen=True)
+class ViewerReleaseResult:
+    outcome: ViewAttachmentOutcome
 
 
 @dataclass(frozen=True)
@@ -1049,6 +1062,8 @@ __all__ = [
     "TerminalAttachSnapshot",
     "Unknown",
     "ViewerResizeResult",
+    "ViewerReleaseResult",
+    "ViewAttachmentOutcome",
     "WorkspaceSnapshot",
     "exact",
     "shell",

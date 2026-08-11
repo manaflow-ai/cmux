@@ -47,14 +47,15 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. The first two product scenes use production-app screenshots, with
-    /// the notification scene showing the shipped chronological feed. The
+    /// path. The first product scene uses the shipped workspace-list capture,
+    /// while the notification scene shows the shipped chronological feed. The
     /// connection scene keeps its live connection-state illustration. Relaunching
     /// after the simulated search finishes must resume at Connect and expose QR
     /// as an explicit fallback.
     @MainActor
     func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
         let app = XCUIApplication()
+        XCUIDevice.shared.orientation = .portrait
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         let progressOverride = [
             "-dev.cmux.mobile.onboarding.redesign.progress.v1",
@@ -68,7 +69,10 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_SCANNER_PREVIEW": "1",
         ]
         app.launch()
-        defer { app.terminate() }
+        defer {
+            app.terminate()
+            XCUIDevice.shared.orientation = .portrait
+        }
 
         func element(_ identifier: String) -> XCUIElement {
             app.descendants(matching: .any)[identifier]
@@ -92,24 +96,34 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(footer.waitForExistence(timeout: 4))
         XCTAssertTrue(pageViewport.waitForExistence(timeout: 4))
 
-        let initialHeaderFrame = header.frame
-        let initialProgressFrame = progress.frame
-        let initialFooterFrame = footer.frame
+        var referenceHeaderFrame = header.frame
+        var referenceProgressFrame = progress.frame
+        var referenceFooterFrame = footer.frame
+
+        func recordChromeReferenceFrames() {
+            referenceHeaderFrame = header.frame
+            referenceProgressFrame = progress.frame
+            referenceFooterFrame = footer.frame
+        }
 
         func assertStableChrome(
             includeFooter: Bool = true,
             file: StaticString = #filePath,
             line: UInt = #line
         ) {
-            XCTAssertEqual(header.frame.minX, initialHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.minY, initialHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.width, initialHeaderFrame.width, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.height, initialHeaderFrame.height, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(progress.frame.midX, initialProgressFrame.midX, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(progress.frame.midY, initialProgressFrame.midY, accuracy: 0.5, file: file, line: line)
+            let appFrame = app.frame.insetBy(dx: -0.5, dy: -0.5)
+            XCTAssertTrue(appFrame.contains(header.frame), file: file, line: line)
+            XCTAssertTrue(appFrame.contains(progress.frame), file: file, line: line)
+            XCTAssertEqual(header.frame.minX, referenceHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.minY, referenceHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.width, referenceHeaderFrame.width, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.height, referenceHeaderFrame.height, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midX, referenceProgressFrame.midX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midY, referenceProgressFrame.midY, accuracy: 0.5, file: file, line: line)
             if includeFooter {
-                XCTAssertEqual(footer.frame.minY, initialFooterFrame.minY, accuracy: 0.5, file: file, line: line)
-                XCTAssertEqual(footer.frame.maxY, initialFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
+                XCTAssertTrue(appFrame.contains(footer.frame), file: file, line: line)
+                XCTAssertEqual(footer.frame.minY, referenceFooterFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(footer.frame.maxY, referenceFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
             }
         }
 
@@ -123,8 +137,76 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(page.frame.intersects(app.frame), file: file, line: line)
         }
 
+        func assertPageContentFitsWithoutScrolling(
+            title: XCUIElement,
+            visual: XCUIElement,
+            additionalContent: [XCUIElement] = [],
+            includeFooter: Bool = true,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertTrue(title.exists, file: file, line: line)
+            XCTAssertTrue(visual.exists, file: file, line: line)
+            for element in additionalContent {
+                XCTAssertTrue(element.exists, file: file, line: line)
+            }
+
+            let viewportFrame = pageViewport.frame.insetBy(dx: -0.5, dy: -0.5)
+            XCTAssertTrue(viewportFrame.contains(title.frame), file: file, line: line)
+            XCTAssertTrue(viewportFrame.contains(visual.frame), file: file, line: line)
+            for element in additionalContent {
+                XCTAssertTrue(viewportFrame.contains(element.frame), file: file, line: line)
+            }
+
+            let initialTitleFrame = title.frame
+            let initialVisualFrame = visual.frame
+            let initialAdditionalFrames = additionalContent.map(\.frame)
+            visual.swipeUp()
+
+            func waitForOriginalFrame(
+                _ element: XCUIElement,
+                originalFrame: CGRect
+            ) {
+                let settledFrame = waitForFrame(of: element, timeout: 2) { frame in
+                    abs(frame.minX - originalFrame.minX) <= 0.5
+                        && abs(frame.minY - originalFrame.minY) <= 0.5
+                        && abs(frame.maxX - originalFrame.maxX) <= 0.5
+                        && abs(frame.maxY - originalFrame.maxY) <= 0.5
+                }
+                XCTAssertNotNil(
+                    settledFrame,
+                    "Onboarding content did not return to its original frame after a vertical swipe",
+                    file: file,
+                    line: line
+                )
+            }
+
+            waitForOriginalFrame(title, originalFrame: initialTitleFrame)
+            waitForOriginalFrame(visual, originalFrame: initialVisualFrame)
+            for (element, initialFrame) in zip(additionalContent, initialAdditionalFrames) {
+                waitForOriginalFrame(element, originalFrame: initialFrame)
+            }
+
+            XCTAssertEqual(title.frame.minY, initialTitleFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(title.frame.maxY, initialTitleFrame.maxY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(visual.frame.minY, initialVisualFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(visual.frame.maxY, initialVisualFrame.maxY, accuracy: 0.5, file: file, line: line)
+            for (element, initialFrame) in zip(additionalContent, initialAdditionalFrames) {
+                XCTAssertEqual(element.frame.minY, initialFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(element.frame.maxY, initialFrame.maxY, accuracy: 0.5, file: file, line: line)
+            }
+            assertStableChrome(includeFooter: includeFooter, file: file, line: line)
+        }
+
         capture("onboarding-01-agents")
-        XCTAssertTrue(element("MobileOnboardingScreenshot-workspaces").exists)
+        let agentsTitle = app.staticTexts["Your agents keep working on your Mac"]
+        let agentsBody = app.staticTexts["Track every workspace from your phone."]
+        let agentsScreenshot = element("MobileOnboardingScreenshot-workspaces")
+        assertPageContentFitsWithoutScrolling(
+            title: agentsTitle,
+            visual: agentsScreenshot,
+            additionalContent: [agentsBody]
+        )
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
@@ -141,9 +223,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
-        XCTAssertTrue(element("MobileOnboardingScreenshot-notifications").exists)
+        let notificationsScreenshot = element("MobileOnboardingScreenshot-notifications")
+        XCTAssertTrue(notificationsScreenshot.exists)
         XCTAssertTrue(primaryButton.exists)
         assertStableChrome()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot,
+            additionalContent: [notificationsBody]
+        )
         capture("onboarding-02-notifications")
 
         let backButton = app.buttons["MobileOnboardingBackButton"]
@@ -175,6 +263,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         assertStableChrome(includeFooter: false)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [app.staticTexts[
+                "Use the same cmux account on both devices. Your Mac connects automatically."
+            ]],
+            includeFooter: false
+        )
         capture("onboarding-03-connect")
 
         // Drop only the launch-domain override. The application-domain value
@@ -189,10 +285,42 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene, timeout: 8)
         XCTAssertTrue(app.buttons["Check Again"].exists)
         XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
-        capture("onboarding-04-resumed-connect")
+        let tailscaleMethod = app.buttons["MobileOnboardingConnectionMethodTailscale"]
+        let automaticMethod = app.buttons["MobileOnboardingConnectionMethodAutomatic"]
+        XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
+        XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
+        tap(tailscaleMethod, in: app)
+        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts[
+            "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
+        ].waitForExistence(timeout: 4))
+        // The choice is exclusive: selecting one method must deselect the other.
+        XCTAssertTrue(tailscaleMethod.isSelected)
+        XCTAssertFalse(automaticMethod.isSelected)
+        tap(automaticMethod, in: app)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
+        XCTAssertTrue(automaticMethod.isSelected)
+        XCTAssertFalse(tailscaleMethod.isSelected)
 
         let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
         XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
+        XCTAssertTrue(qrFallbackButton.isHittable)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [
+                app.staticTexts[
+                    "Use the same cmux account on both devices. Your Mac connects automatically."
+                ],
+                element("MobileOnboardingConnectionMethodPicker"),
+            ],
+            includeFooter: true
+        )
+        capture("onboarding-04-resumed-connect")
+
         qrFallbackButton.tap()
 
         let scannerPreview = element("MobilePairingScannerPreview")
@@ -211,6 +339,53 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+
+        app.terminate()
+        XCUIDevice.shared.orientation = .landscapeRight
+        app.launchArguments = baseArguments + progressOverride
+        app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
+        app.launch()
+
+        assertPageVisible(agentsScene, timeout: 8)
+        XCTAssertNotNil(waitForFrame(of: pageViewport, timeout: 4) { frame in
+            frame.width > frame.height
+        })
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: agentsTitle,
+            visual: agentsScreenshot,
+            additionalContent: [agentsBody]
+        )
+        capture("onboarding-07-agents-compact-height")
+
+        primaryButton.tap()
+        assertPageVisible(notificationsScene)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot,
+            additionalContent: [notificationsBody]
+        )
+        capture("onboarding-08-notifications-compact-height")
+
+        primaryButton.tap()
+        assertPageVisible(connectScene)
+        let compactFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(compactFallbackButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
+        XCTAssertTrue(compactFallbackButton.isHittable)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [
+                app.staticTexts[
+                    "Use the same cmux account on both devices. Your Mac connects automatically."
+                ],
+                element("MobileOnboardingConnectionMethodPicker"),
+            ]
+        )
+        capture("onboarding-09-connect-compact-height")
     }
 
     @MainActor
@@ -340,6 +515,33 @@ final class cmuxUITests: XCTestCase {
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-mac-picker-computer-copy"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceGroupsStayVisibleForAllComputersAcrossMultipleMacs() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "8",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.staticTexts["All Computers"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobileWorkspaceGroupHeader-seed-group-0"
+            ].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobileWorkspaceGroupHeader-seed-group-1"
+            ].waitForExistence(timeout: 3)
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-groups-all-computers-multiple-macs"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
@@ -563,6 +765,70 @@ final class cmuxUITests: XCTestCase {
         )
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-list-swipe-delete-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testComputerVisibilitySwitchesKeepShownAndHiddenMacsInOneSection() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func waitForLabel(_ label: String, on element: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", label),
+                object: element
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func assertUnifiedRowsRemainVisible() {
+            XCTAssertTrue(app.navigationBars["Computers"].exists)
+            XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
+            XCTAssertTrue(app.staticTexts["Preview Mac"].exists)
+            XCTAssertFalse(app.staticTexts["Hidden Computers"].exists)
+        }
+
+        let shownToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-2"]
+        let hiddenToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-1"]
+        let shownPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-2"
+        ]
+        let hiddenPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-1"
+        ]
+        XCTAssertTrue(shownToggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(hiddenToggle.waitForExistence(timeout: 3))
+        XCTAssertTrue(shownPersistence.waitForExistence(timeout: 3))
+        XCTAssertTrue(hiddenPersistence.waitForExistence(timeout: 3))
+        waitForLabel("shown", on: shownPersistence)
+        waitForLabel("hidden", on: hiddenPersistence)
+        waitForValue("1", on: shownToggle)
+        waitForValue("0", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        shownToggle.tap()
+        waitForLabel("hidden", on: shownPersistence)
+        waitForValue("0", on: shownToggle)
+        assertUnifiedRowsRemainVisible()
+
+        hiddenToggle.tap()
+        waitForLabel("shown", on: hiddenPersistence)
+        waitForValue("1", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-visibility-switches-unified-section"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
@@ -944,19 +1210,68 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
+        // Selecting a result ends the search session (committing the query)
+        // and pushes the detail inside the search tab behind a system back
+        // control. Whether the system keeps its bottom search control over the
+        // pushed detail is platform chrome, deliberately not asserted.
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
-        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
+        guard workspaceDetail.waitForExistence(timeout: 3) else {
+            return XCTFail("Search-stack detail never appeared after tapping the result")
+        }
 
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        XCTAssertTrue(waitForHittable(backButton, timeout: 3))
-        tap(backButton, in: app)
-        XCTAssertNotNil(waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForKeyboardDismissal(in: app))
-        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
-        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+        guard waitForHittable(systemBack, timeout: 3) else {
+            return XCTFail("No hittable system back control on the search-stack detail")
+        }
+        tap(systemBack, in: app)
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces list did not return after popping the detail")
+        }
+        // Popping the detail finishes the search round on the Workspaces tab
+        // with the query cleared and the bottom search control collapsed.
+        guard waitForKeyboardDismissal(in: app) else {
+            return XCTFail("Keyboard stayed up after popping back from the search detail")
+        }
+        guard workspacesTab.waitForExistence(timeout: 3) else {
+            return XCTFail("Workspaces tab pill missing after popping the search detail")
+        }
+        XCTAssertTrue(
+            workspacesTab.isSelected,
+            "Popping the search-opened workspace must land on the Workspaces tab"
+        )
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing after finishing the search round")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Workspaces list missing rows after finishing the search round")
+        }
+        guard waitForHittable(mainRow, timeout: 3) else {
+            return XCTFail("Query must be cleared after finishing the search round")
+        }
+
+        // An explicit submit still commits the query as the Workspaces filter;
+        // that committed filter must survive a list refresh.
+        tap(minimizedSearch, in: app)
+        guard waitForHittable(searchField, timeout: 3) else {
+            return XCTFail("Search field missing when reactivating search for submit")
+        }
+        guard focusTextInput(searchField, in: app) else {
+            return XCTFail("Could not focus the search field for submit")
+        }
+        searchField.typeText("Docs\n")
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces root list missing after submitting the query")
+        }
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing after submitting the query")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Committed-filter match missing after submit")
+        }
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Committed query filter not applied after submit")
+        }
 
         let previewRefreshButtons = app.buttons.matching(
             NSPredicate(format: "identifier == %@", "MobileWorkspaceListPreviewRefresh")
@@ -1412,6 +1727,106 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(searchMatches.count, 1)
     }
 
+    /// Regression for the "stuck after selecting a search result" wedge (the
+    /// workspaces list stranded with no tab bar, no search field, and a stale
+    /// query filter): selecting a workspace from the search tab's results must
+    /// open the detail inside the search tab and pop back to the live results.
+    /// The old flow deactivated search, transitioned to the Workspaces tab, and
+    /// pushed onto that off-window stack mid search-dismissal, which could
+    /// record the push without performing it.
+    @MainActor
+    func testWorkspaceSearchSelectionOpensDetailInsideSearchTab() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached workspace search control requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+
+        let searchButton = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        tap(searchButton, in: app)
+
+        let searchField = app.searchFields["Search workspaces"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Docs")
+
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        tap(docsRow, in: app)
+
+        let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
+        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
+
+        // Pop back. The detail sits inside the search tab's stack behind the
+        // system back control; the old cross-tab flow used the custom
+        // workspaces back button, so accept either to keep the pop itself
+        // out of the regression's scope.
+        let customBack = app.buttons["MobileWorkspaceBackButton"]
+        if customBack.waitForExistence(timeout: 1) {
+            tap(customBack, in: app)
+        } else {
+            let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+            XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
+            tap(systemBack, in: app)
+        }
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+
+        // Popping back finishes the search round on the Workspaces tab: the
+        // full unfiltered list, no query left silently applied, and no
+        // selected (tinted) search control suggesting a search is still live.
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            workspacesTab.isSelected,
+            "Popping the search-opened workspace must land on the Workspaces tab"
+        )
+        XCTAssertTrue(
+            waitForHittable(docsRow, timeout: 3),
+            "Workspaces list missing rows after finishing the search round"
+        )
+        XCTAssertTrue(
+            waitForHittable(mainRow, timeout: 3),
+            "Query must be cleared after finishing the search round, not left filtering the list"
+        )
+
+        // Any visible search affordance belongs to the bottom edge (the
+        // regression showed the field pinned to the top with the keyboard up).
+        let restoredSearchControl = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(
+            restoredSearchControl.waitForExistence(timeout: 3),
+            "Bottom search control missing after popping the search detail"
+        )
+        if let controlFrame = waitForUsableFrame(of: restoredSearchControl, timeout: 3) {
+            XCTAssertGreaterThan(
+                controlFrame.midY,
+                app.frame.midY,
+                "Search control must sit at the bottom after popping, got \(controlFrame)"
+            )
+        } else {
+            XCTFail("Bottom search control had no usable frame after popping")
+        }
+        if searchField.exists, let fieldFrame = waitForUsableFrame(of: searchField, timeout: 1) {
+            XCTAssertGreaterThan(
+                fieldFrame.midY,
+                app.frame.midY,
+                "Search field must not re-present at the top after popping, got \(fieldFrame)"
+            )
+        }
+    }
+
     @MainActor
     func testNotificationTabPreservesSharedRootToolbar() throws {
         let app = launchApp(mockData: false, environment: [
@@ -1567,7 +1982,7 @@ final class cmuxUITests: XCTestCase {
         let approvalTitle = app.staticTexts["Codex needs approval"]
         let approvalWorkspace = app.staticTexts["cmux iOS"]
         let approvalBody = app.staticTexts[
-            "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass."
+            "The feed screen is implemented. Review the navigation and approve the final interaction pass."
         ]
         let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
         XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
@@ -2766,6 +3181,74 @@ final class cmuxUITests: XCTestCase {
         // or jumbled grid.
         assertTerminalRow(0, label: "$ cmux ios status", in: app)
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+    }
+
+    /// A composer submission stays visibly in progress until the Mac responds,
+    /// then exposes a durable failure while preserving the draft for retry.
+    @MainActor
+    func testTerminalComposerShowsSendingAndFailureSettlement() async throws {
+        let server = try MobileSyncMockHostServer(
+            holdsTerminalPasteResponse: true,
+            rejectsTerminalPaste: true
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Preserve this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+        await server.awaitTerminalPasteRequestReached()
+
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
+        XCTAssertFalse(send.isEnabled)
+
+        server.releaseTerminalPasteResponse()
+        let failure = app.staticTexts["MobileComposerSendFailure"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 4))
+        XCTAssertEqual(send.label, "Send failed")
+        XCTAssertEqual(field.value as? String, "Preserve this prompt")
+    }
+
+    /// A successful acknowledgement removes the in-flight treatment instead of
+    /// replacing Send with a persistent success glyph.
+    @MainActor
+    func testTerminalComposerReturnsToSendAfterAcknowledgement() async throws {
+        let server = try MobileSyncMockHostServer(holdsTerminalPasteResponse: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Acknowledge this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+        await server.awaitTerminalPasteRequestReached()
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
+
+        server.releaseTerminalPasteResponse()
+        let normalSend = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Send"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [normalSend], timeout: 4), .completed)
     }
 
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on
@@ -7093,6 +7576,92 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Reversing a keyboard dismissal before it settles must keep the Shortcut and
+    /// Composer bars in one visual dock. The surface samples their presentation-layer
+    /// seam every display frame; any transient separation remains observable after the
+    /// animation settles through `dockMaxInternalPresentationGap`.
+    @MainActor
+    func testTerminalDockStaysUnifiedAcrossRapidKeyboardReversals() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(
+            composerField.waitForExistence(timeout: 4),
+            "Rapid reversal coverage requires the Composer bar to be mounted"
+        )
+        let initialDock = waitForDock(in: app, describe: "composer and shortcut bars are both visible") {
+            guard $0["composerActive"] == "1",
+                  let composerMinY = $0["composerMinY"].flatMap(Double.init),
+                  let composerMaxY = $0["composerMaxY"].flatMap(Double.init) else { return false }
+            return composerMaxY - composerMinY > 1
+        }
+        XCTAssertEqual(initialDock["composerActive"], "1")
+
+        surface.tap()
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "rapid-reversal baseline"
+        )
+        let composerKeyboardInset = initialKeyboard.frame.minY - composerField.frame.maxY
+
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+
+        for cycle in 1...10 {
+            hideKeyboardButton.tap()
+            if app.keyboards.firstMatch.exists {
+                XCTAssertEqual(
+                    app.keyboards.firstMatch.frame.minY - composerField.frame.maxY,
+                    composerKeyboardInset,
+                    accuracy: 2,
+                    "The whole dock detached while keyboard dismissal was still visible in cycle \(cycle)"
+                )
+            }
+            surface.tap()
+
+            guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let dock = surfaceDock(in: app)
+            XCTAssertEqual(
+                keyboard.frame.minY - composerField.frame.maxY,
+                composerKeyboardInset,
+                accuracy: 2,
+                "The whole dock detached from the keyboard after rapid reversal \(cycle)"
+            )
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                dock,
+                surface: surface,
+                keyboard: keyboard,
+                context: "rapid reversal \(cycle)"
+            )
+            guard let maximumGap = dock["dockMaxInternalPresentationGap"].flatMap(Double.init) else {
+                XCTFail("Missing per-frame dock seam metric after rapid reversal \(cycle). dock=\(dock)")
+                return
+            }
+            XCTAssertLessThanOrEqual(
+                maximumGap,
+                1,
+                "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
+            )
+        }
+    }
+
     @MainActor
     private func waitForKeyboardDismissal(in app: XCUIApplication) -> Bool {
         let expectation = XCTNSPredicateExpectation(
@@ -7166,6 +7735,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let createdWorkspaceTerminalDelay: TimeInterval?
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
+    private let holdsTerminalPasteResponse: Bool
+    private let rejectsTerminalPaste: Bool
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
@@ -7175,6 +7746,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var replayCounts: [String: Int] = [:]
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
+    private var terminalPasteRequestReached = false
+    private var terminalPasteRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var heldTerminalPasteResponse: (() -> Void)?
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -7230,12 +7804,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
+        holdsTerminalPasteResponse: Bool = false,
+        rejectsTerminalPaste: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
+        self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
+        self.rejectsTerminalPaste = rejectsTerminalPaste
         self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
@@ -7474,23 +8052,80 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
             let responseFrame = try makeResponseFrame(for: payload)
-            connection.send(
-                content: responseFrame,
-                contentContext: .defaultMessage,
-                isComplete: false,
-                completion: .contentProcessed { [weak self, weak connection] error in
-                    guard error == nil,
-                          let self,
-                          let connection else {
-                        connection?.cancel()
-                        return
-                    }
-                    self.receiveRequest(on: connection, buffer: remainingBuffer)
+            if Self.requestMethod(in: payload) == "terminal.paste",
+               holdsTerminalPasteResponse {
+                terminalPasteRequestReached = true
+                let waiters = terminalPasteRequestReachedWaiters
+                terminalPasteRequestReachedWaiters = []
+                for waiter in waiters { waiter.resume() }
+                heldTerminalPasteResponse = { [weak self, weak connection] in
+                    guard let self, let connection else { return }
+                    self.sendResponse(
+                        responseFrame,
+                        on: connection,
+                        remainingBuffer: remainingBuffer
+                    )
                 }
-            )
+            } else {
+                sendResponse(
+                    responseFrame,
+                    on: connection,
+                    remainingBuffer: remainingBuffer
+                )
+            }
         } catch {
             connection.cancel()
         }
+    }
+
+    func awaitTerminalPasteRequestReached() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                guard let self else {
+                    continuation.resume()
+                    return
+                }
+                if terminalPasteRequestReached {
+                    continuation.resume()
+                } else {
+                    terminalPasteRequestReachedWaiters.append(continuation)
+                }
+            }
+        }
+    }
+
+    func releaseTerminalPasteResponse() {
+        queue.async { [weak self] in
+            let response = self?.heldTerminalPasteResponse
+            self?.heldTerminalPasteResponse = nil
+            response?()
+        }
+    }
+
+    private func sendResponse(
+        _ responseFrame: Data,
+        on connection: NWConnection,
+        remainingBuffer: Data
+    ) {
+        connection.send(
+            content: responseFrame,
+            contentContext: .defaultMessage,
+            isComplete: false,
+            completion: .contentProcessed { [weak self, weak connection] error in
+                guard error == nil,
+                      let self,
+                      let connection else {
+                    connection?.cancel()
+                    return
+                }
+                self.receiveRequest(on: connection, buffer: remainingBuffer)
+            }
+        )
+    }
+
+    private static func requestMethod(in payload: Data) -> String? {
+        let request = try? JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        return request?["method"] as? String
     }
 
     private func makeResponseFrame(for payload: Data) throws -> Data {
@@ -7508,6 +8143,18 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 "error": [
                     "code": "method_not_found",
                     "message": "Unknown method",
+                ],
+            ]
+            let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
+            return Self.frame(responsePayload)
+        }
+        if method == "terminal.paste", rejectsTerminalPaste {
+            let envelope: [String: Any] = [
+                "id": id,
+                "ok": false,
+                "error": [
+                    "code": "send_failed",
+                    "message": "Rejected terminal paste",
                 ],
             ]
             let responsePayload = try JSONSerialization.data(withJSONObject: envelope)

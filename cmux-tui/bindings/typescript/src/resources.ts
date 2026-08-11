@@ -117,6 +117,7 @@ import {
   type Unknown,
   type ReloadConfigResult,
   type ViewerResizeResult,
+  type ViewerReleaseResult,
   type JsonValue,
   type WorkspaceSnapshot,
 } from "./models.js";
@@ -136,6 +137,7 @@ import type {
   LayoutApplyOptions,
   MutationOptions,
   NotificationOptions,
+  ProjectionPutOptions,
   RequestOptions,
   RunOptions,
   SessionEventsOptions,
@@ -559,15 +561,28 @@ function tabSnapshot(value: unknown): TabSnapshot {
 
 function terminalSnapshot(value: unknown): TerminalSnapshot {
   const payload = unwrap(value, ["terminal"]);
-  const rawTabIds = payload.tab_ids;
-  if (!Array.isArray(rawTabIds)) {
-    throw new CmuxProtocolError("terminal tab_ids must be an array");
+  const hasLegacyTabId = Object.hasOwn(payload, "tab_id");
+  const hasTabIds = Object.hasOwn(payload, "tab_ids");
+  if (!hasLegacyTabId && !hasTabIds) {
+    throw new CmuxProtocolError("terminal snapshot requires tab_ids or tab_id");
   }
-  const tabIds = Object.freeze(
-    rawTabIds.map((item) => requiredId({ id: item }, ["id"], tabId)),
-  );
-  const selectedTabId = requiredNullableId(payload, "tab_id", tabId);
-  if (selectedTabId !== (tabIds[0] ?? null)) {
+  const legacyTabId = hasLegacyTabId
+    ? requiredNullableId(payload, "tab_id", tabId)
+    : undefined;
+  let decodedTabIds: TabId[];
+  if (hasTabIds) {
+    const rawTabIds = payload.tab_ids;
+    if (!Array.isArray(rawTabIds)) {
+      throw new CmuxProtocolError("terminal tab_ids must be an array");
+    }
+    decodedTabIds = rawTabIds.map(
+      (item) => requiredId({ id: item }, ["id"], tabId),
+    );
+  } else {
+    decodedTabIds = legacyTabId === null ? [] : [legacyTabId as TabId];
+  }
+  const tabIds = Object.freeze(decodedTabIds);
+  if (hasLegacyTabId && legacyTabId !== (tabIds[0] ?? null)) {
     throw new CmuxProtocolError("terminal tab_id must be the first tab_ids item");
   }
   const running = requiredBoolean(payload, "running");
@@ -598,7 +613,6 @@ function terminalSnapshot(value: unknown): TerminalSnapshot {
         "exit",
       ],
     ),
-    tabId: selectedTabId,
     tabIds,
     title: requiredString(payload, "title"),
     ...optionalProperty("cwd", optionalString(payload, "cwd")),
@@ -855,7 +869,10 @@ function frontendProjectionSnapshot(
   const base = snapshotFields(
     payload,
     projectionId,
-    ["session_id", "projection"],
+    [
+      "session_id", "frontend_id", "window_id", "generation", "projection",
+      "projection_revision",
+    ],
   );
   if (!Object.hasOwn(payload, "projection")) {
     throw new CmuxProtocolError("frontend projection omitted projection");
@@ -863,7 +880,11 @@ function frontendProjectionSnapshot(
   return Object.freeze({
     ...base,
     sessionId: requiredId(payload, ["session_id"], sessionId),
+    frontendId: requiredString(payload, "frontend_id"),
+    windowId: requiredString(payload, "window_id"),
+    generation: requiredString(payload, "generation"),
     projection: jsonValue(payload.projection, "frontend projection"),
+    projectionRevision: requiredDecimal(payload, "projection_revision"),
   });
 }
 
@@ -1024,6 +1045,7 @@ function optionFields(options: object): Record<string, unknown> {
       columns: "cols",
       widthPx: "width_px",
       heightPx: "height_px",
+      viewportWidth: "viewport_width",
       readOnly: "read_only",
       deltaRows: "delta_rows",
       deltaX: "delta_x",
@@ -1047,19 +1069,29 @@ function optionFields(options: object): Record<string, unknown> {
 }
 
 function journalOptionsFields(options: SessionJournalOptions): Record<string, unknown> {
+  if (options.cursor !== undefined && options.start !== undefined) {
+    throw new TypeError("journal cursor and start are mutually exclusive");
+  }
   const fields: Record<string, unknown> = {};
   if (options.cursor !== undefined) fields.cursor = options.cursor;
   if (options.start !== undefined) fields.start = options.start;
+  if (options.follow !== undefined) fields.follow = options.follow;
   const filter: Record<string, unknown> = {};
   if (options.kinds !== undefined) filter.kinds = [...options.kinds];
   if (options.classes !== undefined) filter.classes = [...options.classes];
   if (options.subjects !== undefined) {
+    if (options.subjects.some((subject) => subject.kind === undefined && subject.id === undefined)) {
+      throw new TypeError("journal subject filters require kind or id");
+    }
     filter.subjects = options.subjects.map((subject) => ({ ...subject }));
   }
   if (options.maxSensitivity !== undefined) {
     filter.max_sensitivity = options.maxSensitivity;
   }
   if (options.regex !== undefined) {
+    if (!hasUtf8ByteLength(options.regex.pattern, 1, 1024)) {
+      throw new TypeError("journal regex must contain 1 to 1024 UTF-8 bytes");
+    }
     filter.regex = {
       pattern: options.regex.pattern,
       field: options.regex.field ?? "record",
@@ -1083,14 +1115,11 @@ function browserPointerFields(
 }
 
 function mutationParams(
-  operation: Operation,
+  _operation: Operation,
   params: Readonly<Record<string, unknown>>,
   options: MutationOptions,
 ): Readonly<Record<string, unknown>> {
   if (options.expectedRevision === undefined) return params;
-  if (operation.name === "workspace.create") {
-    throw new TypeError(`${operation.name} does not accept expectedRevision`);
-  }
   if (typeof options.expectedRevision !== "string") {
     throw new TypeError("expectedRevision must be a decimal string");
   }
@@ -1323,28 +1352,28 @@ function sessionJournalRecord(value: unknown): SessionJournalRecord {
   strictObject(producer, ["kind", "id"], "journal producer");
   const authorityValue = payload.authority;
   const authority = authorityValue === null ? null : (() => {
-    const authority = record(authorityValue, "journal authority");
+    const authorityPayload = record(authorityValue, "journal authority");
     strictObject(
-      authority,
+      authorityPayload,
       ["principal_id", "lease_id", "generation", "role"],
       "journal authority",
     );
     return Object.freeze({
-      principalId: requiredString(authority, "principal_id"),
-      leaseId: requiredString(authority, "lease_id"),
-      generation: requiredString(authority, "generation"),
-      role: requiredString(authority, "role"),
+      principalId: requiredString(authorityPayload, "principal_id"),
+      leaseId: requiredString(authorityPayload, "lease_id"),
+      generation: requiredString(authorityPayload, "generation"),
+      role: requiredString(authorityPayload, "role"),
     });
   })();
   if (!Array.isArray(payload.subjects)) {
     throw new CmuxProtocolError("journal subjects must be an array");
   }
-  const subjects = payload.subjects.map((subject, index) => {
-    const value = record(subject, `journal subject ${index}`);
-    strictObject(value, ["kind", "id"], "journal subject");
+  const subjects = payload.subjects.map((subjectValue, index) => {
+    const subjectPayload = record(subjectValue, `journal subject ${index}`);
+    strictObject(subjectPayload, ["kind", "id"], "journal subject");
     return Object.freeze({
-      kind: requiredString(value, "kind"),
-      id: requiredString(value, "id"),
+      kind: requiredString(subjectPayload, "kind"),
+      id: requiredString(subjectPayload, "id"),
     });
   });
   return Object.freeze({
@@ -1380,7 +1409,16 @@ function sessionJournalRecord(value: unknown): SessionJournalRecord {
       payload,
       "previous_resource_revision",
     ),
-  });
+  }) satisfies SessionJournalRecord;
+}
+
+function validateSessionJournalStreamItem(
+  record: SessionJournalRecord,
+  cursor: Cursor | undefined,
+): void {
+  if (cursor === undefined || record.sequence !== cursor.revision) {
+    throw new CmuxProtocolError("journal sequence must match its stream cursor");
+  }
 }
 
 function color(payload: Record<string, unknown>, key: string): string {
@@ -2078,10 +2116,15 @@ function rendererGrantResult(value: unknown): RendererGrant {
 
 function viewerResizeResult(value: unknown): ViewerResizeResult {
   const payload = record(value, "viewer resize result");
-  strictObject(payload, ["accepted", "size"], "viewer resize result");
+  strictObject(payload, ["accepted", "size", "outcome"], "viewer resize result");
   return Object.freeze({
     accepted: requiredBoolean(payload, "accepted"),
     size: size(payload.size),
+    outcome: requiredEnum(
+      payload,
+      "outcome",
+      ["applied", "passive", "superseded"] as const,
+    ),
   });
 }
 
@@ -2091,12 +2134,29 @@ function browserViewerResizeResult(
   const payload = record(value, "browser viewer resize result");
   strictObject(
     payload,
-    ["accepted", "size"],
+    ["accepted", "size", "outcome"],
     "browser viewer resize result",
   );
   return Object.freeze({
     accepted: requiredBoolean(payload, "accepted"),
     size: pixelSize(payload.size),
+    outcome: requiredEnum(
+      payload,
+      "outcome",
+      ["applied", "passive", "superseded"] as const,
+    ),
+  });
+}
+
+function viewerReleaseResult(value: unknown): ViewerReleaseResult {
+  const payload = record(value, "viewer release result");
+  strictObject(payload, ["outcome"], "viewer release result");
+  return Object.freeze({
+    outcome: requiredEnum(
+      payload,
+      "outcome",
+      ["applied", "passive", "superseded"] as const,
+    ),
   });
 }
 
@@ -2466,8 +2526,9 @@ export class Client {
     params: Readonly<Record<string, unknown>>,
     decode: (value: unknown) => Value,
     options: RequestOptions = {},
+    validate?: (value: Value, cursor: Cursor | undefined) => void,
   ): Promise<ResourceStream<Value>> {
-    return this.protocol.openStream(operation, params, decode, options);
+    return this.protocol.openStream(operation, params, decode, options, validate);
   }
 
   private createdPath(
@@ -2778,6 +2839,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       { ...this.params(), ...journalOptionsFields(options) },
       sessionJournalRecord,
       options,
+      validateSessionJournalStreamItem,
     );
   }
 
@@ -3649,22 +3711,26 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
   }
 
   resizeViewer(
+    attachmentLease: string,
     size: ViewerSizeOptions,
     options: RequestOptions = {},
   ): Promise<ViewerResizeResult> {
     return this.client[controlOperation](
       operations.terminalViewerResize,
-      { ...this.params(), ...optionFields(size) },
+      { ...this.params(), attachment_lease: attachmentLease, ...optionFields(size) },
       viewerResizeResult,
       options,
     );
   }
 
-  releaseViewer(options: RequestOptions = {}): Promise<void> {
+  releaseViewer(
+    attachmentLease: string,
+    options: RequestOptions = {},
+  ): Promise<ViewerReleaseResult> {
     return this.client[controlOperation](
       operations.terminalViewerRelease,
-      this.params(),
-      emptyResult,
+      { ...this.params(), attachment_lease: attachmentLease },
+      viewerReleaseResult,
       options,
     );
   }
@@ -3826,22 +3892,26 @@ export class Browser extends Handle<BrowserId, BrowserSnapshot> {
   }
 
   resizeViewer(
+    attachmentLease: string,
     size: BrowserViewerSizeOptions,
     options: RequestOptions = {},
   ): Promise<BrowserViewerResizeResult> {
     return this.client[controlOperation](
       operations.browserViewerResize,
-      { ...this.params(), ...optionFields(size) },
+      { ...this.params(), attachment_lease: attachmentLease, ...optionFields(size) },
       browserViewerResizeResult,
       options,
     );
   }
 
-  releaseViewer(options: RequestOptions = {}): Promise<void> {
+  releaseViewer(
+    attachmentLease: string,
+    options: RequestOptions = {},
+  ): Promise<ViewerReleaseResult> {
     return this.client[controlOperation](
       operations.browserViewerRelease,
-      this.params(),
-      emptyResult,
+      { ...this.params(), attachment_lease: attachmentLease },
+      viewerReleaseResult,
       options,
     );
   }
@@ -3981,12 +4051,21 @@ export class PairingRequest extends Handle<PairingRequestId, PairingRequestSnaps
 export class FrontendProjection extends Handle<ProjectionId, FrontendProjectionSnapshot> {
   protected readonly selectorKey = "frontend_projection";
   put(
-    projection: JsonValue,
+    value: ProjectionPutOptions,
     options: MutationOptions = {},
   ): Promise<MutationResult<FrontendProjection>> {
     return this.client[mutateOperation](
       operations.frontendProjectionPut,
-      { ...this.params(), projection },
+      {
+        ...this.params(),
+        frontend_id: value.frontendId,
+        window_id: value.windowId,
+        generation: value.generation,
+        projection: value.projection,
+        ...(value.expectedProjectionRevision !== undefined
+          ? { expected_projection_revision: value.expectedProjectionRevision }
+          : {}),
+      },
       options,
       frontendProjectionSnapshot,
       (snapshot) => this.acceptSnapshot(snapshot),

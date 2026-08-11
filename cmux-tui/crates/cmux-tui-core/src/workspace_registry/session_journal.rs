@@ -3,7 +3,7 @@ use base64::Engine;
 use flate2::read::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Read;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -145,7 +145,7 @@ pub(crate) struct SessionJournalReader {
 
 impl SessionJournalReader {
     pub(crate) fn open(database_path: &Path) -> anyhow::Result<Self> {
-        let connection = Connection::open_with_flags(
+        let connection = open_registry_database_with_flags(
             database_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
@@ -187,6 +187,23 @@ pub(super) struct JournalAppend<'a> {
     pub(super) content: Option<&'a [u8]>,
     pub(super) resource_revision: Option<u64>,
     pub(super) previous_resource_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ResourceEffectJournalState {
+    Succeeded,
+    Failed,
+    Indeterminate,
+}
+
+impl ResourceEffectJournalState {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Indeterminate => "indeterminate",
+        }
+    }
 }
 
 pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -246,7 +263,17 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
            causation_depth INTEGER NOT NULL CHECK(causation_depth >= 0),
            causation_id TEXT,
-           causal_hook_id TEXT
+           causal_hook_id TEXT,
+           resource_revision INTEGER,
+           previous_resource_revision INTEGER,
+           CHECK(
+             (resource_revision IS NULL AND previous_resource_revision IS NULL)
+             OR (
+               resource_revision IS NOT NULL
+               AND previous_resource_revision IS NOT NULL
+               AND resource_revision = previous_resource_revision + 1
+             )
+           )
          );
          INSERT OR IGNORE INTO journal_event_index(event_id, sequence, causation_depth)
            SELECT event_id, sequence, causation_depth FROM session_journal;
@@ -319,12 +346,24 @@ pub(super) fn ensure_journal_event_index_schema(
     };
     let added_causation_id = !columns.contains("causation_id");
     let added_causal_hook_id = !columns.contains("causal_hook_id");
+    let added_resource_revision = !columns.contains("resource_revision");
+    let added_previous_resource_revision = !columns.contains("previous_resource_revision");
     if added_causation_id {
         transaction.execute("ALTER TABLE journal_event_index ADD COLUMN causation_id TEXT", [])?;
     }
     if added_causal_hook_id {
         transaction
             .execute("ALTER TABLE journal_event_index ADD COLUMN causal_hook_id TEXT", [])?;
+    }
+    if added_resource_revision {
+        transaction
+            .execute("ALTER TABLE journal_event_index ADD COLUMN resource_revision INTEGER", [])?;
+    }
+    if added_previous_resource_revision {
+        transaction.execute(
+            "ALTER TABLE journal_event_index ADD COLUMN previous_resource_revision INTEGER",
+            [],
+        )?;
     }
     let backfilled = transaction
         .query_row("SELECT 1 FROM meta WHERE key = 'journal_event_index_causation_v1'", [], |_| {
@@ -363,10 +402,52 @@ pub(super) fn ensure_journal_event_index_schema(
          ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
     }
+    let resource_backfilled = transaction
+        .query_row("SELECT 1 FROM meta WHERE key = 'journal_event_index_resource_v1'", [], |_| {
+            Ok(())
+        })
+        .optional()?
+        .is_some();
+    if added_resource_revision || added_previous_resource_revision || !resource_backfilled {
+        transaction.execute_batch(
+            "UPDATE journal_event_index
+             SET resource_revision = (
+                   SELECT resource_revision FROM session_journal
+                   WHERE session_journal.event_id = journal_event_index.event_id
+                 ),
+                 previous_resource_revision = (
+                   SELECT previous_resource_revision FROM session_journal
+                   WHERE session_journal.event_id = journal_event_index.event_id
+                 )
+             WHERE resource_revision IS NULL
+               AND event_id IN (
+                 SELECT event_id FROM session_journal WHERE resource_revision IS NOT NULL
+               );
+             UPDATE journal_event_index
+             SET resource_revision = CAST(
+                   substr(event_id, length('event_resource_') + 1) AS INTEGER
+                 ),
+                 previous_resource_revision = CAST(
+                   substr(event_id, length('event_resource_') + 1) AS INTEGER
+                 ) - 1
+             WHERE resource_revision IS NULL
+               AND length(event_id) = length('event_resource_') + 20
+               AND substr(event_id, 1, length('event_resource_')) = 'event_resource_'
+               AND substr(event_id, length('event_resource_') + 1) NOT GLOB '*[^0-9]*'
+               AND event_id BETWEEN 'event_resource_00000000000000000001'
+                                AND 'event_resource_09223372036854775807';
+             INSERT INTO meta(key, value)
+               VALUES('journal_event_index_resource_v1', '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+        )?;
+    }
     transaction.execute_batch(
         "CREATE INDEX IF NOT EXISTS journal_event_index_by_causal_hook
            ON journal_event_index(causal_hook_id, sequence)
-           WHERE causal_hook_id IS NOT NULL;",
+           WHERE causal_hook_id IS NOT NULL;
+         CREATE UNIQUE INDEX IF NOT EXISTS journal_event_index_by_resource_revision
+           ON journal_event_index(resource_revision)
+           WHERE resource_revision IS NOT NULL;",
     )?;
     Ok(())
 }
@@ -526,6 +607,93 @@ pub(super) fn append_resource_journal_record(
     )
 }
 
+pub(super) fn append_resource_effect_journal_record(
+    transaction: &Transaction<'_>,
+    idempotency_key: &str,
+    operation: &str,
+    intent: &Value,
+    outcome: Option<&Value>,
+    state: ResourceEffectJournalState,
+) -> anyhow::Result<()> {
+    validate_identifier("journal operation", operation)?;
+    let session_id = transaction.query_row(
+        "SELECT value FROM meta WHERE key = 'session_public_id'",
+        [],
+        |row| row.get::<_, String>(0),
+    )?;
+    let creation = transaction
+        .query_row(
+            "SELECT correlation_key, attempt
+             FROM resource_creation_receipts
+             WHERE idempotency_key = ?1
+             ORDER BY correlation_key
+             LIMIT 1",
+            [idempotency_key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    let correlation_id = creation
+        .as_ref()
+        .map(|(correlation_key, _)| correlation_key.as_str())
+        .unwrap_or(idempotency_key);
+    let attempt = creation
+        .as_ref()
+        .map(|(_, attempt)| u64::try_from(*attempt).context("effect attempt is negative"))
+        .transpose()?;
+
+    let mut subjects =
+        BTreeSet::from([JournalSubject { kind: "session".into(), id: session_id.clone() }]);
+    collect_subjects(intent, &mut subjects);
+    if let Some(outcome) = outcome {
+        collect_subjects(outcome, &mut subjects);
+    }
+    expand_topology_subjects(transaction, &mut subjects)?;
+    let subjects = subjects.into_iter().collect::<Vec<_>>();
+
+    let mut event_digest = Sha256::new();
+    event_digest.update(b"cmux.resource-effect.v1\0");
+    event_digest.update(session_id.as_bytes());
+    event_digest.update(b"\0");
+    event_digest.update(idempotency_key.as_bytes());
+    let event_id = format!("event_effect_{}", encode_bytes_hex(&event_digest.finalize()));
+    let state_name = state.as_str();
+    let kind = format!("{operation}.effect.{state_name}");
+    let producer = JournalProducer { kind: "resource_operation".into(), id: "resource-api".into() };
+    let payload = serde_json::json!({
+        "format":"cmux.resource-effect.v1",
+        "operation":operation,
+        "idempotency_key":idempotency_key,
+        "correlation_key":creation.as_ref().map(|(correlation_key, _)| correlation_key),
+        "attempt":attempt.map(|attempt| attempt.to_string()),
+        "state":state_name,
+        "intent":intent,
+        "outcome":outcome,
+    });
+    append_journal_record(
+        transaction,
+        &JournalAppend {
+            event_id: &event_id,
+            schema_version: JOURNAL_RECORD_SCHEMA_VERSION,
+            kind: &kind,
+            class: JournalClass::Effect,
+            replay: JournalReplayPolicy::Never,
+            occurred_at_ms: unix_epoch_ms()?,
+            producer: &producer,
+            authority: None,
+            causation_id: None,
+            correlation_id: Some(correlation_id),
+            causation_depth: 0,
+            subjects: &subjects,
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: &payload,
+            content: None,
+            resource_revision: None,
+            previous_resource_revision: None,
+        },
+    )?;
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn append_resource_journal_record_at(
     transaction: &Transaction<'_>,
@@ -605,8 +773,7 @@ pub(super) fn append_journal_record(
         "journal content is not supported for kind {}",
         append.kind
     );
-    let committed_at_ms =
-        if append.occurred_at_ms == 0 { unix_epoch_ms()? } else { append.occurred_at_ms };
+    let committed_at_ms = unix_epoch_ms()?;
     let subjects_json = canonical_json(&serde_json::to_value(append.subjects)?)?;
     transaction.execute(
         "INSERT INTO session_journal(
@@ -664,14 +831,25 @@ pub(super) fn append_journal_record(
     };
     transaction.execute(
         "INSERT INTO journal_event_index(
-           event_id, sequence, causation_depth, causation_id, causal_hook_id
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+           event_id, sequence, causation_depth, causation_id, causal_hook_id,
+           resource_revision, previous_resource_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             append.event_id,
             sequence,
             i64::from(append.causation_depth),
             append.causation_id,
             causal_hook_id,
+            append
+                .resource_revision
+                .map(i64::try_from)
+                .transpose()
+                .context("resource revision exceeds SQLite range")?,
+            append
+                .previous_resource_revision
+                .map(i64::try_from)
+                .transpose()
+                .context("previous resource revision exceeds SQLite range")?,
         ],
     )?;
     transaction.execute(
@@ -1313,7 +1491,7 @@ fn collect_patch_subjects(patch: &ResourcePatch, subjects: &mut BTreeSet<Journal
                     }
                 }
             }
-            ResourceChange::TombstoneTab { tab_id } => {
+            ResourceChange::TombstoneTab { tab_id, .. } => {
                 insert_subject(subjects, "tab", tab_id.as_str());
             }
             ResourceChange::SetTabOrder { pane_id, tab_ids } => {
@@ -1427,6 +1605,47 @@ pub(super) fn expand_topology_subjects(
         .collect::<Result<Vec<_>, _>>()?;
     subjects.extend(expanded);
     Ok(())
+}
+
+pub(super) fn terminal_topology_subjects_batch(
+    transaction: &Transaction<'_>,
+    terminal_ids: impl IntoIterator<Item = String>,
+) -> anyhow::Result<HashMap<String, Vec<JournalSubject>>> {
+    let terminal_ids = terminal_ids.into_iter().collect::<BTreeSet<_>>();
+    if terminal_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let ids_json = canonical_json(&serde_json::to_value(&terminal_ids)?)?;
+    let mut statement = transaction.prepare(
+        "WITH seeds(terminal_id) AS (
+           SELECT value FROM json_each(?1)
+         ),
+         paths(terminal_id, tab_id, pane_id, screen_id, workspace_id) AS (
+           SELECT seed.terminal_id, tab.public_id, tab.pane_id,
+                  pane.screen_id, screen.workspace_id
+           FROM seeds AS seed
+           JOIN resource_tabs AS tab ON tab.content_id = seed.terminal_id
+           JOIN resource_panes AS pane ON pane.public_id = tab.pane_id
+           JOIN resource_screens AS screen ON screen.public_id = pane.screen_id
+         )
+         SELECT terminal_id, 'tab', tab_id FROM paths
+         UNION SELECT terminal_id, 'pane', pane_id FROM paths
+         UNION SELECT terminal_id, 'screen', screen_id FROM paths
+         UNION SELECT terminal_id, 'workspace', workspace_id FROM paths",
+    )?;
+    let expanded = statement
+        .query_map([ids_json], |row| {
+            Ok((row.get::<_, String>(0)?, JournalSubject { kind: row.get(1)?, id: row.get(2)? }))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut by_terminal = HashMap::<String, BTreeSet<JournalSubject>>::new();
+    for (terminal_id, subject) in expanded {
+        by_terminal.entry(terminal_id).or_default().insert(subject);
+    }
+    Ok(by_terminal
+        .into_iter()
+        .map(|(terminal_id, subjects)| (terminal_id, subjects.into_iter().collect()))
+        .collect())
 }
 
 fn public_id_kind(value: &str) -> Option<&'static str> {

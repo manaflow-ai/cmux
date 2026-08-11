@@ -1,6 +1,6 @@
 # cmux Rust SDK
 
-`cmux-sdk` exposes a handwritten blocking API for `cmux.protocol/1`. The
+`cmux-sdk` exposes a handwritten blocking API for `cmux.protocol/2`. The
 library crate is named `cmux` and supports Rust 1.88.
 
 ```rust

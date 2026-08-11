@@ -34,7 +34,8 @@ pub use model::{
     TerminalExitOutcome, TerminalExitedLifecycle, TerminalHistoryResult, TerminalLifecycle,
     TerminalPendingLifecycle, TerminalScreenResult, TerminalSnapshot, TerminalStateResult,
     TerminalWaitExitExited, TerminalWaitExitPending, TerminalWaitExitResult, TerminalWaitResult,
-    TypedStreamItem, ViewerResizeResult, WorkspaceSnapshot,
+    TypedStreamItem, ViewAttachmentOutcome, ViewerReleaseResult, ViewerResizeResult,
+    WorkspaceSnapshot,
 };
 pub use options::{
     AgentListOptions, AgentReportOptions, AgentSource, AgentState, BrowserAttachOptions,

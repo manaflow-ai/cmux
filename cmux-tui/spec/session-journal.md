@@ -12,8 +12,8 @@ browser lifecycle; continuous terminal output and geometry; frontend focus,
 viewport, and geometry observations; frontend projections; explicit agent
 reports; and normalized native agent-hook observations. A pure restoration
 reducer can preview the state reconstructed from a checkpoint and its tail.
-Provider-specific hook installers, verified root ownership leases, and live
-application of a restored model remain pending.
+Verified root ownership leases and live application of a restored model remain
+pending.
 
 ## Invariants
 
@@ -22,19 +22,23 @@ application of a restored model remain pending.
 2. A state mutation appends its record in the same SQLite transaction as its
    materialized projection and idempotency receipt. Both commit or neither
    commits.
-3. Retrying one idempotency key returns the original result and does not append
+3. An accepted external effect gets exactly one durable outcome. A
+   state-changing success uses its state record; a receipt-only success,
+   definite failure, or indeterminate execution appends a non-replayable
+   `effect` record in the receipt transaction.
+4. Retrying one idempotency key returns the original result and does not append
    another record.
-4. Logical records cannot be updated or deleted. SQLite triggers protect both
+5. Logical records cannot be updated or deleted. SQLite triggers protect both
    active rows and sealed segments. Sealing moves a checkpoint-covered prefix
    into an immutable checksummed segment without changing its records.
-5. The commit path performs one journal insert. It does not start a process,
+6. The commit path performs one journal insert. It does not start a process,
    wait for a hook, render UI, or perform network I/O. Dispatchers tail only
    after commit.
-6. Sequence is commit order. `occurred_at_ms` describes producer time and is
+7. Sequence is commit order. `occurred_at_ms` describes producer time and is
    never used to reorder records.
-7. Every record names the stable public resources it concerns. Runtime slot
+8. Every record names the stable public resources it concerns. Runtime slot
    numbers and frontend-local positions are not durable identities.
-8. A record says whether restoration requires it. Observations and external
+9. A record says whether restoration requires it. Observations and external
    effects are never silently replayed as state mutations.
 
 “Everything” means every accepted semantic transition and effect outcome. It
@@ -132,6 +136,8 @@ authority and export redaction use this field before payload delivery.
 Storage v1 conservatively marks generic resource payloads `sensitive` because
 whole-resource upserts may contain names, URLs, or upstream agent session IDs.
 Producer-specific redacted event shapes may lower that classification later.
+Storage v1 rejects `secret` producer schemas and ingress overrides because it
+does not have encrypted retention. The enum reserves that future policy.
 
 ## Subscription API
 
@@ -147,7 +153,9 @@ retained records. Reconnecting with the last delivered cursor resumes after
 that record. A cursor from another session, or one ahead of the current head,
 fails with `cursor.invalid`. A bounded subscriber that falls behind receives a
 `gap` stream end with its last safe cursor and reconnects from that cursor.
-`start` and `cursor` are mutually exclusive.
+Successful bounded replay queues its final `stream_end` after every admitted
+record, so completion cannot overtake or discard the replay tail. Overflow and
+cancellation remain destructive. `start` and `cursor` are mutually exclusive.
 
 Each committed subject is also inserted into an append-only
 `(kind, id, sequence)` index in the record transaction. Retained catch-up for
@@ -162,8 +170,8 @@ dimension are ORed, and filtered records still advance the cursor:
 - `subjects` matches a subject kind, ID, or both, and every entry contains at
   least one of those fields;
 - `max_sensitivity` accepts `public`, `metadata`, or `sensitive`, with each
-  threshold including lower levels. Omission uses the transport cap:
-  `sensitive` for a trusted local Unix client and `metadata` remotely;
+  threshold including lower levels. Omission defaults to `metadata` on every
+  transport. A trusted local Unix client can explicitly request `sensitive`;
 - `regex` is compiled once and matches `kind`, `subjects`, `payload`, the
   complete record, or exact decoded `terminal_output` bytes after structured
   filters pass.
@@ -181,7 +189,12 @@ The CLI is the language-neutral hook boundary. Human output prints records;
 cursor before performing an external effect:
 
 ```bash
+cmux --session main --jsonl session current journal read
+cmux --session main --jsonl session current journal read \
+  --kinds 'agent.*' --regex 'approval|question' --regex-field payload --ignore-case
 cmux --session main --jsonl session current journal subscribe
+cmux --session main --jsonl session current journal subscribe \
+  --kinds agent.turn.completed
 cmux --session main --jsonl session current journal subscribe \
   --from beginning --kinds 'agent.*,pane.*' --classes state,observation
 cmux --session main --jsonl session current journal subscribe \
@@ -192,8 +205,10 @@ cmux --session main --jsonl session current journal subscribe \
   --kinds terminal.output --regex 'error|failed' --regex-field terminal_output --ignore-case
 ```
 
-The first command tails new events. Add `--from beginning` to view retained
-history. Keep the final cursor from each JSONL item and resume with
+`journal read` prints retained history through the head captured when the
+command opens, then exits. `journal subscribe` tails new events; add
+`--from beginning` to replay retained history before following. Keep the final
+cursor from each JSONL item and resume with
 `--cursor-session <session-id> --sequence <sequence>`. A client connected to a
 resident process that predates journal capability negotiation receives
 `operation.unsupported` with an instruction to restart that named session,
@@ -202,7 +217,10 @@ instead of the older `validation.invalid` envelope error.
 Quote kind prefixes containing `*` so shells such as zsh do not expand them.
 Regex uses Rust's linear-time regex engine. Patterns are limited to 1024 bytes,
 compiled once per subscription, and literal searches use the engine's
-vectorized prefilters when available.
+vectorized prefilters when available. A regex inspects only its selected field:
+`--regex-field payload` does not inspect `kind`. Filter completions with
+`--kinds agent.turn.completed`, or use `--regex-field record` when one regex
+must inspect both kind and payload.
 
 One session-local fanout tailer owns the persistent read-only WAL connection.
 It decodes each live record once into a ring bounded by 8,192 records and a
@@ -293,12 +311,26 @@ no state changed.
 
 Terminal output is a high-volume content stream, not inline journal payload.
 The PTY reader copies accepted output only when journaling is enabled, releases
-the terminal lock, and sends it to the single journal writer. That writer
-coalesces adjacent chunks up to 256 KiB, assigns generation-local byte offsets,
-and stores the exact bytes accepted by the authoritative terminal parser in
-SQLite BLOBs. JSON wire and sealed-segment forms use base64; storage and regex
-matching use those parser input bytes. Accepted geometry
-changes use the same ordered ingress actor.
+the terminal lock, and sends it through a dedicated bounded terminal lane to
+the single journal writer. That writer coalesces adjacent chunks up to 256 KiB,
+assigns generation-local byte offsets, and stores the exact bytes accepted by
+the authoritative terminal parser in SQLite BLOBs. JSON wire and sealed-segment
+forms use base64; storage and regex matching use those parser input bytes.
+Accepted geometry changes use the same FIFO terminal lane.
+
+External producers and durable frontend observations use a second bounded
+lane. One coalesced wake signal drives both lanes; each batch reserves capacity
+for up to 4 MiB of terminal ingress and 8 MiB of resident producer payloads,
+then gives both lanes another turn. Saturating the agent lane therefore cannot
+occupy the terminal lane or block the PTY reader. Byte order is strict within
+the terminal lane, durable producer order is strict within the producer lane,
+and the writer assigns commit order when independent lanes race.
+
+Lossless terminal capture can still backpressure the PTY after its own bounded
+lane fills during a prolonged storage stall. Removing that final bound requires
+an acknowledged durable output spool or an explicit loss policy at the
+terminal-host boundary. Moving the same queue into another process does not
+remove the storage bound.
 
 The checkpoint writer captures each terminal under its terminal lock as a
 bounded VT replay blob, compresses it with deterministic gzip, and stores it by
@@ -315,10 +347,11 @@ redacted outcome needed for diagnostics.
 
 An agent adapter maps one agent runtime's native hooks into the semantic event
 vocabulary. The built-in `cmux_agent` producer accepts native JSON through the
-CLI, preserves the complete parsed native value under `payload.native`, and
-stores common session, turn, directory, transcript, tool, message, and agent
-topology fields under `payload.normalized`. Unknown native events become
-`agent.state.changed`, so adding a provider event never discards its data:
+CLI, preserves only structural string fields and non-string structure before
+it stores the provider shape under `payload.native`, and stores common session,
+turn, directory, transcript, tool, and agent topology fields under
+`payload.normalized`. Content strings and credential fields are redacted.
+Unknown native events become `agent.state.changed`:
 
 ```bash
 printf '%s\n' '{"session_id":"abc","message":"done"}' | \
@@ -341,12 +374,12 @@ record and can fetch one tree through its indexed subject instead of scanning
 payload JSON.
 
 Native agent, parent, root, session, depth, name, and type fields remain in
-the normalized projection while the complete provider object remains under
-`payload.native`. Adapters accept common snake-case, camel-case, and nested
-event/context forms. When a provider omits parent identity, the event is
-marked `agent_relation: "unknown"` and no parent edge is invented. This keeps
-parallel or nested children as explicit orphans until a later provider event
-supplies the relationship.
+the normalized projection. The provider object remains under `payload.native`
+after recursive content and credential-field redaction. Adapters accept common
+snake-case, camel-case, and nested event/context forms. When a provider
+omits parent identity, the event is marked `agent_relation: "unknown"` and no
+parent edge is invented. This keeps parallel or nested children as explicit
+orphans until a later provider event supplies the relationship.
 
 Provider contracts may supply a safe structural invariant. Claude Code, for
 example, supplies a stable child ID but no parent ID and does not permit its
@@ -361,6 +394,55 @@ session socket, waits for the durable receipt with a bounded timeout, and
 exits. It does not initialize the TUI frontend. The main terminal process owns
 only the bounded socket handler and single-writer journal actor; provider hook
 execution remains in the provider's external process.
+
+The helper allows four seconds for the complete journal receipt. Installed
+command providers allow at least five seconds, so their outer timeout cannot
+cancel an event before the journal's two-second commit-admission window ends.
+
+Install, inspect, or remove all detected provider adapters with:
+
+```bash
+cmux agent hook install
+cmux agent hook status
+cmux agent hook uninstall
+```
+
+Coding-agent hook management is supported only on Unix systems. Other
+platforms reject these commands instead of installing provider files that
+cannot run.
+
+Providers load hook configuration at process start. After installation, launch
+a new agent or restart an existing agent inside a cmux-tui terminal so it
+inherits `CMUX_TUI_SOCKET` and `CMUX_TUI_TERMINAL_ID`. Hooks invoked outside a
+cmux-tui terminal intentionally consume their provider input and exit without
+appending to an arbitrary session.
+
+An explicit provider list limits the operation, for example
+`cmux agent hook install codex claude gemini`. The built-in set is Codex,
+Claude Code, Gemini CLI, Cursor Agent, Grok, Hermes Agent, OpenCode, Amp, and Pi. Installation
+copies the matching `cmux-tui-hook` beside the CLI into the stable user data
+directory, then atomically merges command-hook configuration or installs one
+owned plugin file. Existing unrelated hooks remain in place. Reinstallation is
+idempotent, legacy cmux-tui journal shims are migrated, and an unrecognized
+file at an owned plugin path is never overwritten.
+
+Command-hook providers wait for only the helper's bounded durable receipt.
+Plugin providers return from their callback immediately and let an external
+helper child finish that same bounded receipt. Provider work, normalization,
+SQLite writes, and downstream hook execution never run on the PTY reader,
+terminal parser, render, or frontend input threads.
+
+Plugin adapters subscribe to finite semantic transitions, not provider token
+or message-part deltas. The terminal lane already retains the visible byte
+stream, while a process per model token would duplicate content and create an
+unbounded process fan-out. OpenCode's adapter also carries its observed session
+ancestry beside the untouched native event so nested session trees retain root
+and parent edges across arbitrary depth. Grok receives one native adapter;
+guards on its Claude and Cursor compatibility imports prevent duplicate events
+with misidentified providers.
+Hermes uses a separately enabled, owned plugin; installation removes the
+journal half of a recognized legacy cmux-irc tee while preserving cmux-irc's
+native plugin.
 
 A provider-specific adapter manifest declares:
 
@@ -440,6 +522,13 @@ into the environment. Execution uses an absolute `argv`, an empty inherited
 environment, no shell, and bounded timeout and concurrency. Shell evaluation
 is not supported.
 
+The hook process scope uses a kernel fence before any hook instruction runs.
+Linux descendants inherit a seccomp rule that rejects `setsid` and `setpgid`,
+so they cannot leave the scope's process group. macOS denies `process-fork`, so
+a macOS hook executable must do its work in one process and cannot start a
+subprocess. These restrictions make timeout and shutdown cleanup independent
+of environment variables or inherited file descriptors that a hook can clear.
+
 The dispatcher stores a materialized cursor per hook manifest version. It
 appends these outcomes:
 
@@ -486,6 +575,27 @@ External effects are not repeated during replay. Their recorded outcomes
 materialize state. Live-process adoption separately verifies process identity
 and incarnation before reconnecting a terminal host.
 
+Hosts created before the source-ordered detach protocol remain available in a
+compatibility mode. Their live output is not added to the journal because an
+old host cannot fence output at daemon shutdown. New protocol-v4 hosts use the
+normal durable output path, and the compatibility mode ends when the old
+terminal exits.
+
+If a protocol-v4 host does not return its detach receipt before the shared
+shutdown deadline, or an active parser update exceeds its shutdown grace, the
+old daemon appends a required `terminal.output.gap` record after its reader
+stops and before the terminal ingress barrier. The record names the terminal
+runtime generation and uses `cmux.terminal-output-gap.v1` with reason
+`detach_fence_failed` or `active_update_timeout`. A restore preview treats this
+required kind as unsupported, so it cannot report a fully reducible tail that
+can contain missing source bytes. The daemon always attempts the final terminal
+barrier, closes both journal admission lanes, drains accepted records, and joins
+the journal writer through a fixed shutdown deadline. If an already admitted
+SQLite commit does not finish inside that final deadline, shutdown detaches the
+writer instead of waiting without a limit. The transaction continues to own the
+registry and its atomic idempotency receipt until SQLite returns; a later retry
+therefore observes the committed receipt or performs the request once.
+
 Live restoration will consume this inert complete model. Process adoption,
 fresh process spawning, browser reconnect, and agent resume are explicit
 post-replay actions with their own journal outcomes. A partially supported
@@ -523,19 +633,20 @@ may be compacted because canonical records remain rebuildable.
 SQLite is the durable ordering boundary because the journal record, state
 projection, and idempotency receipt can commit in one transaction. WAL permits
 the shared read tailer to run concurrently with the single serialized writer.
-Concurrent durable producer requests enter that writer's bounded queue and
-share a transaction while retaining one result and idempotency receipt per
-request. Terminal output, frontend observations, and producer events therefore
-have one commit-order boundary instead of competing SQLite writers.
+Concurrent durable producer requests enter that writer's bounded producer lane
+and share a transaction while retaining one result and idempotency receipt per
+request. A separate bounded terminal lane isolates parser ingress while the
+same writer gives terminal output, frontend observations, and producer events
+one commit-order boundary instead of competing SQLite writers.
 The public stream is asynchronous, while blocking SQLite work stays on the
 session writer or dedicated read workers. An async SQLite wrapper would move
 the same synchronous SQLite calls onto another worker and add scheduling hops;
 it would not make the database engine asynchronous.
 
 Canonical segments are retained until explicit session deletion or an explicit
-export-and-forget policy. Size pressure cannot silently delete history. Secret
-content has a separate encrypted retention policy and journaled redaction
-markers.
+export-and-forget policy. Size pressure cannot silently delete history. Storage
+v1 does not accept secret content. Encrypted secret retention and journaled
+redaction markers are reserved for a later storage version.
 
 ## Migration state
 
@@ -550,8 +661,9 @@ markers.
 | Frontend focus, window geometry, and viewport target | Implemented as advisory observations |
 | Checkpoint terminal VT content references | Implemented with content-addressed gzip blobs |
 | Continuous terminal content chunks and geometry | Implemented with raw BLOBs and generation-local offsets |
-| Built-in lossless agent-hook ingress, semantic normalization, and indexed agent forest | Implemented in storage v1 |
-| Provider-specific agent hook installers and root leases | Pending |
+| Built-in redacted agent-hook ingress, semantic normalization, and indexed agent forest | Implemented in storage v1; explicit parent session IDs form cross-process ancestry without provider agent IDs |
+| Provider-specific agent hook installers | Implemented for Codex, Claude Code, Gemini CLI, Cursor Agent, Grok, Hermes Agent, OpenCode, Amp, and Pi |
+| Verified agent root ownership leases | Pending |
 | Schema-validated producer manifests and ingress | Implemented in storage v1 |
 | Hook dispatcher and delivery projections | Implemented in storage v1 |
 | Checkpoint writer and restoration preview reducer | Implemented in storage v1 |

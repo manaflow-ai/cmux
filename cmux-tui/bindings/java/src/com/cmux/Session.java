@@ -69,6 +69,7 @@ public final class Session {
         Map<String, Object> params = withExtra(route.params(), options.stream().extra());
         options.cursor().ifPresent(cursor -> params.put(Wire.CURSOR, cursorMap(cursor)));
         options.start().ifPresent(start -> params.put(Wire.START, start.toWire()));
+        options.follow().ifPresent(follow -> params.put("follow", follow));
         options.filter().ifPresent(filter -> {
             Map<String, Object> encoded = Wire.map();
             if (!filter.kinds().isEmpty()) encoded.put("kinds", filter.kinds());

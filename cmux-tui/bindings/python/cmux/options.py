@@ -100,6 +100,7 @@ class SplitPaneOptions:
     columns: Optional[int] = None
     rows: Optional[int] = None
     correlation_key: Optional[str] = None
+    viewport_width: Optional[float] = None
 
     def __post_init__(self) -> None:
         _validate_correlation_key(self.correlation_key)
@@ -156,7 +157,7 @@ class JournalSubjectFilter:
 @dataclass(frozen=True)
 class JournalRegexFilter:
     pattern: str
-    field: Literal["kind", "subjects", "payload", "record"] = "record"
+    field: Literal["kind", "subjects", "payload", "record", "terminal_output"] = "record"
     case_sensitive: bool = True
 
 
@@ -173,6 +174,7 @@ class JournalFilter:
 class SessionJournalOptions:
     cursor: Optional[Cursor] = None
     start: Optional[Literal["tail", "beginning"]] = None
+    follow: Optional[bool] = None
     filter: Optional[JournalFilter] = None
 
 

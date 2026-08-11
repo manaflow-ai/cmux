@@ -27,6 +27,7 @@ import CmuxTerminal
 @main
 enum CmuxMain {
     static func main() {
+        AppHostProcessReceipt.writeIfRequired()
 #if DEBUG
         // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
         // debug log file. Route bonsplit through the shared writer so the

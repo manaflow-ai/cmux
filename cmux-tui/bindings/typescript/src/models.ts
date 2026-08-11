@@ -115,7 +115,6 @@ export interface TabSnapshot extends Snapshot<TabId> {
 }
 export type TerminalLifecycle = "launching" | "running" | "exited";
 export interface TerminalSnapshot extends Snapshot<TerminalId> {
-  readonly tabId: TabId | null;
   readonly tabIds: readonly TabId[];
   readonly title: string;
   readonly cwd?: string;
@@ -194,7 +193,11 @@ export interface PairingRequestSnapshot extends Snapshot<PairingRequestId> {
 }
 export interface FrontendProjectionSnapshot extends Snapshot<ProjectionId> {
   readonly sessionId: SessionId;
+  readonly frontendId: string;
+  readonly windowId: string;
+  readonly generation: string;
   readonly projection: JsonValue;
+  readonly projectionRevision: DecimalString;
 }
 export interface SidebarViewSnapshot extends Snapshot<SidebarViewId> {
   readonly sessionId: SessionId;
@@ -347,11 +350,19 @@ export interface CellPixelsResult {
 export interface ViewerResizeResult {
   readonly accepted: boolean;
   readonly size: Size;
+  readonly outcome: ViewAttachmentOutcome;
 }
 
 export interface BrowserViewerResizeResult {
   readonly accepted: boolean;
   readonly size: PixelSize;
+  readonly outcome: ViewAttachmentOutcome;
+}
+
+export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
+
+export interface ViewerReleaseResult {
+  readonly outcome: ViewAttachmentOutcome;
 }
 
 export interface ExactCommand {

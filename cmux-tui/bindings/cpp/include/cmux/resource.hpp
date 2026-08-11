@@ -405,6 +405,7 @@ struct SplitPaneOptions {
     std::optional<std::uint16_t> columns;
     std::optional<std::uint16_t> rows;
     std::optional<std::string> correlation_key;
+    std::optional<double> viewport_width;
 
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
@@ -464,7 +465,7 @@ enum class JournalStart { tail, beginning };
 enum class JournalClass { state, observation, effect, checkpoint };
 enum class JournalReplayPolicy { required, advisory, never };
 enum class JournalSensitivity { public_, metadata, sensitive, secret };
-enum class JournalRegexField { kind, subjects, payload, record };
+enum class JournalRegexField { kind, subjects, payload, record, terminal_output };
 
 struct JournalSubjectFilter {
     std::optional<std::string> kind;
@@ -488,6 +489,7 @@ struct JournalFilter {
 struct SessionJournalOptions {
     std::optional<Cursor> cursor;
     std::optional<JournalStart> start;
+    std::optional<bool> follow;
     JournalFilter filter;
 
     [[nodiscard]] Result<Json::Object> to_params() const;
@@ -941,8 +943,20 @@ struct PairingRequestSnapshot {
 struct FrontendProjectionSnapshot {
     FrontendProjectionId id;
     SessionId session_id;
+    std::string frontend_id;
+    std::string window_id;
+    std::string generation;
     JsonValue projection;
+    std::uint64_t projection_revision = 0;
     Json::Object extra;
+};
+
+struct ProjectionPutOptions {
+    std::string frontend_id;
+    std::string window_id;
+    std::string generation;
+    JsonValue projection;
+    std::optional<std::uint64_t> expected_projection_revision;
 };
 
 struct SidebarViewSnapshot {
@@ -1199,11 +1213,21 @@ struct CellPixelsResult {
 struct ViewerResizeResult {
     bool accepted = false;
     Size size;
+    enum class Outcome {
+        applied,
+        passive,
+        superseded,
+    } outcome = Outcome::passive;
 };
 
 struct BrowserViewerResizeResult {
     bool accepted = false;
     PixelSize size;
+    ViewerResizeResult::Outcome outcome = ViewerResizeResult::Outcome::passive;
+};
+
+struct ViewerReleaseResult {
+    ViewerResizeResult::Outcome outcome = ViewerResizeResult::Outcome::passive;
 };
 
 enum class CreationState {
@@ -1315,6 +1339,7 @@ CMUX_DECLARE_TYPED_DECODER(RendererGrant);
 CMUX_DECLARE_TYPED_DECODER(CellPixelsResult);
 CMUX_DECLARE_TYPED_DECODER(ViewerResizeResult);
 CMUX_DECLARE_TYPED_DECODER(BrowserViewerResizeResult);
+CMUX_DECLARE_TYPED_DECODER(ViewerReleaseResult);
 CMUX_DECLARE_TYPED_DECODER(CreationResolution);
 CMUX_DECLARE_TYPED_DECODER(JsonValue);
 
@@ -1448,6 +1473,7 @@ public:
     ~ResourceStream();
 
     [[nodiscard]] const StreamId& id() const noexcept;
+    [[nodiscard]] const std::optional<std::string>& attachment_lease() const noexcept;
     // Waits until an item, stream end, transport failure, or cancellation.
     // Request and stream-open deadlines do not become idle deadlines.
     [[nodiscard]] Result<std::optional<RawStreamItem>> next();
@@ -1604,6 +1630,8 @@ namespace detail {
     const Json& value);
 [[nodiscard]] Result<BrowserViewerResizeResult> decode_browser_viewer_resize(
     const Json& value);
+[[nodiscard]] Result<ViewerReleaseResult> decode_viewer_release(
+    const Json& value);
 [[nodiscard]] Result<EmptyResult> decode_empty_result(const Json& value);
 
 template <typename T>
@@ -1637,6 +1665,9 @@ public:
         : stream_(std::move(stream)) {}
 
     [[nodiscard]] const StreamId& id() const noexcept { return stream_.id(); }
+    [[nodiscard]] const std::optional<std::string>& attachment_lease() const noexcept {
+        return stream_.attachment_lease();
+    }
 
     [[nodiscard]] Result<std::optional<TypedStreamItem<T>>> next() {
         auto raw = stream_.next();
@@ -1710,7 +1741,7 @@ public:
     [[nodiscard]] Result<ViewerResizeResult> resize_viewer(
         std::uint16_t columns,
         std::uint16_t rows);
-    [[nodiscard]] Result<EmptyResult> release_viewer();
+    [[nodiscard]] Result<ViewerReleaseResult> release_viewer();
 };
 
 class BrowserAttachmentStream final
@@ -1721,7 +1752,7 @@ public:
     [[nodiscard]] Result<BrowserViewerResizeResult> resize_viewer(
         std::uint32_t width_px,
         std::uint32_t height_px);
-    [[nodiscard]] Result<EmptyResult> release_viewer();
+    [[nodiscard]] Result<ViewerReleaseResult> release_viewer();
 };
 
 using SidebarViewStream = TypedResourceStream<SidebarViewItem>;
@@ -2078,9 +2109,11 @@ public:
     [[nodiscard]] Result<RendererGrant> renderer_grant(
         Json::Object params = {}) const;
     [[nodiscard]] Result<ViewerResizeResult> resize_viewer(
+        std::string attachment_lease,
         std::uint16_t columns,
         std::uint16_t rows) const;
-    [[nodiscard]] Result<EmptyResult> release_viewer() const;
+    [[nodiscard]] Result<ViewerReleaseResult> release_viewer(
+        std::string attachment_lease) const;
     [[nodiscard]] Result<MutationResult<EmptyResult>> scroll(
         std::int32_t delta_rows,
         MutationOptions options = MutationOptions::unique()) const;
@@ -2131,9 +2164,11 @@ public:
         std::uint64_t pointer_frame_seq,
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<BrowserViewerResizeResult> resize_viewer(
+        std::string attachment_lease,
         std::uint32_t width_px,
         std::uint32_t height_px) const;
-    [[nodiscard]] Result<EmptyResult> release_viewer() const;
+    [[nodiscard]] Result<ViewerReleaseResult> release_viewer(
+        std::string attachment_lease) const;
     [[nodiscard]] Result<BrowserAttachmentStream> attach(
         Json::Object params = {},
         CallOptions call = {}) const;
@@ -2169,7 +2204,14 @@ public:
 using Notification = AuxiliaryHandle<NotificationId>;
 using Agent = AuxiliaryHandle<AgentId>;
 using PairingRequest = AuxiliaryHandle<PairingRequestId>;
-using FrontendProjection = AuxiliaryHandle<FrontendProjectionId>;
+class FrontendProjection final : public ResourceHandle<FrontendProjectionId> {
+public:
+    using ResourceHandle::ResourceHandle;
+    [[nodiscard]] Result<FrontendProjectionSnapshot> refresh() const;
+    [[nodiscard]] Result<MutationResult<FrontendProjectionSnapshot>> put(
+        ProjectionPutOptions projection,
+        MutationOptions options = MutationOptions::unique()) const;
+};
 class SidebarView final : public ResourceHandle<SidebarViewId> {
 public:
     using ResourceHandle::ResourceHandle;

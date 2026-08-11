@@ -1065,7 +1065,12 @@ impl State {
 
     /// The pane a surface currently lives in.
     pub fn pane_of(&self, surface: SurfaceId) -> Option<PaneId> {
-        self.panes.values().find(|p| p.tabs.contains(&surface)).map(|p| p.id)
+        self.resource_indexes.tab_pane.get(&surface).copied().or_else(|| {
+            // A resource mutation can temporarily stage a local placement
+            // before its public indexes are committed. Preserve lookup for
+            // that bounded transient state without penalizing steady state.
+            self.panes.values().find(|pane| pane.tabs.contains(&surface)).map(|pane| pane.id)
+        })
     }
 
     pub fn active_pane(&self) -> Option<PaneId> {

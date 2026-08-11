@@ -15,6 +15,7 @@ public final class FrontendJournalEventResize implements WireValue, FrontendJour
     private final int cellWidth;
     private final int cols;
     private final String eventId;
+    private final String frontendProjectionId;
     private final String generation;
     private final int rows;
 
@@ -27,6 +28,8 @@ public final class FrontendJournalEventResize implements WireValue, FrontendJour
         this.cols = builder.cols;
         if (!builder.eventIdSet) throw new IllegalArgumentException("event_id is required");
         this.eventId = Wire.nonNull(builder.eventId, "event_id");
+        if (!builder.frontendProjectionIdSet) throw new IllegalArgumentException("frontend_projection_id is required");
+        this.frontendProjectionId = Wire.nonNull(builder.frontendProjectionId, "frontend_projection_id");
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
         if (!builder.rowsSet) throw new IllegalArgumentException("rows is required");
@@ -39,6 +42,7 @@ public final class FrontendJournalEventResize implements WireValue, FrontendJour
     public int cellWidth() { return cellWidth; }
     public int cols() { return cols; }
     public String eventId() { return eventId; }
+    public String frontendProjectionId() { return frontendProjectionId; }
     public String generation() { return generation; }
     public String kind() { return "resize"; }
     public int rows() { return rows; }
@@ -54,6 +58,8 @@ public final class FrontendJournalEventResize implements WireValue, FrontendJour
         builder.cols(Wire.uint16(rawCols, "FrontendJournalEventResize.cols"));
         Object rawEventId = Wire.required(object, "event_id");
         builder.eventId(Wire.string(rawEventId, "FrontendJournalEventResize.event_id"));
+        Object rawFrontendProjectionId = Wire.required(object, "frontend_projection_id");
+        builder.frontendProjectionId(Wire.string(rawFrontendProjectionId, "FrontendJournalEventResize.frontend_projection_id"));
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "FrontendJournalEventResize.generation"));
         Object rawKind = Wire.required(object, "kind");
@@ -70,6 +76,7 @@ public final class FrontendJournalEventResize implements WireValue, FrontendJour
         Wire.put(object, "cell_width", cellWidth);
         Wire.put(object, "cols", cols);
         Wire.put(object, "event_id", eventId);
+        Wire.put(object, "frontend_projection_id", frontendProjectionId);
         Wire.put(object, "generation", generation);
         Wire.put(object, "kind", "resize");
         Wire.put(object, "rows", rows);
@@ -79,11 +86,11 @@ public final class FrontendJournalEventResize implements WireValue, FrontendJour
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof FrontendJournalEventResize that)) return false;
-        return Objects.equals(cellHeight, that.cellHeight) && Objects.equals(cellWidth, that.cellWidth) && Objects.equals(cols, that.cols) && Objects.equals(eventId, that.eventId) && Objects.equals(generation, that.generation) && Objects.equals(rows, that.rows);
+        return Objects.equals(cellHeight, that.cellHeight) && Objects.equals(cellWidth, that.cellWidth) && Objects.equals(cols, that.cols) && Objects.equals(eventId, that.eventId) && Objects.equals(frontendProjectionId, that.frontendProjectionId) && Objects.equals(generation, that.generation) && Objects.equals(rows, that.rows);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cellHeight, cellWidth, cols, eventId, generation, rows); }
+    public int hashCode() { return Objects.hash(cellHeight, cellWidth, cols, eventId, frontendProjectionId, generation, rows); }
 
     @Override
     public String toString() { return "FrontendJournalEventResize" + toWire(); }
@@ -97,6 +104,8 @@ public final class FrontendJournalEventResize implements WireValue, FrontendJour
         private boolean colsSet;
         private String eventId;
         private boolean eventIdSet;
+        private String frontendProjectionId;
+        private boolean frontendProjectionIdSet;
         private String generation;
         private boolean generationSet;
         private Integer rows;
@@ -120,6 +129,11 @@ public final class FrontendJournalEventResize implements WireValue, FrontendJour
         public Builder eventId(String value) {
             this.eventId = value;
             this.eventIdSet = true;
+            return this;
+        }
+        public Builder frontendProjectionId(String value) {
+            this.frontendProjectionId = value;
+            this.frontendProjectionIdSet = true;
             return this;
         }
         public Builder generation(String value) {

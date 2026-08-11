@@ -26,7 +26,7 @@ class Operation:
 
     @property
     def accepts_expected_revision(self) -> bool:
-        return self.is_mutation and self.wire_name != "workspace.create"
+        return self.is_mutation
 
 
 def _op(

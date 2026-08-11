@@ -1,8 +1,8 @@
 # Public CLI
 
-`cmux` exposes `cmux.protocol/1` as a noun-first CLI. The public command
+`cmux` exposes `cmux.protocol/2` as a noun-first CLI. The public command
 tree uses the same resource hierarchy and operation catalog as the handwritten
-SDKs. The private protocol-v10 command set is available only through the
+SDKs. The private protocol-v11 command set is available only through the
 explicit `raw command` escape.
 
 ## Process modes
@@ -52,7 +52,7 @@ supplied ancestor is checked for containment before the operation runs.
 
 Run `cmux <resource> --help` for its exact paths and flags. Parser tests
 map every operational one-shot command and parameter in
-[`resource-operations-v1.json`](resource-operations-v1.json) to a public path.
+[`resource-operations-v2.json`](resource-operations-v2.json) to a public path.
 Sensitive renderer grants and connection-owned stream/viewer controls remain
 SDK and raw-only.
 
@@ -155,6 +155,8 @@ session <selector> journal subscribe [--from tail|beginning]
   [--kinds <kind,...>] [--classes <class,...>] [--subjects <kind>:<id>,...]
   [--max-sensitivity public|metadata|sensitive]
   [--regex <pattern>] [--regex-field kind|subjects|payload|record|terminal_output] [--ignore-case]
+session <selector> journal read [--from beginning]
+  [--cursor-session <session-id> --sequence <sequence>] [FILTERS]
 session <selector> journal producer list
 session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
 session <selector> journal append --event-json <json> --idempotency-key <key>
@@ -165,10 +167,16 @@ session <selector> journal checkpoint list
 session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
 session <selector> journal segment list
 session <selector> journal segment seal --through <sequence> --idempotency-key <key>
+session <name> reset-state [--force --confirm-reset <token>] [--state <path>]
 session <selector> creation <correlation-key> resolve
 session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
+
+agent list
+agent report --terminal <selector> --state <state> --source <source>
+agent hook emit --source <provider> --event <native-event> [--terminal <id>]
+agent hook install|uninstall|status [provider...]
 
 client list
 client <selector> show|detach
@@ -268,8 +276,8 @@ cmux raw operation <dotted.name> [--params-json <object>]
 cmux raw command --request-json <private-protocol-object>
 ```
 
-`raw operation` sends a generic `cmux.protocol/1` request. Known operations
-still use their catalog class. `raw command` sends a private protocol-v10
+`raw operation` sends a generic `cmux.protocol/2` request. Known operations
+still use their catalog class. `raw command` sends a private protocol-v11
 object and has no compatibility promise.
 
 The old action-first commands are removed. They fail locally with exit code 2

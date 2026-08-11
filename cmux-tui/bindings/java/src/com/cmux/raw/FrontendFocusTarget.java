@@ -6,7 +6,9 @@ import java.util.Objects;
 public enum FrontendFocusTarget implements WireEnum {
     PANE("pane"),
     MACHINE_RAIL("machine_rail"),
-    WORKSPACE_RAIL("workspace_rail");
+    WORKSPACE_RAIL("workspace_rail"),
+    TABS_RAIL("tabs_rail"),
+    PROJECTION_RAIL("projection_rail");
 
     private final Object wireValue;
 

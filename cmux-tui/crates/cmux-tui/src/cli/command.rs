@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::{self, Read};
+use std::path::PathBuf;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -16,7 +17,9 @@ pub(super) enum ParsedCommand {
 }
 
 pub(super) enum CommandPlan {
+    AgentHooks(crate::agent_hook_install::Plan),
     Protocol(RequestPlan),
+    SessionResetState(SessionResetStatePlan),
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
@@ -62,6 +65,14 @@ pub(super) struct PluginPlan {
     pub name: Option<String>,
     pub force: bool,
     pub builtin: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct SessionResetStatePlan {
+    pub session: String,
+    pub state: Option<String>,
+    pub force: bool,
+    pub confirm_reset: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -309,7 +320,14 @@ fn parse_session(
             selectors.insert("session", "session", selector)?;
             let mut params = Map::new();
             add_stream_id(&mut params, flags)?;
-            add_journal_subscription(&mut params, flags)?;
+            add_journal_subscription(&mut params, flags, None, true)?;
+            request(ResourceOperation::SessionJournalSubscribe, selectors, flags, params)
+        }
+        [selector, "journal", "read"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            add_stream_id(&mut params, flags)?;
+            add_journal_subscription(&mut params, flags, Some("beginning"), false)?;
             request(ResourceOperation::SessionJournalSubscribe, selectors, flags, params)
         }
         [selector, "journal", "producer", "list"] => {
@@ -402,6 +420,12 @@ fn parse_session(
             }
             request(ResourceOperation::SessionShutdown, selectors, flags, params)
         }
+        [selector, "reset-state"] => Ok(CommandPlan::SessionResetState(SessionResetStatePlan {
+            session: exact_session_name_for_reset(selector)?,
+            state: flags.take("state"),
+            force: flags.boolean("force"),
+            confirm_reset: flags.take("confirm-reset"),
+        })),
         [selector, "config", "reload"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionReloadConfig, selectors, flags, Map::new())
@@ -443,6 +467,15 @@ fn parse_session(
             request(ResourceOperation::SessionTerminalDefaultsUpdate, selectors, flags, params)
         }
         _ => usage("session action"),
+    }
+}
+
+fn exact_session_name_for_reset(selector: &str) -> Result<String, UsageError> {
+    let messages = &crate::localization::catalog().session_reset;
+    match Selector::parse(selector).map_err(|_| UsageError::new(messages.exact_name_required))? {
+        Selector::Name(name) if !name.is_empty() => Ok(name),
+        Selector::Name(_) => Err(UsageError::new(messages.non_empty_name_required)),
+        Selector::Current | Selector::Id(_) => Err(UsageError::new(messages.exact_name_required)),
     }
 }
 
@@ -676,13 +709,21 @@ fn parse_pane_strings(
         [selector, "split"] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = Map::new();
-            let direction = take_direction_switch(flags)?;
-            params.insert(
-                "direction".into(),
-                Value::String(direction.unwrap_or_else(|| "right".into())),
-            );
+            let direction = take_direction_switch(flags)?.unwrap_or_else(|| "right".into());
+            params.insert("direction".into(), Value::String(direction.clone()));
             if let Some(ratio) = flags.take("ratio") {
                 insert_ratio(&mut params, "ratio", "--ratio", ratio)?;
+            }
+            if let Some(viewport_width) = flags.take("viewport-width") {
+                if direction != "right" {
+                    return Err(UsageError::new("--viewport-width requires --right"));
+                }
+                insert_viewport_width(
+                    &mut params,
+                    "viewport_width",
+                    "--viewport-width",
+                    viewport_width,
+                )?;
             }
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             add_size(&mut params, flags)?;
@@ -1230,6 +1271,18 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
+        ["hook", action @ ("install" | "uninstall" | "status"), providers @ ..] => {
+            let action = match *action {
+                "install" => crate::agent_hook_install::Action::Install,
+                "uninstall" => crate::agent_hook_install::Action::Uninstall,
+                "status" => crate::agent_hook_install::Action::Status,
+                _ => unreachable!(),
+            };
+            Ok(CommandPlan::AgentHooks(crate::agent_hook_install::Plan {
+                action,
+                providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
+            }))
+        }
         ["list"] => {
             let mut params = Map::new();
             if let Some(terminal) = flags.take("terminal") {
@@ -1240,7 +1293,7 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
                 validate_one_of(
                     "--state",
                     &state,
-                    &["idle", "running", "waiting", "done", "error"],
+                    &["working", "blocked", "idle", "done", "unknown"],
                 )?;
                 params.insert("state".into(), Value::String(state));
             }
@@ -1312,7 +1365,7 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             let terminal = flags.required("terminal")?;
             validate_prefixed_id("terminal", "term", &terminal)?;
             let state = flags.required("state")?;
-            validate_one_of("--state", &state, &["idle", "running", "waiting", "done", "error"])?;
+            validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
             let mut params = json!({
@@ -1482,18 +1535,35 @@ fn parse_projection(
                 "frontend_projection",
                 "projection",
             )?;
-            let mut params = Map::new();
-            params.insert("projection".into(), parse_json_flag(flags, "projection")?);
+            let params = projection_put_fields(flags)?;
             request(ResourceOperation::FrontendProjectionPut, selectors, flags, params)
         }
         [selector, "put"] => {
             selectors.insert("frontend_projection", "projection", selector)?;
-            let mut params = Map::new();
-            params.insert("projection".into(), parse_json_flag(flags, "projection")?);
+            let params = projection_put_fields(flags)?;
             request(ResourceOperation::FrontendProjectionPut, selectors, flags, params)
         }
         _ => usage("projection action"),
     }
+}
+
+fn projection_put_fields(flags: &mut Flags) -> Result<Map<String, Value>, UsageError> {
+    let mut params = Map::new();
+    params.insert("projection".into(), parse_json_flag(flags, "projection")?);
+    for (flag, field) in
+        [("frontend-id", "frontend_id"), ("window-id", "window_id"), ("generation", "generation")]
+    {
+        let value = flags.required(flag)?;
+        if value.is_empty() || value.len() > 128 {
+            return Err(UsageError::new(format!("--{flag} must contain 1 to 128 UTF-8 bytes")));
+        }
+        params.insert(field.into(), Value::String(value));
+    }
+    if let Some(revision) = flags.take("expected-projection-revision") {
+        validate_decimal("--expected-projection-revision", &revision)?;
+        params.insert("expected_projection_revision".into(), Value::String(revision));
+    }
+    Ok(params)
 }
 
 fn parse_provider(
@@ -1670,7 +1740,16 @@ fn requires_session_route(operation: ResourceOperation) -> bool {
 }
 
 fn supports_expected_revision(operation: ResourceOperation) -> bool {
-    operation.class() == OperationClass::Mutation && operation != ResourceOperation::WorkspaceCreate
+    operation.class() == OperationClass::Mutation
+        && !matches!(
+            operation,
+            ResourceOperation::FrontendProjectionPut
+                | ResourceOperation::SessionJournalAppend
+                | ResourceOperation::SessionJournalCheckpointCreate
+                | ResourceOperation::SessionJournalHookPut
+                | ResourceOperation::SessionJournalProducerPut
+                | ResourceOperation::SessionJournalSegmentSeal
+        )
 }
 
 fn validate_one_of(flag: &str, value: &str, allowed: &[&str]) -> Result<(), UsageError> {
@@ -2042,20 +2121,22 @@ fn add_optional_cursor(
 fn add_journal_subscription(
     params: &mut Map<String, Value>,
     flags: &mut Flags,
+    default_start: Option<&str>,
+    follow: bool,
 ) -> Result<(), UsageError> {
-    let start = flags.take("from");
-    if let Some(start) = start.as_deref() {
+    let explicit_start = flags.take("from");
+    if let Some(start) = explicit_start.as_deref() {
         validate_one_of("--from", start, &["tail", "beginning"])?;
     }
     let session_id = flags.take("cursor-session");
     let sequence = flags.take("sequence");
     match (session_id, sequence) {
         (None, None) => {
-            if let Some(start) = start {
+            if let Some(start) = explicit_start.or_else(|| default_start.map(str::to_owned)) {
                 params.insert("start".into(), Value::String(start));
             }
         }
-        (Some(session_id), Some(sequence)) if start.is_none() => {
+        (Some(session_id), Some(sequence)) if explicit_start.is_none() => {
             validate_prefixed_id("session", "session", &session_id)?;
             validate_decimal("--sequence", &sequence)?;
             params.insert("cursor".into(), json!({"generation":session_id,"revision":sequence}));
@@ -2068,6 +2149,9 @@ fn add_journal_subscription(
                 "--cursor-session and --sequence must be supplied together",
             ));
         }
+    }
+    if !follow {
+        params.insert("follow".into(), Value::Bool(false));
     }
 
     let mut filter = Map::new();
@@ -2353,6 +2437,22 @@ fn insert_ratio(
     Ok(())
 }
 
+fn insert_viewport_width(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite() && (0.1..=1.0).contains(number))
+        .and_then(Number::from_f64)
+        .ok_or_else(|| UsageError::new(format!("{flag} must be from 0.1 through 1")))?;
+    params.insert(field.into(), Value::Number(number));
+    Ok(())
+}
+
 fn map_with(name: &str, value: Value) -> Map<String, Value> {
     let mut map = Map::new();
     map.insert(name.into(), value);
@@ -2467,6 +2567,21 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
     }
 }
 
+pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
+    let result = crate::agent_hook_install::run(&plan);
+    if result.failed {
+        let error = json!({
+            "code": "local.agent_hooks",
+            "message": "one or more coding-agent hook operations failed",
+            "details": result.value,
+            "retryable": false,
+        });
+        super::wire::print_local_error(&error, global.output, 1)
+    } else {
+        super::wire::print_local_success(&result.value, global.output)
+    }
+}
+
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
     let output = global.output;
     let Some(socket) = global.socket else {
@@ -2510,6 +2625,215 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
     }
 }
 
+pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStatePlan) -> i32 {
+    let output = global.output;
+    let messages = &crate::localization::catalog().session_reset;
+    let routing_options = [
+        global.socket.as_ref().map(|_| "--socket"),
+        global.session.as_ref().map(|_| "--session"),
+        global.machine.as_ref().map(|_| "--machine"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !routing_options.is_empty() {
+        let options = routing_options.join(", ");
+        return super::wire::print_local_error(
+            &json!({
+                "code": "session.reset_state.routing_options_unsupported",
+                "message": messages.routing_options_unsupported(&options),
+                "details": { "options": routing_options },
+                "retryable": false,
+            }),
+            output,
+            2,
+        );
+    }
+    let state_root =
+        match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
+            Some(path) => path,
+            None => {
+                return super::wire::print_local_error(
+                    &json!({
+                        "code": "session.reset_state.no_state_root",
+                        "message": messages.no_state_root,
+                        "details": {},
+                        "retryable": false,
+                    }),
+                    output,
+                    1,
+                );
+            }
+        };
+    let resetter = cmux_tui_core::PersistentSessionStateResetter::new(state_root);
+    if !plan.force {
+        let preview = match resetter.preview(&plan.session) {
+            Ok(preview) => preview,
+            Err(error) => {
+                let advice = reset_failure_advice(&error);
+                return super::wire::print_local_error(
+                    &json!({
+                        "code": advice.code,
+                        "message": format!("{}; {}", messages.reset_failed(&plan.session), advice.recovery),
+                        "details": {
+                            "session": &plan.session,
+                            "reason": advice.reason,
+                            "recovery": advice.recovery,
+                        },
+                        "retryable": false,
+                    }),
+                    output,
+                    1,
+                );
+            }
+        };
+        return super::wire::print_local_success(
+            &json!({
+                "session": plan.session,
+                "state_root": preview.state_root,
+                "session_dir": preview.session_dir,
+                "terminal_host_root": preview.terminal_host_root,
+                "pending_reset_dirs": preview.pending_reset_dirs,
+                "requires_force": preview.requires_force,
+                "confirm_reset": preview.confirm_reset,
+            }),
+            output,
+        );
+    }
+    match resetter.reset(&plan.session, plan.confirm_reset.as_deref()) {
+        Ok(reset) => super::wire::print_local_success(
+            &json!({
+                "session": plan.session,
+                "removed_session_state": reset.removed_session_state,
+                "removed_terminal_hosts": reset.removed_terminal_hosts,
+            }),
+            output,
+        ),
+        Err(error) => {
+            let advice = reset_failure_advice(&error);
+            let message = if advice.code == "session.reset_state.confirmation_required" {
+                format!("{}; {}", messages.confirmation_required, messages.confirmation_recovery)
+            } else {
+                format!("{}; {}", messages.reset_failed(&plan.session), advice.recovery)
+            };
+            super::wire::print_local_error(
+                &json!({
+                    "code": advice.code,
+                    "message": message,
+                    "details": {
+                        "session": plan.session,
+                        "reason": advice.reason,
+                        "recovery": advice.recovery,
+                    },
+                    "retryable": false,
+                }),
+                output,
+                1,
+            )
+        }
+    }
+}
+
+struct ResetFailureAdvice {
+    code: &'static str,
+    reason: &'static str,
+    recovery: &'static str,
+}
+
+fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
+    let messages = &crate::localization::catalog().session_reset;
+    if reset_error_starts_with(error, &["reset confirmation is required"]) {
+        ResetFailureAdvice {
+            code: "session.reset_state.confirmation_required",
+            reason: messages.confirmation_required,
+            recovery: messages.confirmation_recovery,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["safe saved-state reset is not supported on this platform"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.unsupported",
+            reason: messages.reason_reset_unsupported,
+            recovery: messages.recovery_reset_unsupported,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &[
+            "workspace state root is not a directory",
+            "workspace session state path is not a directory",
+            "terminal host state path is not a directory",
+            "private reset path is not a directory",
+            "session lock directory is not a directory",
+            "not a directory:",
+        ],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.invalid_state_path",
+            reason: messages.reason_invalid_state_path,
+            recovery: messages.recovery_invalid_state_path,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["workspace session is already owned by another daemon"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.session_running",
+            reason: messages.reason_session_running,
+            recovery: messages.recovery_session_running,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &[
+            "terminal host state still has live or unverified hosts",
+            "terminal host state has live or unverified hosts",
+        ],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.terminal_hosts_live",
+            reason: messages.reason_terminal_hosts_live,
+            recovery: messages.recovery_terminal_hosts_live,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["terminal host liveness cannot be verified on this platform"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.terminal_hosts_unsupported",
+            reason: messages.reason_terminal_hosts_unsupported,
+            recovery: messages.recovery_terminal_hosts_unsupported,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["reset path changed during reset", "reset path changed during fingerprint"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.state_changed",
+            reason: messages.reason_state_changed,
+            recovery: messages.recovery_state_changed,
+        }
+    } else if reset_error_starts_with(error, &["reset confirmation scan exceeds"]) {
+        ResetFailureAdvice {
+            code: "session.reset_state.state_too_large",
+            reason: messages.reason_state_too_large,
+            recovery: messages.recovery_state_too_large,
+        }
+    } else {
+        ResetFailureAdvice {
+            code: "session.reset_state.filesystem",
+            reason: messages.reason_filesystem,
+            recovery: messages.recovery_filesystem,
+        }
+    }
+}
+
+fn reset_error_starts_with(error: &anyhow::Error, prefixes: &[&str]) -> bool {
+    error.chain().any(|cause| {
+        let cause = cause.to_string();
+        prefixes.iter().any(|prefix| cause.starts_with(prefix))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2525,14 +2849,60 @@ mod tests {
         }
     }
 
+    #[test]
+    fn coding_agent_hook_management_stays_local() {
+        let CommandPlan::AgentHooks(plan) =
+            parse(&strings(&["agent", "hook", "install", "codex", "claude-code"])).unwrap()
+        else {
+            panic!("expected local agent hook plan");
+        };
+        assert_eq!(plan.action, crate::agent_hook_install::Action::Install);
+        assert_eq!(plan.providers, ["codex", "claude-code"]);
+    }
+
     fn operation(plan: &RequestPlan) -> String {
         plan.operation.name().unwrap()
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_fingerprint_race_as_state_changed() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "reset path changed during fingerprint: /tmp/cmux-state/registry"
+        ));
+        assert_eq!(advice.code, "session.reset_state.state_changed");
+        assert!(advice.recovery.contains("rerun the preview"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_confirmation_scan_limit() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "reset confirmation scan exceeds 64 paths; scoped state is too large"
+        ));
+        assert_eq!(advice.code, "session.reset_state.state_too_large");
+        assert!(advice.recovery.contains("reduce the scoped saved state"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_unsupported_checked_deletion() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "safe saved-state reset is not supported on this platform because cmux cannot verify saved state during deletion"
+        ));
+        assert_eq!(advice.code, "session.reset_state.unsupported");
+        assert!(advice.recovery.contains("supported platform build"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_ignores_marker_text_inside_paths() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "workspace state root is not a directory: /tmp/already owned by another daemon"
+        ));
+        assert_eq!(advice.code, "session.reset_state.invalid_state_path");
     }
 
     fn operation_catalog() -> Value {
         serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../spec/resource-operations-v1.json"
+            "/../../spec/resource-operations-v2.json"
         )))
         .expect("canonical operation catalog")
     }
@@ -2781,6 +3151,25 @@ mod tests {
         ]);
         assert_eq!(resumed.params["cursor"], json!({"generation":SESSION,"revision":"42"}));
         assert!(resumed.params.get("start").is_none());
+
+        let read = protocol(&["session", SESSION, "journal", "read", "--kinds", "agent.*"]);
+        assert_eq!(operation(&read), "session.journal.subscribe");
+        assert_eq!(read.params["start"], "beginning");
+        assert_eq!(read.params["follow"], false);
+        assert_eq!(read.params["filter"]["kinds"], json!(["agent.*"]));
+
+        let read_from_cursor = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "read",
+            "--cursor-session",
+            SESSION,
+            "--sequence",
+            "42",
+        ]);
+        assert!(read_from_cursor.params.get("start").is_none());
+        assert_eq!(read_from_cursor.params["follow"], false);
 
         for invalid in [
             vec!["--from", "beginning", "--cursor-session", SESSION, "--sequence", "1"],
@@ -3192,6 +3581,42 @@ mod tests {
     }
 
     #[test]
+    fn agent_commands_use_canonical_public_states() {
+        const TERMINAL: &str = "term_55555555555555555555555555555555";
+        for state in ["working", "blocked", "idle", "done", "unknown"] {
+            let list = protocol(&["agent", "list", "--terminal", TERMINAL, "--state", state]);
+            assert_eq!(list.params["state"], state);
+            let report = protocol(&[
+                "agent",
+                "report",
+                "--terminal",
+                TERMINAL,
+                "--state",
+                state,
+                "--source",
+                "socket",
+            ]);
+            assert_eq!(report.params["state"], state);
+        }
+        for noncanonical in ["running", "waiting", "error"] {
+            assert!(
+                parse(&strings(&[
+                    "agent",
+                    "report",
+                    "--terminal",
+                    TERMINAL,
+                    "--state",
+                    noncanonical,
+                    "--source",
+                    "socket",
+                ]))
+                .is_err(),
+                "accepted noncanonical agent state {noncanonical:?}"
+            );
+        }
+    }
+
+    #[test]
     fn old_hyphenated_action_is_not_a_nested_selector() {
         assert!(
             parse(&strings(&[
@@ -3301,7 +3726,7 @@ mod tests {
                     "session",
                     SESSION,
                     "journal",
-                    "subscribe",
+                    "read",
                     "--from",
                     "beginning",
                     "--kinds",
@@ -3448,7 +3873,21 @@ mod tests {
             (vec!["pairing", "request", PAIRING, "respond", "accept"], "pairing_request.resolve"),
             (vec!["projection", PROJECTION, "show"], "frontend_projection.get"),
             (
-                vec!["projection", PROJECTION, "put", "--projection", "{\"sidebar\":\"compact\"}"],
+                vec![
+                    "projection",
+                    PROJECTION,
+                    "put",
+                    "--projection",
+                    "{\"sidebar\":\"compact\"}",
+                    "--frontend-id",
+                    "cmux-cli",
+                    "--window-id",
+                    "window-1",
+                    "--generation",
+                    "launch-1",
+                    "--expected-projection-revision",
+                    "7",
+                ],
                 "frontend_projection.put",
             ),
             (vec!["workspace", "list"], "workspace.list"),
@@ -3540,6 +3979,8 @@ mod tests {
                     "split",
                     "--right",
                     "--ratio",
+                    "0.5",
+                    "--viewport-width",
                     "0.5",
                     "--cwd",
                     "/tmp",
@@ -3855,7 +4296,7 @@ mod tests {
                 ],
                 "notification.create",
             ),
-            (vec!["agent", "list", "--terminal", TERMINAL, "--state", "running"], "agent.list"),
+            (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
             (
                 vec![
                     "agent",
@@ -3863,7 +4304,7 @@ mod tests {
                     "--terminal",
                     TERMINAL,
                     "--state",
-                    "running",
+                    "working",
                     "--source",
                     "socket",
                     "--source-session",

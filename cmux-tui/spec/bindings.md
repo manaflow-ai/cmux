@@ -6,11 +6,11 @@ under an explicit `raw` namespace.
 
 The split is deliberate:
 
-- [`resource-operations-v1.json`](resource-operations-v1.json) defines the
+- [`resource-operations-v2.json`](resource-operations-v2.json) defines the
   stable public operations, selectors, fields, results, errors, and streams.
 - Public resource handles, options, lifecycle, errors, and conveniences are
   handwritten in each language.
-- Mechanical protocol-v10 models are generated deterministically and exposed
+- Mechanical protocol-v11 models are generated deterministically and exposed
   only through `raw`.
 - A catalog descriptor in every package proves that all 124 transported
   operations have the same class and wire name.
@@ -38,7 +38,7 @@ Every high-level SDK must provide:
 | Streams | Typed items, explicit cancellation, bounded unread queues, structured end state, and per-stream overflow isolation |
 | Evolution | Unknown stream variants retain their discriminator and complete raw object; malformed known variants fail decoding |
 | Secrets | Pairing codes and renderer tokens are redacted from formatting and errors |
-| Raw access | Private protocol-v10 APIs are reachable only through a package path containing `raw` |
+| Raw access | Private protocol-v11 APIs are reachable only through a package path containing `raw` |
 
 Decimal wire values remain strings. TypeScript never converts them to
 `number`; Java uses `BigInteger`; other SDKs validate canonical unsigned
@@ -147,7 +147,7 @@ zeroized when their owning values are released. Private modules live under
 ## Transport parity
 
 Unix sockets use one JSON object per line. WebSockets use one JSON object per
-text frame. Both carry the same `cmux.protocol/1` envelopes and ordering.
+text frame. Both carry the same `cmux.protocol/2` envelopes and ordering.
 Transport-specific code may frame and authenticate a connection; it may not
 change operation parameters or results.
 
@@ -164,7 +164,7 @@ Closing a client unblocks pending reads and releases owned transports.
 
 The raw generator:
 
-1. consumes the reviewed protocol-v10 schema;
+1. consumes the reviewed protocol-v11 schema;
 2. renders each selected language twice and requires byte equality;
 3. stages all outputs before changing the checkout;
 4. writes atomically;

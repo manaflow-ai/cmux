@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
-MUX_PROTOCOL = 10
-IR_SHA256 = '4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298'
+MUX_PROTOCOL = 11
+IR_SHA256 = '3f220af11c5ad1bfab74b2bf3cebf71ee904faaafd9833ae5c87a53812f86943'
 
 
 @dataclass(frozen=True)
@@ -367,6 +367,7 @@ COMMANDS = {
             'argv': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, 'creation-attempt-keys-v1'),
             'operation': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
@@ -473,6 +474,16 @@ COMMANDS = {
         None,
         {
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'get-browser-provider': CommandMetadata(
+        'get-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'get-cell-pixels': CommandMetadata(
@@ -592,6 +603,18 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+            'ttl_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'mint-terminal-renderer-by-terminal': CommandMetadata(
+        'mint-terminal-renderer-by-terminal',
+        'frontend',
+        11,
+        None,
+        ('frontend',),
+        None,
+        {
+            'terminal': CommandFieldMetadata(None, None),
             'ttl_ms': CommandFieldMetadata(None, None),
         },
     ),
@@ -824,6 +847,21 @@ COMMANDS = {
             'count': CommandFieldMetadata(None, None),
             'start': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'register-browser-provider': CommandMetadata(
+        'register-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+            'authentication': CommandFieldMetadata(None, None),
+            'bearer_token': CommandFieldMetadata(None, None),
+            'endpoint': CommandFieldMetadata(None, None),
+            'provider_id': CommandFieldMetadata(None, None),
+            'targets': CommandFieldMetadata(None, None),
         },
     ),
     'release-attached-view-size': CommandMetadata(
@@ -1269,6 +1307,16 @@ COMMANDS = {
             'revision': CommandFieldMetadata(None, None),
         },
     ),
+    'unregister-browser-provider': CommandMetadata(
+        'unregister-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'vt-state': CommandMetadata(
         'vt-state',
         'control',
@@ -1308,6 +1356,7 @@ COMMANDS = {
 }
 
 EVENTS = {
+    'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
     'client-attached': EventMetadata('client-attached', 6, None, ('subscribe',), 'emitted'),

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298.
+// cmux-tui mux protocol 11, IR 3f220af11c5ad1bfab74b2bf3cebf71ee904faaafd9833ae5c87a53812f86943.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -356,6 +356,8 @@ pub struct CreateSurfaceWithReceiptRequest {
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub idempotency_key: Optional<String>,
     pub operation: String,
     pub origin: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -477,6 +479,14 @@ pub type FocusPaneResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GetBrowserProviderRequest {
+}
+
+#[rustfmt::skip]
+pub type GetBrowserProviderResult = T::BrowserProviderSnapshot;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetCellPixelsRequest {
 }
 
@@ -574,6 +584,17 @@ pub struct MintTerminalRendererRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub ttl_ms: Option<u64>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MintTerminalRendererByTerminalRequest {
+    pub terminal: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub ttl_ms: Option<u64>,
+}
+
+#[rustfmt::skip]
+pub type MintTerminalRendererByTerminalResult = T::MintTerminalRendererResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -788,6 +809,20 @@ pub struct ReadScrollbackRequest {
     pub start: u32,
     pub surface: T::Id,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RegisterBrowserProviderRequest {
+    pub authentication: T::BrowserProviderAuthentication,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub bearer_token: Optional<String>,
+    pub endpoint: String,
+    pub provider_id: String,
+    pub targets: Vec<T::BrowserProviderTarget>,
+}
+
+#[rustfmt::skip]
+pub type RegisterBrowserProviderResult = T::BrowserProviderSnapshot;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1207,6 +1242,14 @@ pub struct UndoLayoutRequest {
 pub type UndoLayoutResult = T::LayoutUndoResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct UnregisterBrowserProviderRequest {
+}
+
+#[rustfmt::skip]
+pub type UnregisterBrowserProviderResult = T::BrowserProviderUnregisterResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateRequest {
     pub surface: T::Id,
@@ -1369,6 +1412,9 @@ impl CmuxClient {
     }
 
     pub fn create_surface_with_receipt(&mut self, request: CreateSurfaceWithReceiptRequest) -> Result<CreateSurfaceWithReceiptResult> {
+        if !request.idempotency_key.is_missing() {
+            self.require_capability_field("create-surface-with-receipt", "creation-attempt-keys-v1")?;
+        }
         self.execute(&CREATE_SURFACE_WITH_RECEIPT_METADATA, &request)
     }
 
@@ -1401,6 +1447,10 @@ impl CmuxClient {
 
     pub fn focus_pane(&mut self, request: FocusPaneRequest) -> Result<FocusPaneResult> {
         self.execute(&FOCUS_PANE_METADATA, &request)
+    }
+
+    pub fn get_browser_provider(&mut self, request: GetBrowserProviderRequest) -> Result<GetBrowserProviderResult> {
+        self.execute(&GET_BROWSER_PROVIDER_METADATA, &request)
     }
 
     pub fn get_cell_pixels(&mut self, request: GetCellPixelsRequest) -> Result<T::GetCellPixelsResult> {
@@ -1445,6 +1495,10 @@ impl CmuxClient {
 
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {
         self.execute(&MINT_TERMINAL_RENDERER_METADATA, &request)
+    }
+
+    pub fn mint_terminal_renderer_by_terminal(&mut self, request: MintTerminalRendererByTerminalRequest) -> Result<MintTerminalRendererByTerminalResult> {
+        self.execute(&MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, &request)
     }
 
     pub fn move_tab(&mut self, request: MoveTabRequest) -> Result<MoveTabResult> {
@@ -1529,6 +1583,10 @@ impl CmuxClient {
 
     pub fn read_scrollback(&mut self, request: ReadScrollbackRequest) -> Result<T::ReadScrollbackResult> {
         self.execute(&READ_SCROLLBACK_METADATA, &request)
+    }
+
+    pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
+        self.execute(&REGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
 
     pub fn release_attached_view_size(&mut self, request: ReleaseAttachedViewSizeRequest) -> Result<ReleaseAttachedViewSizeResult> {
@@ -1727,6 +1785,10 @@ impl CmuxClient {
 
     pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {
         self.execute(&UNDO_LAYOUT_METADATA, &request)
+    }
+
+    pub fn unregister_browser_provider(&mut self, request: UnregisterBrowserProviderRequest) -> Result<UnregisterBrowserProviderResult> {
+        self.execute(&UNREGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
 
     pub fn vt_state(&mut self, request: VtStateRequest) -> Result<T::VtStateResult> {

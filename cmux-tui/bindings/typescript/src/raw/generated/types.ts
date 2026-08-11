@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298. */
+/* cmux-tui mux protocol 11, IR 3f220af11c5ad1bfab74b2bf3cebf71ee904faaafd9833ae5c87a53812f86943. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -47,6 +47,27 @@ export type BrowserFrame = {
   "height": number;
   "seq": bigint;
   "width": number;
+};
+
+export type BrowserProviderAuthentication = "none" | "bearer";
+
+export type BrowserProviderSnapshot = {
+  "authentication"?: BrowserProviderAuthentication;
+  "available": boolean;
+  "clients"?: bigint;
+  "endpoint"?: string;
+  "provider_id"?: string;
+  "revision": bigint;
+  "targets": Array<BrowserProviderTarget>;
+};
+
+export type BrowserProviderTarget = {
+  "tab_id": string;
+  "target_id": string;
+};
+
+export type BrowserProviderUnregisterResult = {
+  "removed": boolean;
 };
 
 export type CellPixelFailure = {
@@ -145,11 +166,12 @@ export type FocusDirectionResult = {
   "pane": Id;
 };
 
-export type FrontendFocusTarget = "pane" | "machine_rail" | "workspace_rail";
+export type FrontendFocusTarget = "pane" | "machine_rail" | "workspace_rail" | "tabs_rail" | "projection_rail";
 
 export type FrontendJournalEvent = ({ "kind": "focus" } & {
   "content_id"?: (string) | null;
   "event_id": string;
+  "frontend_projection_id": string;
   "generation": string;
   "kind": "focus";
   "pane_id"?: (string) | null;
@@ -162,11 +184,13 @@ export type FrontendJournalEvent = ({ "kind": "focus" } & {
   "cell_width": number;
   "cols": number;
   "event_id": string;
+  "frontend_projection_id": string;
   "generation": string;
   "kind": "resize";
   "rows": number;
 }) | ({ "kind": "viewport" } & {
   "event_id": string;
+  "frontend_projection_id": string;
   "generation": string;
   "kind": "viewport";
   "offset": bigint;
@@ -293,6 +317,7 @@ export type LivePane = {
 export type MintTerminalRendererResult = {
   "endpoint": string;
   "incarnation": string;
+  "protocol_version": number;
   "rights": number;
   "terminal_id": string;
   "token": string;
@@ -453,7 +478,7 @@ export type ResizeSurfaceResult = {
 };
 
 export type ResolveTerminalResult = {
-  "exit": (JsonValue) | null;
+  "exit": (TerminalExit) | null;
   "generation": string;
   "launch_spec": JsonValue;
   "lifecycle": TerminalLifecycle;
@@ -485,12 +510,16 @@ export type ResourceSelectors = {
 };
 
 export type RunResult = {
-  "pane": Id;
-  "screen": Id;
-  "surface": Id;
-  "terminal_id": (string) | null;
+  "already_exited": boolean;
+  "exit": (TerminalExit) | null;
+  "lifecycle": TerminalLifecycle;
+  "pane": (Id) | null;
+  "screen": (Id) | null;
+  "surface": (Id) | null;
+  "terminal_id": string;
   "terminal_incarnation": (string) | null;
-  "workspace": Id;
+  "terminal_revision": bigint;
+  "workspace": (Id) | null;
 };
 
 export type Screen = {
@@ -571,6 +600,23 @@ export type TerminalEventsResult = {
   "terminal_revision": bigint;
 };
 
+export type TerminalExit = {
+  "exited_at_ms": bigint;
+  "outcome": TerminalExitOutcome;
+};
+
+export type TerminalExitOutcome = ({ "kind": "exit" } & {
+  "code": number;
+  "kind": "exit";
+}) | ({ "kind": "signal" } & {
+  "core_dumped": boolean;
+  "kind": "signal";
+  "signal": number;
+}) | ({ "kind": "unknown" } & {
+  "kind": "unknown";
+  "reason": string;
+});
+
 export type TerminalKey = "unidentified" | "backquote" | "backslash" | "bracket-left" | "bracket-right" | "comma" | "digit0" | "digit1" | "digit2" | "digit3" | "digit4" | "digit5" | "digit6" | "digit7" | "digit8" | "digit9" | "equal" | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" | "minus" | "period" | "quote" | "semicolon" | "slash" | "backspace" | "enter" | "space" | "tab" | "delete" | "end" | "home" | "insert" | "page-down" | "page-up" | "arrow-down" | "arrow-left" | "arrow-right" | "arrow-up" | "numpad0" | "numpad1" | "numpad2" | "numpad3" | "numpad4" | "numpad5" | "numpad6" | "numpad7" | "numpad8" | "numpad9" | "numpad-add" | "numpad-backspace" | "numpad-comma" | "numpad-decimal" | "numpad-divide" | "numpad-enter" | "numpad-equal" | "numpad-multiply" | "numpad-subtract" | "numpad-up" | "numpad-down" | "numpad-right" | "numpad-left" | "numpad-begin" | "numpad-home" | "numpad-end" | "numpad-insert" | "numpad-delete" | "numpad-page-up" | "numpad-page-down" | "escape" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" | "f13" | "f14" | "f15" | "f16" | "f17" | "f18" | "f19" | "f20";
 
 export type TerminalKeyAction = "press" | "release" | "repeat";
@@ -600,22 +646,24 @@ export type TerminalModifiers = {
 };
 
 export type TerminalPlacement = {
+  "already_exited": boolean;
+  "exit": (TerminalExit) | null;
   "generation": string;
   "key": string;
-  "lifecycle": ("running") | null;
-  "pane": Id;
+  "lifecycle": TerminalLifecycle;
+  "pane": (Id) | null;
   "registry_id": string;
   "replayed": boolean;
-  "screen": Id;
-  "surface": Id;
-  "terminal_id": (string) | null;
+  "screen": (Id) | null;
+  "surface": (Id) | null;
+  "terminal_id": string;
   "terminal_incarnation": (string) | null;
   "terminal_revision": bigint;
-  "workspace": Id;
+  "workspace": (Id) | null;
 };
 
 export type TerminalRecord = {
-  "exit": (JsonValue) | null;
+  "exit": (TerminalExit) | null;
   "launch_spec": JsonValue;
   "lifecycle": TerminalLifecycle;
   "terminal_id": string;
