@@ -3044,6 +3044,97 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// A UIKit menu retains the model snapshot it presented. If installed-agent
+    /// discovery replaces the live backend catalog before the user taps, the
+    /// visible snapshot choice must still become the submitted model.
+    @MainActor
+    func testTaskComposerPresentedModelSnapshotSurvivesHostCatalogReplacement() async throws {
+        let snapshotAID = "backend-snapshot-a"
+        let snapshotAName = "Backend Snapshot A"
+        let snapshotBID = "backend-snapshot-b"
+        let snapshotBName = "Backend Snapshot B"
+        let hostModelID = "installed-host-replacement"
+        let backendCatalog = #"{"schemaVersion":1,"updatedAt":"2026-08-11T00:00:00Z","providers":{"claude":{"defaultModel":"backend-snapshot-a","models":[{"id":"backend-snapshot-a","label":"Backend Snapshot A"},{"id":"backend-snapshot-b","label":"Backend Snapshot B"}]}}}"#
+        let catalogServer = try AgentModelsCatalogHTTPServer(
+            body: try XCTUnwrap(backendCatalog.data(using: .utf8))
+        )
+        let catalogPort = try await catalogServer.start()
+        defer { catalogServer.stop() }
+
+        let hostServer = try MobileSyncMockHostServer(
+            taskModelsByProvider: [
+                "claude": [(id: hostModelID, displayName: "Installed Host Replacement")],
+            ],
+            holdsTaskModelResponse: true
+        )
+        let hostPort = try await hostServer.start()
+        defer { hostServer.stop() }
+
+        let app = try launchConnectedApp(
+            port: hostPort,
+            environment: [
+                "CMUX_AGENT_MODELS_URL": "http://127.0.0.1:\(catalogPort)/api/agent-models",
+            ],
+            launchArguments: ["-cmux.mobile.taskComposerEnabled", "YES"]
+        )
+        defer { app.terminate() }
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+                .waitForExistence(timeout: 4)
+        )
+        tap(app.buttons["MobileTaskComposerButton"], in: app)
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        await hostServer.awaitTaskModelRequestReached()
+
+        let modelPill = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(
+            modelPill.waitForExistence(timeout: 8),
+            "The backend snapshot must populate while host discovery remains in flight"
+        )
+        tap(modelPill, in: app)
+        let snapshotA = app.buttons[snapshotAName]
+        let snapshotB = app.buttons[snapshotBName]
+        XCTAssertTrue(snapshotA.waitForExistence(timeout: 4))
+        XCTAssertTrue(snapshotB.exists)
+        tapMenuItem(snapshotA, in: app)
+        XCTAssertEqual(modelPill.value as? String, snapshotAName)
+
+        tap(modelPill, in: app)
+        XCTAssertTrue(snapshotB.waitForExistence(timeout: 4))
+        hostServer.releaseTaskModelResponse()
+
+        let hostReplacementApplied = NSPredicate(
+            format: "value == %@",
+            snapshotAID
+        )
+        expectation(for: hostReplacementApplied, evaluatedWith: modelPill)
+        waitForExpectations(timeout: 8)
+        XCTAssertTrue(
+            snapshotB.exists,
+            "The presented UIKit menu must retain its backend snapshot after the live catalog changes"
+        )
+        tapMenuItem(snapshotB, in: app)
+        XCTAssertEqual(modelPill.value as? String, snapshotBID)
+
+        let prompt = taskComposerPrompt(in: app)
+        let promptText = "Use the visible snapshot selection"
+        try typeText(promptText, into: prompt, in: app)
+        tap(app.buttons["MobileTaskComposerSubmitButton"], in: app)
+        let request = try XCTUnwrap(
+            await hostServer.waitForWorkspaceCreateRequest(timeout: 8),
+            "The host never received the snapshot-model task"
+        )
+        XCTAssertEqual(
+            request.initialCommand,
+            "claude --model '\(snapshotBID)' -- \"$CMUX_TASK_PROMPT\""
+        )
+        XCTAssertEqual(request.initialEnvironment, ["CMUX_TASK_PROMPT": promptText])
+    }
+
     /// A model returned as authoritative host discovery must travel through
     /// the production RPC, picker, and workspace-create command unchanged.
     /// The same test then proves a cold empty catalog still submits the
@@ -3727,10 +3818,32 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(
             app.navigationBars["preview-photo.png"].waitForExistence(timeout: 5)
         )
-        XCTAssertTrue(
-            app.otherElements["MobileTaskComposerAttachmentQuickLook"]
-                .waitForExistence(timeout: 5)
+        let imageQuickLook = app.otherElements["MobileTaskComposerAttachmentQuickLook"]
+        XCTAssertTrue(imageQuickLook.waitForExistence(timeout: 5))
+        let imagePreviewScreenshot = app.screenshot()
+        let imageMetrics = imagePreviewMetrics(
+            screenshot: imagePreviewScreenshot,
+            frame: imageQuickLook.frame,
+            windowFrame: app.windows.firstMatch.frame
         )
+        print(
+            "MPILL_IMAGE_PREVIEW distinctColors=\(imageMetrics.distinctColorCount) "
+                + "colorfulFraction=\(imageMetrics.colorfulFraction)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            imageMetrics.distinctColorCount,
+            24,
+            "Quick Look must render the recognizable image bytes, not a blank preview"
+        )
+        XCTAssertGreaterThan(
+            imageMetrics.colorfulFraction,
+            0.02,
+            "The image preview must contain visible chromatic content"
+        )
+        let imageEvidence = XCTAttachment(screenshot: imagePreviewScreenshot)
+        imageEvidence.name = "task-composer-image-quick-look-content"
+        imageEvidence.lifetime = .keepAlways
+        add(imageEvidence)
         tap(app.buttons["Done"], in: app)
         XCTAssertTrue(imageChip.waitForExistence(timeout: 4))
 
@@ -3769,6 +3882,279 @@ final class cmuxUITests: XCTestCase {
             )
             XCTAssertTrue(removeButton.isHittable)
         }
+    }
+
+    /// Records labels, values, frames, and hittability for every required
+    /// compact-width composer state in one isolated exact-build run.
+    @MainActor
+    func testTaskComposerRequiredIPhoneStatesRecordAccessibilityGeometry() throws {
+        let emptyCatalog = #"{"schemaVersion":1,"updatedAt":"2026-08-11T00:00:00Z","providers":{"claude":{"defaultModel":"unused","models":[]}}}"#
+        let longModelName = "Opus 4.8 (1M context) via Installed Agent"
+        let longModelCatalog = #"{"schemaVersion":1,"updatedAt":"2026-08-11T00:00:00Z","providers":{"claude":{"defaultModel":"us.anthropic.claude-opus-4-8[1m]","models":[{"id":"us.anthropic.claude-opus-4-8[1m]","label":"Opus 4.8 (1M context) via Installed Agent"}]},"opencode":{"defaultModel":"anthropic/long-model","models":[{"id":"anthropic/long-model","label":"Opus 4.8 (1M context) via Installed Agent"}]}}}"#
+        let scenarios: [(
+            name: String,
+            environment: [String: String],
+            arguments: [String]
+        )] = [
+            (
+                "light",
+                ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"],
+                ["-AppleInterfaceStyle", "Light", "-UIUserInterfaceStyle", "Light"]
+            ),
+            (
+                "dark",
+                ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"],
+                ["-AppleInterfaceStyle", "Dark", "-UIUserInterfaceStyle", "Dark"]
+            ),
+            (
+                "cold-empty",
+                [
+                    "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                    "CMUX_UITEST_TASK_MODEL_CATALOG_JSON": emptyCatalog,
+                ],
+                []
+            ),
+            (
+                "staged-attachments",
+                [
+                    "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                    "CMUX_UITEST_TASK_COMPOSER_STAGED_ATTACHMENTS": "1",
+                ],
+                []
+            ),
+            (
+                "accessibility-xxxl",
+                [
+                    "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                    "CMUX_UITEST_TASK_MODEL_CATALOG_JSON": longModelCatalog,
+                ],
+                [
+                    "-UIPreferredContentSizeCategoryName",
+                    "UICTContentSizeCategoryAccessibilityXXXL",
+                ]
+            ),
+        ]
+
+        for scenario in scenarios {
+            let app = launchApp(
+                mockData: false,
+                environment: scenario.environment,
+                launchArguments: scenario.arguments
+            )
+            let prompt = taskComposerPrompt(in: app)
+            XCTAssertTrue(
+                prompt.waitForExistence(timeout: 10),
+                "Missing prompt in \(scenario.name)"
+            )
+
+            if scenario.name == "accessibility-xxxl" {
+                selectTaskComposerAgent(named: "OpenCode", in: app)
+                let model = app.buttons["MobileTaskComposerModelPill"]
+                XCTAssertTrue(model.waitForExistence(timeout: 4))
+                tap(model, in: app)
+                tapMenuItem(app.buttons[longModelName], in: app)
+            }
+
+            let options = app.buttons["MobileTaskComposerOptionsButton"]
+            let agent = app.buttons["MobileTaskComposerAgentPill"]
+            let model = app.buttons["MobileTaskComposerModelPill"]
+            let submit = app.buttons["MobileTaskComposerSubmitButton"]
+            let scroller = app.scrollViews["MobileTaskComposerPillScroller"]
+            for (identifier, element) in [
+                ("prompt", prompt),
+                ("options", options),
+                ("agent", agent),
+                ("submit", submit),
+                ("pill-scroller", scroller),
+            ] {
+                XCTAssertTrue(
+                    element.waitForExistence(timeout: 4),
+                    "Missing \(identifier) in \(scenario.name)"
+                )
+                recordTaskComposerAccessibility(
+                    state: scenario.name,
+                    identifier: identifier,
+                    element: element
+                )
+            }
+            for control in [options, agent, submit] {
+                XCTAssertGreaterThanOrEqual(control.frame.width, 43.99)
+                XCTAssertGreaterThanOrEqual(control.frame.height, 43.99)
+                XCTAssertTrue(control.isHittable)
+            }
+
+            if scenario.name == "cold-empty" {
+                XCTAssertFalse(model.waitForExistence(timeout: 2))
+                print("MPILL_AX_STATE {\"exists\":false,\"id\":\"model\",\"state\":\"cold-empty\"}")
+            } else {
+                XCTAssertTrue(model.waitForExistence(timeout: 4))
+                recordTaskComposerAccessibility(
+                    state: scenario.name,
+                    identifier: "model",
+                    element: model
+                )
+                XCTAssertGreaterThanOrEqual(model.frame.width, 43.99)
+                XCTAssertGreaterThanOrEqual(model.frame.height, 43.99)
+                XCTAssertTrue(model.isHittable)
+            }
+
+            let attachment = app.buttons["MobileTaskComposerAttachmentButton"]
+            if attachment.exists {
+                recordTaskComposerAccessibility(
+                    state: scenario.name,
+                    identifier: "attachment-add",
+                    element: attachment
+                )
+                XCTAssertGreaterThanOrEqual(attachment.frame.width, 43.99)
+                XCTAssertGreaterThanOrEqual(attachment.frame.height, 43.99)
+                XCTAssertTrue(attachment.isHittable)
+            }
+
+            if scenario.name == "staged-attachments" {
+                let imageChip = app.buttons[
+                    "MobileTaskComposerAttachmentPreview-11111111-1111-1111-1111-111111111111"
+                ]
+                let fileChip = app.buttons[
+                    "MobileTaskComposerAttachmentPreview-22222222-2222-2222-2222-222222222222"
+                ]
+                for (identifier, chip) in [("image-chip", imageChip), ("file-chip", fileChip)] {
+                    XCTAssertTrue(chip.waitForExistence(timeout: 6))
+                    recordTaskComposerAccessibility(
+                        state: scenario.name,
+                        identifier: identifier,
+                        element: chip
+                    )
+                    XCTAssertTrue(chip.isHittable)
+                }
+                let removeButtons = app.buttons.matching(
+                    NSPredicate(format: "label == %@", "Remove Attachment")
+                )
+                XCTAssertEqual(removeButtons.count, 2)
+                for index in 0..<removeButtons.count {
+                    let remove = removeButtons.element(boundBy: index)
+                    recordTaskComposerAccessibility(
+                        state: scenario.name,
+                        identifier: "attachment-remove-\(index)",
+                        element: remove
+                    )
+                    XCTAssertGreaterThanOrEqual(remove.frame.width, 43.99)
+                    XCTAssertGreaterThanOrEqual(remove.frame.height, 43.99)
+                    XCTAssertTrue(remove.isHittable)
+                }
+            }
+
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "task-composer-ax-\(scenario.name)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            app.terminate()
+        }
+    }
+
+    private func recordTaskComposerAccessibility(
+        state: String,
+        identifier: String,
+        element: XCUIElement
+    ) {
+        let frame = element.frame
+        let record: [String: Any] = [
+            "frame": [
+                "height": frame.height,
+                "width": frame.width,
+                "x": frame.minX,
+                "y": frame.minY,
+            ],
+            "hittable": element.isHittable,
+            "id": identifier,
+            "label": element.label,
+            "state": state,
+            "value": element.value.map { String(describing: $0) } ?? NSNull(),
+        ]
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: record,
+            options: [.sortedKeys]
+        ),
+        let json = String(data: data, encoding: .utf8) else {
+            return
+        }
+        print("MPILL_AX_STATE \(json)")
+    }
+
+    private func imagePreviewMetrics(
+        screenshot: XCUIScreenshot,
+        frame: CGRect,
+        windowFrame: CGRect
+    ) -> (distinctColorCount: Int, colorfulFraction: Double) {
+        guard let source = screenshot.image.cgImage,
+              windowFrame.width > 0,
+              windowFrame.height > 0 else {
+            return (0, 0)
+        }
+
+        // Exclude Quick Look's navigation chrome and outer margins. The
+        // remaining center region must come from the staged image itself.
+        let contentFrame = CGRect(
+            x: frame.minX + frame.width * 0.12,
+            y: frame.minY + frame.height * 0.18,
+            width: frame.width * 0.76,
+            height: frame.height * 0.70
+        )
+        let scaleX = CGFloat(source.width) / windowFrame.width
+        let scaleY = CGFloat(source.height) / windowFrame.height
+        let pixelFrame = CGRect(
+            x: (contentFrame.minX - windowFrame.minX) * scaleX,
+            y: (contentFrame.minY - windowFrame.minY) * scaleY,
+            width: contentFrame.width * scaleX,
+            height: contentFrame.height * scaleY
+        ).integral.intersection(CGRect(
+            x: 0,
+            y: 0,
+            width: source.width,
+            height: source.height
+        ))
+        guard pixelFrame.width >= 1,
+              pixelFrame.height >= 1,
+              let crop = source.cropping(to: pixelFrame) else {
+            return (0, 0)
+        }
+
+        let width = crop.width
+        let height = crop.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return (0, 0)
+        }
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        let sampleStride = max(1, min(width, height) / 80)
+        var colors: Set<Int> = []
+        var colorfulSamples = 0
+        var sampleCount = 0
+        for y in Swift.stride(from: 0, to: height, by: sampleStride) {
+            for x in Swift.stride(from: 0, to: width, by: sampleStride) {
+                let offset = (y * width + x) * 4
+                let red = Int(pixels[offset])
+                let green = Int(pixels[offset + 1])
+                let blue = Int(pixels[offset + 2])
+                colors.insert((red / 32) << 6 | (green / 32) << 3 | (blue / 32))
+                if max(red, max(green, blue)) - min(red, min(green, blue)) >= 24 {
+                    colorfulSamples += 1
+                }
+                sampleCount += 1
+            }
+        }
+        return (
+            colors.count,
+            sampleCount == 0 ? 0 : Double(colorfulSamples) / Double(sampleCount)
+        )
     }
 
     /// Agent templates need an instruction before launch, while the plain
@@ -9229,6 +9615,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
+    private let holdsTaskModelResponse: Bool
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
@@ -9244,6 +9631,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var terminalPasteRequestReached = false
     private var terminalPasteRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var heldTerminalPasteResponse: (() -> Void)?
+    private var taskModelRequestReached = false
+    private var taskModelRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var heldTaskModelResponse: (() -> Void)?
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -9303,6 +9693,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
+        holdsTaskModelResponse: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
@@ -9313,6 +9704,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
         self.taskModelsByProvider = taskModelsByProvider
+        self.holdsTaskModelResponse = holdsTaskModelResponse
         self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
@@ -9591,13 +9983,28 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 for: payload,
                 connectionID: ObjectIdentifier(connection)
             )
-            if Self.requestMethod(in: payload) == "terminal.paste",
+            let method = Self.requestMethod(in: payload)
+            if method == "terminal.paste",
                holdsTerminalPasteResponse {
                 terminalPasteRequestReached = true
                 let waiters = terminalPasteRequestReachedWaiters
                 terminalPasteRequestReachedWaiters = []
                 for waiter in waiters { waiter.resume() }
                 heldTerminalPasteResponse = { [weak self, weak connection] in
+                    guard let self, let connection else { return }
+                    self.sendResponse(
+                        responseFrame,
+                        on: connection,
+                        remainingBuffer: remainingBuffer
+                    )
+                }
+            } else if method == "mobile.task.models.list",
+                      holdsTaskModelResponse {
+                taskModelRequestReached = true
+                let waiters = taskModelRequestReachedWaiters
+                taskModelRequestReachedWaiters = []
+                for waiter in waiters { waiter.resume() }
+                heldTaskModelResponse = { [weak self, weak connection] in
                     guard let self, let connection else { return }
                     self.sendResponse(
                         responseFrame,
@@ -9637,6 +10044,30 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         queue.async { [weak self] in
             let response = self?.heldTerminalPasteResponse
             self?.heldTerminalPasteResponse = nil
+            response?()
+        }
+    }
+
+    func awaitTaskModelRequestReached() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                guard let self else {
+                    continuation.resume()
+                    return
+                }
+                if taskModelRequestReached {
+                    continuation.resume()
+                } else {
+                    taskModelRequestReachedWaiters.append(continuation)
+                }
+            }
+        }
+    }
+
+    func releaseTaskModelResponse() {
+        queue.async { [weak self] in
+            let response = self?.heldTaskModelResponse
+            self?.heldTaskModelResponse = nil
             response?()
         }
     }
@@ -10103,6 +10534,116 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private func serverError(_ message: String) -> NSError {
         NSError(domain: "MobileSyncMockHostServer", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+}
+
+/// One-response loopback HTTP server for exercising the production catalog
+/// transport while an authoritative host response remains independently gated.
+private final class AgentModelsCatalogHTTPServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.agent-model-catalog")
+    private let body: Data
+    private var readyContinuation: CheckedContinuation<UInt16, Error>?
+    private var connections: [NWConnection] = []
+
+    init(body: Data) throws {
+        self.body = body
+        listener = try NWListener(using: .tcp, on: .any)
+    }
+
+    func start() async throws -> UInt16 {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                self.readyContinuation = continuation
+                self.listener.stateUpdateHandler = { [weak self] state in
+                    self?.handleListenerState(state)
+                }
+                self.listener.newConnectionHandler = { [weak self] connection in
+                    self?.accept(connection)
+                }
+                self.listener.start(queue: self.queue)
+            }
+        }
+    }
+
+    func stop() {
+        queue.async {
+            self.listener.cancel()
+            for connection in self.connections {
+                connection.cancel()
+            }
+            self.connections.removeAll()
+        }
+    }
+
+    private func handleListenerState(_ state: NWListener.State) {
+        switch state {
+        case .ready:
+            guard let port = listener.port?.rawValue else {
+                readyContinuation?.resume(throwing: serverError("Listener did not publish a port."))
+                readyContinuation = nil
+                return
+            }
+            readyContinuation?.resume(returning: port)
+            readyContinuation = nil
+        case let .failed(error):
+            readyContinuation?.resume(throwing: error)
+            readyContinuation = nil
+        case .cancelled:
+            readyContinuation?.resume(throwing: CancellationError())
+            readyContinuation = nil
+        case .setup, .waiting:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func accept(_ connection: NWConnection) {
+        connections.append(connection)
+        connection.start(queue: queue)
+        receiveRequest(on: connection)
+    }
+
+    private func receiveRequest(on connection: NWConnection, buffer: Data = Data()) {
+        connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: 64 * 1024
+        ) { [weak self, weak connection] data, _, isComplete, error in
+            guard let self, let connection else { return }
+            var nextBuffer = buffer
+            if let data, !data.isEmpty {
+                nextBuffer.append(data)
+            }
+            if nextBuffer.range(of: Data("\r\n\r\n".utf8)) != nil {
+                self.sendResponse(on: connection)
+            } else if isComplete || error != nil {
+                connection.cancel()
+            } else {
+                self.receiveRequest(on: connection, buffer: nextBuffer)
+            }
+        }
+    }
+
+    private func sendResponse(on connection: NWConnection) {
+        let header = Data(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+                .utf8
+        )
+        connection.send(
+            content: header + body,
+            contentContext: .defaultMessage,
+            isComplete: true,
+            completion: .contentProcessed { _ in connection.cancel() }
+        )
+    }
+
+    private func serverError(_ message: String) -> NSError {
+        NSError(
+            domain: "AgentModelsCatalogHTTPServer",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
     }
 }
 

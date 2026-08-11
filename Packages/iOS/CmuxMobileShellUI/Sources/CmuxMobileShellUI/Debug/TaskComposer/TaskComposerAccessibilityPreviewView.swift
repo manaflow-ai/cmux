@@ -289,9 +289,11 @@ public struct TaskComposerAccessibilityPreviewView: View {
 
     private static func makeStagedPreviewAttachments() async -> [TaskComposerAttachment] {
         await Task.detached(priority: .utility) {
-            guard let imageData = Data(base64Encoded:
-                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZVt8AAAAASUVORK5CYII="
+            guard let bundledImageURL = Bundle.module.url(
+                forResource: "Onboarding-notifications-en",
+                withExtension: "png"
             ),
+            let imageData = try? Data(contentsOf: bundledImageURL),
             let imageID = UUID(uuidString: "11111111-1111-1111-1111-111111111111"),
             let fileID = UUID(uuidString: "22222222-2222-2222-2222-222222222222") else {
                 return []
