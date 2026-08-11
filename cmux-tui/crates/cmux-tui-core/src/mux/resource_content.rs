@@ -1198,7 +1198,7 @@ pub(super) fn registry_screen_from_live(
     })
 }
 
-fn ensure_split_public_ids(state: &mut State) -> anyhow::Result<()> {
+pub(super) fn ensure_split_public_ids(state: &mut State) -> anyhow::Result<()> {
     let mut splits = HashSet::new();
     for workspace in &state.workspaces {
         for screen in &workspace.screens {

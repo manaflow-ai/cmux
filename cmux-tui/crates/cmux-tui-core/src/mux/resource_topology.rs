@@ -505,6 +505,16 @@ impl Mux {
         changed_screens.sort_unstable();
         changed_screens.dedup();
         let changed_screen_set = changed_screens.iter().copied().collect::<HashSet<_>>();
+        let projected_screen_ids = projected
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter().map(|screen| screen.id))
+            .collect::<HashSet<_>>();
+        let removed_screens = changed_screens
+            .iter()
+            .filter(|screen| !projected_screen_ids.contains(screen))
+            .copied()
+            .collect::<HashSet<_>>();
         let mut published_screens = changed_screens.clone();
         if selection_before.screen != selection_after.screen
             && let Some(screen) = selection_after.screen
@@ -530,7 +540,7 @@ impl Mux {
         let mut public = Vec::new();
         let mut workspace_updates = changed_screens
             .iter()
-            .filter(|screen| !projected.resource_indexes.screen_ids.contains_key(screen))
+            .filter(|screen| removed_screens.contains(screen))
             .filter_map(|screen| live.resource_indexes.screen_workspace.get(screen).copied())
             .collect::<Vec<_>>();
         workspace_updates
@@ -543,6 +553,7 @@ impl Mux {
             let position = live
                 .workspace_index(workspace_id)
                 .with_context(|| format!("terminal scope lost live workspace {workspace_id}"))?;
+            let live_workspace = &live.workspaces[position];
             patch.push(ResourceChange::UpsertWorkspace {
                 workspace: RegistryWorkspace {
                     id: workspace.id,
@@ -559,9 +570,10 @@ impl Mux {
             });
             patch.push(ResourceChange::SetScreenOrder {
                 workspace_id: workspace.public_id.clone(),
-                screen_ids: workspace
+                screen_ids: live_workspace
                     .screens
                     .iter()
+                    .filter(|screen| !removed_screens.contains(&screen.id))
                     .map(|screen| screen.public_id.clone())
                     .collect(),
             });
@@ -580,6 +592,9 @@ impl Mux {
 
         let mut screen_context = HashMap::new();
         for screen_slot in &affected_screens {
+            if !projected_screen_ids.contains(screen_slot) {
+                continue;
+            }
             let Some(workspace_id) =
                 projected.resource_indexes.screen_workspace.get(screen_slot).copied()
             else {
@@ -2911,6 +2926,7 @@ impl Mux {
                 &mut state,
                 &cleanup_public_ids,
                 &targets,
+                true,
             );
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
             drop(state);
@@ -3211,7 +3227,9 @@ impl Mux {
             &mut projected,
             &cleanup_public_ids,
             &targets,
+            false,
         );
+        resource_content::ensure_split_public_ids(&mut projected)?;
         if let Some(runtime) = runtime.as_ref() {
             let host = self
                 .resource_terminal_host_identity(runtime)
@@ -3718,7 +3736,9 @@ impl Mux {
                     projected,
                     &terminal_public_ids,
                     &surface_ids,
+                    false,
                 );
+            resource_content::ensure_split_public_ids(projected)?;
             anyhow::ensure!(
                 match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
                     (Some(removed), Some(planned)) => removed.shares_terminal_runtime(planned),

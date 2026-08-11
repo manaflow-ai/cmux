@@ -5486,7 +5486,7 @@ impl Mux {
         }
     }
 
-    fn rebuild_split_screen_index(state: &mut State) {
+    fn rebuild_split_screen_index_only(state: &mut State) {
         fn index_node(
             node: &Node,
             workspace_index: usize,
@@ -5513,6 +5513,10 @@ impl Mux {
             }
         }
         state.split_screens = index;
+    }
+
+    fn rebuild_split_screen_index(state: &mut State) {
+        Self::rebuild_split_screen_index_only(state);
         state.rebuild_resource_indexes();
     }
 
@@ -15289,6 +15293,7 @@ fn remove_terminal_content_from_state(
     state: &mut State,
     terminal_id: &TerminalPublicId,
     targets: &[SurfaceId],
+    rebuild_resource_indexes: bool,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
     let runtime = state.terminal_catalog.remove(terminal_id);
     if let Some(runtime) = runtime.as_ref() {
@@ -15301,14 +15306,19 @@ fn remove_terminal_content_from_state(
     let mut removed = Vec::with_capacity(targets.len());
     let mut split_index_dirty = false;
     for target in targets.iter().copied() {
-        let (candidate, topology_changed) = remove_surface(mux, state, target);
+        let (candidate, topology_changed) =
+            remove_surface_without_focus_stamp(mux, state, target);
         split_index_dirty |= topology_changed;
         if let Some(candidate) = candidate {
             removed.push(candidate);
         }
     }
     if split_index_dirty {
-        Mux::rebuild_split_screen_index(state);
+        if rebuild_resource_indexes {
+            Mux::rebuild_split_screen_index(state);
+        } else {
+            Mux::rebuild_split_screen_index_only(state);
+        }
     }
     (runtime, removed, split_index_dirty)
 }
@@ -15318,21 +15328,28 @@ fn remove_terminal_catalogs_and_targets_from_state(
     state: &mut State,
     terminal_ids: &[TerminalPublicId],
     targets: &[SurfaceId],
+    rebuild_resource_indexes: bool,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
+    let previous_active = state.active_pane();
     let mut runtime: Option<Arc<Surface>> = None;
     let mut removed = Vec::new();
     let mut split_index_dirty = false;
     if terminal_ids.is_empty() {
         for target in targets.iter().copied() {
-            let (surface, changed) = remove_surface(mux, state, target);
+            let (surface, changed) = remove_surface_without_focus_stamp(mux, state, target);
             split_index_dirty |= changed;
             if let Some(surface) = surface {
                 removed.push(surface);
             }
         }
         if split_index_dirty {
-            Mux::rebuild_split_screen_index(state);
+            if rebuild_resource_indexes {
+                Mux::rebuild_split_screen_index(state);
+            } else {
+                Mux::rebuild_split_screen_index_only(state);
+            }
         }
+        stamp_changed_active_pane(mux, state, previous_active);
         return (None, removed, split_index_dirty);
     }
 
@@ -15345,7 +15362,13 @@ fn remove_terminal_catalogs_and_targets_from_state(
             current_targets.dedup();
         }
         let (candidate, mut terminal_views, changed) =
-            remove_terminal_content_from_state(mux, state, terminal_id, &current_targets);
+            remove_terminal_content_from_state(
+                mux,
+                state,
+                terminal_id,
+                &current_targets,
+                rebuild_resource_indexes,
+            );
         split_index_dirty |= changed;
         removed.append(&mut terminal_views);
         if let Some(candidate) = candidate {
@@ -15356,6 +15379,7 @@ fn remove_terminal_catalogs_and_targets_from_state(
             }
         }
     }
+    stamp_changed_active_pane(mux, state, previous_active);
     (runtime, removed, split_index_dirty)
 }
 
@@ -15384,8 +15408,10 @@ fn remove_terminal_runtime_from_state(
         &terminal_id,
         host.as_ref().map(|host| (host.terminal_id.as_str(), Some(host.incarnation.as_str()))),
     );
+    let previous_active = state.active_pane();
     let (_, removed, split_index_dirty) =
-        remove_terminal_content_from_state(mux, state, &terminal_id, &targets);
+        remove_terminal_content_from_state(mux, state, &terminal_id, &targets, true);
+    stamp_changed_active_pane(mux, state, previous_active);
     (removed, split_index_dirty)
 }
 
@@ -16370,6 +16396,16 @@ fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[PaneId]) {
 /// split ownership or positional indexes changed. Runs under the state lock.
 fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Arc<Surface>>, bool) {
     let previous_active = state.active_pane();
+    let result = remove_surface_without_focus_stamp(mux, state, target);
+    stamp_changed_active_pane(mux, state, previous_active);
+    result
+}
+
+fn remove_surface_without_focus_stamp(
+    mux: &Mux,
+    state: &mut State,
+    target: SurfaceId,
+) -> (Option<Arc<Surface>>, bool) {
     let removed = state.surfaces.remove(&target);
     if let Some(surface) = removed.as_ref() {
         unregister_terminal_placement(state, surface);
@@ -16431,7 +16467,6 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
         if let Some(next) = next_active {
             state.workspaces[wi].screens[si].active_pane = next;
         }
-        stamp_changed_active_pane(mux, state, previous_active);
         return (removed, true);
     }
 
@@ -16440,14 +16475,12 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
     ws.screens.remove(si);
     ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
     if !ws.screens.is_empty() {
-        stamp_changed_active_pane(mux, state, previous_active);
         return (removed, true);
     }
 
     // The screen emptied, but the workspace remains as a canonical registry
     // entry. Record the resulting loss of active pane without discarding its
     // stable workspace identity.
-    stamp_changed_active_pane(mux, state, previous_active);
     (removed, true)
 }
 
@@ -22143,6 +22176,7 @@ mod tests {
                 &mut state,
                 &terminal_ids,
                 &[source.id],
+                true,
             );
         }
 
