@@ -47,14 +47,15 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. The first two product scenes use production-app screenshots, with
-    /// the notification scene showing the shipped chronological feed. The
+    /// path. The first product scene uses the shipped workspace-list capture,
+    /// while the notification scene shows the shipped chronological feed. The
     /// connection scene keeps its live connection-state illustration. Relaunching
-    /// after the simulated search finishes must resume at Connect and expose QR
-    /// as an explicit fallback.
+    /// after the simulated search finishes must resume at Connect without
+    /// exposing manual pairing until Tailscale is selected.
     @MainActor
-    func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
+    func testOnboardingScenesNotificationFeedResumeAndTailscaleScanner() throws {
         let app = XCUIApplication()
+        XCUIDevice.shared.orientation = .portrait
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         let progressOverride = [
             "-dev.cmux.mobile.onboarding.redesign.progress.v1",
@@ -68,7 +69,10 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_SCANNER_PREVIEW": "1",
         ]
         app.launch()
-        defer { app.terminate() }
+        defer {
+            app.terminate()
+            XCUIDevice.shared.orientation = .portrait
+        }
 
         func element(_ identifier: String) -> XCUIElement {
             app.descendants(matching: .any)[identifier]
@@ -92,24 +96,34 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(footer.waitForExistence(timeout: 4))
         XCTAssertTrue(pageViewport.waitForExistence(timeout: 4))
 
-        let initialHeaderFrame = header.frame
-        let initialProgressFrame = progress.frame
-        let initialFooterFrame = footer.frame
+        var referenceHeaderFrame = header.frame
+        var referenceProgressFrame = progress.frame
+        var referenceFooterFrame = footer.frame
+
+        func recordChromeReferenceFrames() {
+            referenceHeaderFrame = header.frame
+            referenceProgressFrame = progress.frame
+            referenceFooterFrame = footer.frame
+        }
 
         func assertStableChrome(
             includeFooter: Bool = true,
             file: StaticString = #filePath,
             line: UInt = #line
         ) {
-            XCTAssertEqual(header.frame.minX, initialHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.minY, initialHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.width, initialHeaderFrame.width, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.height, initialHeaderFrame.height, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(progress.frame.midX, initialProgressFrame.midX, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(progress.frame.midY, initialProgressFrame.midY, accuracy: 0.5, file: file, line: line)
+            let appFrame = app.frame.insetBy(dx: -0.5, dy: -0.5)
+            XCTAssertTrue(appFrame.contains(header.frame), file: file, line: line)
+            XCTAssertTrue(appFrame.contains(progress.frame), file: file, line: line)
+            XCTAssertEqual(header.frame.minX, referenceHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.minY, referenceHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.width, referenceHeaderFrame.width, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.height, referenceHeaderFrame.height, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midX, referenceProgressFrame.midX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midY, referenceProgressFrame.midY, accuracy: 0.5, file: file, line: line)
             if includeFooter {
-                XCTAssertEqual(footer.frame.minY, initialFooterFrame.minY, accuracy: 0.5, file: file, line: line)
-                XCTAssertEqual(footer.frame.maxY, initialFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
+                XCTAssertTrue(appFrame.contains(footer.frame), file: file, line: line)
+                XCTAssertEqual(footer.frame.minY, referenceFooterFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(footer.frame.maxY, referenceFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
             }
         }
 
@@ -123,8 +137,76 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(page.frame.intersects(app.frame), file: file, line: line)
         }
 
+        func assertPageContentFitsWithoutScrolling(
+            title: XCUIElement,
+            visual: XCUIElement,
+            additionalContent: [XCUIElement] = [],
+            includeFooter: Bool = true,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertTrue(title.exists, file: file, line: line)
+            XCTAssertTrue(visual.exists, file: file, line: line)
+            for element in additionalContent {
+                XCTAssertTrue(element.exists, file: file, line: line)
+            }
+
+            let viewportFrame = pageViewport.frame.insetBy(dx: -0.5, dy: -0.5)
+            XCTAssertTrue(viewportFrame.contains(title.frame), file: file, line: line)
+            XCTAssertTrue(viewportFrame.contains(visual.frame), file: file, line: line)
+            for element in additionalContent {
+                XCTAssertTrue(viewportFrame.contains(element.frame), file: file, line: line)
+            }
+
+            let initialTitleFrame = title.frame
+            let initialVisualFrame = visual.frame
+            let initialAdditionalFrames = additionalContent.map(\.frame)
+            visual.swipeUp()
+
+            func waitForOriginalFrame(
+                _ element: XCUIElement,
+                originalFrame: CGRect
+            ) {
+                let settledFrame = waitForFrame(of: element, timeout: 2) { frame in
+                    abs(frame.minX - originalFrame.minX) <= 0.5
+                        && abs(frame.minY - originalFrame.minY) <= 0.5
+                        && abs(frame.maxX - originalFrame.maxX) <= 0.5
+                        && abs(frame.maxY - originalFrame.maxY) <= 0.5
+                }
+                XCTAssertNotNil(
+                    settledFrame,
+                    "Onboarding content did not return to its original frame after a vertical swipe",
+                    file: file,
+                    line: line
+                )
+            }
+
+            waitForOriginalFrame(title, originalFrame: initialTitleFrame)
+            waitForOriginalFrame(visual, originalFrame: initialVisualFrame)
+            for (element, initialFrame) in zip(additionalContent, initialAdditionalFrames) {
+                waitForOriginalFrame(element, originalFrame: initialFrame)
+            }
+
+            XCTAssertEqual(title.frame.minY, initialTitleFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(title.frame.maxY, initialTitleFrame.maxY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(visual.frame.minY, initialVisualFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(visual.frame.maxY, initialVisualFrame.maxY, accuracy: 0.5, file: file, line: line)
+            for (element, initialFrame) in zip(additionalContent, initialAdditionalFrames) {
+                XCTAssertEqual(element.frame.minY, initialFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(element.frame.maxY, initialFrame.maxY, accuracy: 0.5, file: file, line: line)
+            }
+            assertStableChrome(includeFooter: includeFooter, file: file, line: line)
+        }
+
         capture("onboarding-01-agents")
-        XCTAssertTrue(element("MobileOnboardingScreenshot-workspaces").exists)
+        let agentsTitle = app.staticTexts["Your agents keep working on your Mac"]
+        let agentsBody = app.staticTexts["Track every workspace from your phone."]
+        let agentsScreenshot = element("MobileOnboardingScreenshot-workspaces")
+        assertPageContentFitsWithoutScrolling(
+            title: agentsTitle,
+            visual: agentsScreenshot,
+            additionalContent: [agentsBody]
+        )
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
@@ -141,9 +223,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
-        XCTAssertTrue(element("MobileOnboardingScreenshot-notifications").exists)
+        let notificationsScreenshot = element("MobileOnboardingScreenshot-notifications")
+        XCTAssertTrue(notificationsScreenshot.exists)
         XCTAssertTrue(primaryButton.exists)
         assertStableChrome()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot,
+            additionalContent: [notificationsBody]
+        )
         capture("onboarding-02-notifications")
 
         let backButton = app.buttons["MobileOnboardingBackButton"]
@@ -175,6 +263,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         assertStableChrome(includeFooter: false)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [app.staticTexts[
+                "Use the same cmux account on both devices. Your Mac connects automatically."
+            ]],
+            includeFooter: false
+        )
         capture("onboarding-03-connect")
 
         // Drop only the launch-domain override. The application-domain value
@@ -188,12 +284,53 @@ final class cmuxUITests: XCTestCase {
 
         assertPageVisible(connectScene, timeout: 8)
         XCTAssertTrue(app.buttons["Check Again"].exists)
-        XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
+        XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
+        let tailscaleMethod = app.buttons["MobileOnboardingConnectionMethodTailscale"]
+        let automaticMethod = app.buttons["MobileOnboardingConnectionMethodAutomatic"]
+        XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
+        XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
+        tap(tailscaleMethod, in: app)
+        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
+        let tailscaleDescription = app.staticTexts.matching(
+            NSPredicate(
+                format: "label == %@",
+                "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
+            )
+        ).firstMatch
+        XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
+        // The choice is exclusive: selecting one method must deselect the other.
+        XCTAssertTrue(tailscaleMethod.isSelected)
+        XCTAssertFalse(automaticMethod.isSelected)
+        let tailscaleRetry = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
+        XCTAssertTrue(tailscaleRetry.label.contains("Check Again"))
+        tap(automaticMethod, in: app)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
+        XCTAssertTrue(automaticMethod.isSelected)
+        XCTAssertFalse(tailscaleMethod.isSelected)
+        XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
+        tap(tailscaleMethod, in: app)
+        XCTAssertTrue(tailscaleRetry.waitForExistence(timeout: 4))
+
+        let scanPairingCodeButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(scanPairingCodeButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(scanPairingCodeButton.label.contains("Scan Pairing Code"))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(scanPairingCodeButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(scanPairingCodeButton.frame))
+        XCTAssertTrue(scanPairingCodeButton.isHittable)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Connect over Tailscale"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [
+                tailscaleDescription,
+                element("MobileOnboardingConnectionMethodPicker"),
+            ],
+            includeFooter: true
+        )
         capture("onboarding-04-resumed-connect")
 
-        let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
-        XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
-        qrFallbackButton.tap()
+        scanPairingCodeButton.tap()
 
         let scannerPreview = element("MobilePairingScannerPreview")
         let scannerGuidance = element("MobilePairingScannerGuidance")
@@ -211,6 +348,152 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+        tap(automaticMethod, in: app)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
+
+        app.terminate()
+        XCUIDevice.shared.orientation = .landscapeRight
+        app.launchArguments = baseArguments + progressOverride
+        app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
+        app.launch()
+
+        assertPageVisible(agentsScene, timeout: 8)
+        XCTAssertNotNil(waitForFrame(of: pageViewport, timeout: 4) { frame in
+            frame.width > frame.height
+        })
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: agentsTitle,
+            visual: agentsScreenshot,
+            additionalContent: [agentsBody]
+        )
+        capture("onboarding-07-agents-compact-height")
+
+        primaryButton.tap()
+        assertPageVisible(notificationsScene)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot,
+            additionalContent: [notificationsBody]
+        )
+        capture("onboarding-08-notifications-compact-height")
+
+        primaryButton.tap()
+        assertPageVisible(connectScene)
+        XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
+        let compactRetryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(compactRetryButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(compactRetryButton.label.contains("Check Again"))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactRetryButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactRetryButton.frame))
+        XCTAssertTrue(compactRetryButton.isHittable)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [
+                app.staticTexts[
+                    "Use the same cmux account on both devices. Your Mac connects automatically."
+                ],
+                element("MobileOnboardingConnectionMethodPicker"),
+            ]
+        )
+        capture("onboarding-09-connect-compact-height")
+    }
+
+    /// Manual pairing only authorizes a Tailscale route, so Auto-Connect must
+    /// not expose Add Computer. Switching Settings still reveals the scanner
+    /// owned by the Tailscale method.
+    @MainActor
+    func testAutomaticConnectionMethodHidesAddComputer() throws {
+        let automaticEnvironment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ]
+        let app = launchApp(
+            mockData: true,
+            environment: automaticEnvironment
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
+                .waitForExistence(timeout: 12)
+        )
+        XCTAssertFalse(app.buttons["MobileShowAddDeviceButton"].exists)
+        XCTAssertFalse(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        tap(settings, in: app)
+        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 4))
+        tap(picker, in: app)
+        let tailscale = app.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodTailscale"
+        ]
+        XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
+        tap(tailscale, in: app)
+        XCTAssertTrue(
+            app.buttons["MobileSettingsTailscaleScanButton"].waitForExistence(timeout: 4)
+        )
+
+        let done = app.buttons["MobileSettingsDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: 4))
+        tap(done, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsView"]
+                .waitForNonExistence(timeout: 4)
+        )
+    }
+
+    /// An externally supplied Auto-Connect attach ticket may still need an
+    /// explicit compatibility approval. That approval must remain reachable
+    /// without restoring any manual Add Computer controls.
+    @MainActor
+    func testAutomaticAttachVersionApprovalDoesNotExposeManualPairing() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let attachURL = try attachURL(
+            port: port,
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion + 1
+        )
+        let app = launchApp(
+            mockData: true,
+            environment: [
+                "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            ],
+            launchArguments: [
+                "-dev.cmux.mobile.connectionMethod.v1", "automatic",
+            ]
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.staticTexts["MobilePairingVersionWarning"].waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(app.buttons["MobilePairingVersionWarningContinueButton"].exists)
+        XCTAssertFalse(app.otherElements["MobileAddDeviceForm"].exists)
+        XCTAssertFalse(app.buttons["MobileScanQRCodeButton"].exists)
+        XCTAssertFalse(app.buttons["MobilePairButton"].exists)
+
+        tap(app.buttons["MobilePairingVersionWarningContinueButton"], in: app)
+        XCTAssertTrue(
+            app.staticTexts["MobilePairingVersionWarning"].waitForNonExistence(timeout: 20)
+        )
+        waitForWorkspaceShell(in: app)
+
+        let devices = app.buttons["MobileWorkspaceDevicesButton"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 8))
+        tap(devices, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileDeviceTree"].waitForExistence(timeout: 4)
+        )
+        XCTAssertFalse(app.buttons["MobileComputersAddButton"].exists)
     }
 
     @MainActor
@@ -247,6 +530,818 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
         XCTAssertFalse(element("MobileOnboardingConnectScene").exists)
+    }
+
+    /// A migrating BETA install sees the explanation once, can follow its
+    /// recovery route to the existing picker, and retains each selection.
+    @MainActor
+    func testAutoConnectMigrationIntroductionPersistsTailscaleAndAutoConnectAcrossRelaunches() throws {
+        let fixtureID = UUID().uuidString
+        let environment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": fixtureID,
+        ]
+        let app = launchApp(mockData: true, environment: environment)
+        defer { app.terminate() }
+
+        let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertTrue(migrationTitle.waitForExistence(timeout: 8))
+        XCTAssertFalse(
+            app.descendants(matching: .any)["MobileAutoConnectMigrationViewportProbe"].exists
+        )
+        XCTAssertTrue(app.staticTexts["cmux now uses Auto-Connect"].exists)
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "end-to-end encrypted")
+        ).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Settings → Connection Method")
+        ).firstMatch.exists)
+
+        let continueButton = app.buttons["MobileAutoConnectMigrationContinue"]
+        let settingsButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
+        XCTAssertTrue(continueButton.exists)
+        XCTAssertTrue(settingsButton.isHittable)
+        settingsButton.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["MobileSettingsView"].waitForExistence(timeout: 4))
+        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 4))
+        XCTAssertTrue(picker.isHittable, "Connection Method must be visible without manual scrolling")
+        picker.tap()
+
+        let tailscale = app.descendants(matching: .any)["MobileSettingsConnectionMethodTailscale"]
+        XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
+        tailscale.tap()
+        app.terminate()
+
+        let relaunched = launchApp(mockData: true, environment: environment)
+        defer { relaunched.terminate() }
+        XCTAssertFalse(
+            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
+                .waitForExistence(timeout: 2)
+        )
+        let settings = relaunched.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        settings.tap()
+        let retainedPicker = relaunched.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(retainedPicker.waitForExistence(timeout: 4))
+        XCTAssertTrue(retainedPicker.isHittable)
+        retainedPicker.tap()
+        let retainedTailscale = relaunched.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodTailscale"
+        ]
+        XCTAssertTrue(retainedTailscale.waitForExistence(timeout: 4))
+        XCTAssertTrue(retainedTailscale.isSelected)
+
+        let automatic = relaunched.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodAutomatic"
+        ]
+        XCTAssertTrue(automatic.waitForExistence(timeout: 4))
+        automatic.tap()
+        relaunched.terminate()
+
+        let secondRelaunch = launchApp(mockData: true, environment: environment)
+        defer { secondRelaunch.terminate() }
+        XCTAssertFalse(
+            secondRelaunch.staticTexts["MobileAutoConnectMigrationTitle"]
+                .waitForExistence(timeout: 2)
+        )
+        let secondSettings = secondRelaunch.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(secondSettings.waitForExistence(timeout: 8))
+        secondSettings.tap()
+        let secondPicker = secondRelaunch.descendants(matching: .any)[
+            "MobileSettingsConnectionMethod"
+        ]
+        XCTAssertTrue(secondPicker.waitForExistence(timeout: 4))
+        XCTAssertTrue(secondPicker.isHittable)
+        secondPicker.tap()
+        let retainedAutomatic = secondRelaunch.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodAutomatic"
+        ]
+        XCTAssertTrue(retainedAutomatic.waitForExistence(timeout: 4))
+        XCTAssertTrue(retainedAutomatic.isSelected)
+    }
+
+    /// Continuing acknowledges the notice without changing the default method,
+    /// and the same fixture never sees the notice again.
+    @MainActor
+    func testAutoConnectMigrationContinueKeepsAutoConnectAndDoesNotRepeat() throws {
+        let fixtureID = UUID().uuidString
+        let environment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": fixtureID,
+        ]
+        let app = launchApp(mockData: true, environment: environment)
+        defer { app.terminate() }
+
+        let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertTrue(migrationTitle.waitForExistence(timeout: 8))
+        let continueButton = app.buttons["MobileAutoConnectMigrationContinue"]
+        XCTAssertTrue(continueButton.isHittable)
+        continueButton.tap()
+        XCTAssertTrue(migrationTitle.waitForNonExistence(timeout: 4))
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        settings.tap()
+        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 4))
+        XCTAssertTrue(picker.isHittable)
+        picker.tap()
+        let automatic = app.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodAutomatic"
+        ]
+        XCTAssertTrue(automatic.waitForExistence(timeout: 4))
+        XCTAssertTrue(automatic.isSelected)
+        app.terminate()
+
+        let relaunched = launchApp(mockData: true, environment: environment)
+        defer { relaunched.terminate() }
+        XCTAssertFalse(
+            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
+                .waitForExistence(timeout: 2)
+        )
+        XCTAssertTrue(
+            relaunched.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8)
+        )
+    }
+
+    /// Terminating with the notice visible cannot consume its one-time state.
+    @MainActor
+    func testAutoConnectMigrationTerminationWhileVisibleRepeatsOnRelaunch() throws {
+        let environment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ]
+        let app = launchApp(mockData: true, environment: environment)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.staticTexts["MobileAutoConnectMigrationTitle"]
+                .waitForExistence(timeout: 8)
+        )
+        app.terminate()
+
+        let relaunched = launchApp(mockData: true, environment: environment)
+        defer { relaunched.terminate() }
+        XCTAssertTrue(
+            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
+                .waitForExistence(timeout: 8)
+        )
+    }
+
+    /// A real drag from the sheet chrome takes SwiftUI's interactive-dismissal
+    /// path and acknowledges the notice once.
+    @MainActor
+    func testAutoConnectMigrationInteractiveSwipeDismissalDoesNotRepeat() throws {
+        let environment = [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES": "1",
+        ]
+        let app = launchApp(mockData: true, environment: environment)
+        defer { app.terminate() }
+
+        let migrationTitle = app.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertTrue(migrationTitle.waitForExistence(timeout: 8))
+        let probes = app.descendants(matching: .any).matching(
+            identifier: "MobileAutoConnectMigrationViewportProbe"
+        )
+        let viewportProbe = probes.firstMatch
+        XCTAssertTrue(viewportProbe.waitForExistence(timeout: 4))
+        XCTAssertEqual(probes.count, 1)
+        let viewportFrame = try XCTUnwrap(waitForUsableFrame(of: viewportProbe, timeout: 4))
+        let window = app.windows.firstMatch
+        let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
+        let windowOrigin = window.coordinate(
+            withNormalizedOffset: CGVector(dx: 0, dy: 0)
+        )
+        let dragIndicator = windowOrigin.withOffset(CGVector(
+            dx: viewportFrame.midX - windowFrame.minX,
+            dy: max(viewportFrame.minY - windowFrame.minY - 16, 1)
+        ))
+        let bottom = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        dragIndicator.press(forDuration: 0.05, thenDragTo: bottom)
+        XCTAssertTrue(migrationTitle.waitForNonExistence(timeout: 4))
+        app.terminate()
+
+        let relaunched = launchApp(mockData: true, environment: environment)
+        defer { relaunched.terminate() }
+        XCTAssertFalse(
+            relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
+                .waitForExistence(timeout: 2)
+        )
+        XCTAssertTrue(
+            relaunched.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8)
+        )
+    }
+
+    /// Real root, Settings, list, and detail hosts must retain modal ownership
+    /// until dismissal, then advance the queued migration without a delay.
+    @MainActor
+    func testAutoConnectMigrationDefersBehindRealModalHosts() throws {
+        let settingsApp = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_SETTINGS": "1",
+        ])
+        defer { settingsApp.terminate() }
+
+        let settings = settingsApp.descendants(matching: .any)["MobileSettingsView"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        let settingsMigration = settingsApp.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertFalse(settingsMigration.exists)
+
+        let setupHelpButton = settingsApp.buttons["MobileSettingsSetUpYourMac"]
+        XCTAssertTrue(setupHelpButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(setupHelpButton.isHittable)
+        setupHelpButton.tap()
+        let setupHelp = settingsApp.descendants(matching: .any)["MobileSetupHelpView"]
+        XCTAssertTrue(setupHelp.waitForExistence(timeout: 4))
+        XCTAssertFalse(settingsMigration.exists)
+        let setupHelpDone = settingsApp.buttons["MobileSetupHelpDone"]
+        XCTAssertTrue(setupHelpDone.waitForExistence(timeout: 4))
+        setupHelpDone.tap()
+        XCTAssertTrue(setupHelp.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(settings.exists)
+
+        let done = settingsApp.buttons["MobileSettingsDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: 4))
+        XCTAssertTrue(done.isHittable)
+        done.tap()
+        XCTAssertTrue(settings.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(settingsMigration.waitForExistence(timeout: 8))
+        settingsApp.terminate()
+
+        let modalHosts = [
+            (
+                name: "root pairing",
+                fixture: "root-pairing",
+                visible: "MobilePairingView",
+                dismiss: "MobilePairingCancelButton",
+                environment: [String: String]()
+            ),
+            (
+                name: "workspace list device tree",
+                fixture: "workspace-list-device-tree",
+                visible: "MobileDeviceTree",
+                dismiss: "MobileDeviceTreeDone",
+                environment: [String: String]()
+            ),
+            (
+                name: "workspace detail terminal text",
+                fixture: "workspace-detail-terminal-text",
+                visible: "MobileTerminalTextSheetDone",
+                dismiss: "MobileTerminalTextSheetDone",
+                environment: ["CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1"]
+            ),
+        ]
+
+        for modalHost in modalHosts {
+            var environment = modalHost.environment
+            environment["CMUX_UITEST_AUTOCONNECT_MIGRATION"] = "eligible"
+            environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_ID"] = UUID().uuidString
+            environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_MODAL_HOST"] =
+                modalHost.fixture
+            let app = launchApp(mockData: true, environment: environment)
+            defer { app.terminate() }
+
+            let host = app.descendants(matching: .any)[modalHost.visible]
+            XCTAssertTrue(
+                host.waitForExistence(timeout: 12),
+                "Expected the real \(modalHost.name) host."
+            )
+            let migration = app.staticTexts["MobileAutoConnectMigrationTitle"]
+            XCTAssertFalse(migration.exists, "Migration competed with \(modalHost.name).")
+            let dismissButton = app.buttons[modalHost.dismiss]
+            XCTAssertTrue(dismissButton.waitForExistence(timeout: 4))
+            XCTAssertTrue(dismissButton.isHittable)
+            dismissButton.tap()
+            XCTAssertTrue(host.waitForNonExistence(timeout: 4))
+            XCTAssertTrue(
+                migration.waitForExistence(timeout: 8),
+                "Migration did not follow \(modalHost.name) dismissal."
+            )
+            app.terminate()
+        }
+    }
+
+    /// Each launch-only readiness gate suppresses a pending migration. Removing
+    /// that gate on the same durable fixture allows the notice immediately.
+    @MainActor
+    func testAutoConnectMigrationWaitsForLaunchReadinessGates() throws {
+        for readinessGate in [
+            "authentication-restoring",
+            "scene-inactive",
+            "explicit-attach-route",
+        ] {
+            let fixtureID = UUID().uuidString
+            let baseEnvironment = [
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": fixtureID,
+            ]
+            var gatedEnvironment = baseEnvironment
+            gatedEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_READINESS_GATE"] = readinessGate
+            let gatedApp = launchApp(mockData: true, environment: gatedEnvironment)
+            defer { gatedApp.terminate() }
+
+            XCTAssertFalse(
+                gatedApp.staticTexts["MobileAutoConnectMigrationTitle"]
+                    .waitForExistence(timeout: 2),
+                "Migration ignored the \(readinessGate) gate."
+            )
+            XCTAssertTrue(
+                gatedApp.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8)
+            )
+            gatedApp.terminate()
+
+            let relaunched = launchApp(mockData: true, environment: baseEnvironment)
+            defer { relaunched.terminate() }
+            XCTAssertTrue(
+                relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
+                    .waitForExistence(timeout: 8),
+                "Migration did not present after removing the \(readinessGate) gate."
+            )
+            relaunched.terminate()
+        }
+    }
+
+    /// The same deterministic shell can prove an ineligible fresh-install
+    /// snapshot never receives the migration sheet.
+    @MainActor
+    func testAutoConnectMigrationIneligibleLaunchDoesNotPresentSheet() throws {
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+        ])
+        defer { app.terminate() }
+
+        XCTAssertFalse(
+            app.staticTexts["MobileAutoConnectMigrationTitle"]
+                .waitForExistence(timeout: 2)
+        )
+        XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 8))
+    }
+
+    /// Japanese standard text must expose the complete Settings action in its
+    /// declared bottom-padded slot on first render, without requiring a swipe.
+    @MainActor
+    func testAutoConnectMigrationJapaneseLandscapeOpensSettingsWithoutScrolling() throws {
+        defer { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .landscapeLeft
+
+        let app = launchApp(
+            mockData: true,
+            environment: [
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            ],
+            launchArguments: [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryL",
+            ],
+            languageCode: "ja",
+            localeIdentifier: "ja_JP"
+        )
+        defer { app.terminate() }
+
+        let title = app.staticTexts["MobileAutoConnectMigrationTitle"]
+        XCTAssertTrue(title.waitForExistence(timeout: 8))
+        XCTAssertEqual(title.label, "cmuxはAuto-Connectを使用するようになりました")
+
+        let settingsButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 4))
+        let settingsFrame = try XCTUnwrap(
+            waitForUsableFrame(of: settingsButton, timeout: 4)
+        )
+        let window = app.windows.firstMatch
+        let windowFrame = try XCTUnwrap(waitForFrame(of: window, timeout: 4) { frame in
+            frame.width > frame.height
+        })
+
+        let declaredBottomPadding: CGFloat = 24
+        let expectedSettingsCenterY = windowFrame.maxY
+            - declaredBottomPadding
+            - (settingsFrame.height / 2)
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(
+                dx: settingsFrame.midX - windowFrame.minX,
+                dy: expectedSettingsCenterY - windowFrame.minY
+            ))
+            .tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsView"]
+                .waitForExistence(timeout: 4),
+            "The complete Settings action must occupy its initial 24-point bottom-padded slot."
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+                .waitForExistence(timeout: 4),
+            "The initial Japanese landscape layout must open Connection Method without scrolling."
+        )
+    }
+
+    /// Standard Dynamic Type should fit the migration notice to its content on
+    /// both iPhone and iPad, without leaving the final action stranded above a
+    /// large empty region.
+    @MainActor
+    func testAutoConnectMigrationNormalTypeUsesContentFittedSheet() throws {
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        for localization in [
+            (name: "English", languageCode: "en", locale: "en_US"),
+            (name: "Japanese", languageCode: "ja", locale: "ja_JP"),
+        ] {
+            XCUIDevice.shared.orientation = .portrait
+            let app = launchApp(
+                mockData: true,
+                environment: [
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES": "1",
+                ],
+                launchArguments: [
+                    "-UIPreferredContentSizeCategoryName",
+                    "UICTContentSizeCategoryL",
+                ],
+                languageCode: localization.languageCode,
+                localeIdentifier: localization.locale
+            )
+            defer { app.terminate() }
+
+            let title = app.staticTexts["MobileAutoConnectMigrationTitle"]
+            let body = app.staticTexts["MobileAutoConnectMigrationBody"]
+            let guidance = app.staticTexts["MobileAutoConnectMigrationGuidance"]
+            let continueButton = app.buttons["MobileAutoConnectMigrationContinue"]
+            let finalButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
+            let probes = app.descendants(matching: .any).matching(
+                identifier: "MobileAutoConnectMigrationViewportProbe"
+            )
+            let viewportProbe = probes.firstMatch
+            let window = app.windows.firstMatch
+
+            func capture(_ layout: String) {
+                let attachment = XCTAttachment(screenshot: app.screenshot())
+                attachment.name = "auto-connect-migration-\(localization.name)-\(layout)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+
+            XCTAssertTrue(title.waitForExistence(timeout: 8))
+            XCTAssertTrue(viewportProbe.waitForExistence(timeout: 4))
+            XCTAssertEqual(probes.count, 1)
+            for element in [title, body, guidance, continueButton, finalButton] {
+                XCTAssertTrue(element.waitForExistence(timeout: 4))
+            }
+            XCTAssertTrue(window.exists)
+
+            let localizedElements = [
+                ("title", title),
+                ("body", body),
+                ("guidance", guidance),
+                ("Continue action", continueButton),
+                ("Settings action", finalButton),
+            ]
+
+            func visibleViewportFrame(
+                _ viewportFrame: CGRect,
+                windowFrame: CGRect
+            ) -> CGRect {
+                viewportFrame
+                    .intersection(windowFrame)
+                    .intersection(app.frame.standardized)
+            }
+
+            func assertDeclaredBottomPadding(scrollingIfNeeded: Bool) throws {
+                if scrollingIfNeeded {
+                    for _ in 0..<8 {
+                        let viewportFrame = try XCTUnwrap(
+                            waitForUsableFrame(of: viewportProbe, timeout: 2)
+                        )
+                        let windowFrame = try XCTUnwrap(
+                            waitForUsableFrame(of: window, timeout: 2)
+                        )
+                        let visibleFrame = visibleViewportFrame(
+                            viewportFrame,
+                            windowFrame: windowFrame
+                        )
+                        let finalButtonFrame = try XCTUnwrap(
+                            waitForUsableFrame(of: finalButton, timeout: 2)
+                        )
+                        if visibleFrame.maxY - finalButtonFrame.maxY >= 22 {
+                            break
+                        }
+                        viewportProbe.swipeUp()
+                        _ = try XCTUnwrap(
+                            waitForFrame(of: finalButton, timeout: 2) { frame in
+                                abs(frame.minY - finalButtonFrame.minY) > 2
+                            },
+                            "The migration content did not move while revealing its bottom padding."
+                        )
+                    }
+                }
+
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 4)
+                )
+                let windowFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: window, timeout: 4)
+                )
+                let visibleFrame = visibleViewportFrame(
+                    viewportFrame,
+                    windowFrame: windowFrame
+                )
+                let finalButtonFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: finalButton, timeout: 4)
+                )
+                let renderedBottomGap = visibleFrame.maxY - finalButtonFrame.maxY
+                XCTAssertEqual(
+                    renderedBottomGap,
+                    24,
+                    accuracy: 2,
+                    "The content must retain its declared 24-point bottom padding."
+                )
+                XCTAssertLessThanOrEqual(
+                    renderedBottomGap,
+                    26,
+                    "Rendered bottom space must stay within the declared padding tolerance."
+                )
+            }
+
+            func allContentFitsInScrollViewport() throws -> Bool {
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 4)
+                )
+                let windowFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: window, timeout: 4)
+                )
+                let visibleFrame = visibleViewportFrame(
+                    viewportFrame,
+                    windowFrame: windowFrame
+                )
+                    .insetBy(dx: -1, dy: -1)
+                for (_, element) in localizedElements {
+                    guard let frame = waitForUsableFrame(of: element, timeout: 2),
+                          visibleFrame.contains(frame)
+                    else {
+                        return false
+                    }
+                }
+                return true
+            }
+
+            func assertIntrinsicLayout(_ orientation: String) throws -> CGRect {
+                XCTAssertEqual(
+                    probes.count,
+                    1,
+                    "The migration sheet must expose exactly one viewport probe."
+                )
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 4)
+                )
+                let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
+                let visibleFrame = visibleViewportFrame(
+                    viewportFrame,
+                    windowFrame: windowFrame
+                )
+                    .insetBy(dx: -1, dy: -1)
+                var verticalPositions: [CGFloat] = []
+
+                for (name, element) in localizedElements {
+                    let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                    XCTAssertTrue(
+                        visibleFrame.contains(frame),
+                        "The \(localization.name) \(name) was clipped in \(orientation)."
+                    )
+                    verticalPositions.append(frame.minY)
+                }
+
+                viewportProbe.swipeUp(velocity: .slow)
+                for (index, (_, element)) in localizedElements.enumerated() {
+                    let frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                    XCTAssertEqual(
+                        frame.minY,
+                        verticalPositions[index],
+                        accuracy: 2,
+                        "Fitted \(localization.name) content moved after a swipe in \(orientation)."
+                    )
+                }
+                try assertDeclaredBottomPadding(scrollingIfNeeded: false)
+
+                XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(viewportFrame))
+                XCTAssertEqual(viewportFrame.midX, windowFrame.midX, accuracy: 2)
+                return viewportFrame
+            }
+
+            func assertScrollableLayout() throws -> CGRect {
+                XCTAssertEqual(
+                    probes.count,
+                    1,
+                    "The migration sheet must expose exactly one viewport probe."
+                )
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: 4)
+                )
+                let windowFrame = try XCTUnwrap(waitForUsableFrame(of: window, timeout: 4))
+                let visibleFrame = visibleViewportFrame(
+                    viewportFrame,
+                    windowFrame: windowFrame
+                )
+                    .insetBy(dx: -1, dy: -1)
+                XCTAssertTrue(windowFrame.insetBy(dx: -1, dy: -1).contains(viewportFrame))
+
+                for (name, element) in localizedElements {
+                    var frame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                    for _ in 0..<8 {
+                        if visibleFrame.contains(frame) {
+                            break
+                        }
+                        let frameBeforeSwipe = frame
+                        viewportProbe.swipeUp()
+                        frame = try XCTUnwrap(
+                            waitForFrame(of: element, timeout: 2) { updatedFrame in
+                                abs(updatedFrame.minY - frameBeforeSwipe.minY) > 2
+                            },
+                            "The \(localization.name) content did not move while revealing \(name) in landscape."
+                        )
+                    }
+                    XCTAssertTrue(
+                        visibleFrame.contains(frame),
+                        "The \(localization.name) \(name) was not reachable in landscape."
+                    )
+                    XCTAssertTrue(
+                        visibleFrame.contains(frame),
+                        "The visible \(localization.name) \(name) escaped the landscape viewport."
+                    )
+                }
+
+                try assertDeclaredBottomPadding(scrollingIfNeeded: true)
+                XCTAssertEqual(viewportFrame.midX, windowFrame.midX, accuracy: 2)
+                return viewportFrame
+            }
+
+            let portraitViewportFrame = try assertIntrinsicLayout("portrait")
+            let portraitWindowFrame = window.frame.standardized
+            XCTAssertGreaterThan(portraitWindowFrame.height, portraitWindowFrame.width)
+            capture("portrait")
+
+            XCUIDevice.shared.orientation = .landscapeLeft
+            let landscapeWindowFrame = try XCTUnwrap(waitForFrame(of: window, timeout: 4) { frame in
+                frame.width > frame.height
+            })
+            capture("landscape-initial")
+            let landscapeViewportFrame: CGRect
+            if try allContentFitsInScrollViewport() {
+                landscapeViewportFrame = try assertIntrinsicLayout("landscape")
+            } else {
+                landscapeViewportFrame = try assertScrollableLayout()
+            }
+            XCTAssertNotEqual(
+                landscapeViewportFrame.midX,
+                portraitViewportFrame.midX,
+                accuracy: 2,
+                "The fitted sheet did not reposition after rotation."
+            )
+            XCTAssertEqual(landscapeViewportFrame.midX, landscapeWindowFrame.midX, accuracy: 2)
+            capture("landscape-final")
+            app.terminate()
+        }
+    }
+
+    /// Accessibility Large must keep the complete explanation and both actions
+    /// reachable through the same scroll view in portrait and landscape.
+    @MainActor
+    func testAutoConnectMigrationAccessibilityLargeScrollsAllContent() throws {
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        for (name, orientation) in [
+            ("portrait", UIDeviceOrientation.portrait),
+            ("landscape", UIDeviceOrientation.landscapeLeft),
+        ] {
+            XCUIDevice.shared.orientation = orientation
+            let app = launchApp(
+                mockData: true,
+                environment: [
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+                    "CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES": "1",
+                ],
+                launchArguments: [
+                    "-UIPreferredContentSizeCategoryName",
+                    "UICTContentSizeCategoryAccessibilityL",
+                ]
+            )
+            defer { app.terminate() }
+
+            let title = app.staticTexts["MobileAutoConnectMigrationTitle"]
+            XCTAssertTrue(title.waitForExistence(timeout: 8))
+            let probes = app.descendants(matching: .any).matching(
+                identifier: "MobileAutoConnectMigrationViewportProbe"
+            )
+            let viewportProbe = probes.firstMatch
+            let window = app.windows.firstMatch
+            XCTAssertTrue(
+                viewportProbe.waitForExistence(timeout: 4),
+                "Expected the migration viewport probe in \(name)."
+            )
+            XCTAssertEqual(
+                probes.count,
+                1,
+                "The migration sheet must expose exactly one viewport probe in \(name)."
+            )
+            XCTAssertTrue(window.exists)
+
+            func visibleViewportFrame(timeout: TimeInterval) throws -> CGRect {
+                let viewportFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: viewportProbe, timeout: timeout)
+                )
+                let windowFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: window, timeout: timeout)
+                )
+                return viewportFrame
+                    .intersection(windowFrame)
+                    .intersection(app.frame.standardized)
+            }
+
+            func reveal(_ element: XCUIElement, named elementName: String) throws {
+                XCTAssertTrue(
+                    element.waitForExistence(timeout: 2),
+                    "Expected \(elementName) in the \(name) accessibility hierarchy."
+                )
+                var viewportFrame = try visibleViewportFrame(timeout: 2)
+                    .insetBy(dx: -1, dy: -1)
+                var elementFrame = try XCTUnwrap(waitForUsableFrame(of: element, timeout: 2))
+                for _ in 0..<8 {
+                    if viewportFrame.contains(elementFrame) {
+                        break
+                    }
+                    let frameBeforeSwipe = elementFrame
+                    viewportProbe.swipeUp()
+                    elementFrame = try XCTUnwrap(
+                        waitForFrame(of: element, timeout: 2) { updatedFrame in
+                            abs(updatedFrame.minY - frameBeforeSwipe.minY) > 2
+                        },
+                        "The migration content did not move while revealing \(elementName) in \(name)."
+                    )
+                    viewportFrame = try visibleViewportFrame(timeout: 2)
+                        .insetBy(dx: -1, dy: -1)
+                }
+                XCTAssertTrue(
+                    viewportFrame.contains(elementFrame),
+                    "Expected \(elementName) to become visibly reachable inside the \(name) viewport."
+                )
+            }
+
+            try reveal(
+                title,
+                named: "the migration title"
+            )
+            try reveal(
+                app.staticTexts["MobileAutoConnectMigrationBody"],
+                named: "the Auto-Connect explanation"
+            )
+            try reveal(
+                app.staticTexts["MobileAutoConnectMigrationGuidance"],
+                named: "the Tailscale guidance"
+            )
+            try reveal(
+                app.buttons["MobileAutoConnectMigrationContinue"],
+                named: "Continue with Auto-Connect"
+            )
+            try reveal(
+                app.buttons["MobileAutoConnectMigrationOpenSettings"],
+                named: "Open Connection Settings"
+            )
+
+            let finalButton = app.buttons["MobileAutoConnectMigrationOpenSettings"]
+            for _ in 0..<8 {
+                let viewportFrame = try visibleViewportFrame(timeout: 2)
+                let finalButtonFrame = try XCTUnwrap(
+                    waitForUsableFrame(of: finalButton, timeout: 2)
+                )
+                if viewportFrame.maxY - finalButtonFrame.maxY >= 22 {
+                    break
+                }
+                viewportProbe.swipeUp()
+                _ = try XCTUnwrap(
+                    waitForFrame(of: finalButton, timeout: 2) { frame in
+                        abs(frame.minY - finalButtonFrame.minY) > 2
+                    },
+                    "The accessibility content did not move while revealing bottom padding in \(name)."
+                )
+            }
+            let viewportFrame = try visibleViewportFrame(timeout: 4)
+            let finalButtonFrame = try XCTUnwrap(
+                waitForUsableFrame(of: finalButton, timeout: 4)
+            )
+            XCTAssertEqual(
+                viewportFrame.maxY - finalButtonFrame.maxY,
+                24,
+                accuracy: 2,
+                "The scrolled content must retain its declared 24-point bottom padding in \(name)."
+            )
+        }
     }
 
     @MainActor
@@ -348,27 +1443,698 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceMacPickerUsesComputerCopy() throws {
+    func testWorkspaceMacPickerUsesComputerCopyAndAnnouncesConnectionStatus() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "reconnecting",
         ])
         defer { app.terminate() }
 
         let picker = app.buttons["MobileWorkspaceMacPicker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+        XCTAssertEqual(picker.label, "All Computers")
+        XCTAssertEqual(picker.value as? String, "Reconnecting…")
 
         picker.tap()
 
-        XCTAssertTrue(app.staticTexts["Choose Computer"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["All Computers"].exists)
-        XCTAssertFalse(app.staticTexts["Choose Mac"].exists)
-        XCTAssertFalse(app.staticTexts["All Macs"].exists)
+        let allComputersItem = waitForVisibleElement(
+            identifier: "MobileWorkspaceMacPickerAll",
+            in: app,
+            timeout: 3
+        )
+        XCTAssertEqual(allComputersItem?.label, "All Computers")
+        let menuElements = app.descendants(matching: .any)
+        let oldMacCopy = menuElements.matching(
+            NSPredicate(
+                format: "label == %@ OR label == %@",
+                "Choose Mac",
+                "All Macs"
+            )
+        )
+        XCTAssertEqual(oldMacCopy.count, 0)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-mac-picker-computer-copy"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceGroupsStayVisibleForAllComputersAcrossMultipleMacs() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "8",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+        ])
+        defer { app.terminate() }
+
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 8))
+        XCTAssertEqual(picker.label, "All Computers")
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobileWorkspaceGroupHeader-seed-group-0"
+            ].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobileWorkspaceGroupHeader-seed-group-1"
+            ].waitForExistence(timeout: 3)
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-groups-all-computers-multiple-macs"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceGroupsSurviveSortSearchSelectionAndComputerScope() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The complete grouped-list journey uses the iOS 26 search tab.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT_PRIORITY":
+                "preview-macbook-pro,preview-studio",
+        ])
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        func sortTile(
+            _ identifier: String,
+            label: String,
+            in application: XCUIApplication,
+            timeout: TimeInterval = 3
+        ) -> XCUIElement {
+            let matches = application.descendants(matching: .any).matching(
+                NSPredicate(
+                    format: "identifier == %@ OR label == %@",
+                    identifier,
+                    label
+                )
+            )
+            return waitForVisibleElement(
+                in: matches,
+                app: application,
+                timeout: timeout
+            ) ?? matches.firstMatch
+        }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        func orderedFrames(
+            _ identifiers: [String],
+            state: String
+        ) -> [String: CGRect]? {
+            var result: [String: CGRect] = [:]
+            for identifier in identifiers {
+                guard let frame = waitForUsableFrame(
+                    of: element(identifier),
+                    timeout: 4
+                ) else {
+                    XCTFail("\(state): missing usable frame for \(identifier)")
+                    return nil
+                }
+                result[identifier] = frame
+            }
+            for pair in zip(identifiers, identifiers.dropFirst()) {
+                guard let first = result[pair.0], let second = result[pair.1] else {
+                    return nil
+                }
+                XCTAssertLessThan(
+                    first.minY,
+                    second.minY,
+                    "\(state): \(pair.0) must remain before \(pair.1)"
+                )
+            }
+            return result
+        }
+
+        let filterButton = app.buttons["MobileWorkspaceFilterMenu"]
+        let macPicker = app.buttons["MobileWorkspaceMacPicker"]
+        func dismissViewOptions() {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.72)).tap()
+            XCTAssertTrue(
+                waitForHittable(filterButton, timeout: 3),
+                "The view-options popover did not dismiss."
+            )
+        }
+
+        let beforeID = "MobileWorkspaceRow-workspace-mixed-before"
+        let alphaHeaderID = "MobileWorkspaceGroupHeader-mixed-alpha"
+        let alphaAnchorID = "MobileWorkspaceRow-workspace-mixed-alpha-anchor"
+        let alphaInactiveID = "MobileWorkspaceRow-workspace-mixed-alpha-inactive"
+        let betweenID = "MobileWorkspaceRow-workspace-mixed-between"
+        let betaHeaderID = "MobileWorkspaceGroupHeader-mixed-beta"
+        let betaAnchorID = "MobileWorkspaceRow-workspace-mixed-beta-anchor"
+        let betaRecentID = "MobileWorkspaceRow-workspace-mixed-beta-recent"
+        let afterID = "MobileWorkspaceRow-workspace-mixed-after"
+        let selectedProbeID =
+            "MobileWorkspaceListPreviewSelection-workspace-mixed-alpha-inactive"
+        let computerOrderTileID = "MobileWorkspaceSortTile-computerPriority"
+        let computerOrderTileLabel = "Computer Order"
+        let recentTileID = "MobileWorkspaceSortTile-recentActivity"
+        let recentTileLabel = "Recent Activity"
+        let automaticTileID = "MobileWorkspaceSortTile-automatic"
+        let automaticTileLabel = "Last Opened"
+
+        func captureGroupedTransitionBurst(
+            _ prefix: String,
+            rootID: String,
+            samples: Int = 8
+        ) {
+            for sample in 1...samples {
+                XCTAssertTrue(
+                    element(alphaHeaderID).exists,
+                    "\(prefix) sample \(sample): Alpha header disappeared."
+                )
+                XCTAssertTrue(
+                    element(betaHeaderID).exists,
+                    "\(prefix) sample \(sample): Beta header disappeared."
+                )
+                let rootFrame = element(rootID).frame
+                XCTAssertGreaterThanOrEqual(
+                    element(alphaInactiveID).frame.minX,
+                    rootFrame.minX + 15,
+                    "\(prefix) sample \(sample): Alpha member flattened."
+                )
+                XCTAssertGreaterThanOrEqual(
+                    element(betaRecentID).frame.minX,
+                    rootFrame.minX + 15,
+                    "\(prefix) sample \(sample): Beta member flattened."
+                )
+                XCTAssertTrue(
+                    element(selectedProbeID).exists,
+                    "\(prefix) sample \(sample): selection identity disappeared."
+                )
+                capture("\(prefix)-\(String(format: "%02d", sample))")
+            }
+        }
+
+        func captureHeaderTransitionBurst(
+            _ prefix: String,
+            samples: Int = 8
+        ) {
+            for sample in 1...samples {
+                XCTAssertTrue(
+                    element(alphaHeaderID).exists,
+                    "\(prefix) sample \(sample): Alpha header disappeared."
+                )
+                XCTAssertTrue(
+                    element(betaHeaderID).exists,
+                    "\(prefix) sample \(sample): Beta header disappeared."
+                )
+                XCTAssertTrue(
+                    element(selectedProbeID).exists,
+                    "\(prefix) sample \(sample): selection identity disappeared."
+                )
+                capture("\(prefix)-\(String(format: "%02d", sample))")
+            }
+        }
+
+        let workspaceList = element("MobileWorkspaceList")
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+        XCTAssertTrue(macPicker.waitForExistence(timeout: 8))
+        XCTAssertEqual(macPicker.label, "All Computers")
+        XCTAssertTrue(filterButton.waitForExistence(timeout: 3))
+
+        // Choose Computer Order through the production view-options control.
+        tap(filterButton, in: app)
+        let computerOrderTile = sortTile(
+            computerOrderTileID, label: computerOrderTileLabel, in: app
+        )
+        XCTAssertTrue(waitForHittable(computerOrderTile, timeout: 3))
+        tap(computerOrderTile, in: app)
+        XCTAssertTrue(sortTile(
+            computerOrderTileID, label: computerOrderTileLabel, in: app
+        ).isSelected)
+        capture("workspace-groups-01-computer-order-control")
+        dismissViewOptions()
+
+        let computerOrder = [
+            beforeID,
+            alphaHeaderID,
+            alphaInactiveID,
+            betweenID,
+            betaHeaderID,
+            betaRecentID,
+            afterID,
+        ]
+        guard let computerFrames = orderedFrames(
+            computerOrder,
+            state: "Computer Order"
+        ) else { return }
+        XCTAssertFalse(element(alphaAnchorID).exists)
+        XCTAssertFalse(element(betaAnchorID).exists)
+        XCTAssertGreaterThanOrEqual(
+            computerFrames[alphaInactiveID]!.minX,
+            computerFrames[beforeID]!.minX + 15,
+            "Alpha's inactive member must remain visibly nested."
+        )
+        XCTAssertGreaterThanOrEqual(
+            computerFrames[betaRecentID]!.minX,
+            computerFrames[afterID]!.minX + 15,
+            "Beta's recent member must remain visibly nested."
+        )
+        capture("workspace-groups-02-computer-order-grouped")
+
+        // Select a real member, push its fixture detail, then return. The
+        // read-only DEBUG probe makes the retained push-style identity
+        // observable without adding a selection treatment production omits.
+        tap(element(alphaInactiveID), in: app)
+        XCTAssertTrue(element("FixtureWorkspaceDetail").waitForExistence(timeout: 3))
+        capture("workspace-groups-03-selected-detail")
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).waitForExistence(timeout: 3))
+        capture("workspace-groups-04-selection-after-back")
+
+        // Exercise every sort tile. Selection identity survives both reorder
+        // transitions, and Automatic restores the incoming grouped topology.
+        tap(filterButton, in: app)
+        tap(sortTile(recentTileID, label: recentTileLabel, in: app), in: app)
+        captureGroupedTransitionBurst(
+            "workspace-transition-recent-activity",
+            rootID: afterID
+        )
+        XCTAssertTrue(element(selectedProbeID).exists)
+        XCTAssertTrue(
+            sortTile(recentTileID, label: recentTileLabel, in: app).isSelected
+        )
+        capture("workspace-groups-05-recent-activity-control")
+        tap(sortTile(automaticTileID, label: automaticTileLabel, in: app), in: app)
+        captureGroupedTransitionBurst(
+            "workspace-transition-automatic",
+            rootID: beforeID
+        )
+        XCTAssertTrue(element(selectedProbeID).exists)
+        XCTAssertTrue(
+            sortTile(automaticTileID, label: automaticTileLabel, in: app).isSelected
+        )
+        capture("workspace-groups-06-automatic-control")
+        dismissViewOptions()
+        XCTAssertNotNil(orderedFrames(computerOrder, state: "Automatic"))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-07-automatic-grouped")
+
+        tap(filterButton, in: app)
+        tap(sortTile(recentTileID, label: recentTileLabel, in: app), in: app)
+        XCTAssertTrue(
+            sortTile(recentTileID, label: recentTileLabel, in: app).isSelected
+        )
+        dismissViewOptions()
+        let recentActivityOrder = [
+            afterID,
+            betaHeaderID,
+            betaRecentID,
+            betweenID,
+            alphaHeaderID,
+            alphaInactiveID,
+            beforeID,
+        ]
+        guard let recentFrames = orderedFrames(
+            recentActivityOrder,
+            state: "Recent Activity"
+        ) else { return }
+        XCTAssertGreaterThanOrEqual(
+            recentFrames[alphaInactiveID]!.minX,
+            recentFrames[beforeID]!.minX + 15,
+            "Recent Activity must keep the timestamp-less Alpha member nested."
+        )
+        XCTAssertGreaterThanOrEqual(
+            recentFrames[betaRecentID]!.minX,
+            recentFrames[afterID]!.minX + 15,
+            "Recent Activity must keep Beta's newest member in its group."
+        )
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-08-recent-activity-grouped")
+
+        // Scope to one computer through the production title picker. Recent
+        // Activity must not rewrite that Mac's own group and sidebar order.
+        tap(macPicker, in: app)
+        let studioName = "Studio Display Bench With A Very Long Name"
+        let studioMenuItem = app.buttons[
+            "MobileWorkspaceMacPickerMachine-preview-studio-stable"
+        ]
+        XCTAssertTrue(studioMenuItem.waitForExistence(timeout: 3))
+        XCTAssertTrue(studioMenuItem.label.hasPrefix(studioName))
+        tapMenuItem(studioMenuItem, in: app)
+        let studioTitle = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", studioName),
+            object: macPicker
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [studioTitle], timeout: 3), .completed)
+        XCTAssertTrue(waitForNotHittable(element(alphaHeaderID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(beforeID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(betweenID), timeout: 3))
+        XCTAssertNotNil(
+            orderedFrames(
+                [betaHeaderID, betaRecentID, afterID],
+                state: "Single computer"
+            )
+        )
+        capture("workspace-groups-09-single-computer-keeps-sidebar-order")
+
+        tap(filterButton, in: app)
+        XCTAssertTrue(app.staticTexts["All Workspaces"].waitForExistence(timeout: 3))
+        XCTAssertFalse(element("MobileWorkspaceSortPicker").exists)
+        XCTAssertFalse(sortTile(
+            recentTileID, label: recentTileLabel, in: app, timeout: 0
+        ).exists)
+        XCTAssertFalse(sortTile(
+            automaticTileID, label: automaticTileLabel, in: app, timeout: 0
+        ).exists)
+        XCTAssertFalse(sortTile(
+            computerOrderTileID, label: computerOrderTileLabel, in: app, timeout: 0
+        ).exists)
+        capture("workspace-groups-10-single-computer-hides-sort")
+        dismissViewOptions()
+
+        // Returning to All Computers restores both groups and the persisted
+        // Recent Activity mode, still with the selected identity intact.
+        tap(macPicker, in: app)
+        tapMenuItem(app.buttons["MobileWorkspaceMacPickerAll"], in: app)
+        let allComputersTitle = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "All Computers"),
+            object: macPicker
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [allComputersTitle], timeout: 3),
+            .completed
+        )
+        XCTAssertNotNil(
+            orderedFrames(recentActivityOrder, state: "All Computers restored")
+        )
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-11-all-computers-regrouped")
+
+        // Collapsing hides the selected member but does not clear selection.
+        let alphaDisclosure = element("MobileWorkspaceGroupDisclosure-mixed-alpha")
+        XCTAssertEqual(alphaDisclosure.label, "Collapse group")
+        tap(alphaDisclosure, in: app)
+        captureHeaderTransitionBurst("workspace-transition-collapse")
+        let collapsedDisclosure = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Expand group"),
+            object: alphaDisclosure
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [collapsedDisclosure], timeout: 3),
+            .completed
+        )
+        XCTAssertTrue(waitForNotHittable(element(alphaInactiveID), timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-12-selection-survives-collapse")
+
+        // Search intentionally flattens matching rows. Clearing it restores
+        // grouped sections and the pre-search collapsed state.
+        let searchButton = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        tap(searchButton, in: app)
+        let searchField = app.searchFields["Search workspaces"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Inactive Member")
+        XCTAssertTrue(waitForHittable(element(alphaInactiveID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(alphaHeaderID), timeout: 3))
+        XCTAssertTrue(waitForNotHittable(element(betaHeaderID), timeout: 3))
+        let searchFrame = try XCTUnwrap(
+            waitForUsableFrame(of: element(alphaInactiveID), timeout: 3)
+        )
+        XCTAssertEqual(
+            searchFrame.minX,
+            computerFrames[beforeID]!.minX,
+            accuracy: 2,
+            "Search results must flatten the matching group member."
+        )
+        capture("workspace-groups-13-search-flat")
+
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText(
+            String(repeating: XCUIKeyboardKey.delete.rawValue, count: 32)
+        )
+        XCTAssertTrue(element(betaHeaderID).waitForExistence(timeout: 3))
+        capture("workspace-groups-14-search-cleared-regrouped")
+
+        tap(app.tabBars.buttons["Workspaces"], in: app)
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+        let collapsedRecentOrder = [
+            afterID,
+            betaHeaderID,
+            betaRecentID,
+            betweenID,
+            alphaHeaderID,
+            beforeID,
+        ]
+        XCTAssertNotNil(
+            orderedFrames(collapsedRecentOrder, state: "Cleared search")
+        )
+        XCTAssertTrue(waitForNotHittable(element(alphaInactiveID), timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-15-cleared-search-restores-groups")
+
+        tap(alphaDisclosure, in: app)
+        captureHeaderTransitionBurst("workspace-transition-expand")
+        let expandedDisclosure = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Collapse group"),
+            object: alphaDisclosure
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expandedDisclosure], timeout: 3),
+            .completed
+        )
+        XCTAssertTrue(element(alphaInactiveID).waitForExistence(timeout: 3))
+        XCTAssertTrue(element(selectedProbeID).exists)
+        capture("workspace-groups-16-selection-survives-expand")
+
+        // A second phase uses the fixture's opt-in sidebar navigation style.
+        // It keeps production row rendering and actions, while making the
+        // retained selection highlight visible in screenshots and AX state.
+        app.terminate()
+        let sidebarApp = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SIDEBAR_SELECTION": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "computerPriority",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT_PRIORITY":
+                "preview-macbook-pro,preview-studio",
+        ])
+        defer { sidebarApp.terminate() }
+
+        func sidebarElement(_ identifier: String) -> XCUIElement {
+            sidebarApp.descendants(matching: .any)[identifier]
+        }
+
+        func captureSidebar(_ name: String) {
+            let attachment = XCTAttachment(screenshot: sidebarApp.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let sidebarFilter = sidebarApp.buttons["MobileWorkspaceFilterMenu"]
+        func dismissSidebarViewOptions() {
+            sidebarApp.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.04, dy: 0.72)
+            ).tap()
+            XCTAssertTrue(waitForHittable(sidebarFilter, timeout: 3))
+        }
+
+        let sidebarSelectedRow = sidebarElement(betweenID)
+        XCTAssertTrue(sidebarSelectedRow.waitForExistence(timeout: 8))
+        tap(sidebarSelectedRow, in: sidebarApp)
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-17-visible-selection-computer-order")
+
+        tap(sidebarFilter, in: sidebarApp)
+        tap(
+            sortTile(recentTileID, label: recentTileLabel, in: sidebarApp),
+            in: sidebarApp
+        )
+        dismissSidebarViewOptions()
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-18-visible-selection-recent-activity")
+
+        tap(sidebarFilter, in: sidebarApp)
+        tap(
+            sortTile(automaticTileID, label: automaticTileLabel, in: sidebarApp),
+            in: sidebarApp
+        )
+        dismissSidebarViewOptions()
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-19-visible-selection-automatic")
+
+        tap(sidebarFilter, in: sidebarApp)
+        tap(sortTile(
+            computerOrderTileID, label: computerOrderTileLabel, in: sidebarApp
+        ), in: sidebarApp)
+        dismissSidebarViewOptions()
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-20-visible-selection-computer-order-restored")
+
+        let sidebarAlphaDisclosure = sidebarElement(
+            "MobileWorkspaceGroupDisclosure-mixed-alpha"
+        )
+        XCTAssertEqual(sidebarAlphaDisclosure.label, "Collapse group")
+        tap(sidebarAlphaDisclosure, in: sidebarApp)
+        let sidebarCollapsedDisclosure = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Expand group"),
+            object: sidebarAlphaDisclosure
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [sidebarCollapsedDisclosure], timeout: 3),
+            .completed
+        )
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-21-visible-selection-group-collapsed")
+        tap(sidebarAlphaDisclosure, in: sidebarApp)
+        let sidebarExpandedDisclosure = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Collapse group"),
+            object: sidebarAlphaDisclosure
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [sidebarExpandedDisclosure], timeout: 3),
+            .completed
+        )
+        XCTAssertTrue(sidebarSelectedRow.isSelected)
+        captureSidebar("workspace-groups-22-visible-selection-group-expanded")
+    }
+
+    @MainActor
+    func testWorkspaceGroupsFlattenForReadAndMachineFiltersAndRestoreAfterClear() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The grouped-list filter journey requires iOS 26.")
+        }
+
+        func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        func capture(_ name: String, in app: XCUIApplication) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        func dismissViewOptions(
+            in app: XCUIApplication,
+            filterButton: XCUIElement
+        ) {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.72)).tap()
+            XCTAssertTrue(
+                waitForHittable(filterButton, timeout: 3),
+                "The view-options popover did not dismiss."
+            )
+        }
+
+        let alphaHeaderID = "MobileWorkspaceGroupHeader-mixed-alpha"
+        let alphaInactiveID = "MobileWorkspaceRow-workspace-mixed-alpha-inactive"
+        let betaHeaderID = "MobileWorkspaceGroupHeader-mixed-beta"
+        let betaAnchorID = "MobileWorkspaceRow-workspace-mixed-beta-anchor"
+        let betaRecentID = "MobileWorkspaceRow-workspace-mixed-beta-recent"
+        let afterID = "MobileWorkspaceRow-workspace-mixed-after"
+
+        let readApp = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "recentActivity",
+        ])
+        defer { readApp.terminate() }
+
+        let readFilterButton = readApp.buttons["MobileWorkspaceFilterMenu"]
+        XCTAssertTrue(readFilterButton.waitForExistence(timeout: 8))
+        XCTAssertTrue(element(alphaHeaderID, in: readApp).waitForExistence(timeout: 3))
+        XCTAssertTrue(element(betaHeaderID, in: readApp).waitForExistence(timeout: 3))
+
+        tap(readFilterButton, in: readApp)
+        let unreadButton = readApp.buttons["Unread"]
+        XCTAssertTrue(waitForHittable(unreadButton, timeout: 3))
+        tap(unreadButton, in: readApp)
+        dismissViewOptions(in: readApp, filterButton: readFilterButton)
+
+        let unreadAlpha = element(alphaInactiveID, in: readApp)
+        let unreadBeta = element(betaRecentID, in: readApp)
+        XCTAssertTrue(unreadAlpha.waitForExistence(timeout: 3))
+        XCTAssertTrue(unreadBeta.waitForExistence(timeout: 3))
+        XCTAssertFalse(element(alphaHeaderID, in: readApp).exists)
+        XCTAssertFalse(element(betaHeaderID, in: readApp).exists)
+        XCTAssertEqual(unreadAlpha.frame.minX, unreadBeta.frame.minX, accuracy: 2)
+        capture("workspace-filters-01-unread-flat", in: readApp)
+
+        tap(readFilterButton, in: readApp)
+        let allWorkspacesButton = readApp.buttons["All Workspaces"]
+        XCTAssertTrue(waitForHittable(allWorkspacesButton, timeout: 3))
+        tap(allWorkspacesButton, in: readApp)
+        dismissViewOptions(in: readApp, filterButton: readFilterButton)
+        XCTAssertTrue(element(alphaHeaderID, in: readApp).waitForExistence(timeout: 3))
+        XCTAssertTrue(element(betaHeaderID, in: readApp).waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(
+            element(alphaInactiveID, in: readApp).frame.minX,
+            element(afterID, in: readApp).frame.minX + 15
+        )
+        capture("workspace-filters-02-unread-cleared-regrouped", in: readApp)
+        readApp.terminate()
+
+        let machineApp = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "recentActivity",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_FILTER_MACHINE": "preview-studio",
+        ])
+        defer { machineApp.terminate() }
+
+        let machinePicker = machineApp.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(machinePicker.waitForExistence(timeout: 8))
+        XCTAssertEqual(machinePicker.label, "All Computers")
+        let flatBetaAnchor = element(betaAnchorID, in: machineApp)
+        let flatBetaMember = element(betaRecentID, in: machineApp)
+        let flatAfter = element(afterID, in: machineApp)
+        XCTAssertTrue(flatBetaAnchor.waitForExistence(timeout: 3))
+        XCTAssertTrue(flatBetaMember.waitForExistence(timeout: 3))
+        XCTAssertTrue(flatAfter.waitForExistence(timeout: 3))
+        XCTAssertFalse(element(betaHeaderID, in: machineApp).exists)
+        XCTAssertFalse(element(alphaHeaderID, in: machineApp).exists)
+        XCTAssertEqual(flatBetaAnchor.frame.minX, flatBetaMember.frame.minX, accuracy: 2)
+        XCTAssertEqual(flatBetaMember.frame.minX, flatAfter.frame.minX, accuracy: 2)
+        capture("workspace-filters-03-machine-flat", in: machineApp)
+
+        tap(machinePicker, in: machineApp)
+        let studioMenuItem = machineApp.buttons[
+            "MobileWorkspaceMacPickerMachine-preview-studio-stable"
+        ]
+        XCTAssertTrue(studioMenuItem.waitForExistence(timeout: 3))
+        tapMenuItem(studioMenuItem, in: machineApp)
+        XCTAssertTrue(element(betaHeaderID, in: machineApp).waitForExistence(timeout: 3))
+        XCTAssertFalse(element(betaAnchorID, in: machineApp).exists)
+        XCTAssertGreaterThanOrEqual(
+            element(betaRecentID, in: machineApp).frame.minX,
+            element(afterID, in: machineApp).frame.minX + 15
+        )
+        capture("workspace-filters-04-machine-filter-cleared", in: machineApp)
+
+        tap(machinePicker, in: machineApp)
+        tapMenuItem(machineApp.buttons["MobileWorkspaceMacPickerAll"], in: machineApp)
+        XCTAssertTrue(element(alphaHeaderID, in: machineApp).waitForExistence(timeout: 3))
+        XCTAssertTrue(element(betaHeaderID, in: machineApp).waitForExistence(timeout: 3))
+        capture("workspace-filters-05-all-computers-regrouped", in: machineApp)
     }
 
     /// Regression: the iOS 26 workspace table must underlap the navigation
@@ -595,7 +2361,122 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
+    func testComputerVisibilitySwitchesKeepShownAndHiddenMacsInOneSection() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func waitForLabel(_ label: String, on element: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", label),
+                object: element
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func assertUnifiedRowsRemainVisible() {
+            XCTAssertTrue(app.navigationBars["Computers"].exists)
+            XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
+            XCTAssertTrue(app.staticTexts["Preview Mac"].exists)
+            XCTAssertFalse(app.staticTexts["Hidden Computers"].exists)
+        }
+
+        let shownToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-2"]
+        let hiddenToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-1"]
+        let shownPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-2"
+        ]
+        let hiddenPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-1"
+        ]
+        XCTAssertTrue(shownToggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(hiddenToggle.waitForExistence(timeout: 3))
+        XCTAssertTrue(shownPersistence.waitForExistence(timeout: 3))
+        XCTAssertTrue(hiddenPersistence.waitForExistence(timeout: 3))
+        waitForLabel("shown", on: shownPersistence)
+        waitForLabel("hidden", on: hiddenPersistence)
+        waitForValue("1", on: shownToggle)
+        waitForValue("0", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        shownToggle.tap()
+        waitForLabel("hidden", on: shownPersistence)
+        waitForValue("0", on: shownToggle)
+        assertUnifiedRowsRemainVisible()
+
+        hiddenToggle.tap()
+        waitForLabel("shown", on: hiddenPersistence)
+        waitForValue("1", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-visibility-switches-unified-section"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testHiddenComputersForgetSwipeConfirmsWithoutRemovingRow() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let rowID = "preview-mac-1"
+        let row = app.staticTexts["Preview Mac"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+
+        row.swipeLeft()
+        let forgetSwipeAction = app.buttons["MobileComputerForgetSwipeButton-\(rowID)"]
+        XCTAssertTrue(forgetSwipeAction.waitForExistence(timeout: 3))
+        forgetSwipeAction.tap()
+
+        // The Forget tap is confirm-first: it must only present the dialog. A
+        // destructive-role swipe button here makes SwiftUI batch-delete the row
+        // while the model still contains it, which aborts in UIKit's
+        // item-count assertion (TestFlight crash on build 20260731052644) or
+        // ghosts the row out of the list on runtimes that tolerate it.
+        XCTAssertEqual(
+            app.state, .runningForeground,
+            "Tapping Forget must not crash the app."
+        )
+        let confirmButton = app.buttons["MobileComputerForgetConfirmButton-\(rowID)"]
+        XCTAssertTrue(
+            confirmButton.waitForExistence(timeout: 3),
+            "Forget must request confirmation before revoking."
+        )
+        XCTAssertTrue(
+            row.exists,
+            "The hidden computer must stay listed until the confirmation action runs."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "hidden-computers-forget-swipe-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // The dialog's destructive confirm is the tap that actually removes
+        // the row; the model-driven removal must animate out cleanly.
+        // firstMatch: action-sheet buttons surface twice in the accessibility
+        // tree (button plus its sheet wrapper), so a bare tap is ambiguous.
+        confirmButton.firstMatch.tap()
+        XCTAssertTrue(
+            row.waitForNonExistence(timeout: 3),
+            "Confirming Forget must remove the row."
+        )
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
+    }
+
+    @MainActor    func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
@@ -919,19 +2800,68 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
 
+        // Selecting a result ends the search session (committing the query)
+        // and pushes the detail inside the search tab behind a system back
+        // control. Whether the system keeps its bottom search control over the
+        // pushed detail is platform chrome, deliberately not asserted.
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
-        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
+        guard workspaceDetail.waitForExistence(timeout: 3) else {
+            return XCTFail("Search-stack detail never appeared after tapping the result")
+        }
 
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        XCTAssertTrue(waitForHittable(backButton, timeout: 3))
-        tap(backButton, in: app)
-        XCTAssertNotNil(waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitForKeyboardDismissal(in: app))
-        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
-        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+        guard waitForHittable(systemBack, timeout: 3) else {
+            return XCTFail("No hittable system back control on the search-stack detail")
+        }
+        tap(systemBack, in: app)
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces list did not return after popping the detail")
+        }
+        // Popping the detail finishes the search round on the Workspaces tab
+        // with the query cleared and the bottom search control collapsed.
+        guard waitForKeyboardDismissal(in: app) else {
+            return XCTFail("Keyboard stayed up after popping back from the search detail")
+        }
+        guard workspacesTab.waitForExistence(timeout: 3) else {
+            return XCTFail("Workspaces tab pill missing after popping the search detail")
+        }
+        XCTAssertTrue(
+            workspacesTab.isSelected,
+            "Popping the search-opened workspace must land on the Workspaces tab"
+        )
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing after finishing the search round")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Workspaces list missing rows after finishing the search round")
+        }
+        guard waitForHittable(mainRow, timeout: 3) else {
+            return XCTFail("Query must be cleared after finishing the search round")
+        }
+
+        // An explicit submit still commits the query as the Workspaces filter;
+        // that committed filter must survive a list refresh.
+        tap(minimizedSearch, in: app)
+        guard waitForHittable(searchField, timeout: 3) else {
+            return XCTFail("Search field missing when reactivating search for submit")
+        }
+        guard focusTextInput(searchField, in: app) else {
+            return XCTFail("Could not focus the search field for submit")
+        }
+        searchField.typeText("Docs\n")
+        guard waitForVisibleElement(in: workspaceListTables, app: app, timeout: 3) != nil else {
+            return XCTFail("Workspaces root list missing after submitting the query")
+        }
+        guard minimizedSearch.waitForExistence(timeout: 3) else {
+            return XCTFail("Minimized search control missing after submitting the query")
+        }
+        guard waitForHittable(docsRow, timeout: 3) else {
+            return XCTFail("Committed-filter match missing after submit")
+        }
+        guard waitForNotHittable(mainRow, timeout: 3) else {
+            return XCTFail("Committed query filter not applied after submit")
+        }
 
         let previewRefreshButtons = app.buttons.matching(
             NSPredicate(format: "identifier == %@", "MobileWorkspaceListPreviewRefresh")
@@ -1122,6 +3052,106 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(searchMatches.count, 1)
     }
 
+    /// Regression for the "stuck after selecting a search result" wedge (the
+    /// workspaces list stranded with no tab bar, no search field, and a stale
+    /// query filter): selecting a workspace from the search tab's results must
+    /// open the detail inside the search tab and pop back to the live results.
+    /// The old flow deactivated search, transitioned to the Workspaces tab, and
+    /// pushed onto that off-window stack mid search-dismissal, which could
+    /// record the push without performing it.
+    @MainActor
+    func testWorkspaceSearchSelectionOpensDetailInsideSearchTab() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached workspace search control requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
+
+        let searchButton = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        tap(searchButton, in: app)
+
+        let searchField = app.searchFields["Search workspaces"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Docs")
+
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
+        tap(docsRow, in: app)
+
+        let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
+        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
+
+        // Pop back. The detail sits inside the search tab's stack behind the
+        // system back control; the old cross-tab flow used the custom
+        // workspaces back button, so accept either to keep the pop itself
+        // out of the regression's scope.
+        let customBack = app.buttons["MobileWorkspaceBackButton"]
+        if customBack.waitForExistence(timeout: 1) {
+            tap(customBack, in: app)
+        } else {
+            let systemBack = app.navigationBars.buttons.element(boundBy: 0)
+            XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
+            tap(systemBack, in: app)
+        }
+        XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
+
+        // Popping back finishes the search round on the Workspaces tab: the
+        // full unfiltered list, no query left silently applied, and no
+        // selected (tinted) search control suggesting a search is still live.
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            workspacesTab.isSelected,
+            "Popping the search-opened workspace must land on the Workspaces tab"
+        )
+        XCTAssertTrue(
+            waitForHittable(docsRow, timeout: 3),
+            "Workspaces list missing rows after finishing the search round"
+        )
+        XCTAssertTrue(
+            waitForHittable(mainRow, timeout: 3),
+            "Query must be cleared after finishing the search round, not left filtering the list"
+        )
+
+        // Any visible search affordance belongs to the bottom edge (the
+        // regression showed the field pinned to the top with the keyboard up).
+        let restoredSearchControl = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(
+            restoredSearchControl.waitForExistence(timeout: 3),
+            "Bottom search control missing after popping the search detail"
+        )
+        if let controlFrame = waitForUsableFrame(of: restoredSearchControl, timeout: 3) {
+            XCTAssertGreaterThan(
+                controlFrame.midY,
+                app.frame.midY,
+                "Search control must sit at the bottom after popping, got \(controlFrame)"
+            )
+        } else {
+            XCTFail("Bottom search control had no usable frame after popping")
+        }
+        if searchField.exists, let fieldFrame = waitForUsableFrame(of: searchField, timeout: 1) {
+            XCTAssertGreaterThan(
+                fieldFrame.midY,
+                app.frame.midY,
+                "Search field must not re-present at the top after popping, got \(fieldFrame)"
+            )
+        }
+    }
+
     @MainActor
     func testNotificationTabPreservesSharedRootToolbar() throws {
         let app = launchApp(mockData: false, environment: [
@@ -1137,7 +3167,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
         XCTAssertTrue(computers.waitForExistence(timeout: 3))
         XCTAssertTrue(picker.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+        XCTAssertEqual(picker.label, "All Computers")
         let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
         XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
         XCTAssertLessThanOrEqual(markAllRead.frame.width, 60)
@@ -1277,7 +3307,7 @@ final class cmuxUITests: XCTestCase {
         let approvalTitle = app.staticTexts["Codex needs approval"]
         let approvalWorkspace = app.staticTexts["cmux iOS"]
         let approvalBody = app.staticTexts[
-            "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass."
+            "The feed screen is implemented. Review the navigation and approve the final interaction pass."
         ]
         let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
         XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
@@ -2478,6 +4508,74 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
     }
 
+    /// A composer submission stays visibly in progress until the Mac responds,
+    /// then exposes a durable failure while preserving the draft for retry.
+    @MainActor
+    func testTerminalComposerShowsSendingAndFailureSettlement() async throws {
+        let server = try MobileSyncMockHostServer(
+            holdsTerminalPasteResponse: true,
+            rejectsTerminalPaste: true
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Preserve this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+        await server.awaitTerminalPasteRequestReached()
+
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
+        XCTAssertFalse(send.isEnabled)
+
+        server.releaseTerminalPasteResponse()
+        let failure = app.staticTexts["MobileComposerSendFailure"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 4))
+        XCTAssertEqual(send.label, "Send failed")
+        XCTAssertEqual(field.value as? String, "Preserve this prompt")
+    }
+
+    /// A successful acknowledgement removes the in-flight treatment instead of
+    /// replacing Send with a persistent success glyph.
+    @MainActor
+    func testTerminalComposerReturnsToSendAfterAcknowledgement() async throws {
+        let server = try MobileSyncMockHostServer(holdsTerminalPasteResponse: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Acknowledge this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+        await server.awaitTerminalPasteRequestReached()
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
+
+        server.releaseTerminalPasteResponse()
+        let normalSend = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Send"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [normalSend], timeout: 4), .completed)
+    }
+
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on
     /// `testFastPinchZoomDoesNotHangOrCorrupt`. The user report: "Sometimes the
     /// terminal on iOS freezes; we should do some fuzzing around here." The
@@ -3309,8 +5407,8 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// Verify the built app's two-part keyboard contract at steady state:
-    /// UIKit's keyboard guide resolves to the real software-keyboard edge, and the
-    /// visible composer/toolbar stack resolves to that same guide edge.
+    /// the OS-selected geometry source resolves to the real software-keyboard edge,
+    /// and the visible composer/toolbar stack resolves to that same target.
     @MainActor
     private func assertTerminalDockPinnedToSoftwareKeyboard(
         _ dock: [String: String],
@@ -3320,12 +5418,12 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init),
+        guard let source = dock["keyboardDockSource"],
               let composerMinY = dock["composerMinY"].flatMap(Double.init),
               let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
               let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
             XCTFail(
-                "Missing keyboard-guide dock geometry for \(context). dock=\(dock)",
+                "Missing keyboard dock geometry for \(context). dock=\(dock)",
                 file: file,
                 line: line
             )
@@ -3333,19 +5431,49 @@ final class cmuxUITests: XCTestCase {
         }
 
         let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
+        let targetTop: Double
+        switch source {
+        case "notification":
+            guard let notificationTop = dock["keyboardDockTargetTop"].flatMap(Double.init) else {
+                XCTFail(
+                    "Missing notification keyboard target for \(context). dock=\(dock)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
+            targetTop = notificationTop
+        case "layoutGuide":
+            guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init) else {
+                XCTFail(
+                    "Missing keyboard-guide target for \(context). dock=\(dock)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
+            targetTop = guideTop
+        default:
+            XCTFail(
+                "Unknown keyboard dock source for \(context). dock=\(dock)",
+                file: file,
+                line: line
+            )
+            return
+        }
         XCTAssertEqual(
             dockEdge,
-            guideTop,
+            targetTop,
             accuracy: 1,
-            "Dock must terminate at UIKeyboardLayoutGuide.topAnchor for \(context). dock=\(dock)",
+            "Dock must terminate at its selected keyboard target for \(context). dock=\(dock)",
             file: file,
             line: line
         )
         XCTAssertEqual(
-            Double(surface.frame.minY) + guideTop,
+            Double(surface.frame.minY) + targetTop,
             Double(keyboard.frame.minY),
             accuracy: 2,
-            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge for "
+            "Selected keyboard geometry must resolve to the visible keyboard edge for "
                 + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
@@ -3716,6 +5844,149 @@ final class cmuxUITests: XCTestCase {
             )
             assertDockCoherent(in: app, cycle: cycle)
         }
+    }
+
+    /// Reversing a keyboard dismissal before it settles must keep the Shortcut and
+    /// Composer bars in one visual dock. The surface samples their presentation-layer
+    /// seam every display frame; any transient separation remains observable after the
+    /// animation settles through `dockMaxInternalPresentationGap`.
+    @MainActor
+    func testTerminalDockStaysUnifiedAcrossRapidKeyboardReversals() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(
+            composerField.waitForExistence(timeout: 4),
+            "Rapid reversal coverage requires the Composer bar to be mounted"
+        )
+        let initialDock = waitForDock(in: app, describe: "composer and shortcut bars are both visible") {
+            guard $0["composerActive"] == "1",
+                  let composerMinY = $0["composerMinY"].flatMap(Double.init),
+                  let composerMaxY = $0["composerMaxY"].flatMap(Double.init) else { return false }
+            return composerMaxY - composerMinY > 1
+        }
+        XCTAssertEqual(initialDock["composerActive"], "1")
+
+        surface.tap()
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "rapid-reversal baseline"
+        )
+        let composerKeyboardInset = initialKeyboard.frame.minY - composerField.frame.maxY
+
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+
+        for cycle in 1...10 {
+            hideKeyboardButton.tap()
+            if app.keyboards.firstMatch.exists {
+                XCTAssertEqual(
+                    app.keyboards.firstMatch.frame.minY - composerField.frame.maxY,
+                    composerKeyboardInset,
+                    accuracy: 2,
+                    "The whole dock detached while keyboard dismissal was still visible in cycle \(cycle)"
+                )
+            }
+            surface.tap()
+
+            guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let dock = surfaceDock(in: app)
+            XCTAssertEqual(
+                keyboard.frame.minY - composerField.frame.maxY,
+                composerKeyboardInset,
+                accuracy: 2,
+                "The whole dock detached from the keyboard after rapid reversal \(cycle)"
+            )
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                dock,
+                surface: surface,
+                keyboard: keyboard,
+                context: "rapid reversal \(cycle)"
+            )
+            guard let maximumGap = dock["dockMaxInternalPresentationGap"].flatMap(Double.init) else {
+                XCTFail("Missing per-frame dock seam metric after rapid reversal \(cycle). dock=\(dock)")
+                return
+            }
+            XCTAssertLessThanOrEqual(
+                maximumGap,
+                1,
+                "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
+            )
+        }
+    }
+
+    /// iOS 27 falls back to notification-driven keyboard geometry because its
+    /// keyboard layout guide can remain seated at the screen bottom. Force that
+    /// runtime policy on the CI simulator and prove the visible dock follows the
+    /// real software-keyboard edge through the production composer path.
+    @MainActor
+    func testIOS27KeyboardDockWorkaroundPinsComposerToKeyboard() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK": "1",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        let dock = waitForDock(in: app, describe: "iOS 27 notification fallback tracks keyboard") {
+            $0["keyboardDockSource"] == "notification"
+                && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+
+        guard let dockTargetTop = dock["keyboardDockTargetTop"].flatMap(Double.init),
+              let composerMinY = dock["composerMinY"].flatMap(Double.init),
+              let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
+              let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
+            XCTFail("Missing iOS 27 keyboard-dock fallback geometry. dock=\(dock)")
+            return
+        }
+
+        let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
+        XCTAssertEqual(
+            dockEdge,
+            dockTargetTop,
+            accuracy: 1,
+            "The iOS 27 fallback must terminate the dock at its notification-derived target. dock=\(dock)"
+        )
+        XCTAssertEqual(
+            Double(surface.frame.minY) + dockTargetTop,
+            Double(keyboard.frame.minY),
+            accuracy: 2,
+            "The iOS 27 fallback must pin the composer to the visible software keyboard. keyboard=\(keyboard) dock=\(dock)"
+        )
+        assertTerminalRenderBottomAttachedToViewport(
+            dock,
+            context: "iOS 27 notification fallback"
+        )
     }
 
     @MainActor
@@ -4541,6 +6812,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let createdWorkspaceTerminalDelay: TimeInterval?
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
+    private let holdsTerminalPasteResponse: Bool
+    private let rejectsTerminalPaste: Bool
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
@@ -4550,6 +6823,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var replayCounts: [String: Int] = [:]
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
+    private var terminalPasteRequestReached = false
+    private var terminalPasteRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var heldTerminalPasteResponse: (() -> Void)?
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -4605,12 +6881,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
+        holdsTerminalPasteResponse: Bool = false,
+        rejectsTerminalPaste: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
+        self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
+        self.rejectsTerminalPaste = rejectsTerminalPaste
         self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
@@ -4849,23 +7129,80 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
             let responseFrame = try makeResponseFrame(for: payload)
-            connection.send(
-                content: responseFrame,
-                contentContext: .defaultMessage,
-                isComplete: false,
-                completion: .contentProcessed { [weak self, weak connection] error in
-                    guard error == nil,
-                          let self,
-                          let connection else {
-                        connection?.cancel()
-                        return
-                    }
-                    self.receiveRequest(on: connection, buffer: remainingBuffer)
+            if Self.requestMethod(in: payload) == "terminal.paste",
+               holdsTerminalPasteResponse {
+                terminalPasteRequestReached = true
+                let waiters = terminalPasteRequestReachedWaiters
+                terminalPasteRequestReachedWaiters = []
+                for waiter in waiters { waiter.resume() }
+                heldTerminalPasteResponse = { [weak self, weak connection] in
+                    guard let self, let connection else { return }
+                    self.sendResponse(
+                        responseFrame,
+                        on: connection,
+                        remainingBuffer: remainingBuffer
+                    )
                 }
-            )
+            } else {
+                sendResponse(
+                    responseFrame,
+                    on: connection,
+                    remainingBuffer: remainingBuffer
+                )
+            }
         } catch {
             connection.cancel()
         }
+    }
+
+    func awaitTerminalPasteRequestReached() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                guard let self else {
+                    continuation.resume()
+                    return
+                }
+                if terminalPasteRequestReached {
+                    continuation.resume()
+                } else {
+                    terminalPasteRequestReachedWaiters.append(continuation)
+                }
+            }
+        }
+    }
+
+    func releaseTerminalPasteResponse() {
+        queue.async { [weak self] in
+            let response = self?.heldTerminalPasteResponse
+            self?.heldTerminalPasteResponse = nil
+            response?()
+        }
+    }
+
+    private func sendResponse(
+        _ responseFrame: Data,
+        on connection: NWConnection,
+        remainingBuffer: Data
+    ) {
+        connection.send(
+            content: responseFrame,
+            contentContext: .defaultMessage,
+            isComplete: false,
+            completion: .contentProcessed { [weak self, weak connection] error in
+                guard error == nil,
+                      let self,
+                      let connection else {
+                    connection?.cancel()
+                    return
+                }
+                self.receiveRequest(on: connection, buffer: remainingBuffer)
+            }
+        )
+    }
+
+    private static func requestMethod(in payload: Data) -> String? {
+        let request = try? JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        return request?["method"] as? String
     }
 
     private func makeResponseFrame(for payload: Data) throws -> Data {
@@ -4883,6 +7220,18 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 "error": [
                     "code": "method_not_found",
                     "message": "Unknown method",
+                ],
+            ]
+            let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
+            return Self.frame(responsePayload)
+        }
+        if method == "terminal.paste", rejectsTerminalPaste {
+            let envelope: [String: Any] = [
+                "id": id,
+                "ok": false,
+                "error": [
+                    "code": "send_failed",
+                    "message": "Rejected terminal paste",
                 ],
             ]
             let responsePayload = try JSONSerialization.data(withJSONObject: envelope)

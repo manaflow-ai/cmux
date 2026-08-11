@@ -4,16 +4,21 @@ enum WorkspaceActiveSurface: Equatable {
     case terminal
     case browser
     case browserStream
+    case simulatorStream
 
     static func derive(
         hasActiveBrowser: Bool,
-        hasActiveBrowserStream: Bool = false
+        hasActiveBrowserStream: Bool = false,
+        hasActiveSimulatorStream: Bool = false
     ) -> Self {
         if hasActiveBrowser {
             return .browser
         }
         if hasActiveBrowserStream {
             return .browserStream
+        }
+        if hasActiveSimulatorStream {
+            return .simulatorStream
         }
         return .terminal
     }

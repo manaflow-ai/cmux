@@ -170,6 +170,17 @@ public protocol SettingsHostActions: AnyObject {
     /// `async` because the availability check probes a real bind.
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
 
+    /// Current Mac-owned forwarding policy for cmux mobile push notifications.
+    func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot
+
+    /// Live forwarding-policy updates from every app entrypoint.
+    func mobilePhonePushSettingsUpdates() -> AsyncStream<MobilePhonePushSettingsSnapshot>
+
+    /// Applies one forwarding-policy field through the host's shared owner.
+    func updateMobilePhonePushSettings(
+        _ mutation: MobilePhonePushSettingsMutation
+    ) -> MobilePhonePushSettingsSnapshot
+
     /// Shows the Sleepy Mode screensaver as a non-locking preview (any key/click
     /// exits, no Touch ID). The host owns the overlay window.
     func sleepyModePreview()
@@ -268,6 +279,21 @@ public extension SettingsHostActions {
     /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
         (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
+    }
+
+    func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
+        .defaultValue
+    }
+
+    func mobilePhonePushSettingsUpdates() -> AsyncStream<MobilePhonePushSettingsSnapshot> {
+        AsyncStream { $0.finish() }
+    }
+
+    func updateMobilePhonePushSettings(
+        _ mutation: MobilePhonePushSettingsMutation
+    ) -> MobilePhonePushSettingsSnapshot {
+        _ = mutation
+        return mobilePhonePushSettings()
     }
 
     func sidebarFontSize() -> SettingsFontSize {

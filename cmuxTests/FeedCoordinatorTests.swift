@@ -737,12 +737,20 @@ struct FeedCoordinatorTests {
     }
 
     @Test func lifecycleStatusKeyMatchesAgentReportedKey() {
-        // Claude reports its lifecycle under `claude_code`; reusing that key is
-        // what lets Claude's own resume hooks clear the needs-input badge.
+        // Claude reports its lifecycle under `claude_code`; normalize the Feed
+        // source the same way without mutating that agent-owned slot.
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "claude") == "claude_code")
         // Every other agent keys its status by its own source name.
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "codex") == "codex")
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
+        #expect(
+            FeedCoordinator.attentionStatusKey(forSource: "claude")
+                == "cmux.feed.attention:claude_code"
+        )
+        #expect(
+            FeedCoordinator.attentionStatusKey(forSource: "codex")
+                == "cmux.feed.attention:codex"
+        )
     }
 
     @Test func workstreamPublicationCarriesAuthoritativeTargetAndError() throws {

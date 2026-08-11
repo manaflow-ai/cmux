@@ -10,9 +10,8 @@ import UniformTypeIdentifiers
 @MainActor
 enum SessionEntryResumeCoordinator {
     static func resume(_ entry: SessionEntry, tabManager: TabManager) {
-        guard let resumeCommand = entry.resumeCommandWithCwd else { return }
-        let inputWithReturn = resumeCommand + "\n"
-        let targetCwd = entry.resumeWorkingDirectory
+        guard let launch = entry.resumeLaunch else { return }
+        let targetCwd = launch.workingDirectory
 
         let selected = tabManager.selectedWorkspace
         let selectedTab = tabManager.selectedTabId.flatMap { id in
@@ -36,14 +35,16 @@ enum SessionEntryResumeCoordinator {
                 inPane: paneId,
                 focus: true,
                 workingDirectory: targetCwd,
-                initialInput: inputWithReturn
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent
             )
             return
         }
 
         tabManager.addWorkspace(
             workingDirectory: targetCwd,
-            initialTerminalInput: inputWithReturn
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
         )
     }
 }
@@ -689,7 +690,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
-    if let resumeCommand = entry.resumeCommand {
+    if let resumeCommand = entry.copyResumeCommand {
         Button {
             let pb = NSPasteboard.general
             pb.clearContents()
@@ -1967,11 +1968,10 @@ struct SectionPopoverView: View {
     @State private var hasMore: Bool = true
     @State private var isLoading: Bool = false
     @State private var activeQuery: String = ""
-    /// In-flight pagination task for the typed-query path. Reassigned by
-    /// `loadMore()`; the previous task is cancelled implicitly. The initial /
-    /// query-change load is owned by SwiftUI via `.task(id: query)` and
-    /// doesn't use this slot.
-    @State private var loadTask: Task<Void, Never>?
+    /// Owns the replaceable pagination task for the typed-query path. The
+    /// initial / query-change load is owned by SwiftUI via `.task(id: query)`
+    /// and doesn't use this store.
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var errorMessages: [String] = []
     /// Full merged snapshot of the directory (empty-query directory scope
     /// only). When non-nil, `loadMore()` slices this array in memory
@@ -2107,12 +2107,9 @@ struct SectionPopoverView: View {
         // before the sleep completes, preventing an unnecessary search.
         .task(id: query) {
             // Any pagination task from the previous query lifecycle is now
-            // superseded. Cancel explicitly; reassigning `loadTask =
-            // Task { ... }` later doesn't cancel the previous handle on its
-            // own, so without this a stale page could still land and
+            // superseded. Cancel explicitly so a stale page cannot land and
             // append rows that don't match the new query.
-            loadTask?.cancel()
-            loadTask = nil
+            tasks.cancel("loadMore")
 
             if !searchFieldFocused {
                 searchFieldFocused = true
@@ -2182,11 +2179,10 @@ struct SectionPopoverView: View {
         }
         .onDisappear {
             // .task(id: query) auto-cancels on disappear, but the
-            // separate loadTask slot (used by loadMore) is ours to
-            // manage. Cancel it so a fetch in flight when the popover
-            // closes doesn't keep running to completion.
-            loadTask?.cancel()
-            loadTask = nil
+            // separate load-more slot is ours to manage. Cancel it so a fetch
+            // in flight when the popover closes doesn't keep running to
+            // completion.
+            tasks.cancel("loadMore")
             isLoading = false
         }
     }
@@ -2225,8 +2221,7 @@ struct SectionPopoverView: View {
         let search = self.search
         let query = activeQuery
         let offset = loaded.count
-        loadTask?.cancel()
-        loadTask = Task { @MainActor in
+        tasks.replaceOnMainActor("loadMore") {
             let outcome = await search(query, scope, offset, Self.pageSize)
             guard !Task.isCancelled else { return }
             applyOutcome(outcome, append: true)

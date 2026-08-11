@@ -1,7 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
-import CryptoKit
 import Foundation
 
 @MainActor
@@ -142,6 +141,13 @@ extension MobileHostIrohRuntime {
                     guard let auth else { return }
                     _ = try await auth.forceRefreshAccessToken()
                 }
+            ),
+            discoveryScope: try CmxConnectivityDiscoveryScope(
+                deviceID: deviceID,
+                appInstanceID: appInstanceID,
+                tag: tag,
+                platform: .mac,
+                peerPlatform: .ios
             ),
             backpressureMode: .callerOwned
         )
@@ -627,17 +633,5 @@ extension MobileHostIrohRuntime {
             && !signOutIntentActive
             && desiredActive
             && observedAccountID == accountID
-    }
-}
-
-private extension CmxIrohIdentityMaterial {
-    var peerIdentity: CmxIrohPeerIdentity? {
-        guard let privateKey = try? Curve25519.Signing.PrivateKey(
-            rawRepresentation: secretKey.bytes
-        ) else { return nil }
-        let endpointID = privateKey.publicKey.rawRepresentation
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return try? CmxIrohPeerIdentity(endpointID: endpointID)
     }
 }

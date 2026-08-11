@@ -932,6 +932,9 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let focusedSurface = try XCTUnwrap(
+            workspace.terminalPanel(for: focusedPanelId)?.surface
+        )
 
         XCTAssertTrue(workspace.updatePanelTitle(panelId: focusedPanelId, title: "Waiting - grok"))
         XCTAssertEqual(workspace.title, "Waiting - grok")
@@ -944,7 +947,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: focusedSurface,
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
@@ -3421,6 +3424,21 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 0)
 
         workspace.focusPanel(leftPanelId)
+        // Focus itself is synchronous, but the notification dismissal it triggers rides the
+        // `.ghosttyDidFocusSurface` broadcast, which `FocusSurfaceBroadcaster` never delivers
+        // synchronously. Settle before asserting the dismissal side effects.
+        drainMainQueue()
+
+        // Focus lands synchronously, but the dismissal it triggers rides the
+        // `.ghosttyDidFocusSurface` broadcast: `FocusSurfaceBroadcaster` defers the post to a
+        // later main-queue turn (issue #5100) and `TabManager` observes it on
+        // `OperationQueue.main`, one hop further out. Wait for the dismissal itself, then assert
+        // what it produced.
+        guard waitForCondition({
+            !store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId)
+        }) else {
+            return
+        }
 
         XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId))

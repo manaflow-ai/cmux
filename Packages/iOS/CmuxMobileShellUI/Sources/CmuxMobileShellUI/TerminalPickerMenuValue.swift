@@ -10,6 +10,9 @@ struct TerminalPickerMenuValue: Equatable {
     let browserStreamRows: [BrowserStreamPickerRow]
     let supportsBrowserStream: Bool
     let activeBrowserStreamPanelID: String?
+    let simulatorStreamRows: [SimulatorStreamPickerRow]
+    let supportsSimulatorStream: Bool
+    let activeSimulatorStreamPanelID: String?
 
     init(
         liveTerminals: [MobileTerminalPreview],
@@ -19,7 +22,10 @@ struct TerminalPickerMenuValue: Equatable {
         hasActiveBrowser: Bool,
         browserStreamRows: [BrowserStreamPickerRow] = [],
         supportsBrowserStream: Bool = false,
-        activeBrowserStreamPanelID: String? = nil
+        activeBrowserStreamPanelID: String? = nil,
+        simulatorStreamRows: [SimulatorStreamPickerRow] = [],
+        supportsSimulatorStream: Bool = false,
+        activeSimulatorStreamPanelID: String? = nil
     ) {
         rows = snapshotRows.isEmpty
             ? liveTerminals.map(TerminalPickerMenuRow.init)
@@ -32,5 +38,8 @@ struct TerminalPickerMenuValue: Equatable {
         self.browserStreamRows = browserStreamRows
         self.supportsBrowserStream = supportsBrowserStream
         self.activeBrowserStreamPanelID = activeBrowserStreamPanelID
+        self.simulatorStreamRows = simulatorStreamRows
+        self.supportsSimulatorStream = supportsSimulatorStream
+        self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
     }
 }

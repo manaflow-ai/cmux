@@ -4,24 +4,21 @@ import Foundation
 extension DockSplitStore {
     @discardableResult
     func discardPanelOwnershipAndClose(panelId: UUID) -> (any Panel)? {
-        let tabIDs = surfaceIdToPanelId.compactMap { tabID, ownedPanelID in
-            ownedPanelID == panelId ? tabID : nil
-        }
-        for tabID in tabIDs {
-            surfaceIdToPanelId.removeValue(forKey: tabID)
-        }
+        removeSurfaceMappings(forPanelId: panelId)
         return discardPanelStateAndClose(panelId: panelId)
     }
 
     @discardableResult
     func discardPanelStateAndClose(panelId: UUID) -> (any Panel)? {
+        cancelDockReactGrabTask(targetingPanelId: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
-        AppDelegate.shared?.notificationStore?.clearNotifications(
+        resolvedNotificationStore()?.clearNotifications(
             forTabId: workspaceId,
             surfaceId: panelId
         )
+        TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId])
         removeDetachedSurfaceTransfer(forPanelID: panelId)
         clearSessionRestoreState(panelId: panelId)
 

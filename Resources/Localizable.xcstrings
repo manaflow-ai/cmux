@@ -1,6 +1,230 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.help.notify.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--reply                Allow a free-text inline reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
+      }
+    },
+    "debug.menu.notification.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit All" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべて送信" } }
+      }
+    },
+    "debug.menu.notification.cli": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI" } }
+      }
+    },
+    "debug.menu.notification.cliReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CLI Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CLI 返信" } }
+      }
+    },
+    "debug.menu.notification.emit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Emit Notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を送信" } }
+      }
+    },
+    "debug.menu.notification.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー" } }
+      }
+    },
+    "debug.menu.notification.feedExitPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Exit Plan" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード終了プラン" } }
+      }
+    },
+    "debug.menu.notification.feedPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード権限" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問" } }
+      }
+    },
+    "debug.menu.notification.feedQuestion4": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (4 Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（4つの選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMany": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Many Options)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（多数の選択肢）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiple": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multiple)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数質問）" } }
+      }
+    },
+    "debug.menu.notification.feedQuestionMultiSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multi-select)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数選択）" } }
+      }
+    },
+    "debug.menu.notification.hookFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hook Failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フック失敗" } }
+      }
+    },
+    "debug.menu.notification.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle Reminder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル通知" } }
+      }
+    },
+    "debug.menu.notification.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグモード" } }
+      }
+    },
+    "debug.menu.notification.needsPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs Permission" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "権限が必要" } }
+      }
+    },
+    "debug.menu.notification.osc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OSC" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OSC" } }
+      }
+    },
+    "debug.menu.notification.turnComplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Turn Complete" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } }
+      }
+    },
+    "debug.notification.error.invalidKindOrTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown kind or no notification target" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な種類、または通知対象がありません" } }
+      }
+    },
+    "debug.notification.error.missingEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false to turn notification debug mode on or off." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定して、通知デバッグモードのオン/オフを切り替えてください。" } }
+      }
+    },
+    "debug.notification.error.missingKind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pass kind=<notification kind> to choose which debug notification to emit." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "kind=<通知の種類> を指定して、発行するデバッグ通知を選んでください。" } }
+      }
+    },
+    "debug.notification.synthetic.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Synthetic %@ notification" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "合成 %@ 通知" } }
+      }
+    },
+    "debug.notification.synthetic.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Option %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択肢 %d" } }
+      }
+    },
+    "debug.notification.synthetic.plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inspect the notification and verify the actions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知を確認し、アクションを検証します。" } }
+      }
+    },
+    "debug.notification.synthetic.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a notification debug answer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグの回答を選択" } }
+      }
+    },
+    "debug.notification.synthetic.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグ" } }
+      }
+    },
+    "feed.notification.exitPlan.revise": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Revise…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "修正…" } }
+      }
+    },
+    "feed.notification.question.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Other…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
+      }
+    },
+    "terminal.notification.action.reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "返信" } }
+      }
+    },
+    "terminal.notification.action.replyPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Message the agent…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントにメッセージ…" } }
+      }
+    },
+    "terminal.notification.action.replySend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {
@@ -1554,13 +1778,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn’t reach Stack"
+            "value": "Couldn’t reach cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack に接続できません"
+            "value": "cmux に接続できません"
           }
         }
       }
@@ -1622,13 +1846,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack rejected the sign-in"
+            "value": "cmux couldn’t complete the sign-in"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack がサインインを拒否しました"
+            "value": "cmux でサインインを完了できませんでした"
           }
         }
       }
@@ -1656,13 +1880,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack is temporarily unavailable"
+            "value": "cmux sign-in is temporarily unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack は一時的に利用できません"
+            "value": "cmux のサインインは一時的に利用できません"
           }
         }
       }
@@ -1707,13 +1931,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Confirm you’re using the intended Stack account, then try again."
+            "value": "Confirm you’re using the intended cmux account, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用する Stack アカウントが正しいことを確認して、もう一度試してください。"
+            "value": "使用する cmux アカウントが正しいことを確認して、もう一度試してください。"
           }
         }
       }
@@ -1724,13 +1948,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack couldn’t authorize this sign-in"
+            "value": "cmux couldn’t authorize this sign-in"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack がこのサインインを承認できませんでした"
+            "value": "cmux がこのサインインを承認できませんでした"
           }
         }
       }
@@ -1843,13 +2067,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is verifying your Stack account. Keep this pane open."
+            "value": "cmux is verifying your account. Keep this pane open."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が Stack アカウントを確認しています。このペインを開いたままにしてください。"
+            "value": "cmux がアカウントを確認しています。このペインを開いたままにしてください。"
           }
         }
       }
@@ -1877,13 +2101,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is preparing a secure Stack sign-in window."
+            "value": "cmux is preparing a secure sign-in window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が安全な Stack サインインウインドウを準備しています。"
+            "value": "cmux が安全なサインインウインドウを準備しています。"
           }
         }
       }
@@ -1996,13 +2220,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue with your Stack account."
+            "value": "Continue with your cmux account."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stack アカウントで続行します。"
+            "value": "cmux アカウントで続行します。"
           }
         }
       }
@@ -2030,13 +2254,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is connected to your Stack account."
+            "value": "Your cmux account is connected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が Stack アカウントに接続されました。"
+            "value": "cmux アカウントに接続しました。"
           }
         }
       }
@@ -16465,6 +16689,12 @@
             "value": "キャンセル"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បោះបង់"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -16505,6 +16735,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "İptal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скасувати"
           }
         },
         "zh-Hans": {
@@ -18434,6 +18670,12 @@
             "value": "このタブのカスタム名を入力してください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចូលឈ្មោះផ្ទាល់ខ្លួនសម្រាប់ផ្ទាំងនេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18474,6 +18716,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bu sekme için özel bir ad girin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть власну назву для цієї вкладки."
           }
         },
         "zh-Hans": {
@@ -18547,6 +18795,12 @@
             "value": "タブ名"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះផ្ទាំង"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18587,6 +18841,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sekme adı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назва вкладки"
           }
         },
         "zh-Hans": {
@@ -18660,6 +18920,12 @@
             "value": "変更"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរឈ្មោះ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18700,6 +18966,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Yeniden Adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейменувати"
           }
         },
         "zh-Hans": {
@@ -18773,6 +19045,12 @@
             "value": "タブ名を変更"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរឈ្មោះផ្ទាំង"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18813,6 +19091,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sekmeyi Yeniden Adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейменувати вкладку"
           }
         },
         "zh-Hans": {
@@ -34772,6 +35056,74 @@
         }
       }
     },
+    "cli.browser.error.diffViewerAllowlistInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid trusted diff viewer allowlist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアの許可リストが無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerAllowlistMissingOrInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid trusted diff viewer allowlist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアの許可リストがないか、無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerSessionInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid trusted diff viewer session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアのセッションが無効です"
+          }
+        }
+      }
+    },
+    "cli.browser.error.diffViewerSessionMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing trusted diff viewer session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼済み差分ビューアのセッションがありません"
+          }
+        }
+      }
+    },
     "cli.browser.error.operationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -35182,6 +35534,1381 @@
           "stringUnit": {
             "state": "translated",
             "value": "明確指定 --surface 時，close-surface 需要 --workspace 或 --window"
+          }
+        }
+      }
+    },
+    "cli.comments.error.notARepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب cmux comments مستودع git: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments zahtijeva git repozitorij: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments kræver et git-repository: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments benötigt ein Git-Repository: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments requires a git repository: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments requiere un repositorio git: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments nécessite un dépôt git : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments richiede un repository git: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments には git リポジトリが必要です: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments ត្រូវការ​ឃ្លាំង git: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments 는 git 저장소에서 실행해야 합니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments krever et git-repository: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments wymaga repozytorium git: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments requer um repositório git: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments требует git-репозиторий: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments ต้องใช้ที่เก็บโค้ด git: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments bir git deposu gerektirir: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments потребує git-репозиторію: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments 需要 git 仓库：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments 需要 git 儲存庫：%@"
+          }
+        }
+      }
+    },
+    "cli.comments.error.repoRequiresPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --repo مسارًا. إذا كان المسار يبدأ بشرطة، فمرره بالصيغة ./-name"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo zahtijeva putanju. Putanju koja počinje crticom navedite kao ./-name"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo kræver en sti. En sti der starter med bindestreg, angives som ./-name"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo benötigt einen Pfad. Einen Pfad, der mit einem Bindestrich beginnt, als ./-name angeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requiere una ruta. Si la ruta empieza por guion, indíquela como ./-name"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo nécessite un chemin. Pour un chemin commençant par un tiret, écrivez ./-name"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo richiede un percorso. Per un percorso che inizia con un trattino, usa ./-name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo にはパスが必要です。ダッシュで始まるパスは ./-name の形式で指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo ត្រូវការ​ផ្លូវ។ ផ្លូវ​ដែល​ចាប់ផ្តើម​ដោយ​សញ្ញា​ដាច់ សូម​សរសេរ​ជា ./-name"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo 에는 경로가 필요합니다. 대시로 시작하는 경로는 ./-name 형식으로 넘기세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo krever en sti. En sti som starter med bindestrek, oppgis som ./-name"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo wymaga ścieżki. Ścieżkę zaczynającą się od myślnika podaj jako ./-name"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requer um caminho. Para um caminho que começa com hífen, use ./-name"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo требует путь. Путь, начинающийся с дефиса, укажите как ./-name"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo ต้องระบุพาธ หากพาธเริ่มด้วยขีดกลาง ให้ระบุเป็น ./-name"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo bir yol gerektirir. Kısa çizgiyle başlayan yolu ./-name olarak verin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo потребує шлях. Шлях, що починається з дефіса, вкажіть як ./-name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo 需要提供路径。以短横线开头的路径请写成 ./-name"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo 需要提供路徑。以連字號開頭的路徑請寫成 ./-name"
+          }
+        }
+      }
+    },
+    "cli.comments.error.subcommandRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب comments أمرًا فرعيًا. جرّب: list"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments zahtijeva potkomandu. Pokušajte: list"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments kræver en underkommando. Prøv: list"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments benötigt einen Unterbefehl. Versuche: list"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments requires a subcommand. Try: list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments requiere un subcomando. Prueba: list"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments nécessite une sous-commande. Essayez : list"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments richiede un sottocomando. Prova: list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments にはサブコマンドが必要です。例: list"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments ត្រូវការ​អនុ​បញ្ជា។ សូម​សាកល្បង: list"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments 에는 서브커맨드가 필요합니다. 예: list"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments krever en underkommando. Prøv: list"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments wymaga podkomendy. Spróbuj: list"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments requer um subcomando. Tente: list"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments требует подкоманду. Попробуйте: list"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments ต้องระบุคำสั่งย่อย ลอง: list"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments bir alt komut gerektirir. Deneyin: list"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments потребує підкоманду. Спробуйте: list"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments 需要子命令。可用：list"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments 需要子命令。可用：list"
+          }
+        }
+      }
+    },
+    "cli.comments.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وسيطة غير متوقعة '%@' في cmux comments list. المدعوم: --repo <path> و--all و--json"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neočekivani argument '%@' za cmux comments list. Podržano: --repo <path>, --all, --json"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uventet argument '%@' til cmux comments list. Understøttet: --repo <path>, --all, --json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unerwartetes Argument '%@' für cmux comments list. Unterstützt: --repo <path>, --all, --json"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argumento inesperado '%@' en cmux comments list. Admitidos: --repo <path>, --all, --json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argument inattendu '%@' pour cmux comments list. Pris en charge : --repo <path>, --all, --json"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argomento inatteso '%@' per cmux comments list. Supportati: --repo <path>, --all, --json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments list に予期しない引数 '%@' が指定されました。使用できるのは --repo <path>, --all, --json です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាគុយម៉ង់ '%@' មិន​រំពឹង​ទុក​សម្រាប់ cmux comments list។ ដែល​ប្រើ​បាន: --repo <path>, --all, --json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments list 에 예상치 못한 인자 '%@' 입니다. 사용 가능: --repo <path>, --all, --json"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uventet argument '%@' for cmux comments list. Støttet: --repo <path>, --all, --json"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieoczekiwany argument '%@' dla cmux comments list. Obsługiwane: --repo <path>, --all, --json"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argumento inesperado '%@' em cmux comments list. Suportados: --repo <path>, --all, --json"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неожиданный аргумент '%@' для cmux comments list. Поддерживаются: --repo <path>, --all, --json"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อาร์กิวเมนต์ '%@' ไม่ถูกต้องสำหรับ cmux comments list รองรับ: --repo <path>, --all, --json"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments list için beklenmeyen argüman '%@'. Desteklenen: --repo <path>, --all, --json"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неочікуваний аргумент '%@' для cmux comments list. Підтримуються: --repo <path>, --all, --json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments list 收到意外参数 '%@'。支持：--repo <path>、--all、--json"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments list 收到未預期的參數 '%@'。支援：--repo <path>、--all、--json"
+          }
+        }
+      }
+    },
+    "cli.comments.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر فرعي غير معروف '%@' في comments. جرّب: list"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznata potkomanda '%@' za comments. Pokušajte: list"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt comments-underkommando '%@'. Prøv: list"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter comments-Unterbefehl '%@'. Versuche: list"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown comments subcommand '%@'. Try: list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de comments desconocido '%@'. Prueba: list"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-commande comments inconnue '%@'. Essayez : list"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottocomando comments sconosciuto '%@'. Prova: list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments のサブコマンド '%@' は不明です。例: list"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុ​បញ្ជា comments '%@' មិន​ស្គាល់។ សូម​សាកល្បង: list"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 comments 서브커맨드 '%@' 입니다. 예: list"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent comments-underkommando '%@'. Prøv: list"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznana podkomenda comments '%@'. Spróbuj: list"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de comments desconhecido '%@'. Tente: list"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная подкоманда comments '%@'. Попробуйте: list"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จักคำสั่งย่อย '%@' ของ comments ลอง: list"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen comments alt komutu '%@'. Deneyin: list"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідома підкоманда comments '%@'. Спробуйте: list"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 comments 子命令 '%@'。可用：list"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 comments 子命令 '%@'。可用：list"
+          }
+        }
+      }
+    },
+    "cli.comments.list.anchor": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    المرساة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    sidro: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    anker: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    Anker: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    anchor: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    ancla: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    ancre : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    ancora: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    アンカー: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    យុថ្កា: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    앵커: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    anker: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    zakotwiczenie: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    âncora: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    привязка: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    จุดยึด: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    bağlantı noktası: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    прив'язка: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    锚点：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "    錨點：%@"
+          }
+        }
+      }
+    },
+    "cli.comments.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد تعليقات مراجعة. (المستودع: %@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema komentara pregleda. (repozitorij: %@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen gennemgangskommentarer. (repository: %@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Review-Kommentare. (Repository: %@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No review comments. (repo: %@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay comentarios de revisión. (repositorio: %@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun commentaire de revue. (dépôt : %@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun commento di revisione. (repository: %@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューコメントはありません。(リポジトリ: %@)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មាន​មតិ​ត្រួតពិនិត្យ។ (ឃ្លាំង: %@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰 코멘트가 없습니다. (저장소: %@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen gjennomgangskommentarer. (repository: %@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak komentarzy przeglądu. (repozytorium: %@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum comentário de revisão. (repositório: %@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комментариев ревью нет. (репозиторий: %@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีคอมเมนต์รีวิว (ที่เก็บโค้ด: %@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İnceleme yorumu yok. (depo: %@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає коментарів рецензування. (репозиторій: %@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有评审评论。（仓库：%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有審查註解。（儲存庫：%@）"
+          }
+        }
+      }
+    },
+    "cli.comments.list.header.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعليق مراجعة واحد (المستودع: %@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 komentar pregleda (repozitorij: %@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 gennemgangskommentar (repository: %@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Review-Kommentar (Repository: %@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 review comment (repo: %@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 comentario de revisión (repositorio: %@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 commentaire de revue (dépôt : %@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 commento di revisione (repository: %@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューコメント 1 件 (リポジトリ: %@)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មតិ​ត្រួតពិនិត្យ 1 (ឃ្លាំង: %@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰 코멘트 1건 (저장소: %@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 gjennomgangskommentar (repository: %@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 komentarz przeglądu (repozytorium: %@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 comentário de revisão (repositório: %@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 комментарий ревью (репозиторий: %@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คอมเมนต์รีวิว 1 รายการ (ที่เก็บโค้ด: %@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 inceleme yorumu (depo: %@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 коментар рецензування (репозиторій: %@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 条评审评论（仓库：%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 則審查註解（儲存庫：%@）"
+          }
+        }
+      }
+    },
+    "cli.comments.list.header.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعليقات المراجعة: %1$lld (المستودع: %2$@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld komentara pregleda (repozitorij: %2$@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld gennemgangskommentarer (repository: %2$@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld Review-Kommentare (Repository: %2$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld comentarios de revisión (repositorio: %2$@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld commentaires de revue (dépôt : %2$@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld commenti di revisione (repository: %2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューコメント %1$lld 件 (リポジトリ: %2$@)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មតិ​ត្រួតពិនិត្យ %1$lld (ឃ្លាំង: %2$@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰 코멘트 %1$lld건 (저장소: %2$@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld gjennomgangskommentarer (repository: %2$@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komentarze przeglądu: %1$lld (repozytorium: %2$@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld comentários de revisão (repositório: %2$@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комментарии ревью: %1$lld (репозиторий: %2$@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คอมเมนต์รีวิว %1$lld รายการ (ที่เก็บโค้ด: %2$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld inceleme yorumu (depo: %2$@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коментарі рецензування: %1$lld (репозиторій: %2$@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 条评审评论（仓库：%2$@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 則審查註解（儲存庫：%2$@）"
+          }
+        }
+      }
+    },
+    "cli.comments.list.stateConsumed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم التسليم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "predano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "leveret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "übergeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "consumed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "entregado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transmis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "consegnato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引き渡し済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បាន​ប្រគល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전달됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "levert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "przekazany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "entregue"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "передан"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "teslim edildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "передано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已交付"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已交付"
+          }
+        }
+      }
+    },
+    "cli.comments.list.statePending": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيد الانتظار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "na čekanju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "afventer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "offen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pending"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pendiente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "en attente"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in sospeso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រង់ចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미해결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "venter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oczekujący"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pendente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "в ожидании"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รอดำเนินการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "beklemede"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "очікує"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待处理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待處理"
           }
         }
       }
@@ -36096,6 +37823,131 @@
         }
       }
     },
+    "cli.comments.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux comments <subcommand> [options]\n\nتعليقات المراجعة المحفوظة من عارض الفروق، وتُخزَّن لكل مستودع git.\n\nالأوامر الفرعية:\n  list [--repo <path>] [--all] [--json]\n    يسرد تعليقات المراجعة لمستودع (الافتراضي: مستودع git الذي يحتوي\n    الدليل الحالي). يسرد التعليقات المعلَّقة فقط؛ ويضيف --all التعليقات\n    التي سُلِّمت بالفعل إلى وكيل عبر إرسال TextBox."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux comments <subcommand> [options]\n\nKomentari pregleda sačuvani iz diff prikaza, čuvaju se po git repozitoriju.\n\nPotkomande:\n  list [--repo <path>] [--all] [--json]\n    Ispisuje komentare pregleda za repozitorij (podrazumijevano: git\n    repozitorij koji sadrži trenutni direktorij). Ispisuje samo komentare\n    na čekanju; --all uključuje i one već predane agentu putem TextBox\n    slanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux comments <subcommand> [options]\n\nGennemgangskommentarer gemt fra diff-visningen, lagret pr. git-repository.\n\nUnderkommandoer:\n  list [--repo <path>] [--all] [--json]\n    Viser gennemgangskommentarerne for et repository (standard: det\n    git-repository der indeholder den aktuelle mappe). Viser kun\n    afventende kommentarer; --all medtager også dem der allerede er\n    leveret til en agent via en TextBox-indsendelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux comments <subcommand> [options]\n\nIm Diff-Viewer gespeicherte Review-Kommentare, abgelegt pro Git-Repository.\n\nUnterbefehle:\n  list [--repo <path>] [--all] [--json]\n    Listet die Review-Kommentare eines Repositorys auf (Standard: das\n    Git-Repository des aktuellen Verzeichnisses). Zeigt nur offene\n    Kommentare; mit --all auch die, die per TextBox-Übermittlung schon an\n    einen Agenten übergeben wurden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux comments <subcommand> [options]\n\nComentarios de revisión guardados desde el visor de diferencias, almacenados por repositorio git.\n\nSubcomandos:\n  list [--repo <path>] [--all] [--json]\n    Lista los comentarios de revisión de un repositorio (por defecto: el\n    repositorio git que contiene el directorio actual). Muestra solo los\n    comentarios pendientes; --all incluye los ya entregados a un agente\n    mediante un envío de TextBox."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux comments <subcommand> [options]\n\nCommentaires de revue enregistrés depuis la visionneuse de diff, stockés par dépôt git.\n\nSous-commandes :\n  list [--repo <path>] [--all] [--json]\n    Liste les commentaires de revue d'un dépôt (par défaut : le dépôt git\n    contenant le répertoire courant). N'affiche que les commentaires en\n    attente ; --all inclut aussi ceux déjà transmis à un agent via un\n    envoi TextBox."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux comments <subcommand> [options]\n\nCommenti di revisione salvati dal visualizzatore di diff, memorizzati per repository git.\n\nSottocomandi:\n  list [--repo <path>] [--all] [--json]\n    Elenca i commenti di revisione di un repository (predefinito: il\n    repository git che contiene la directory corrente). Elenca solo i\n    commenti in sospeso; --all include anche quelli già consegnati a un\n    agente tramite un invio TextBox."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux comments <subcommand> [options]\n\ndiff ビューアーで保存されたレビューコメントを、git リポジトリごとに一覧します。\n\nサブコマンド:\n  list [--repo <path>] [--all] [--json]\n    リポジトリのレビューコメントを一覧します (既定はカレントディレクトリを含む\n    git リポジトリ)。既定では未対応のコメントのみを表示し、--all を付けると\n    TextBox の送信でエージェントへ引き渡し済みのコメントも含めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀប​ប្រើ: cmux comments <subcommand> [options]\n\nមតិ​ត្រួតពិនិត្យ​ដែល​បាន​រក្សាទុក​ពី​កម្មវិធី​មើល diff ត្រូវ​បាន​ទុក​តាម​ឃ្លាំង git។\n\nអនុ​បញ្ជា:\n  list [--repo <path>] [--all] [--json]\n    បង្ហាញ​មតិ​ត្រួតពិនិត្យ​របស់​ឃ្លាំង (លំនាំដើម: ឃ្លាំង git ដែល​មាន\n    ថត​បច្ចុប្បន្ន)។ បង្ហាញ​តែ​មតិ​ដែល​រង់ចាំ; --all រួម​បញ្ចូល​មតិ​ដែល​បាន\n    ប្រគល់​ទៅ​ភ្នាក់ងារ​តាម​ការ​ផ្ញើ TextBox រួច​ហើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux comments <subcommand> [options]\n\ndiff 뷰어에서 저장한 리뷰 코멘트를 git 저장소 단위로 조회합니다.\n\n서브커맨드:\n  list [--repo <path>] [--all] [--json]\n    저장소의 리뷰 코멘트를 조회합니다 (기본값은 현재 디렉터리가 속한 git\n    저장소). 기본적으로 미해결 코멘트만 표시하고, --all 을 주면 TextBox\n    전송으로 에이전트에 이미 전달된 코멘트까지 포함합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux comments <subcommand> [options]\n\nGjennomgangskommentarer lagret fra diff-visningen, lagret per git-repository.\n\nUnderkommandoer:\n  list [--repo <path>] [--all] [--json]\n    Lister gjennomgangskommentarene for et repository (standard:\n    git-repositoryet som inneholder gjeldende katalog). Lister bare\n    ventende kommentarer; --all tar også med dem som alt er levert til en\n    agent via en TextBox-sending."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux comments <subcommand> [options]\n\nKomentarze przeglądu zapisane w podglądzie diff, przechowywane dla każdego repozytorium git.\n\nPodkomendy:\n  list [--repo <path>] [--all] [--json]\n    Wypisuje komentarze przeglądu repozytorium (domyślnie: repozytorium\n    git zawierające bieżący katalog). Pokazuje tylko oczekujące\n    komentarze; --all obejmuje także te już przekazane agentowi przez\n    wysłanie TextBox."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux comments <subcommand> [options]\n\nComentários de revisão salvos no visualizador de diff, armazenados por repositório git.\n\nSubcomandos:\n  list [--repo <path>] [--all] [--json]\n    Lista os comentários de revisão de um repositório (padrão: o\n    repositório git que contém o diretório atual). Lista apenas os\n    comentários pendentes; --all inclui os já entregues a um agente por\n    um envio do TextBox."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux comments <subcommand> [options]\n\nКомментарии ревью, сохранённые в просмотрщике diff, хранятся по git-репозиториям.\n\nПодкоманды:\n  list [--repo <path>] [--all] [--json]\n    Выводит комментарии ревью репозитория (по умолчанию — git-репозиторий\n    текущего каталога). Показывает только ожидающие комментарии; с --all\n    также те, что уже переданы агенту через отправку TextBox."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีใช้: cmux comments <subcommand> [options]\n\nคอมเมนต์รีวิวที่บันทึกจากตัวดูส่วนต่าง จัดเก็บแยกตามที่เก็บโค้ด git\n\nคำสั่งย่อย:\n  list [--repo <path>] [--all] [--json]\n    แสดงคอมเมนต์รีวิวของที่เก็บโค้ด (ค่าเริ่มต้น: ที่เก็บโค้ด git\n    ที่มีไดเรกทอรีปัจจุบันอยู่) โดยแสดงเฉพาะคอมเมนต์ที่รอดำเนินการ\n    ส่วน --all จะรวมคอมเมนต์ที่ส่งให้เอเจนต์ผ่าน TextBox แล้วด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux comments <subcommand> [options]\n\nDiff görüntüleyicide kaydedilen inceleme yorumları, git deposu başına saklanır.\n\nAlt komutlar:\n  list [--repo <path>] [--all] [--json]\n    Bir deponun inceleme yorumlarını listeler (varsayılan: geçerli\n    dizini içeren git deposu). Yalnızca bekleyen yorumları listeler;\n    --all bir TextBox gönderimiyle bir aracıya zaten teslim edilmiş\n    olanları da içerir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux comments <subcommand> [options]\n\nКоментарі рецензування, збережені у переглядачі diff, зберігаються за git-репозиторіями.\n\nПідкоманди:\n  list [--repo <path>] [--all] [--json]\n    Виводить коментарі рецензування репозиторію (типово — git-репозиторій\n    поточного каталогу). Показує лише ті, що очікують; з --all також ті,\n    що вже передані агентові через надсилання TextBox."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux comments <subcommand> [options]\n\n从差异查看器保存的评审评论，按 git 仓库分别存储。\n\n子命令：\n  list [--repo <path>] [--all] [--json]\n    列出仓库的评审评论（默认：包含当前目录的 git 仓库）。默认只列出待处理\n    的评论；加上 --all 还会列出已通过 TextBox 提交交付给代理的评论。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux comments <subcommand> [options]\n\n從差異檢視器儲存的審查註解，依 git 儲存庫分別存放。\n\n子命令：\n  list [--repo <path>] [--all] [--json]\n    列出儲存庫的審查註解（預設：包含目前目錄的 git 儲存庫）。預設只列出待\n    處理的註解；加上 --all 也會列出已透過 TextBox 提交交付給代理的註解。"
+          }
+        }
+      }
+    },
     "cli.creation.remoteTmux.newPane": {
       "extractionState": "manual",
       "localizations": {
@@ -36126,6 +37978,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "（リモート tmux にルーティングされました。新しいウインドウは非同期で反映されます）"
+          }
+        }
+      }
+    },
+    "cli.send.queuedSuffix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キュー済み（ターミナル起動中。PTY 生成後に入力が送信されます）"
           }
         }
       }
@@ -40371,16 +42240,374 @@
     "cli.hooks.error.configDirectoryIsFile": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux إنشاء دليل hooks: يوجد ملف في %@. أزل الملف المتعارض أو أعد تسميته، ثم شغّل `cmux hooks setup` مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao kreirati direktorij hookova: datoteka postoji na %@. Uklonite ili preimenujte konfliktnu datoteku, a zatim ponovo pokrenite `cmux hooks setup`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke oprette hookmappen: der findes en fil på %@. Fjern eller omdøb filen, og kør derefter `cmux hooks setup` igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Hook-Verzeichnis nicht erstellen: Unter %@ ist bereits eine Datei vorhanden. Entferne die Datei oder benenne sie um und führe dann `cmux hooks setup` erneut aus."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+            "value": "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo crear el directorio de hooks: ya existe un archivo en %@. Elimina o cambia el nombre del archivo en conflicto y vuelve a ejecutar `cmux hooks setup`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu créer le dossier des hooks : un fichier existe à l’emplacement %@. Supprimez ou renommez ce fichier, puis relancez `cmux hooks setup`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a creare la directory degli hook: esiste già un file in %@. Rimuovi o rinomina il file in conflitto, quindi esegui di nuovo `cmux hooks setup`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は hooks ディレクトリを作成できませんでした: %@ にファイルがあります。競合するファイルを削除または名前変更してから `cmux hooks setup` を再実行してください"
+            "value": "cmux は hooks ディレクトリを作成できませんでした。%@ にファイルがあります。競合するファイルを削除または名前変更してから `cmux hooks setup` を再実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបង្កើតថត hooks បានទេ៖ មានឯកសារមួយនៅ %@។ លុប ឬប្តូរឈ្មោះឯកសារដែលប៉ះទង្គិច រួចដំណើរការ `cmux hooks setup` ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 hooks 디렉터리를 만들지 못했습니다. %@에 파일이 있습니다. 충돌하는 파일을 제거하거나 이름을 바꾼 다음 `cmux hooks setup`을 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke opprette hookmappen: det finnes en fil på %@. Fjern eller gi nytt navn til filen, og kjør deretter `cmux hooks setup` på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł utworzyć katalogu hooków: w %@ istnieje plik. Usuń plik powodujący konflikt lub zmień jego nazwę, a następnie ponownie uruchom `cmux hooks setup`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu criar o diretório de hooks: existe um arquivo em %@. Remova ou renomeie o arquivo conflitante e execute `cmux hooks setup` novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось создать каталог хуков: по пути %@ уже существует файл. Удалите или переименуйте этот файл, затем снова выполните `cmux hooks setup`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถสร้างไดเรกทอรี hooks ได้ เนื่องจากมีไฟล์อยู่ที่ %@ โปรดลบหรือเปลี่ยนชื่อไฟล์ที่ขัดแย้ง แล้วเรียกใช้ `cmux hooks setup` อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hooks dizinini oluşturamadı: %@ konumunda bir dosya var. Çakışan dosyayı kaldırın veya yeniden adlandırın, ardından `cmux hooks setup` komutunu tekrar çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося створити каталог хуків: за шляхом %@ вже існує файл. Видаліть або перейменуйте цей файл, а потім знову виконайте `cmux hooks setup`."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法创建 hooks 目录：%@ 处已有文件。请移除或重命名冲突文件，然后再次运行 `cmux hooks setup`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法建立 hooks 目錄：%@ 已有檔案。請移除或重新命名衝突的檔案，然後再次執行 `cmux hooks setup`。"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.configDirectoryCreateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux إنشاء دليل hooks في %@. تحقّق من أذونات الدليل الأصل ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao kreirati direktorij hookova na %@. Provjerite dozvole nadređenog direktorija i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke oprette hookmappen på %@. Kontrollér tilladelserne for den overordnede mappe, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Hook-Verzeichnis unter %@ nicht erstellen. Prüfe die Berechtigungen des übergeordneten Verzeichnisses und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not create the hooks directory at %@. Check the parent directory permissions and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo crear el directorio de hooks en %@. Comprueba los permisos del directorio superior e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu créer le dossier des hooks à l’emplacement %@. Vérifiez les autorisations du dossier parent et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a creare la directory degli hook in %@. Controlla i permessi della directory principale e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ に hooks ディレクトリを作成できませんでした。親ディレクトリの権限を確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបង្កើតថត hooks នៅ %@ បានទេ។ ពិនិត្យសិទ្ធិរបស់ថតមេ ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 hooks 디렉터리를 만들지 못했습니다. 상위 디렉터리 권한을 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke opprette hookmappen på %@. Kontroller tillatelsene for den overordnede mappen og prøv på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł utworzyć katalogu hooków w %@. Sprawdź uprawnienia katalogu nadrzędnego i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu criar o diretório de hooks em %@. Verifique as permissões do diretório pai e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось создать каталог хуков по пути %@. Проверьте разрешения родительского каталога и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถสร้างไดเรกทอรี hooks ที่ %@ ได้ โปรดตรวจสอบสิทธิ์ของไดเรกทอรีหลักแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ konumunda hooks dizinini oluşturamadı. Üst dizinin izinlerini kontrol edip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося створити каталог хуків за шляхом %@. Перевірте дозволи батьківського каталогу та повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法在 %@ 创建 hooks 目录。请检查父目录权限，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法在 %@ 建立 hooks 目錄。請檢查上層目錄權限，然後再試一次。"
+          }
+        }
+      }
+    },
+    "cli.hooks.error.pinnedTargetMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux ربط تثبيت الـ hooks هذا بتطبيق قيد التشغيل. افتح مساحة عمل في cmux وشغّل هذا الأمر مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao povezati ovu instalaciju hookova s pokrenutom aplikacijom. Otvorite cmux radni prostor i ponovo pokrenite ovu naredbu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke forbinde denne hookinstallation med en kørende app. Åbn et cmux-arbejdsområde, og kør kommandoen igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte diese Hook-Installation nicht mit einer laufenden App verbinden. Öffne einen cmux-Arbeitsbereich und führe diesen Befehl erneut aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not connect this hook installation to a running app. Open a cmux workspace and run this command again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo conectar esta instalación de hooks con una aplicación en ejecución. Abre un espacio de trabajo de cmux y vuelve a ejecutar este comando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu relier cette installation de hooks à une application en cours d’exécution. Ouvrez un espace de travail cmux et relancez cette commande."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a collegare questa installazione di hook a un’app in esecuzione. Apri uno spazio di lavoro cmux ed esegui di nuovo questo comando."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの hook のインストールを実行中のアプリに接続できませんでした。cmux ワークスペースを開き、このコマンドをもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចភ្ជាប់ការដំឡើង hooks នេះទៅកម្មវិធីដែលកំពុងដំណើរការបានទេ។ បើក workspace ក្នុង cmux ហើយដំណើរការពាក្យបញ្ជានេះម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 훅 설치를 실행 중인 앱에 연결하지 못했습니다. cmux 작업 공간을 열고 이 명령을 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke koble denne hookinstallasjonen til en app som kjører. Åpne et cmux-arbeidsområde og kjør kommandoen på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł połączyć tej instalacji hooków z uruchomioną aplikacją. Otwórz obszar roboczy cmux i uruchom to polecenie ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu conectar esta instalação de hooks a um aplicativo em execução. Abra um espaço de trabalho do cmux e execute este comando novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось связать эту установку хуков с запущенным приложением. Откройте рабочее пространство cmux и выполните эту команду снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเชื่อมต่อการติดตั้ง hooks นี้กับแอปที่กำลังทำงานอยู่ได้ เปิดพื้นที่ทำงาน cmux แล้วเรียกใช้คำสั่งนี้อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bu hook kurulumunu çalışan bir uygulamaya bağlayamadı. Bir cmux çalışma alanı açın ve bu komutu yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося пов’язати це встановлення хуків із запущеною програмою. Відкрийте робочий простір cmux і виконайте цю команду ще раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法将此 hooks 安装连接到正在运行的应用。请打开一个 cmux 工作区，然后再次运行此命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法將此 hooks 安裝連接到執行中的應用程式。請開啟 cmux 工作區，然後再次執行此命令。"
           }
         }
       }
@@ -48797,18 +51024,79 @@
         "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存された作業ディレクトリにアクセスできません。アクセスを復元してから、再試行してください。" } }
       }
     },
+    "cli.help.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "da": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "en": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "es": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "it": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "km": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "th": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } }
+      }
+    },
     "cli.restore.help": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>\n       cmux restore --surface [id|ref]\n\nReplace this CLI process with the persisted surface process. New\nrecords preserve argv, environment, and cwd as structured values;\ncommand-only records from older builds use a compatibility shell.\nWith no id or ref, --surface uses the calling cmux surface." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>\n        cmux restore --surface [id|ref]\n\nこの CLI プロセスを保存されたサーフェスプロセスで置き換えます。新しい\nレコードでは argv、環境、cwd が構造化された値として保持されます。\n旧ビルドのコマンドのみのレコードでは互換シェルを使用します。\nid または ref を省略すると、--surface は呼び出し元の cmux サーフェスを使用します。" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n             cmux restore <kind> <checkpoint-id> --surface <id|ref>\n             cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n             cmux restore --surface [id|ref]\n\nاستبدل عملية CLI هذه بعملية السطح المحفوظة. تحفظ السجلات الجديدة وسيطات التشغيل وcwd\nكقيم منظّمة؛ وتستخدم السجلات التي تحتوي على أمر فقط من الإصدارات الأقدم غلافًا متوافقًا.\nعند عدم تحديد id أو ref، يستخدم --surface سطح cmux الذي استدعى الأمر." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n          cmux restore --surface [id|ref]\n\nZamijeni ovaj CLI proces sačuvanim procesom površine. Novi zapisi čuvaju argumente\npokretanja i cwd kao strukturirane vrijednosti; zapisi samo s naredbom iz starijih\nverzija koriste kompatibilnu ljusku. Ako id ili ref nisu navedeni, --surface koristi\ncmux površinu koja je pozvala naredbu." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n      cmux restore --surface [id|ref]\n\nErstat denne CLI-proces med den gemte overfladeproces. Nye poster bevarer\nstartargumenter og cwd som strukturerede værdier; poster fra ældre builds, der kun\nindeholder en kommando, bruger en kompatibilitetsskal. Uden id eller ref bruger\n--surface den kaldende cmux-overflade." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n            cmux restore <kind> <checkpoint-id> --surface <id|ref>\n            cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n            cmux restore --surface [id|ref]\n\nErsetzt diesen CLI-Prozess durch den gespeicherten Surface-Prozess. Neue Datensätze\nbewahren Startargumente und cwd als strukturierte Werte auf; reine Befehlsdatensätze\nälterer Builds verwenden eine Kompatibilitäts-Shell. Ohne id oder ref verwendet\n--surface die aufrufende cmux-Surface." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux restore <kind> <checkpoint-id> --surface <id|ref>\n       cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n       cmux restore --surface [id|ref]\n\nReplace this CLI process with the persisted surface process. New\nrecords preserve launch arguments and cwd as structured values;\ncommand-only records from older builds use a compatibility shell.\nWith no id or ref, --surface uses the calling cmux surface." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n     cmux restore --surface [id|ref]\n\nReemplaza este proceso de CLI por el proceso de superficie guardado. Los registros\nnuevos conservan los argumentos de inicio y cwd como valores estructurados; los\nregistros de compilaciones anteriores que solo contienen un comando usan un shell de\ncompatibilidad. Sin id ni ref, --surface usa la superficie de cmux que realizó la llamada." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation : cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n              cmux restore --surface [id|ref]\n\nRemplace ce processus CLI par le processus de surface enregistré. Les nouveaux\nenregistrements conservent les arguments de lancement et cwd sous forme de valeurs\nstructurées ; les enregistrements des anciennes versions contenant uniquement une\ncommande utilisent un shell de compatibilité. Sans id ni ref, --surface utilise la\nsurface cmux appelante." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n     cmux restore --surface [id|ref]\n\nSostituisce questo processo CLI con il processo della superficie salvato. I nuovi\nrecord conservano gli argomenti di avvio e cwd come valori strutturati; i record delle\nversioni precedenti contenenti solo un comando usano una shell di compatibilità. Senza\nid o ref, --surface usa la superficie cmux chiamante." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n        cmux restore <kind> <checkpoint-id> --surface <id|ref>\n        cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n        cmux restore --surface [id|ref]\n\nこの CLI プロセスを保存されたサーフェスプロセスで置き換えます。新しい\nレコードでは起動引数と cwd が構造化された値として保持されます。\n旧ビルドのコマンドのみのレコードでは互換シェルを使用します。\nid または ref を省略すると、--surface は呼び出し元の cmux サーフェスを使用します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់៖ cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n              cmux restore --surface [id|ref]\n\nជំនួសដំណើរការ CLI នេះដោយដំណើរការផ្ទៃដែលបានរក្សាទុក។ កំណត់ត្រាថ្មីរក្សាទុកអាគុយម៉ង់ចាប់ផ្តើម\nនិង cwd ជាតម្លៃមានរចនាសម្ព័ន្ធ; កំណត់ត្រាដែលមានតែពាក្យបញ្ជាពី build ចាស់ប្រើ shell\nសម្រាប់ភាពត្រូវគ្នា។ បើមិនបញ្ជាក់ id ឬ ref ទេ --surface ប្រើផ្ទៃ cmux ដែលហៅពាក្យបញ្ជា។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux restore <kind> <checkpoint-id> --surface <id|ref>\n       cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n       cmux restore --surface [id|ref]\n\n이 CLI 프로세스를 저장된 서피스 프로세스로 교체합니다. 새 레코드는 실행 인수와 cwd를\n구조화된 값으로 보존하며, 이전 빌드의 명령 전용 레코드는 호환 셸을 사용합니다. id 또는\nref를 생략하면 --surface는 호출한 cmux 서피스를 사용합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n      cmux restore --surface [id|ref]\n\nErstatt denne CLI-prosessen med den lagrede overflateprosessen. Nye oppføringer bevarer\nstartargumenter og cwd som strukturerte verdier; oppføringer fra eldre bygg som bare\ninneholder en kommando, bruker et kompatibilitetsskall. Uten id eller ref bruker\n--surface den kallende cmux-overflaten." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n        cmux restore <kind> <checkpoint-id> --surface <id|ref>\n        cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n        cmux restore --surface [id|ref]\n\nZastępuje ten proces CLI zapisanym procesem powierzchni. Nowe rekordy zachowują\nargumenty uruchomienia i cwd jako wartości strukturalne; rekordy ze starszych\nkompilacji zawierające tylko polecenie używają powłoki zgodności. Bez id ani ref opcja\n--surface używa wywołującej powierzchni cmux." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n     cmux restore --surface [id|ref]\n\nSubstitui este processo da CLI pelo processo de superfície persistido. Novos registros\npreservam os argumentos de inicialização e cwd como valores estruturados; registros de\nbuilds anteriores que contêm apenas um comando usam um shell de compatibilidade. Sem id\nou ref, --surface usa a superfície do cmux que fez a chamada." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n               cmux restore <kind> <checkpoint-id> --surface <id|ref>\n               cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n               cmux restore --surface [id|ref]\n\nЗаменяет этот процесс CLI сохранённым процессом поверхности. Новые записи сохраняют\nаргументы запуска и cwd как структурированные значения; записи старых сборок,\nсодержащие только команду, используют оболочку совместимости. Если id или ref не\nуказаны, --surface использует вызывающую поверхность cmux." } },
+        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n          cmux restore --surface [id|ref]\n\nแทนที่โปรเซส CLI นี้ด้วยโปรเซสพื้นผิวที่บันทึกไว้ ระเบียนใหม่จะเก็บอาร์กิวเมนต์การเปิดใช้และ cwd\nเป็นค่าที่มีโครงสร้าง ส่วนระเบียนจากบิลด์เก่าที่มีเฉพาะคำสั่งจะใช้เชลล์เพื่อความเข้ากันได้\nหากไม่ระบุ id หรือ ref ตัวเลือก --surface จะใช้พื้นผิว cmux ที่เรียกคำสั่ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n          cmux restore --surface [id|ref]\n\nBu CLI işlemini kalıcı yüzey işlemiyle değiştirir. Yeni kayıtlar başlatma bağımsız\ndeğişkenlerini ve cwd değerini yapılandırılmış değerler olarak korur; eski\nderlemelerdeki yalnızca komut içeren kayıtlar uyumluluk kabuğu kullanır. id veya ref\nverilmezse --surface, çağıran cmux yüzeyini kullanır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n              cmux restore --surface [id|ref]\n\nЗамінює цей процес CLI збереженим процесом поверхні. Нові записи зберігають аргументи\nзапуску та cwd як структуровані значення; записи старих збірок, що містять лише\nкоманду, використовують оболонку сумісності. Якщо id або ref не вказано, --surface\nвикористовує поверхню cmux, що викликала команду." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n      cmux restore --surface [id|ref]\n\n将此 CLI 进程替换为已持久化的表面进程。新记录以结构化值保存启动参数和 cwd；\n旧版本中仅含命令的记录使用兼容 shell。未提供 id 或 ref 时，--surface 使用调用方的\ncmux 表面。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n      cmux restore --surface [id|ref]\n\n將此 CLI 行程替換為已持久化的介面行程。新記錄會以結構化值保留啟動引數和 cwd；\n舊版本中僅含命令的記錄會使用相容 shell。未提供 id 或 ref 時，--surface 會使用呼叫端的\ncmux 介面。" } }
       }
     },
     "cli.restore.usage.positional": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n             cmux restore <kind> <checkpoint-id> --surface <id|ref>\n             cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n            cmux restore <kind> <checkpoint-id> --surface <id|ref>\n            cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux restore <kind> <checkpoint-id> --surface <id|ref>\n       cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation : cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n        cmux restore <kind> <checkpoint-id> --surface <id|ref>\n        cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់៖ cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux restore <kind> <checkpoint-id> --surface <id|ref>\n       cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n        cmux restore <kind> <checkpoint-id> --surface <id|ref>\n        cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n               cmux restore <kind> <checkpoint-id> --surface <id|ref>\n               cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } }
       }
     },
     "cli.restore.usage.surface": {
@@ -80014,6 +82302,40 @@
         }
       }
     },
+    "controlSocket.reportShellState.invalidTerminalLifecycleID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Terminal session is out of date; restart the shell and try again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: ターミナルセッションが古いため、シェルを再起動してもう一度お試しください"
+          }
+        }
+      }
+    },
+    "controlSocket.surface.reportShellState.invalidTerminalLifecycleID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal session is out of date; restart the shell and try again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルセッションが古いため、シェルを再起動してもう一度お試しください"
+          }
+        }
+      }
+    },
     "crashBreadcrumb.body": {
       "extractionState": "manual",
       "localizations": {
@@ -96946,6 +99268,23 @@
         }
       }
     },
+    "diffViewer.error.allowlistTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff viewer allowlist is too large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューアの許可リストが大きすぎます"
+          }
+        }
+      }
+    },
     "diffViewer.addComment": {
       "extractionState": "manual",
       "localizations": {
@@ -109513,6 +111852,23 @@
         }
       }
     },
+    "dock.error.focusUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock could not be revealed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockを表示できませんでした"
+          }
+        }
+      }
+    },
     "dock.error.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -115722,6 +118078,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存"
+          }
+        }
+      }
+    },
+    "filePreview.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podijeli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paylaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поділитися"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享"
           }
         }
       }
@@ -136845,16 +139326,124 @@
     "notifications.forwardToPhone.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل إشعارات الوكيل إلى تطبيق cmux على iPhone. تكون الميزة متوقفة افتراضيًا، ولا يتم رفع أي شيء إلا عند تشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalji obavještenja agenata u cmux aplikaciju za iPhone. Isključeno je po zadanim postavkama; ništa se ne šalje dok ovo ne uključite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send agentnotifikationer til cmux-appen på iPhone. Funktionen er slået fra som standard; intet uploades, medmindre den er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenmitteilungen an die cmux-App auf dem iPhone senden. Standardmäßig deaktiviert; ohne Aktivierung wird nichts hochgeladen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."
+            "value": "Send local agent notifications to cmux on your iPhone. Enabled by default; turn this off to stop this Mac from forwarding them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía notificaciones de agentes a la app cmux del iPhone. Está desactivado de forma predeterminada; no se carga nada a menos que lo actives."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyez les notifications des agents à l’app cmux sur iPhone. Cette option est désactivée par défaut ; rien n’est téléversé tant qu’elle ne l’est pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia le notifiche degli agenti all’app cmux per iPhone. L’opzione è disattivata per impostazione predefinita; non viene caricato nulla finché non la attivi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの通知を cmux の iPhone アプリに送信します。デフォルトはオフで、オンにしない限り何もアップロードされません。"
+            "value": "ローカルエージェントの通知を iPhone の cmux に送信します。デフォルトでオンです。この Mac からの転送を停止するにはオフにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើការជូនដំណឹងរបស់ភ្នាក់ងារទៅកម្មវិធី cmux លើ iPhone។ មុខងារនេះបិទតាមលំនាំដើម ហើយគ្មានអ្វីត្រូវបានផ្ទុកឡើងទេ លុះត្រាតែអ្នកបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 알림을 iPhone용 cmux 앱으로 보냅니다. 기본적으로 꺼져 있으며, 이 설정을 켜기 전에는 아무것도 업로드되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send agentvarslinger til cmux-appen på iPhone. Funksjonen er av som standard; ingenting lastes opp med mindre den er slått på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłaj powiadomienia agentów do aplikacji cmux na iPhonie. Funkcja jest domyślnie wyłączona; nic nie jest przesyłane, dopóki jej nie włączysz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie notificações dos agentes ao app cmux no iPhone. O recurso vem desativado; nada é enviado até que você o ative."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправлять уведомления агентов в приложение cmux на iPhone. По умолчанию выключено; данные не загружаются, пока вы не включите эту функцию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งการแจ้งเตือนของเอเจนต์ไปยังแอป cmux บน iPhone ปิดไว้ตามค่าเริ่มต้น และจะไม่มีการอัปโหลดข้อมูลจนกว่าจะเปิดใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı bildirimlerini iPhone’daki cmux uygulamasına gönderir. Varsayılan olarak kapalıdır; açılmadıkça hiçbir şey yüklenmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилати сповіщення агентів у застосунок cmux на iPhone. Типово вимкнено; нічого не завантажується, доки ви не ввімкнете цю функцію."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将代理通知发送到 iPhone 上的 cmux App。默认关闭；只有开启后才会上传内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將代理程式通知傳送到 iPhone 上的 cmux App。預設關閉；只有開啟後才會上傳內容。"
           }
         }
       }
@@ -136862,16 +139451,124 @@
     "notifications.forwardToPhone.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة توجيه الإشعارات إلى iPhone الخاص بي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedi obavještenja na moj iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videresend notifikationer til min iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitteilungen an mein iPhone weiterleiten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Forward notifications to my iPhone"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reenviar notificaciones a mi iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transférer les notifications vers mon iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inoltra le notifiche al mio iPhone"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "通知を iPhone に転送する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូនការជូនដំណឹងទៅ iPhone របស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 iPhone으로 알림 전달"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videresend varslinger til min iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekazuj powiadomienia na mój iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encaminhar notificações para meu iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пересылать уведомления на мой iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งต่อการแจ้งเตือนไปยัง iPhone ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirimleri iPhone'uma ilet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пересилати сповіщення на мій iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将通知转发到我的 iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將通知轉寄到我的 iPhone"
           }
         }
       }
@@ -145840,22 +148537,124 @@
     "sessionIndex.agent.hermesAgent": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل Hermes"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes agent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes-agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes-Agent"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Hermes Agent"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente Hermes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Hermes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente Hermes"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes Agent"
+            "value": "Hermes エージェント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារ Hermes"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes Agent"
+            "value": "Hermes 에이전트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes-agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Hermes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente Hermes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент Hermes"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ Hermes"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Aracısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент Hermes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes 代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes 代理程式"
           }
         }
       }
@@ -174593,6 +177392,159 @@
         }
       }
     },
+    "settings.mobile.phonePush.forwarding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward Notifications to iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone に通知を転送"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stops this Mac from sending local agent alerts to mobile devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac からモバイルデバイスへのローカルエージェント通知の送信を停止します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のローカルエージェント通知を iPhone や iPad の cmux に送信します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.hideContent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Notification Content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知内容を非表示"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.hideContent.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends a generic message instead of agent and terminal text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントやターミナルのテキストの代わりに一般的なメッセージを送信します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When to Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信するタイミング"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.onlyWhenAway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only When Away"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離席中のみ"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「常に」はすべてのローカルエージェント通知を送信します。「離席中」は、この Mac がロック中、スリープ中、またはアイドル状態になるまで待機します。"
+          }
+        }
+      }
+    },
     "settings.mobile.pairDevice": {
       "extractionState": "manual",
       "localizations": {
@@ -178491,25 +181443,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Briefly flash a blue outline when cmux highlights a pane."
+            "value": "Briefly flash an outline when cmux highlights a pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux がペインを強調表示するときに短い青いアウトラインを表示します。"
+            "value": "cmux がペインを強調表示するときにアウトラインを一時的に点滅させます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 패인을 강조할 때 파란색 테두리를 잠시 깜빡입니다."
+            "value": "cmux가 패인을 강조할 때 테두리를 잠시 깜빡입니다."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Короткочасно підсвічувати синьою рамкою панель, на яку cmux звертає увагу."
+            "value": "Короткочасно підсвічувати рамкою панель, на яку cmux звертає увагу."
           }
         }
       }
@@ -178549,25 +181501,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show a blue ring around panes with unread notifications."
+            "value": "Show a ring around panes with unread notifications."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未読の通知があるペインの周囲に青いリングを表示します。"
+            "value": "未読の通知があるペインの周囲にリングを表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "읽지 않은 알림이 있는 패인 주위에 파란색 링을 표시합니다."
+            "value": "읽지 않은 알림이 있는 패인 주위에 링을 표시합니다."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показувати синє кільце навколо панелей з непрочитаними сповіщеннями."
+            "value": "Показувати кільце навколо панелей з непрочитаними сповіщеннями."
           }
         }
       }
@@ -201063,6 +204015,57 @@
         }
       }
     },
+    "settings.workspaceColors.paneFlashColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Flash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのフラッシュ"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.paneFlashColor.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.paneFlashColor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color of the attention ring and pane flash when a pane needs input."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインが入力を必要とするときに表示される注意リングとフラッシュの色。"
+          }
+        }
+      }
+    },
     "settings.workspaceColors.paletteNote": {
       "extractionState": "manual",
       "localizations": {
@@ -209252,6 +212255,23 @@
         }
       }
     },
+    "shortcut.nextWorkspaceInGroup.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Workspace in Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内の次のワークスペース"
+          }
+        }
+      }
+    },
     "shortcut.openBrowser.label": {
       "extractionState": "manual",
       "localizations": {
@@ -209968,6 +212988,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "上一個工作區"
+          }
+        }
+      }
+    },
+    "shortcut.previousWorkspaceInGroup.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Workspace in Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内の前のワークスペース"
           }
         }
       }
@@ -230040,6 +233077,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "クライアントプロセスを確認できません"
+          }
+        }
+      }
+    },
+    "socket.comments.missingRepoRoot": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مطلوب مسار مستودع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebna je putanja repozitorija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der kræves en repository-sti."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Repository-Pfad ist erforderlich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A repository path is required."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requiere una ruta de repositorio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un chemin de dépôt est requis."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È necessario un percorso di repository."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリのパスを指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការផ្លូវ​ឃ្លាំង​កូដ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소 경로가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En repositorybane er påkrevd."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymagana jest ścieżka repozytorium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "É necessário um caminho de repositório."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуется путь к репозиторию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องระบุพาธของที่เก็บโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir depo yolu gerekli."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібен шлях до репозиторію."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要提供仓库路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要提供儲存庫路徑。"
           }
         }
       }
@@ -262640,6 +265802,381 @@
           "stringUnit": {
             "state": "translated",
             "value": "到達可能"
+          }
+        }
+      }
+    },
+    "push.hidden.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نشاط جديد في الوحدة الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova aktivnost u terminalu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny terminalaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Terminalaktivität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New terminal activity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva actividad en la terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle activité dans le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova attività nel terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルアクティビティ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពស្ថានីយថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 터미널 활동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny terminalaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa aktywność terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova atividade no terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая активность в терминале"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีกิจกรรมใหม่ในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni terminal etkinliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова активність у терміналі"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的终端活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的終端活動"
+          }
+        }
+      }
+    },
+    "push.test.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل Mac تنبيهًا تجريبيًا إلى cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš Mac je poslao probno upozorenje u cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din Mac sendte en testadvarsel til cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Mac hat eine Testmitteilung an cmux gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac sent a test alert to cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu Mac envió una alerta de prueba a cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre Mac a envoyé une alerte de test à cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Mac ha inviato un avviso di prova a cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac から cmux にテスト通知が送信されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac របស់អ្នកបានផ្ញើការជូនដំណឹងសាកល្បងទៅ cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 cmux로 테스트 알림을 보냈습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macen sendte et testvarsel til cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac wysłał alert testowy do cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu Mac enviou um alerta de teste ao cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Mac отправил тестовое уведомление в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac ของคุณส่งการแจ้งเตือนทดสอบไปยัง cmux แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac’iniz cmux’a bir test uyarısı gönderdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Mac надіслав тестове сповіщення в cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 已向 cmux 发送测试提醒。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 已向 cmux 傳送測試提醒。"
+          }
+        }
+      }
+    },
+    "push.test.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختبار إشعارات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux test obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-notifikationstest"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Mitteilungstest"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Notification Test"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba de notificaciones de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test de notification cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test notifiche cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知テスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសាកល្បងការជូនដំណឹង cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 알림 테스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-varslingstest"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test powiadomień cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teste de notificações do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест уведомлений cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทดสอบการแจ้งเตือน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bildirim testi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест сповіщень cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知测试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知測試"
           }
         }
       }
