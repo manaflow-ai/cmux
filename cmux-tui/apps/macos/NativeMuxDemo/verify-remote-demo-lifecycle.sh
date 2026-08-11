@@ -8,13 +8,14 @@ READY_HELPER="$SCRIPT_DIR/remote-lifecycle-ready.sh"
 REMOTE_HOST="${1:-cmux-lawrence}"
 RUNS="${2:-3}"
 APP_PROCESS_SUFFIX="/NativeMuxDemo.app/Contents/MacOS/NativeMuxDemo"
-LAUNCHER_PID=""
+LIFECYCLE_SUPERVISOR_PID=""
 APP_PID=""
 ATTACH_PID=""
 ATTACH_FD_OPEN=0
-TRANSFER_READY_ATTEMPTS=3000
-DAEMON_READY_ATTEMPTS=900
-READY_POLL_SECONDS=0.1
+LIFECYCLE_READ_FD_OPEN=0
+TRANSFER_READY_TIMEOUT=300
+DAEMON_READY_TIMEOUT=90
+LAUNCHER_EXIT_TIMEOUT=30
 
 if [[ $# -gt 2 || ! "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
   echo "Usage: verify-remote-demo-lifecycle.sh [ssh-host] [runs]" >&2
@@ -37,9 +38,15 @@ cleanup() {
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
     kill "$APP_PID" 2>/dev/null
   fi
-  if [[ -n "$LAUNCHER_PID" ]] && kill -0 "$LAUNCHER_PID" 2>/dev/null; then
-    kill "$LAUNCHER_PID" 2>/dev/null
-    wait "$LAUNCHER_PID" 2>/dev/null
+  if [[ -n "$LIFECYCLE_SUPERVISOR_PID" ]]; then
+    if kill -0 "$LIFECYCLE_SUPERVISOR_PID" 2>/dev/null; then
+      kill "$LIFECYCLE_SUPERVISOR_PID" 2>/dev/null
+    fi
+    wait "$LIFECYCLE_SUPERVISOR_PID" 2>/dev/null
+  fi
+  if [[ "$LIFECYCLE_READ_FD_OPEN" == "1" ]]; then
+    exec 5<&-
+    LIFECYCLE_READ_FD_OPEN=0
   fi
   rm -rf -- "$TEST_ROOT"
 }
@@ -85,17 +92,28 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
     OWNER_LOSS=1
   fi
   LAUNCH_LOG="$TEST_ROOT/launcher-$run.log"
+  LIFECYCLE_PIPE="$TEST_ROOT/lifecycle-$run.pipe"
+  LIFECYCLE_PROGRESS_PIPE="$TEST_ROOT/lifecycle-progress-$run.pipe"
+  /usr/bin/mkfifo "$LIFECYCLE_PIPE" "$LIFECYCLE_PROGRESS_PIPE"
   APP_PIDS_BEFORE="$(matching_app_pids)"
-  "$RUN_REMOTE_DEMO" "$REMOTE_HOST" >"$LAUNCH_LOG" 2>&1 &
-  LAUNCHER_PID=$!
+  (
+    exec 6>"$LIFECYCLE_PIPE"
+    cmux_supervise_remote_demo \
+      6 \
+      "$LIFECYCLE_PROGRESS_PIPE" \
+      "$TRANSFER_READY_TIMEOUT" \
+      "$DAEMON_READY_TIMEOUT" \
+      "$LAUNCHER_EXIT_TIMEOUT" \
+      -- \
+      env CMUX_NATIVE_LIFECYCLE_PIPE="$LIFECYCLE_PROGRESS_PIPE" \
+      "$RUN_REMOTE_DEMO" "$REMOTE_HOST"
+  ) >"$LAUNCH_LOG" 2>&1 &
+  LIFECYCLE_SUPERVISOR_PID=$!
+  exec 5<"$LIFECYCLE_PIPE"
+  LIFECYCLE_READ_FD_OPEN=1
 
   set +e
-  cmux_wait_for_remote_demo_ready \
-    "$LAUNCH_LOG" \
-    "$LAUNCHER_PID" \
-    "$TRANSFER_READY_ATTEMPTS" \
-    "$DAEMON_READY_ATTEMPTS" \
-    "$READY_POLL_SECONDS"
+  cmux_wait_for_remote_demo_ready 5
   READY_STATUS=$?
   set -e
   if [[ "$READY_STATUS" != "0" ]]; then
@@ -103,18 +121,16 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
       10) echo "Remote demo run $run exited before becoming ready:" >&2 ;;
       20) echo "Remote demo run $run did not finish installation within 300 seconds:" >&2 ;;
       21) echo "Remote demo run $run did not become ready within 90 seconds after daemon startup:" >&2 ;;
+      22) echo "Remote demo run $run published an invalid lifecycle event:" >&2 ;;
       *) echo "Remote demo run $run failed its readiness check with status $READY_STATUS:" >&2 ;;
     esac
     sed -n '1,220p' "$LAUNCH_LOG" >&2
     exit 1
   fi
 
-  for _ in $(seq 1 100); do
-    APP_PID="$(new_app_pid "$APP_PIDS_BEFORE" || true)"
-    [[ -n "$APP_PID" ]] && break
-    sleep 0.1
-  done
-  if [[ -z "$APP_PID" ]]; then
+  PUBLISHED_APP_PID="$CMUX_REMOTE_DEMO_APP_PID"
+  APP_PID="$(new_app_pid "$APP_PIDS_BEFORE" || true)"
+  if [[ -z "$APP_PID" || "$APP_PID" != "$PUBLISHED_APP_PID" ]]; then
     echo "Remote demo run $run did not expose its isolated app process." >&2
     exit 1
   fi
@@ -161,42 +177,52 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   fi
 
   LOCAL_RUN_ROOT="${APP_BUNDLE%/NativeMuxDemo.app}"
+  cmux_request_remote_demo_exit "$LIFECYCLE_SUPERVISOR_PID"
   if [[ "$OWNER_LOSS" == "1" ]]; then
-    kill -KILL "$LAUNCHER_PID"
-    set +e
-    wait "$LAUNCHER_PID" 2>/dev/null
-    LAUNCHER_STATUS=$?
-    set -e
-    if (( LAUNCHER_STATUS != 137 )); then
-      echo "Remote demo owner-loss run exited with $LAUNCHER_STATUS instead of SIGKILL status 137." >&2
-      exit 1
-    fi
-    LAUNCHER_PID=""
+    kill -USR1 "$LIFECYCLE_SUPERVISOR_PID"
   else
     kill "$APP_PID"
     APP_PID=""
   fi
 
-  for _ in $(seq 1 300); do
-    if [[ "$OWNER_LOSS" == "1" ]]; then
-      if ! cmux_remote_run /bin/test -e "$REMOTE_ROOT" >/dev/null 2>&1; then
-        break
-      fi
-    elif ! kill -0 "$LAUNCHER_PID" 2>/dev/null; then
-      break
-    fi
-    sleep 0.1
-  done
-  if [[ "$OWNER_LOSS" != "1" ]] && kill -0 "$LAUNCHER_PID" 2>/dev/null; then
-    echo "Remote demo run $run did not stop after its app closed." >&2
+  set +e
+  cmux_wait_for_remote_demo_exit 5
+  EXIT_EVENT_STATUS=$?
+  set -e
+  if [[ "$EXIT_EVENT_STATUS" != "0" ]]; then
+    echo "Remote demo run $run did not publish launcher completion after cleanup." >&2
+    sed -n '1,220p' "$LAUNCH_LOG" >&2
     exit 1
   fi
-  if [[ "$OWNER_LOSS" != "1" ]] && ! wait "$LAUNCHER_PID"; then
+  set +e
+  wait "$LIFECYCLE_SUPERVISOR_PID" 2>/dev/null
+  LAUNCHER_STATUS=$?
+  set -e
+  if [[ "$LAUNCHER_STATUS" != "$CMUX_REMOTE_DEMO_LAUNCHER_STATUS" ]]; then
+    echo "Remote demo run $run published launcher status $CMUX_REMOTE_DEMO_LAUNCHER_STATUS but exited with $LAUNCHER_STATUS." >&2
+    exit 1
+  fi
+  if [[ "$OWNER_LOSS" == "1" && "$LAUNCHER_STATUS" != "137" ]]; then
+    echo "Remote demo owner-loss run exited with $LAUNCHER_STATUS instead of SIGKILL status 137." >&2
+    exit 1
+  fi
+  if [[ "$OWNER_LOSS" != "1" && "$LAUNCHER_STATUS" != "0" ]]; then
     echo "Remote demo run $run failed during cleanup:" >&2
     sed -n '1,220p' "$LAUNCH_LOG" >&2
     exit 1
   fi
-  LAUNCHER_PID=""
+  if [[ "$OWNER_LOSS" == "1" ]]; then
+    for _ in $(seq 1 300); do
+      if ! cmux_remote_run /bin/test -e "$REMOTE_ROOT" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.1
+    done
+  fi
+  LIFECYCLE_SUPERVISOR_PID=""
+  exec 5<&-
+  LIFECYCLE_READ_FD_OPEN=0
+  rm -f -- "$LIFECYCLE_PIPE" "$LIFECYCLE_PROGRESS_PIPE"
 
   if [[ "$ATTACH_FD_OPEN" == "1" ]]; then
     exec 8>&-
