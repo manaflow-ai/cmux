@@ -4265,6 +4265,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         installEventMonitor()
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
+        // Force `externalHoverOwnerCoordinator`'s `lazy` initializer to run now,
+        // while `self` is a fully-constructed, live instance. `deinit` (below)
+        // unconditionally calls `externalHoverOwnerCoordinator.teardown()`; if
+        // nothing had touched this property before that first access, the
+        // `lazy` initializer would run *during* `deinit`, and its `project:`
+        // closure's `[weak self]` capture would try to register a weak
+        // reference to `self` while `self` is already deallocating —
+        // `objc_initWeak` on a deallocating object is a fatal error
+        // (`_objc_fatal`/`SIGABRT`), crashing on essentially every view
+        // teardown. Touching it here (instead of converting to a stored
+        // `let`, which the initializer's `self`-capturing closure and
+        // instance-member reference can't support before `self` exists)
+        // guarantees the coordinator already exists by the time `deinit`
+        // calls `teardown()`, so that call never re-enters initialization.
+        _ = externalHoverOwnerCoordinator
     }
 
     private func setupKeyboardCopyModeCursorOverlay() {
