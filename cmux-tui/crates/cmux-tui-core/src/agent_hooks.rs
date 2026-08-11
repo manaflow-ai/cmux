@@ -1160,10 +1160,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(ingress.payload["normalized"]["agent_session_id"], "shared-session");
-        assert_eq!(
-            ingress.payload["native"]["identifiers"]["agent_session_id"],
-            "shared-session"
-        );
+        assert_eq!(ingress.payload["native"]["identifiers"]["agent_session_id"], "shared-session");
         assert!(ingress.subjects.contains(&agent_session_subject(
             terminal,
             "pi",
