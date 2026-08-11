@@ -5680,9 +5680,7 @@ impl Mux {
         {
             return false;
         }
-        surface.is_some_and(|surface| {
-            self.reconcile_reconnected_kitty_image_surface(&surface, applied_kitty_limits)
-        })
+        self.reconcile_reconnected_kitty_image_surface(&surface, applied_kitty_limits)
     }
 
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
