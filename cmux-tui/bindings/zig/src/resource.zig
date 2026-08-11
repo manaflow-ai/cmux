@@ -2269,6 +2269,7 @@ pub const Client = struct {
             self.request_active = false;
             return;
         };
+        self.request_active = true;
         self.removeRequestWaiter(waiter);
         waiter.granted = true;
         waiter.event.set(self.io);
@@ -2284,9 +2285,17 @@ pub const Client = struct {
             return error.ConnectionClosed;
         }
         if (!self.request_active) {
-            self.request_active = true;
-            self.request_admission_mutex.unlock(self.io);
-            return;
+            _ = deadline.remainingNs() catch |failure| {
+                self.grantNextRequestWaiter();
+                self.request_admission_mutex.unlock(self.io);
+                return failure;
+            };
+            if (self.request_waiter_head == null) {
+                self.request_active = true;
+                self.request_admission_mutex.unlock(self.io);
+                return;
+            }
+            self.grantNextRequestWaiter();
         }
 
         var waiter: RequestWaiter = .{};
