@@ -2653,15 +2653,12 @@ impl Mux {
         let durable_terminal = registry
             .terminal_record(terminal_id)?
             .with_context(|| format!("unknown terminal {terminal_id}"))?;
-        if let Some(expected_incarnation) = terminal_incarnation {
-            anyhow::ensure!(
-                durable_terminal.incarnation.as_deref() == Some(expected_incarnation),
-                "terminal_incarnation_mismatch"
-            );
-        }
-        let terminal_incarnation = terminal_incarnation
-            .or(durable_terminal.incarnation.as_deref())
-            .context("terminal exit has no durable incarnation")?;
+        let terminal_incarnation =
+            terminal_incarnation.context("terminal exit omitted its incarnation")?;
+        anyhow::ensure!(
+            durable_terminal.incarnation.as_deref() == Some(terminal_incarnation),
+            "terminal_incarnation_mismatch"
+        );
         let content_id = ContentPublicId::Terminal(terminal_public_id.clone());
         let catalog_public_ids = terminal_catalog_public_ids_by_host(
             self,

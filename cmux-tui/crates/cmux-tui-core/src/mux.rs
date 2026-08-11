@@ -20597,7 +20597,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn stale_terminal_exit_uses_durable_incarnation_when_callback_omits_it() {
+    fn stale_terminal_exit_rejects_stale_or_missing_incarnation() {
         let mux = test_mux();
         let old_surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let old_host = mux.resource_terminal_host_identity(&old_surface).unwrap();
@@ -20652,7 +20652,7 @@ mod tests {
             }
         };
         assert!(
-            error_without_incarnation.to_string().contains("runtime changed hosts or incarnations")
+            error_without_incarnation.to_string().contains("terminal exit omitted its incarnation")
         );
         assert!(mux.surface(new_surface.id).is_some());
         removed.kill();
