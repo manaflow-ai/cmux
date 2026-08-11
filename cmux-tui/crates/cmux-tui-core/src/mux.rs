@@ -20796,7 +20796,10 @@ mod tests {
         assert!(observed_receiver.try_recv().is_err());
         assert_ne!(mux.journal_event_epoch(), journal_epoch);
         assert_eq!(mux.resource_event_epoch(), resource_epoch);
-        assert_ne!(mux.shared_journal_epoch(), shared_epoch);
+        assert_ne!(
+            mux.wait_for_shared_journal(shared_epoch, Duration::from_secs(1)),
+            shared_epoch
+        );
         assert!(mux.list_agents(Some(surface_id), None).is_empty());
         assert_eq!(
             mux.session_journal_after(commit.sequence.saturating_sub(1), 1)

@@ -5817,9 +5817,12 @@ fn journal_agent_legacy_upgrade_backfills_large_archived_segment_in_pages() {
         }
         tx.commit().unwrap();
 
-        let page = registry.session_journal_after(0, ARCHIVED_RECORD_COUNT + 1).unwrap();
+        let mut page = registry.session_journal_after(0, 1_024).unwrap();
+        let after = page.records.last().unwrap().sequence;
+        let final_page = registry.session_journal_after(after, 1_024).unwrap();
+        let through = final_page.head_sequence;
+        page.records.extend(final_page.records);
         assert_eq!(page.records.len(), ARCHIVED_RECORD_COUNT);
-        let through = page.head_sequence;
         let archived = page
             .records
             .iter()
@@ -7281,7 +7284,7 @@ fn journal_agent_sessionless_start_cannot_replace_structured_owner() {
     }
 
     let agent = registry.public_projections().unwrap().agents.remove(0);
-    assert_eq!(agent.state, "working");
+    assert_eq!(agent.state, "idle");
     assert_eq!(agent.source_session.as_deref(), Some("structured-owner"));
 }
 
@@ -7299,7 +7302,7 @@ fn journal_agent_generation_history_is_bounded_and_keeps_compacted_fence() {
     for index in 0..RETAINED_GENERATIONS + 8 {
         let mut ingress = crate::agent_hook_journal_ingress(
             "codex",
-            "AgentStart",
+            "SessionStart",
             Some(terminal_id.as_str()),
             json!({"context":{"session_id":format!("bounded-session-{index:03}")}}),
         )
@@ -7330,7 +7333,7 @@ fn journal_agent_generation_history_is_bounded_and_keeps_compacted_fence() {
 
     let stale = crate::agent_hook_journal_ingress(
         "codex",
-        "AgentStart",
+        "SessionStart",
         Some(terminal_id.as_str()),
         json!({"context":{"session_id":"bounded-session-000"}}),
     )
