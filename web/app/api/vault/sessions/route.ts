@@ -13,8 +13,6 @@ import { withAuthedVaultApiRoute } from "../../../../services/vault/routeHelpers
 import { setSpanAttributes } from "../../../../services/telemetry";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVaultApiRoute(

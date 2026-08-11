@@ -831,6 +831,62 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "保存" } }
       }
     },
+    "mobile.push.reply.action" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reply" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信" } }
+      }
+    },
+    "mobile.push.reply.placeholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Message the agent…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントにメッセージ…" } }
+      }
+    },
+    "mobile.push.reply.send" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Send" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信" } }
+      }
+    },
+    "mobile.push.debugReply.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux reply test" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux返信テスト" } }
+      }
+    },
+    "mobile.push.debugReply.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reply here; the text is typed into the selected Mac terminal." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ここで返信すると、選択中のMacターミナルにテキストが入力されます。" } }
+      }
+    },
+    "mobile.settings.debugReplyTest" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Test Inline Reply (Local)" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "インライン返信をテスト（ローカル）" } }
+      }
+    },
+    "mobile.settings.debugReplyTest.scheduled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scheduled: lock the phone; the notification fires in 5 seconds." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "予約しました。iPhoneをロックしてください。5秒後に通知が届きます。" } }
+      }
+    },
+    "mobile.settings.debugReplyTest.failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't schedule: open a workspace and select a terminal first." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "予約できませんでした。先にワークスペースを開いてターミナルを選択してください。" } }
+      }
+    },
     "mobile.workspace.customize.description.tooLong" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1255,6 +1311,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Account Mismatch" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "アカウントが一致しません" } }
+      }
+    },
+    "mobile.simulatorStream.connectingControl" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connecting" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続中" } }
       }
     },
     "mobile.iroh.diagnostics.failure.protocolViolation" : {

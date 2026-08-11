@@ -120,9 +120,12 @@ validate_app_host_config_paths() {
     return 1
   fi
 
-  local expected_config_path expected_config_path_input
-  expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
-  expected_config_path_input="${app_host_home_input%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+  # macOS resolves the published /tmp scope through /private/tmp, while
+  # Ghostty may report either spelling. Both roots were derived and validated
+  # above; keep the slash boundary so a same-prefix sibling is still rejected.
+  local published_expected_config_path resolved_expected_config_path
+  published_expected_config_path="${app_host_home_input%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+  resolved_expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
   local matches scan_status line reported_path
   if matches="$(grep -E 'cmux DEV.*\[(config|default)\].*path=.*(Library/Application Support/com\.mitchellh\.ghostty/|/\.config/ghostty/)' "$log_path")"; then
     scan_status=0
@@ -157,16 +160,16 @@ validate_app_host_config_paths() {
 
   if [ "$require_evidence" = "1" ]; then
     if ! grep -Fq \
-      "[default] reading configuration file path=$expected_config_path" \
+      "[default] reading configuration file path=$resolved_expected_config_path" \
       "$log_path" \
       && ! grep -Fq \
-        "[config] reading configuration file path=$expected_config_path" \
+        "[config] reading configuration file path=$resolved_expected_config_path" \
         "$log_path" \
       && ! grep -Fq \
-        "[default] reading configuration file path=$expected_config_path_input" \
+        "[default] reading configuration file path=$published_expected_config_path" \
         "$log_path" \
       && ! grep -Fq \
-        "[config] reading configuration file path=$expected_config_path_input" \
+        "[config] reading configuration file path=$published_expected_config_path" \
         "$log_path"; then
       echo "FAIL: app-host configuration evidence is missing" >&2
       return 1

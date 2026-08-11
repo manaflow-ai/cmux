@@ -247,6 +247,76 @@ async function waitForOperation(
   }
 }
 
+test("journal options reject invalid combinations before transport", () => {
+  const transport = new FakeTransport(() => {
+    assert.fail("invalid journal options reached the transport");
+  });
+  const client = new Client({ transport });
+  const session = client.session(SESSION);
+
+  assert.throws(
+    () => void session.journal({
+      cursor: { generation: String(SESSION), revision: decimalString("1") },
+      start: "tail",
+    }),
+    /mutually exclusive/,
+  );
+  assert.throws(
+    () => void session.journal({ subjects: [{}] }),
+    /require kind or id/,
+  );
+  assert.throws(
+    () => void session.journal({ regex: { pattern: "" } }),
+    /1 to 1024 UTF-8 bytes/,
+  );
+  assert.equal(transport.requests.length, 0);
+  client.close();
+});
+
+test("journal records must match their envelope cursor", async () => {
+  let streamId = "";
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation !== "session.journal.subscribe") return;
+    streamId = (request.params as Envelope).stream_id as string;
+    current.ok(request, { stream_id: streamId });
+  });
+  const client = new Client({ transport });
+  const stream = await client.session(SESSION).journal();
+  const next = stream.next();
+  transport.emit({
+    protocol: "cmux.protocol/2",
+    type: "stream_item",
+    stream_id: streamId,
+    sequence: "1",
+    cursor: { generation: String(SESSION), revision: "1" },
+    item: {
+      sequence: "2",
+      event_id: "event_mismatched_cursor",
+      schema_version: 1,
+      kind: "agent.turn.completed",
+      class: "observation",
+      replay: "advisory",
+      occurred_at_ms: "1",
+      committed_at_ms: "2",
+      producer: { kind: "agent_adapter", id: "cmux_agents" },
+      authority: null,
+      causation_id: null,
+      correlation_id: null,
+      causation_depth: 0,
+      subjects: [],
+      sensitivity: "metadata",
+      payload: {},
+      resource_revision: null,
+      previous_resource_revision: null,
+    },
+  });
+  await assert.rejects(
+    () => next,
+    /journal sequence must match its stream cursor/,
+  );
+  client.close();
+});
+
 test("resource protocol releases cancellation handles at dispatch", async () => {
   for (const synchronous of [true, false]) {
     const transport = new DispatchHandleTransport(synchronous);
@@ -580,6 +650,9 @@ test("created paths are strict runtime variants and fixed operations reject mism
   const transport = new FakeTransport((request, current) => {
     const params = request.params as Envelope;
     if (request.operation === "workspace.create") {
+      if (params.initial_content === "empty") {
+        assert.equal(params.expected_revision, "16");
+      }
       const value = params.initial_content === "empty"
         ? {
           kind: "workspace",
@@ -636,6 +709,8 @@ test("created paths are strict runtime variants and fixed operations reject mism
 
   const empty = await session.createWorkspace({
     initialContent: "empty",
+  }, {
+    expectedRevision: decimalString("16"),
   });
   assert.equal(empty.value.kind, "workspace");
   assert.deepEqual(Object.keys(empty.value), ["kind", "workspace"]);
@@ -786,6 +861,15 @@ test("optional fields and expected revisions reach the wire", async () => {
     }),
     ResourceError,
   );
+  await assert.rejects(
+    () => client.session(SESSION).workspace(WORKSPACE).screen(SCREEN).pane(PANE).split(
+      {
+        direction: "right",
+        viewportWidth: 0.5,
+      },
+    ),
+    ResourceError,
+  );
   const session = client.session(SESSION);
   assert.deepEqual(await session.listNotifications({ limit: 7 }), []);
   assert.deepEqual(
@@ -827,6 +911,10 @@ test("optional fields and expected revisions reach the wire", async () => {
   assert.equal(
     (request("screen.layout.undo").params as Envelope).confirmation_token,
     "undo-preview-token",
+  );
+  assert.equal(
+    (request("pane.split").params as Envelope).viewport_width,
+    0.5,
   );
   assert.equal((request("notification.list").params as Envelope).limit, 7);
   assert.equal(
@@ -1589,7 +1677,11 @@ test("auxiliary resource discriminants select their decoder and preserve extra f
           value: {
             id: PROJECTION,
             session_id: SESSION,
+            frontend_id: "swift",
+            window_id: "window-a",
+            generation: "launch-a",
             projection: { kind: "tree", tabs: 2 },
+            projection_revision: "1",
             extra: { source: "sidebar" },
           },
         },
@@ -1697,7 +1789,10 @@ test("browser frames expose the exact pointer token used by mouse and wheel", as
   const transport = new FakeTransport((request, current) => {
     if (request.operation === "browser.attach") {
       openedStream = (request.params as Envelope).stream_id as string;
-      current.ok(request, { stream_id: openedStream });
+      current.ok(request, {
+        stream_id: openedStream,
+        attachment_lease: "browser-lease",
+      });
       return;
     }
     current.ok(request, {
@@ -1830,7 +1925,10 @@ test("browser frames reject a missing or non-string pointer token", async () => 
     let openedStream = "";
     const transport = new FakeTransport((request, current) => {
       openedStream = (request.params as Envelope).stream_id as string;
-      current.ok(request, { stream_id: openedStream });
+      current.ok(request, {
+        stream_id: openedStream,
+        attachment_lease: "browser-lease",
+      });
     });
     const client = new Client({
       transport,
@@ -1882,7 +1980,6 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
     refreshes += 1;
     const base = {
       id: TERMINAL,
-      tab_id: TAB,
       tab_ids: [TAB],
       title: "job",
       cols: 80,
@@ -1926,29 +2023,45 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
   client.close();
 });
 
-test("terminal snapshots accept protocol-one tab_id without tab_ids", async () => {
+test("terminal snapshots accept the protocol-one tab_id alias", async () => {
   let refreshes = 0;
   const transport = new FakeTransport((request, current) => {
-    current.ok(request, {
+    const value: Record<string, unknown> = {
       id: TERMINAL,
-      tab_id: refreshes++ === 0 ? TAB : null,
       title: "legacy",
       cols: 80,
       rows: 24,
       running: true,
       lifecycle: "running",
-    });
+    };
+    if (refreshes === 0) {
+      value.tab_id = TAB;
+    } else if (refreshes === 1) {
+      value.tab_id = null;
+    } else if (refreshes === 2) {
+      value.tab_id = TAB;
+      value.tab_ids = [TAB];
+    } else if (refreshes === 4) {
+      value.tab_id = TAB;
+      value.tab_ids = [];
+    }
+    refreshes += 1;
+    current.ok(request, value);
   });
   const client = new Client({ transport });
   const terminal = client.session(SESSION).terminal(TERMINAL);
 
-  const attached = await terminal.refresh();
-  assert.equal(attached.tabId, TAB);
-  assert.deepEqual(attached.tabIds, [TAB]);
-
-  const detached = await terminal.refresh();
-  assert.equal(detached.tabId, null);
-  assert.deepEqual(detached.tabIds, []);
+  assert.deepEqual((await terminal.refresh()).tabIds, [TAB]);
+  assert.deepEqual((await terminal.refresh()).tabIds, []);
+  assert.deepEqual((await terminal.refresh()).tabIds, [TAB]);
+  await assert.rejects(
+    () => terminal.refresh(),
+    /requires tab_ids or tab_id/,
+  );
+  await assert.rejects(
+    () => terminal.refresh(),
+    /tab_id must be the first tab_ids item/,
+  );
   client.close();
 });
 

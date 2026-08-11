@@ -1,6 +1,7 @@
 use std::fmt;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,9 @@ pub struct SshBootstrapConfig {
     pub package_version: String,
     pub package_installable: bool,
     pub build_identity: String,
+    /// Exact local executable used to bootstrap unpublished same-platform
+    /// builds. Published distributions continue to install through npm.
+    pub local_binary: Option<PathBuf>,
     pub auto_install: bool,
     pub timeout: Duration,
 }
@@ -45,6 +49,7 @@ impl SshBootstrapConfig {
             package_version: NPM_BOOTSTRAP_VERSION.unwrap_or(DISTRIBUTION_VERSION).into(),
             package_installable: NPM_BOOTSTRAP_VERSION.is_some(),
             build_identity: BUILD_IDENTITY.into(),
+            local_binary: std::env::current_exe().ok(),
             auto_install: true,
             timeout: Duration::from_secs(60),
         }
@@ -109,13 +114,19 @@ impl SshBootstrapper {
     }
 
     pub async fn probe(&self) -> Result<Option<RemoteProbe>, BootstrapError> {
-        let output =
-            self.run_remote([self.config.remote_binary.as_str(), "remote-probe", "--json"]).await?;
+        self.probe_binary(&self.config.remote_binary).await
+    }
+
+    async fn probe_binary(&self, binary: &str) -> Result<Option<RemoteProbe>, BootstrapError> {
+        let output = self.run_remote([binary, "remote-probe", "--json"]).await?;
         if output.status == 127 || output.status == 126 {
             return Ok(None);
         }
         if output.status != 0 {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            if windows_command_shell_error(&stderr) {
+                return Err(BootstrapError::WindowsRequiresWsl);
+            }
             if stderr.contains("not found") || stderr.contains("No such file") {
                 return Ok(None);
             }
@@ -151,7 +162,7 @@ impl SshBootstrapper {
     /// answer `remote-probe`. This is reserved for an explicit upgrade.
     pub async fn install_verified(&self) -> Result<BootstrapOutcome, BootstrapError> {
         if !self.config.package_installable {
-            return Err(BootstrapError::PackageUnavailable(self.config.package_version.clone()));
+            return self.install_local_binary().await;
         }
         let npm_package = &self.config.npm_package;
         let package_version = &self.config.package_version;
@@ -183,6 +194,116 @@ impl SshBootstrapper {
             });
         }
         Ok(BootstrapOutcome::Installed)
+    }
+
+    async fn install_local_binary(&self) -> Result<BootstrapOutcome, BootstrapError> {
+        let source = self.config.local_binary.as_deref().ok_or_else(|| {
+            BootstrapError::PackageUnavailable(self.config.package_version.clone())
+        })?;
+        let remote = self.remote_platform().await?;
+        let local = Platform::local();
+        if !local.compatible_with(&remote) {
+            return Err(BootstrapError::LocalBinaryIncompatible {
+                local: local.display(),
+                remote: remote.display(),
+            });
+        }
+        let temporary = self.temporary_upload_path();
+        let parent = self
+            .config
+            .remote_binary
+            .rsplit_once('/')
+            .map_or(".", |(parent, _)| if parent.is_empty() { "/" } else { parent });
+        let command =
+            format!("umask 077; mkdir -p {parent} && cat > {temporary} && chmod 755 {temporary}");
+        let output = match self.run_remote_with_input(&command, source).await {
+            Ok(output) => output,
+            Err(error) => {
+                self.cleanup_remote_file(&temporary).await;
+                return Err(error);
+            }
+        };
+        if output.status != 0 {
+            self.cleanup_remote_file(&temporary).await;
+            return Err(BootstrapError::Install {
+                status: output.status,
+                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
+            });
+        }
+        let probe = match self.probe_binary(&temporary).await {
+            Ok(Some(probe)) => probe,
+            Ok(None) => {
+                self.cleanup_remote_file(&temporary).await;
+                return Err(BootstrapError::Install {
+                    status: 126,
+                    stderr: "uploaded binary could not run remote-probe".into(),
+                });
+            }
+            Err(error) => {
+                self.cleanup_remote_file(&temporary).await;
+                return Err(error);
+            }
+        };
+        if !self.compatible(&probe) {
+            self.cleanup_remote_file(&temporary).await;
+            return Err(BootstrapError::Incompatible {
+                version: probe.version,
+                protocol: probe.remote_protocol,
+            });
+        }
+        let output = match self
+            .run_remote(["mv", "-f", temporary.as_str(), self.config.remote_binary.as_str()])
+            .await
+        {
+            Ok(output) => output,
+            Err(error) => {
+                self.cleanup_remote_file(&temporary).await;
+                return Err(error);
+            }
+        };
+        if output.status != 0 {
+            self.cleanup_remote_file(&temporary).await;
+            return Err(BootstrapError::Install {
+                status: output.status,
+                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
+            });
+        }
+        let probe = self.probe().await?.ok_or(BootstrapError::Install {
+            status: 0,
+            stderr: "upload completed but the remote binary is absent".into(),
+        })?;
+        if !self.compatible(&probe) {
+            return Err(BootstrapError::Incompatible {
+                version: probe.version,
+                protocol: probe.remote_protocol,
+            });
+        }
+        Ok(BootstrapOutcome::Installed)
+    }
+
+    fn temporary_upload_path(&self) -> String {
+        let now =
+            SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |duration| duration.as_nanos());
+        format!("{}.cmux-upload-{}-{now}", self.config.remote_binary, std::process::id())
+    }
+
+    async fn cleanup_remote_file(&self, path: &str) {
+        let _ = self.run_remote(["rm", "-f", path]).await;
+    }
+
+    async fn remote_platform(&self) -> Result<Platform, BootstrapError> {
+        let output = self.run_remote(["uname", "-s", "-m"]).await?;
+        if output.status != 0 {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if windows_command_shell_error(&stderr) {
+                return Err(BootstrapError::WindowsRequiresWsl);
+            }
+            return Err(BootstrapError::Remote {
+                status: output.status,
+                stderr: sanitize(&stderr),
+            });
+        }
+        Platform::from_uname(&String::from_utf8_lossy(&output.stdout))
     }
 
     /// Explicitly stops the named remote daemon so the next carrier launch
@@ -315,6 +436,119 @@ impl SshBootstrapper {
         };
         Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
     }
+
+    async fn run_remote_with_input(
+        &self,
+        remote_command: &str,
+        source: &Path,
+    ) -> Result<RemoteOutput, BootstrapError> {
+        let source = std::fs::File::open(source).map_err(BootstrapError::Io)?;
+        let mut command = Command::new(&self.config.ssh_binary);
+        command.arg("-T");
+        if let Some(port) = self.config.port {
+            command.arg("-p").arg(port.to_string());
+        }
+        command.args(&self.config.extra_args).arg(&self.config.destination).arg(remote_command);
+        let mut child = command
+            .stdin(Stdio::from(source))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(BootstrapError::Io)?;
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                terminate_and_reap(&mut child).await;
+                return Err(BootstrapError::Io(std::io::Error::other(
+                    "SSH stdout pipe is unavailable",
+                )));
+            }
+        };
+        let stderr = match child.stderr.take() {
+            Some(stderr) => stderr,
+            None => {
+                terminate_and_reap(&mut child).await;
+                return Err(BootstrapError::Io(std::io::Error::other(
+                    "SSH stderr pipe is unavailable",
+                )));
+            }
+        };
+        let completion = tokio::time::timeout(self.config.timeout, async {
+            tokio::try_join!(
+                read_bounded(stdout, "stdout"),
+                read_bounded(stderr, "stderr"),
+                async { child.wait().await.map_err(BootstrapError::Io) },
+            )
+        })
+        .await;
+        let (stdout, stderr, status) = match completion {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                terminate_and_reap(&mut child).await;
+                return Err(error);
+            }
+            Err(_) => {
+                terminate_and_reap(&mut child).await;
+                return Err(BootstrapError::Timeout);
+            }
+        };
+        Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Platform {
+    os: String,
+    arch: String,
+}
+
+impl Platform {
+    fn local() -> Self {
+        Self {
+            os: normalize_os(std::env::consts::OS),
+            arch: normalize_arch(std::env::consts::ARCH),
+        }
+    }
+
+    fn from_uname(value: &str) -> Result<Self, BootstrapError> {
+        let mut fields = value.split_whitespace();
+        let Some(os) = fields.next() else {
+            return Err(BootstrapError::PlatformProbe("uname returned no operating system".into()));
+        };
+        let Some(arch) = fields.next() else {
+            return Err(BootstrapError::PlatformProbe("uname returned no architecture".into()));
+        };
+        Ok(Self { os: normalize_os(os), arch: normalize_arch(arch) })
+    }
+
+    fn compatible_with(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn display(&self) -> String {
+        format!("{}-{}", self.os, self.arch)
+    }
+}
+
+fn normalize_os(value: &str) -> String {
+    match value.to_ascii_lowercase().as_str() {
+        "darwin" | "macos" => "macos".into(),
+        "linux" => "linux".into(),
+        other => other.to_string(),
+    }
+}
+
+fn normalize_arch(value: &str) -> String {
+    match value.to_ascii_lowercase().as_str() {
+        "arm64" | "aarch64" => "aarch64".into(),
+        "amd64" | "x86_64" => "x86_64".into(),
+        other => other.to_string(),
+    }
+}
+
+fn windows_command_shell_error(stderr: &str) -> bool {
+    stderr.to_ascii_lowercase().contains("is not recognized as an internal or external command")
 }
 
 async fn read_bounded(
@@ -370,6 +604,9 @@ pub enum BootstrapError {
     Remote { status: i32, stderr: String },
     Install { status: i32, stderr: String },
     PackageUnavailable(String),
+    PlatformProbe(String),
+    LocalBinaryIncompatible { local: String, remote: String },
+    WindowsRequiresWsl,
     Incompatible { version: String, protocol: u8 },
 }
 
@@ -393,6 +630,14 @@ impl fmt::Display for BootstrapError {
             Self::PackageUnavailable(version) => write!(
                 formatter,
                 "this cmux-tui build is not backed by a published npm package ({version}); preinstall the matching remote binary or use an npm release build"
+            ),
+            Self::PlatformProbe(message) => write!(formatter, "remote platform probe failed: {message}"),
+            Self::LocalBinaryIncompatible { local, remote } => write!(
+                formatter,
+                "this unpublished cmux-tui build cannot be uploaded from {local} to {remote}; use a published build or preinstall a matching remote binary"
+            ),
+            Self::WindowsRequiresWsl => formatter.write_str(
+                "native Windows cannot host the cmux-tui remote daemon yet; install a WSL 2 Linux distro with `wsl --install -d Ubuntu`, then connect through that Linux environment"
             ),
             Self::Incompatible { version, protocol } => write!(
                 formatter,
@@ -422,6 +667,9 @@ impl BootstrapError {
                     | std::io::ErrorKind::WouldBlock
                     | std::io::ErrorKind::UnexpectedEof
             ),
+            Self::PlatformProbe(_)
+            | Self::LocalBinaryIncompatible { .. }
+            | Self::WindowsRequiresWsl => false,
             _ => false,
         }
     }
@@ -469,6 +717,15 @@ mod tests {
             !BootstrapError::Remote { status: 2, stderr: "usage".into() }
                 .is_retryable_carrier_failure()
         );
+    }
+
+    #[test]
+    fn native_windows_shell_failure_reports_the_wsl_prerequisite() {
+        assert!(windows_command_shell_error(
+            "'~' is not recognized as an internal or external command, operable program or batch file."
+        ));
+        assert!(!BootstrapError::WindowsRequiresWsl.is_retryable_carrier_failure());
+        assert!(BootstrapError::WindowsRequiresWsl.to_string().contains("wsl --install"));
     }
 
     #[test]
@@ -543,12 +800,202 @@ mod tests {
         let mut config = SshBootstrapConfig::defaults("host");
         config.package_version = "0.0.0-r2.test".into();
         config.package_installable = false;
+        config.local_binary = None;
 
         let error = SshBootstrapper::new(config).unwrap().install_verified().await.unwrap_err();
         assert!(matches!(
             error,
             BootstrapError::PackageUnavailable(version) if version == "0.0.0-r2.test"
         ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_build_uploads_the_exact_binary_to_a_matching_platform() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let installed = directory.path().join("installed");
+        let staged = directory.path().join("staged");
+        let source = directory.path().join("cmux-tui");
+        fs::write(&source, b"exact unpublished build").unwrap();
+        let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
+        let uname_arch =
+            if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
+        let probe = serde_json::json!({
+            "app": "cmux-tui",
+            "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION,
+            "build_identity": BUILD_IDENTITY,
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        });
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                installed = installed.display(),
+                staged = staged.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(source);
+        config.remote_binary = "~/.local/bin/cmux-upload".into();
+
+        assert_eq!(
+            SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap(),
+            BootstrapOutcome::Installed
+        );
+        assert_eq!(fs::read(installed).unwrap(), b"exact unpublished build");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_build_keeps_existing_remote_binary_when_staged_probe_is_incompatible() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let installed = directory.path().join("installed");
+        let staged = directory.path().join("staged");
+        let moved = directory.path().join("moved");
+        let source = directory.path().join("cmux-tui");
+        fs::write(&installed, b"existing remote binary").unwrap();
+        fs::write(&source, b"incompatible unpublished build").unwrap();
+        let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
+        let uname_arch =
+            if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
+        let installed_probe = serde_json::json!({
+            "app": "cmux-tui",
+            "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION,
+            "build_identity": "older-build",
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        });
+        let staged_probe = serde_json::json!({
+            "app": "cmux-tui",
+            "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION,
+            "build_identity": "wrong-upload",
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        });
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*)\n    [ -f '{staged}' ] || exit 127\n    printf '%s' '{staged_probe}'\n    ;;\n  *\"remote-probe --json\"*)\n    [ -f '{installed}' ] || exit 127\n    printf '%s' '{installed_probe}'\n    ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) touch '{moved}'; mv '{staged}' '{installed}' ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                installed = installed.display(),
+                staged = staged.display(),
+                moved = moved.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(source);
+        config.remote_binary = "~/.local/bin/cmux-upload".into();
+
+        let error = SshBootstrapper::new(config).unwrap().ensure_installed().await.unwrap_err();
+        assert!(matches!(error, BootstrapError::Incompatible { .. }));
+        assert_eq!(fs::read(installed).unwrap(), b"existing remote binary");
+        assert!(!staged.exists());
+        assert!(!moved.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_build_removes_staged_upload_after_upload_stream_failure() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let staged = directory.path().join("staged");
+        let source = directory.path().join("cmux-tui");
+        fs::write(&source, b"exact unpublished build").unwrap();
+        let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
+        let uname_arch =
+            if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}'; head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                staged = staged.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(source);
+        config.remote_binary = "~/.local/bin/cmux-upload".into();
+
+        let error = SshBootstrapper::new(config).unwrap().install_verified().await.unwrap_err();
+
+        assert!(matches!(error, BootstrapError::OutputLimit { stream: "stdout", .. }));
+        assert!(!staged.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn raw_build_removes_staged_upload_after_move_transport_failure() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let staged = directory.path().join("staged");
+        let source = directory.path().join("cmux-tui");
+        fs::write(&source, b"exact unpublished build").unwrap();
+        let uname_os = if std::env::consts::OS == "macos" { "Darwin" } else { "Linux" };
+        let uname_arch =
+            if std::env::consts::ARCH == "aarch64" { "arm64" } else { std::env::consts::ARCH };
+        let probe = serde_json::json!({
+            "app": "cmux-tui",
+            "version": DISTRIBUTION_VERSION,
+            "distribution_version": DISTRIBUTION_VERSION,
+            "build_identity": BUILD_IDENTITY,
+            "remote_protocol": REMOTE_PROTOCOL_VERSION,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+        });
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"uname -s -m\"*) printf '%s\\n' '{uname_os} {uname_arch}' ;;\n  *\".cmux-upload-\"*\" remote-probe --json\"*) printf '%s' '{probe}' ;;\n  *\"cat > \"*\".cmux-upload-\"*) cat >'{staged}' ;;\n  *\"mv -f \"*\".cmux-upload-\"*) head -c 5000 /dev/zero ;;\n  *\"rm -f \"*\".cmux-upload-\"*) rm -f '{staged}' ;;\n  *) exit 2 ;;\nesac\n",
+                staged = staged.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        config.local_binary = Some(source);
+        config.remote_binary = "~/.local/bin/cmux-upload".into();
+
+        let error = SshBootstrapper::new(config).unwrap().install_verified().await.unwrap_err();
+
+        assert!(matches!(error, BootstrapError::OutputLimit { stream: "stdout", .. }));
+        assert!(!staged.exists());
     }
 
     #[cfg(unix)]

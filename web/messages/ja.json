@@ -100,10 +100,11 @@
       "vaultGroup": "vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
-      "subrouterGroup": "subrouter",
-      "subrouterOverview": "概要",
+      "coderouterGroup": "coderouter",
+      "coderouterOverview": "概要",
       "accountGroup": "アカウント",
       "billing": "請求",
+      "team": "チーム",
       "testflight": "iOS TestFlight"
     },
     "home": {
@@ -112,13 +113,24 @@
       "vaultName": "vault",
       "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
       "vaultLink": "vaultを開く",
-      "subrouterName": "subrouter",
-      "subrouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
-      "subrouterLink": "subrouterを開く"
+      "coderouterName": "coderouter",
+      "coderouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "coderouterLink": "coderouterを開く"
     },
-    "subrouter": {
-      "title": "subrouter",
-      "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    "coderouter": {
+      "metaTitle": "coderouter — cmux",
+      "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
+      "title": "coderouter",
+      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    },
+    "accountMenu": {
+      "label": "アカウントメニュー",
+      "settings": "設定",
+      "billing": "請求",
+      "signOut": "サインアウト",
+      "signingOut": "サインアウト中…",
+      "signOutError": "サインアウトできませんでした。もう一度お試しください。",
+      "signIn": "サインイン"
     },
     "billing": {
       "eyebrow": "アカウント",
@@ -237,8 +249,8 @@
       "teamSwitcherLabel": "チーム",
       "notConfiguredTitle": "AIアカウント管理はまだ利用できません",
       "notConfiguredBody": "このデプロイではチームAIアカウントが有効になっていません。しばらくしてから再試行するか、サポートにお問い合わせください。",
-      "migrationPendingTitle": "アカウントを移行中です",
-      "migrationPendingBody": "共有アカウントは移行が完了するまで一時的に利用できません。しばらくしてからもう一度お試しください。",
+      "migrationPendingTitle": "アカウントを一時的に利用できません",
+      "migrationPendingBody": "共有アカウントは一時的に利用できません。しばらくしてからもう一度お試しください。",
       "loadErrorTitle": "アカウントを読み込めませんでした",
       "loadErrorBody": "アカウントサービスに接続できませんでした。しばらくしてから再試行してください。",
       "accountsTitle": "接続済みアカウント",
@@ -298,9 +310,9 @@
       "eyebrow": "cmux Vault",
       "title": "CLIアクセスを承認",
       "description": "cmux-vaultに表示されたコードを確認し、このデバイスをサインイン中のcmuxアカウントに接続します。",
-      "subrouterEyebrow": "Subrouter",
-      "subrouterTitle": "Subrouterアクセスを承認",
-      "subrouterDescription": "srに表示されたコードを確認し、このデバイスをサインイン中のcmuxチームに接続します。",
+      "coderouterEyebrow": "CodeRouter",
+      "coderouterTitle": "CodeRouterアクセスを承認",
+      "coderouterDescription": "crに表示されたコードを確認し、このデバイスをサインイン中のcmuxチームに接続します。",
       "codeLabel": "ユーザーコード",
       "approveButton": "アクセスを承認",
       "approving": "承認中...",
@@ -400,10 +412,10 @@
   },
   "pricing": {
     "metaTitle": "料金 — cmux",
-    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、モデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
-    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、CodeRouter が使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、CodeRouter を利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と CodeRouter が使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と CodeRouter を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
@@ -440,7 +452,7 @@
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
         "4 vCPU / 16 GB の VM で毎月20時間のアクティブ計算時間、超過分は従量課金",
-        "モデルゲートウェイ: 複数プロバイダーへのルーティングと使用量・コスト分析",
+        "CodeRouter: プロバイダーアカウント間のフェイルオーバー、使用量・コスト分析付きルーティング",
         "cmux iOS アプリとメールサポート"
       ],
       "vaultFeatures": [
@@ -461,7 +473,7 @@
         "シート管理: メンバーをいつでも追加・削除",
         "チームで共有する Cloud VM のプール計算時間",
         "共有のチームルール、設定、ワークスペーステンプレート",
-        "メンバーごとの使用量・コスト分析付きのチーム全体モデルゲートウェイ",
+        "メンバーごとの使用量・コスト分析付きのチーム全体 CodeRouter",
         "一元管理と優先メールサポート"
       ]
     },
@@ -472,7 +484,7 @@
       "featuresLead": "Team のすべてに加えて:",
       "features": [
         "セルフホストのクラウド実行とネットワーク、ネットワーク外に何も出ません",
-        "組織全体の使用量・コスト分析を備えたセルフホストのモデルゲートウェイ",
+        "組織全体の使用量・コスト分析を備えたセルフホストの CodeRouter",
         "SSO と SAML サインイン",
         "一元管理と共有チームルール",
         "ターミナルセッション、ネットワークリクエスト、ブラウザ操作の監査ログ",
@@ -543,7 +555,7 @@
           "enterprise": "カスタム"
         },
         {
-          "label": "モデルゲートウェイ: ルーティングと使用量分析",
+          "label": "CodeRouter: ルーティングと使用量分析",
           "free": "false",
           "pro": "true",
           "team": "true",
@@ -664,8 +676,8 @@
           "vault": true
         },
         {
-          "q": "モデルゲートウェイとは何ですか?",
-          "a": "各リクエストを複数プロバイダーの強力なモデルにルーティングし、使用量とコストの分析を1か所で提供するホスト型ゲートウェイです。自分のプロバイダーキーを持ち込めます。Enterprise では組織全体の管理のためにゲートウェイをセルフホストできます。"
+          "q": "CodeRouterとは何ですか?",
+          "a": "CodeRouter は各リクエストをプロバイダーアカウント間でフェイルオーバー付きでルーティングし、使用量とコストの分析を1か所で提供します。自分のプロバイダーアカウントを持ち込めます。Enterprise では組織全体の管理のために CodeRouter をセルフホストできます。"
         },
         {
           "q": "iOS アプリにまだ Tailscale が必要ですか?",
@@ -1011,7 +1023,7 @@
         "simpleP2": "カスタムのエージェントハーネスや外部オーケストレーションは使いません。<code>/loop</code>は使わず、<code>/goal</code>もほとんど使いません。",
         "economicsTitle": "費用",
         "economicsP1": "API料金に換算すると、この使用量は約8万5000ドルです。実際に支払ったのは37個のChatGPT Pro 20xアカウントに対する7400ドルで、Tiboが提供したクォータリセットも使いました。<codexBar>CodexBar</codexBar>でローカルのトークン数とAPI料金換算を集計しました。",
-        "economicsP2": "3670億という数字も、アカウント全体の使用量より少なく出ています。<subrouter>Subrouter</subrouter>で共同創業者と同じアカウントプールを共有していますが、CodexBarが集計するのは私のマシン上のローカルトークン使用量だけだからです。",
+        "economicsP2": "3670億という数字も、アカウント全体の使用量より少なく出ています。<coderouter>CodeRouter</coderouter>で共同創業者と同じアカウントプールを共有していますが、CodexBarが集計するのは私のマシン上のローカルトークン使用量だけだからです。",
         "closing": "このワークフローでは判断に注意を集中できます。完了した作業を確認してエージェントのブロックを解除し、キューが空になったら次のタスクを始めます。"
       },
       "cmdShiftU": {
@@ -1052,10 +1064,10 @@
         "superRepoTitle": "スーパーリポはプロジェクトの司令部",
       "superRepoP1": "この制御用リポジトリをスーパーリポと呼びたいと思います。コーディングエージェントにとって、スーパーリポは一つ以上のソースリポジトリの上位にあり、プロンプトを分離されたタスク環境へ変換するためのデータ、スキル、origin、ワークツリー、運用ルールを保持します。",
       "superRepoP2": "<code>AGENTS.md</code>が制御プレーンです。エージェントが必要とする可能性のあるリポジトリ、各タスクのワークツリーを置く場所、リポジトリごとのセットアップ手順を定義します。一つのタスクでターミナル、ブラウザ連携、ルーター用の対応するワークツリーを作れますが、すべてのタスクで三つとも複製する必要はありません。",
-      "agentsExample": "cmux-hqで作業しています。タスクには次のリポジトリが関係する場合があります：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nユーザーが新しいタスクを依頼したとき：\n1. タスクに必要なリポジトリを判断します。\n2. worktrees/[task]/[repo]に対応するワークツリーを作成します。\n3. 各ワークツリーのAGENTS.mdを読みます。\n4. セットアップスクリプトをすぐに起動し、タスクを続けます。",
+      "agentsExample": "cmux-hqで作業しています。タスクには次のリポジトリが関係する場合があります：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/coderouter\n\nユーザーが新しいタスクを依頼したとき：\n1. タスクに必要なリポジトリを判断します。\n2. worktrees/[task]/[repo]に対応するワークツリーを作成します。\n3. 各ワークツリーのAGENTS.mdを読みます。\n4. セットアップスクリプトをすぐに起動し、タスクを続けます。",
       "agentTitle": "トポロジーをエージェントに選ばせる",
-      "agentP1": "cmuxではこのパターンを社内で使っています。公開ソースは<cmux>manaflow-ai/cmux</cmux>にあり、非公開の制御用リポジトリは<hq>manaflow-ai/cmuxterm-hq</hq>です。hqのルートから、cmuxにも関係する可能性があるsubrouterの問題をCodexやClaude Codeに依頼できます。エージェントは必要なワークツリーだけを作り、各リポジトリのAGENTS.mdを読み、セットアップスクリプトを起動し、その実行中にコードの調査を始めます。",
-      "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"subrouterのxyz問題を修正して。cmuxのxyzにも関係する可能性あり\"",
+      "agentP1": "cmuxではこのパターンを社内で使っています。公開ソースは<cmux>manaflow-ai/cmux</cmux>にあり、非公開の制御用リポジトリは<hq>manaflow-ai/cmuxterm-hq</hq>です。hqのルートから、cmuxにも関係する可能性があるCodeRouterの問題をCodexやClaude Codeに依頼できます。エージェントは必要なワークツリーだけを作り、各リポジトリのAGENTS.mdを読み、セットアップスクリプトを起動し、その実行中にコードの調査を始めます。",
+      "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"CodeRouterのxyz問題を修正して。cmuxのxyzにも関係する可能性あり\"",
       "agentP2": "<code>./scripts/new-worktree.sh</code>は一つのトポロジーを実装します。エージェントなら、互換性のないサブモジュールには別チェックアウト、信頼できないセットアップにはリモートサンドボックス、別OSにはVM、実験にはGPUスケジューラを選び、決定的な処理には既存のスクリプトを再利用できます。",
         "limitsTitle": "完了までの時間が短くなる理由",
         "limitsP1": "多くのプロジェクトでは、ワークツリーは並列化の一部にすぎません。MLでは、一つのコーディングエージェントが一つのワークツリーで複数の実験を書き、スケジューラが実行を複数のGPUへ配布できます。ワークツリーを増やしても計算資源は増えず、調整だけが増えます。",

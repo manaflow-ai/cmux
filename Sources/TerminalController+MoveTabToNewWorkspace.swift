@@ -179,11 +179,11 @@ extension TerminalController {
                 ])
                 return
             }
-            let previousFocusedPanelId = ws.focusedPanelId
-            guard let newPaneId = ws.bonsplitController.splitPane(
+            guard let newPaneId = ws.splitPaneMovingTab(
                 orientation: orientation,
                 movingTab: bonsplitTabId,
-                insertFirst: insertFirst
+                insertFirst: insertFirst,
+                focusIntent: focus ? .activateMovedTab : .preserveCurrent
             ) else {
                 result = .err(code: "internal_error", message: SurfaceSplitOffMessage.splitPaneFailed, data: nil)
                 return
@@ -192,8 +192,6 @@ extension TerminalController {
                 _ = app.focusMainWindow(windowId: located.windowId)
                 setActiveTabManager(located.tabManager)
                 located.tabManager.focusTab(ws.id, surfaceId: surfaceId, suppressFlash: true)
-            } else if let previousFocusedPanelId, ws.panels[previousFocusedPanelId] != nil {
-                ws.focusPanel(previousFocusedPanelId)
             }
             let windowId = located.windowId
             result = .ok([

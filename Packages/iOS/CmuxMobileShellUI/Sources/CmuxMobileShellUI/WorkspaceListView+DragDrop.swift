@@ -18,6 +18,9 @@ extension WorkspaceListView {
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
+            // The recency order is derived from timestamps, so a drag has no
+            // spatial position to send to the Mac.
+            && !appliesRecencySort
             && reorderableWorkspaces.hasSingleKnownWindow
             && (rendersGroupedSections || !filteredWorkspaces.contains(where: \.isPinned))
     }
@@ -176,9 +179,24 @@ extension WorkspaceListView {
             ) != nil
     }
 
+    /// The context-menu "Move to Group" picker for one workspace row, or `nil`
+    /// when moves are unavailable (drag gating applies identically) or the
+    /// picker would be empty.
+    func groupMoveMenu(for workspaceID: MobileWorkspacePreview.ID) -> MobileWorkspaceGroupMoveMenu? {
+        guard enablesWorkspaceReorder, rendersGroupedSections else { return nil }
+        let menu = MobileWorkspaceGroupMoveMenu(
+            workspaces: displayedGroupedWorkspaces,
+            groups: groups,
+            movedWorkspaceID: workspaceID
+        )
+        return menu.isEmpty ? nil : menu
+    }
+
+    /// Joins a group at its end, or leaves the current group when `groupID` is
+    /// `nil`. Shared by the drop-into-group path and the context-menu picker.
     func joinGroupAtEnd(
         workspaceID: MobileWorkspacePreview.ID,
-        groupID: MobileWorkspaceGroupPreview.ID
+        groupID: MobileWorkspaceGroupPreview.ID?
     ) {
         guard enablesWorkspaceReorder, rendersGroupedSections else { return }
         let sourceWorkspaces = displayedGroupedWorkspaces

@@ -15,9 +15,10 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
-    CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY, LAYOUT_UNDO_CAPABILITY,
-    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
-    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+    CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
+    FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MAX_CREATION_SELECTOR_FALLBACKS,
+    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+    VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
     BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, DefaultColors, GuardedMouseEncode,
@@ -32,9 +33,6 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::{Map, json};
 
-pub(crate) use remote::{
-    REMOTE_CONTROL_MESSAGE_MAX_BYTES, read_bounded_json_line, read_json_line_with_progress,
-};
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
     RemoteTransportAbort,
@@ -262,6 +260,17 @@ pub struct ClientSizeInfo {
     pub size_participating: bool,
 }
 
+/// Canonical agent presence projected into sidebar views. Keeping this
+/// transport-neutral lets local and remote sessions render identically.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AgentInfo {
+    pub surface: SurfaceId,
+    pub state: String,
+    pub source: String,
+    pub session: Option<String>,
+    pub updated_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct ClientInfo {
     pub client: u64,
@@ -449,6 +458,19 @@ impl Session {
         }
     }
 
+    pub fn journal_frontend_event(
+        &self,
+        event: cmux_tui_core::FrontendJournalEvent,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux.journal_local_frontend_event(event),
+            Session::Remote(remote) if remote.supports_capability(FRONTEND_JOURNAL_CAPABILITY) => {
+                remote.request(json!({"cmd":"journal-frontend-event","event":event})).map(|_| ())
+            }
+            Session::Remote(_) => Ok(()),
+        }
+    }
+
     pub fn daemon_shutdown_requested(&self) -> bool {
         match self {
             Session::Local(mux) => mux.daemon_shutdown_requested(),
@@ -624,6 +646,23 @@ impl Session {
                 })
             }
             Session::Remote(remote) => remote.cached_tree(),
+        }
+    }
+
+    pub fn agents(&self) -> Vec<AgentInfo> {
+        match self {
+            Session::Local(mux) => mux
+                .list_agents(None, None)
+                .into_iter()
+                .map(|agent| AgentInfo {
+                    surface: agent.surface,
+                    state: agent.state.as_str().to_string(),
+                    source: agent.source.as_str().to_string(),
+                    session: agent.session,
+                    updated_at_ms: agent.updated_at_ms,
+                })
+                .collect(),
+            Session::Remote(remote) => remote.cached_agents(),
         }
     }
 
