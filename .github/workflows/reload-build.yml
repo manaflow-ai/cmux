@@ -133,6 +133,7 @@ jobs:
         id: build_ios
         env:
           BUILD_TAG: ${{ inputs.tag }}
+          CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS: "60"
         run: |
           set -euo pipefail
           slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
@@ -166,7 +167,7 @@ jobs:
           mkdir -p "$out"
           archive="$out/cmux-ios-$slug.xcarchive"
           rm -rf "$archive"
-          xcodebuild archive \
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild archive \
             -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -configuration Debug \
@@ -192,7 +193,7 @@ jobs:
           # Keep Blacksmith device reloads equivalent to the fleet path: one
           # build supplies both the unsigned phone archive and the exact same
           # source revision for an isolated Simulator verification.
-          xcodebuild build \
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild build \
             -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -configuration Debug \

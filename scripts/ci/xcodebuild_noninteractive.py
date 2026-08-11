@@ -64,6 +64,23 @@ def post_test_timeout_seconds() -> float | None:
     return seconds
 
 
+def heartbeat_seconds() -> float | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS must be numeric",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if seconds <= 0:
+        return None
+    return seconds
+
+
 def terminate_child(pid: int) -> None:
     try:
         os.killpg(pid, signal.SIGTERM)
@@ -128,7 +145,10 @@ def main() -> int:
 
     timeout = idle_timeout_seconds()
     post_test_timeout = post_test_timeout_seconds()
+    heartbeat = heartbeat_seconds()
+    started_at = time.monotonic()
     deadline = time.monotonic() + timeout if timeout else None
+    heartbeat_deadline = started_at + heartbeat if heartbeat else None
     post_test_deadline: float | None = None
     selected_tests_result: str | None = None
     saw_passing_terminal_summary = False
@@ -182,12 +202,26 @@ def main() -> int:
                 post_test_timed_out = True
                 break
             select_timeout = min(select_timeout if select_timeout is not None else remaining, remaining, 1)
+        if heartbeat_deadline is not None:
+            remaining = max(0, heartbeat_deadline - time.monotonic())
+            select_timeout = min(
+                select_timeout if select_timeout is not None else remaining,
+                remaining,
+            )
 
         try:
             readable, _, _ = select.select([fd], [], [], select_timeout)
         except OSError:
             break
         if not readable:
+            if heartbeat_deadline is not None and time.monotonic() >= heartbeat_deadline:
+                elapsed = time.monotonic() - started_at
+                write_child_output(
+                    f"[xcodebuild still running after {elapsed:.0f}s]\n".encode(),
+                    log_file,
+                    stdout_fd,
+                )
+                heartbeat_deadline = time.monotonic() + heartbeat
             continue
         if fd not in readable:
             continue
@@ -200,6 +234,8 @@ def main() -> int:
             break
 
         write_child_output(chunk, log_file, stdout_fd)
+        if heartbeat:
+            heartbeat_deadline = time.monotonic() + heartbeat
         if timeout:
             deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
