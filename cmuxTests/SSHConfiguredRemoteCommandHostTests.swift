@@ -531,6 +531,9 @@ struct SSHConfiguredRemoteCommandHostTests {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
+
         do {
             try process.run()
         } catch {
@@ -568,26 +571,19 @@ struct SSHConfiguredRemoteCommandHostTests {
             outputGroup.leave()
         }
 
-        let exitDeadline = Date.now.addingTimeInterval(processSupport.processTimeout(timeout))
-        while process.isRunning, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        let timedOut = process.isRunning
+        var didExit = exitSignal.wait(
+            timeout: .now() + processSupport.processTimeout(timeout)
+        ) == .success
+        let timedOut = !didExit
         if timedOut {
             process.terminate()
-            let terminationDeadline = Date.now.addingTimeInterval(1)
-            while process.isRunning, Date.now < terminationDeadline {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
-            if process.isRunning {
+            didExit = exitSignal.wait(timeout: .now() + 1) == .success
+            if !didExit {
                 Darwin.kill(process.processIdentifier, SIGKILL)
-                let killDeadline = Date.now.addingTimeInterval(1)
-                while process.isRunning, Date.now < killDeadline {
-                    Thread.sleep(forTimeInterval: 0.01)
-                }
+                didExit = exitSignal.wait(timeout: .now() + 1) == .success
             }
         }
-        if !process.isRunning {
+        if didExit {
             process.waitUntilExit()
         }
 
@@ -597,7 +593,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         let finalStderr = stderrData
         outputLock.unlock()
         return ProcessRunResult(
-            status: process.isRunning ? SIGKILL : process.terminationStatus,
+            status: didExit ? process.terminationStatus : SIGKILL,
             stdout: String(data: finalStdout, encoding: .utf8) ?? "",
             stderr: String(data: finalStderr, encoding: .utf8) ?? "",
             timedOut: timedOut

@@ -113,6 +113,7 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+APP_HOST_FIXTURE_EVENT_WAITER="$ROOT_DIR/tests/fixtures/app_host_fixture_event_waiter.py"
 TMP_DIR="$(mktemp -d)"
 TMP_DIR="$(cd "$TMP_DIR" && pwd -P)"
 LEASE_FIXTURE_ROOT="$(mktemp -d "${HOME%/}/.cmux-app-host-lease-test.XXXXXX")"
@@ -125,11 +126,12 @@ cleanup() {
   for pid in $PIDS; do
     /bin/kill -TERM "$pid" 2>/dev/null || true
   done
-  /bin/sleep 0.2
+  if [ -n "$PIDS" ]; then
+    python3 "$APP_HOST_FIXTURE_EVENT_WAITER" exit 0.2 $PIDS \
+      >/dev/null 2>&1 || true
+  fi
   for pid in $PIDS; do
-    if /bin/kill -0 "$pid" 2>/dev/null; then
-      /bin/kill -KILL "$pid" 2>/dev/null || true
-    fi
+    /bin/kill -KILL "$pid" 2>/dev/null || true
   done
   for pid in $PIDS; do
     wait "$pid" 2>/dev/null || true
@@ -325,7 +327,7 @@ spawn_lease_watched_app_host() {
   local receipt_dir="$1"
   local key="$2"
   local executable="$3"
-  local fixture_id lease ready release_fifo holder_pid receipt_file attempts
+  local fixture_id lease ready_fifo release_fifo holder_pid receipt_file ready_event
   build_app_host_fixture
   if [ ! -x "$executable" ]; then
     cp "$APP_HOST_FIXTURE_BINARY" "$executable"
@@ -334,24 +336,25 @@ spawn_lease_watched_app_host() {
   LEASE_FIXTURE_SEQUENCE=$((LEASE_FIXTURE_SEQUENCE + 1))
   fixture_id="$(basename "$receipt_dir")-$LEASE_FIXTURE_SEQUENCE-$$"
   lease="$receipt_dir/app-host-attempt-$fixture_id.lease"
-  ready="$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$fixture_id.ready"
+  ready_fifo="$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$fixture_id.ready"
   release_fifo="$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$fixture_id.fifo"
   : > "$lease"
   chmod 600 "$lease"
-  mkfifo "$release_fifo"
+  mkfifo "$ready_fifo" "$release_fifo"
+  chmod 600 "$ready_fifo" "$release_fifo"
+  exec 9<> "$ready_fifo"
   python3 "$ROOT_DIR/tests/fixtures/app_host_attempt_lease_holder.py" \
-    "$lease" "$ready" "$release_fifo" &
+    "$lease" "$ready_fifo" "$release_fifo" 9>&- &
   holder_pid=$!
   LEASE_HOLDER_PIDS="${LEASE_HOLDER_PIDS:+$LEASE_HOLDER_PIDS }$holder_pid"
-  attempts=0
-  while [ ! -f "$ready" ]; do
-    /bin/kill -0 "$holder_pid" 2>/dev/null \
-      || fail "attempt lease holder exited before becoming ready"
-    attempts=$((attempts + 1))
-    [ "$attempts" -lt 100 ] \
-      || fail "attempt lease holder did not become ready"
-    /bin/sleep 0.01
-  done
+  if ! IFS= read -r -n 1 -t 3 ready_event <&9; then
+    exec 9>&-
+    fail "attempt lease holder did not publish readiness before its deadline"
+  fi
+  exec 9>&-
+  [ "$ready_event" = r ] \
+    || fail "attempt lease holder published an invalid readiness event"
+  rm -f -- "$ready_fifo"
   CMUX_APP_HOST_ISOLATION_REQUIRED=1 \
   CMUX_APP_HOST_RECEIPT_DIR="$receipt_dir" \
   CMUX_APP_HOST_ATTEMPT_LEASE="$lease" \
@@ -360,15 +363,9 @@ spawn_lease_watched_app_host() {
   CMUX_TEST_SPAWNED_PID=$!
   PIDS="${PIDS:+$PIDS }$CMUX_TEST_SPAWNED_PID"
   receipt_file="$receipt_dir/app-host-$CMUX_TEST_SPAWNED_PID.receipt"
-  attempts=0
-  while [ ! -f "$receipt_file" ]; do
-    /bin/kill -0 "$CMUX_TEST_SPAWNED_PID" 2>/dev/null \
-      || fail "lease-watched app host exited before publishing its receipt"
-    attempts=$((attempts + 1))
-    [ "$attempts" -lt 100 ] \
-      || fail "lease-watched app host did not publish its receipt"
-    /bin/sleep 0.01
-  done
+  python3 "$APP_HOST_FIXTURE_EVENT_WAITER" receipt \
+    "$receipt_file" "$CMUX_TEST_SPAWNED_PID" 3 \
+    || fail "lease-watched app host did not publish its receipt"
   printf '%s\n%s\n' "$release_fifo" "$holder_pid" \
     > "$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$CMUX_TEST_SPAWNED_PID"
 }
