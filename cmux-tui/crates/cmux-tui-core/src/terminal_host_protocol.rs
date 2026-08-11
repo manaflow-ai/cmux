@@ -14,8 +14,11 @@ use serde::{Deserialize, Serialize};
 
 pub const MAGIC: [u8; 4] = *b"CMTH";
 pub const HEADER_LEN: usize = 32;
-pub const PROTOCOL_VERSION: u16 = 4;
+pub const PROTOCOL_VERSION: u16 = 5;
 pub const LAUNCH_ACTIVATION_PROTOCOL_VERSION: u16 = 4;
+/// First version where a public renderer grant can authenticate with an
+/// unspecified terminal-host process identity.
+pub const PUBLIC_RENDERER_GRANT_PROTOCOL_VERSION: u16 = 5;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
 pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
 pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();

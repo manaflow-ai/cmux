@@ -5340,6 +5340,22 @@ impl Surface {
         anyhow::bail!("surface is not backed by a terminal host")
     }
 
+    /// Mint a public renderer grant only when the host can authenticate an
+    /// unspecified private process identity.
+    pub fn mint_public_renderer_grant(
+        &self,
+        ttl: Duration,
+    ) -> anyhow::Result<crate::terminal_host_runtime::RendererGrant> {
+        #[cfg(unix)]
+        if let Some(pty) = self.as_pty()
+            && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+        {
+            return host.mint_public_renderer_grant(ttl);
+        }
+        let _ = ttl;
+        anyhow::bail!("surface is not backed by a terminal host")
+    }
+
     pub fn is_dead(&self) -> bool {
         match self {
             Surface::Pty(pty) => pty.dead.load(Ordering::Acquire),

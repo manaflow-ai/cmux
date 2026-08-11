@@ -32,9 +32,9 @@ use crate::terminal_host_protocol::{
     FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
     MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
-    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame, wait_for_native_child_status,
-    write_frame,
+    PUBLIC_RENDERER_GRANT_PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit,
+    decode_host_launch_failure, decode_terminal_exit, encode_host_launch_failure,
+    encode_terminal_exit, read_frame, wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 4;
@@ -1488,9 +1488,10 @@ mod unix {
             });
         }
 
-        /// Release a newly launched protocol-v4 host only after its public
-        /// topology is durable. The state flips after the complete frame is
-        /// accepted by the local socket, so a retry cannot duplicate it.
+        /// Release a newly launched protocol-v4-or-newer host only after its
+        /// public topology is durable. The state flips after the complete
+        /// frame is accepted by the local socket, so a retry cannot duplicate
+        /// it.
         pub(crate) fn activate_launched_host(&mut self) -> std::io::Result<bool> {
             if !self.launch_activation_pending {
                 return Ok(false);
@@ -1618,6 +1619,19 @@ mod unix {
                 rights: CapabilityRights::RENDERER,
                 protocol_version: self.protocol_version,
             })
+        }
+
+        pub fn mint_public_renderer_grant(
+            &self,
+            ttl: Duration,
+        ) -> anyhow::Result<RendererGrant> {
+            anyhow::ensure!(
+                self.protocol_version >= PUBLIC_RENDERER_GRANT_PROTOCOL_VERSION,
+                "terminal host protocol v{} cannot authenticate public renderer grants; v{} or newer is required",
+                self.protocol_version,
+                PUBLIC_RENDERER_GRANT_PROTOCOL_VERSION,
+            );
+            self.mint_renderer_grant(ttl)
         }
 
         pub fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {
@@ -5616,6 +5630,9 @@ mod unix {
         if renderer_hello.role == ClientRole::Renderer
             && renderer_hello.terminal_id.is_unspecified()
         {
+            if renderer_hello.max_version < PUBLIC_RENDERER_GRANT_PROTOCOL_VERSION {
+                anyhow::bail!("terminal-host capability denied");
+            }
             renderer_hello.terminal_id = host.terminal_id;
         }
         Ok(host.capabilities.accept(

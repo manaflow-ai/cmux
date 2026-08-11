@@ -6425,9 +6425,10 @@ fn resource_terminal_renderer_grant(
     let operation = "terminal.renderer_grant.create";
     let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
     let ttl_ms = request.fields.get("ttl_ms").and_then(Value::as_u64).unwrap_or(30_000);
-    let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms)).map_err(|error| {
-        ResourceError::operation_failed(operation, error.to_string(), json!({}))
-    })?;
+    let grant =
+        surface.mint_public_renderer_grant(Duration::from_millis(ttl_ms)).map_err(|error| {
+            ResourceError::operation_failed(operation, error.to_string(), json!({}))
+        })?;
     Ok(json!({
         "endpoint":grant.endpoint,
         "terminal_id":terminal_id,

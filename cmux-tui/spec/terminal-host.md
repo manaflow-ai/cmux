@@ -1,4 +1,4 @@
-# Terminal Host Protocol v4
+# Terminal Host Protocol v5
 
 The terminal-host protocol is the bounded local binary data plane between a durable PTY host, the mux daemon, and disposable renderers. It is separate from the JSON mux control protocol. All integer fields are little-endian.
 
@@ -9,7 +9,7 @@ Every frame has a 32-byte header followed by `payload_len` bytes:
 | Offset | Width | Field |
 | --- | --- | --- |
 | 0 | 4 | Magic bytes `CMTH` |
-| 4 | 2 | Protocol version, currently `4` |
+| 4 | 2 | Protocol version, currently `5` |
 | 6 | 2 | Message kind |
 | 8 | 4 | Flags |
 | 12 | 4 | Payload length |
@@ -81,22 +81,24 @@ acknowledgements only when `RESIZE` was granted, and echoes smart mode only for
 renderer or admin roles negotiating protocol v3 or newer. Daemon adoption
 applies a two-second read and write handshake timeout.
 
-A renderer using a public `terminal.renderer_grant.create` capability sends
-an all-zero `terminal_id`. The one-use capability remains bound to exactly one
-terminal host, and `HostHello` returns that host's concrete terminal id and
-incarnation. Owner/admin clients and renderers that already possess a host id
-send the exact id. A nonzero mismatch is denied. A matching one-use token is
-consumed before role, rights, or terminal-id rejection.
+A protocol-v5 renderer using a public `terminal.renderer_grant.create`
+capability sends an all-zero `terminal_id`. The one-use capability remains
+bound to exactly one terminal host, and `HostHello` returns that host's concrete
+terminal id and incarnation. Protocol v4 and older reject the all-zero identity.
+Owner/admin clients and renderers that already possess a host id send the exact
+id. A nonzero mismatch is denied. A matching one-use token is consumed before
+role, rights, or terminal-id rejection.
 
-For a newly launched v4 host, the first authenticated owner `HostHello` also
-sets `FLAG_LAUNCH_ACTIVATION_REQUIRED`. The PTY reader remains behind a launch
-barrier until that owner sends `Activate`. The launcher sends it only after the
-terminal, tab, pane, screen, and workspace projection is durable. The child may
-fill the bounded kernel PTY buffer while waiting, which applies backpressure
-without retaining an unbounded userspace queue. A failed owner connection,
-five-second launch-owner timeout, or `Terminate` releases the barrier so the
-child cannot remain stranded. A replacement daemon that claims an abandoned
-launch owner releases the barrier after validating existing topology.
+For a newly launched protocol-v4-or-newer host, the first authenticated owner
+`HostHello` also sets `FLAG_LAUNCH_ACTIVATION_REQUIRED`. The PTY reader remains
+behind a launch barrier until that owner sends `Activate`. The launcher sends
+it only after the terminal, tab, pane, screen, and workspace projection is
+durable. The child may fill the bounded kernel PTY buffer while waiting, which
+applies backpressure without retaining an unbounded userspace queue. A failed
+owner connection, five-second launch-owner timeout, or `Terminate` releases
+the barrier so the child cannot remain stranded. A replacement daemon that
+claims an abandoned launch owner releases the barrier after validating
+existing topology.
 
 ## Payload primitives
 
@@ -370,10 +372,11 @@ capability, rights bits, and TTL. The public
 `terminal.renderer_grant.create` operation returns the endpoint, opaque
 resource terminal id, one-use capability, named rights, and TTL; its renderer
 uses the unspecified-id handshake above so host lifecycle identity stays out
-of the public resource model. Renderers must not receive the daemon's durable
-owner capability. `resolve-terminal`, `list-terminals`, and `terminal-events`
-provide the private control-plane mapping from stable identities to the
-current daemon generation.
+of the public resource model. The operation rejects an adopted protocol-v4-or-
+older host instead of returning a grant that the public renderer cannot use.
+Renderers must not receive the daemon's durable owner capability.
+`resolve-terminal`, `list-terminals`, and `terminal-events` provide the private
+control-plane mapping from stable identities to the current daemon generation.
 
 Terminal-host protocol changes use their own version and do not change `identify.protocol`.
 
