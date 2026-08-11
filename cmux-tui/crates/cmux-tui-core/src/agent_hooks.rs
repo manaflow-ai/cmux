@@ -68,8 +68,8 @@ pub fn agent_hook_journal_ingress(
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
     let native = redact_agent_native(native_event, native);
-    validate_agent_session_identifiers(&native)?;
-    let mut normalized = normalized_fields(&native);
+    let agent_session_id = validate_agent_session_identifiers(&native)?;
+    let mut normalized = normalized_fields(&native, agent_session_id);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
     let native = canonical_native_payload(source, native_event, &normalized);
@@ -439,11 +439,9 @@ fn is_child_completion(event: &str) -> bool {
     )
 }
 
-fn normalized_fields(native: &Value) -> Map<String, Value> {
+fn normalized_fields(native: &Value, agent_session_id: Option<&str>) -> Map<String, Value> {
     let mut normalized = Map::new();
-    if let Some(value) = AGENT_SESSION_ID_PATHS
-        .iter()
-        .find_map(|path| agent_session_identifier_at_path(native, path))
+    if let Some(value) = agent_session_id
         .and_then(|value| normalized_provider_string("agent_session_id", value))
     {
         normalized.insert("agent_session_id".into(), Value::String(value));
@@ -732,7 +730,7 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
     }
 }
 
-fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<()> {
+fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<Option<&str>> {
     let mut session_identifier: Option<&str> = None;
     for path in AGENT_SESSION_ID_PATHS {
         let Some(value) = agent_session_identifier_at_path(native, path) else {
@@ -749,7 +747,7 @@ fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<()> {
             session_identifier = Some(value);
         }
     }
-    Ok(())
+    Ok(session_identifier)
 }
 
 fn agent_session_identifier_at_path<'a>(native: &'a Value, path: &[&str]) -> Option<&'a str> {

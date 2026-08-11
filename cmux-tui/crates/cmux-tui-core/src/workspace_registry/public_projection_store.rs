@@ -341,10 +341,13 @@ impl WorkspaceRegistry {
                       ELSE changed.previous_committed_revision
                     END AS committed_revision
              FROM resource_agent_projections projection
+             JOIN resource_terminals terminal
+               ON terminal.public_id = projection.terminal_id
              LEFT JOIN resource_agent_projection_rebuild_changes changed
                ON changed.terminal_id = projection.terminal_id
-             WHERE changed.terminal_id IS NULL
-                OR changed.previous_result_json IS NOT NULL
+             WHERE terminal.deleted_revision IS NULL
+               AND (changed.terminal_id IS NULL
+                    OR changed.previous_result_json IS NOT NULL)
              ORDER BY json_extract(result_json, '$.id') ASC, projection.terminal_id ASC",
         )?;
         let rows = statement
