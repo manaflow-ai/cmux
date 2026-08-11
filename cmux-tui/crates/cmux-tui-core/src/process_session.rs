@@ -1287,7 +1287,7 @@ fn stable_process_in_session(
     session: libc::pid_t,
 ) -> io::Result<Option<StableProcessHandle>> {
     let Some(process) = StableProcessHandle::capture(pid)? else { return Ok(None) };
-    // Bracket the PID-based session query with a stable process identity. If
+    // Bracket the PID-based session query with a stable process instance. If
     // the PID is recycled during getsid(2), the final identity check fails
     // closed and no signal is sent.
     let current_session = unsafe { libc::getsid(pid) };
@@ -1306,7 +1306,7 @@ fn stable_process_in_session(
 /// An OS-backed reference to one process instance that cannot retarget after PID reuse.
 pub struct StableProcessHandle {
     pid: libc::pid_t,
-    birth: crate::unix_process_scope::MacProcessBirthIdentity,
+    instance: crate::unix_process_scope::MacProcessInstanceIdentity,
 }
 
 #[cfg(target_os = "macos")]
@@ -1320,13 +1320,14 @@ struct MacAuditToken {
 impl StableProcessHandle {
     /// Capture the process currently using `pid`, or return `None` if it is already gone.
     pub fn capture(pid: libc::pid_t) -> io::Result<Option<Self>> {
-        let Some(birth) = mac_process_birth_identity(pid)? else { return Ok(None) };
-        Ok(Some(Self { pid, birth }))
+        let Some(instance) = mac_process_instance_identity(pid)? else { return Ok(None) };
+        Ok(Some(Self { pid, instance }))
     }
 
     /// Return whether this exact process instance is still alive.
     pub fn matches_current(&self) -> io::Result<bool> {
-        Ok(mac_process_birth_identity(self.pid)?.is_some_and(|birth| birth == self.birth))
+        Ok(mac_process_instance_identity(self.pid)?
+            .is_some_and(|instance| instance == self.instance))
     }
 
     /// Signal this exact process instance, returning false if it is already gone.
@@ -1336,16 +1337,16 @@ impl StableProcessHandle {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid process id"))?;
         let Some(current) = crate::unix_process_scope::mac_process_signal_identity(expected_pid)
         else {
-            return match mac_process_birth_identity(self.pid)? {
+            return match mac_process_instance_identity(self.pid)? {
                 None => Ok(false),
-                Some(birth) if birth != self.birth => Ok(false),
+                Some(instance) if instance != self.instance => Ok(false),
                 Some(_) => Err(io::Error::other(format!(
                     "cannot acquire exact signal identity for PID {}",
                     self.pid
                 ))),
             };
         };
-        if current.birth != self.birth {
+        if current.instance != self.instance {
             return Ok(false);
         }
         let mut token = MacAuditToken { values: [u32::MAX; 8] };
@@ -1373,19 +1374,21 @@ impl StableProcessHandle {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_process_birth_identity(
+fn mac_process_instance_identity(
     pid: libc::pid_t,
-) -> io::Result<Option<crate::unix_process_scope::MacProcessBirthIdentity>> {
+) -> io::Result<Option<crate::unix_process_scope::MacProcessInstanceIdentity>> {
     let expected_pid = u32::try_from(pid)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid process id"))?;
-    if let Some(birth) = crate::unix_process_scope::mac_process_birth_identity(expected_pid) {
-        return Ok(Some(birth));
+    if let Some(instance) =
+        crate::unix_process_scope::mac_process_instance_identity(expected_pid)
+    {
+        return Ok(Some(instance));
     }
     if process_is_gone(pid)? {
         Ok(None)
     } else {
         Err(io::Error::other(format!(
-            "cannot acquire stable process identity for PID {pid}: kernel process birth is unavailable"
+            "cannot acquire stable process identity for PID {pid}: kernel process instance is unavailable"
         )))
     }
 }

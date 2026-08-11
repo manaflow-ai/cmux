@@ -1233,7 +1233,7 @@ struct ProcFileInfo {
 #[repr(C)]
 struct MacProcessUniqueInfo {
     _uuid: [u8; 16],
-    _unique_id: u64,
+    unique_id: u64,
     _parent_unique_id: u64,
     id_version: i32,
     _original_parent_id_version: i32,
@@ -1250,15 +1250,14 @@ struct MacBsdInfoWithUniqueId {
 
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct MacProcessBirthIdentity {
-    pub(crate) seconds: u64,
-    pub(crate) microseconds: u64,
+pub(crate) struct MacProcessInstanceIdentity {
+    unique_id: u64,
 }
 
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct MacProcessSignalIdentity {
-    pub(crate) birth: MacProcessBirthIdentity,
+    pub(crate) instance: MacProcessInstanceIdentity,
     pub(crate) pid_version: u32,
 }
 
@@ -1426,23 +1425,20 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(mac_process_snapshot(pid)?.identity)
 }
 
-/// Return the process birth identity, which remains stable across exec.
+/// Return the kernel process instance identity, which remains stable across exec.
 #[cfg(target_os = "macos")]
-pub(crate) fn mac_process_birth_identity(pid: u32) -> Option<MacProcessBirthIdentity> {
-    if let Some(identity) = mac_process_signal_identity(pid) {
-        return Some(identity.birth);
-    }
-    let bsd = mac_process_bsd_info(pid)?;
-    mac_process_birth_from_bsd(&bsd)
+pub(crate) fn mac_process_instance_identity(pid: u32) -> Option<MacProcessInstanceIdentity> {
+    let unique = mac_process_unique_info(pid)?;
+    Some(mac_process_instance_from_unique(&unique))
 }
 
-/// Return one birth-identity and PID-version record safe for exact signaling.
+/// Return one instance-identity and PID-version record for exact signaling.
 #[cfg(target_os = "macos")]
 pub(crate) fn mac_process_signal_identity(pid: u32) -> Option<MacProcessSignalIdentity> {
-    let info = mac_process_info_with_unique_id(pid)?;
+    let unique = mac_process_unique_info(pid)?;
     Some(MacProcessSignalIdentity {
-        birth: mac_process_birth_from_bsd(&info.bsd)?,
-        pid_version: info.unique.id_version as u32,
+        instance: mac_process_instance_from_unique(&unique),
+        pid_version: unique.id_version as u32,
     })
 }
 
@@ -1450,10 +1446,9 @@ pub(crate) fn mac_process_signal_identity(pid: u32) -> Option<MacProcessSignalId
 fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
     let info = mac_process_info_with_unique_id(pid)?;
     // Keep chronological start time in the high bits for scan filtering and
-    // the kernel PID version in the low bits for race-free signal delivery.
+    // the exec-stable process unique ID in the low bits for exact ownership.
     let started = (u128::from(info.bsd.pbi_start_tvsec) << 64)
-        | (u128::from(info.bsd.pbi_start_tvusec) << 32)
-        | u128::from(info.unique.id_version as u32);
+        | u128::from(info.unique.unique_id);
     Some(ProcessSnapshot { identity: ProcessIdentity { pid, started }, parent: info.bsd.pbi_ppid })
 }
 
@@ -1464,16 +1459,15 @@ fn mac_process_info_with_unique_id(pid: u32) -> Option<MacBsdInfoWithUniqueId> {
     }
 
     // Some macOS process-security contexts deny the combined BSD and unique
-    // record. Bracket the unrestricted unique record with process births so a
-    // recycled PID can never pair a prior owner with a replacement's version.
-    let before = mac_process_bsd_info(pid)?;
-    let before_birth = mac_process_birth_from_bsd(&before)?;
-    let unique = mac_process_unique_info(pid)?;
-    let after = mac_process_bsd_info(pid)?;
-    if before_birth != mac_process_birth_from_bsd(&after)? {
+    // record. Bracket BSD metadata with the exec-stable unique ID so a
+    // recycled PID can never publish a replacement process as the prior owner.
+    let before = mac_process_unique_info(pid)?;
+    let bsd = mac_process_bsd_info(pid)?;
+    let after = mac_process_unique_info(pid)?;
+    if before.unique_id != after.unique_id {
         return None;
     }
-    Some(MacBsdInfoWithUniqueId { bsd: after, unique })
+    Some(MacBsdInfoWithUniqueId { bsd, unique: after })
 }
 
 #[cfg(target_os = "macos")]
@@ -1531,14 +1525,8 @@ fn mac_process_bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_process_birth_from_bsd(info: &libc::proc_bsdinfo) -> Option<MacProcessBirthIdentity> {
-    if info.pbi_status == libc::SZOMB {
-        return None;
-    }
-    Some(MacProcessBirthIdentity {
-        seconds: info.pbi_start_tvsec,
-        microseconds: info.pbi_start_tvusec,
-    })
+fn mac_process_instance_from_unique(info: &MacProcessUniqueInfo) -> MacProcessInstanceIdentity {
+    MacProcessInstanceIdentity { unique_id: info.unique_id }
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
