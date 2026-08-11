@@ -18391,7 +18391,13 @@ mod tests {
         assert!(after["notifications"].as_array().unwrap().contains(&notification_value));
         assert!(after["agents"].as_array().unwrap().contains(&agent_value));
         assert!(after["frontend_projections"].as_array().unwrap().contains(&projection_value));
-        assert_eq!(after["terminals"], serde_json::json!([]));
+        let terminals = after["terminals"].as_array().unwrap();
+        assert_eq!(terminals.len(), 1);
+        let terminal = &terminals[0];
+        assert_eq!(terminal["id"], terminal_public_id.as_str());
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["exit"]["outcome"]["kind"], "unknown");
+        assert_eq!(terminal["exit"]["outcome"]["reason"], "missing-host-record");
         assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
         let exited =
             reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
