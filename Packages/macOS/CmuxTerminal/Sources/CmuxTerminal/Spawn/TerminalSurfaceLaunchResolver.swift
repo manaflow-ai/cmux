@@ -305,6 +305,7 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
         CheckedContinuation<TerminalSurfaceAgentCommandShimSet?, Never>?
     private var installTask: Task<Void, Never>?
     private var deadlineTask: Task<Void, Never>?
+    private let installLease: TerminalSurfaceCommandShimInstallLease
 
     init(
         filesystem: TerminalSurfaceRuntimeFilesystem,
@@ -313,14 +314,18 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
         deadline: Duration,
         clock: any Clock<Duration>
     ) {
+        let installLease = TerminalSurfaceCommandShimInstallLease(
+            gate: filesystem.agentCommandShimInstallGate
+        )
+        self.installLease = installLease
         let temporaryDirectory = filesystem.agentCommandShimTemporaryDirectory
-        let installTask = Task.detached(priority: .utility) { [weak self] in
-            guard let installToken = await filesystem.agentCommandShimInstallGate.acquire() else {
+        let installTask = Task.detached(priority: .utility) { [weak self, installLease] in
+            guard let installToken = await installLease.acquire() else {
                 self?.resolve(nil)
                 return
             }
             defer {
-                filesystem.agentCommandShimInstallGate.release(installToken)
+                installLease.release(installToken)
             }
             guard !Task.isCancelled else { return }
             let shims = await filesystem.installAgentCommandShims(
@@ -336,7 +341,7 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
             } catch {
                 return
             }
-            self?.resolve(nil)
+            self?.resolve(nil, invalidatingInstall: true)
         }
         attach(installTask: installTask, deadlineTask: deadlineTask)
     }
@@ -357,7 +362,7 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
     }
 
     func cancel() {
-        resolve(nil)
+        resolve(nil, invalidatingInstall: true)
     }
 
     private func attach(
@@ -376,7 +381,10 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
         lock.unlock()
     }
 
-    private func resolve(_ shims: TerminalSurfaceAgentCommandShimSet?) {
+    private func resolve(
+        _ shims: TerminalSurfaceAgentCommandShimSet?,
+        invalidatingInstall: Bool = false
+    ) {
         lock.lock()
         guard case .pending = state else {
             lock.unlock()
@@ -391,6 +399,9 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
         self.deadlineTask = nil
         lock.unlock()
 
+        if invalidatingInstall {
+            installLease.invalidate()
+        }
         installTask?.cancel()
         deadlineTask?.cancel()
         continuation?.resume(returning: shims)

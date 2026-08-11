@@ -29,14 +29,18 @@ extension TerminalSurface {
             // checker cannot analyze the legacy closure's implicit captures
             // and in-closure default-argument evaluation.
             let temporaryDirectory = runtimeFilesystem.agentCommandShimTemporaryDirectory
+            let installLease = TerminalSurfaceCommandShimInstallLease(
+                gate: runtimeFilesystem.agentCommandShimInstallGate
+            )
+            agentCommandShimInstallLease = installLease
             #if compiler(>=6.2)
             let installOperation: @concurrent @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
-                guard let installToken = await runtimeFilesystem.agentCommandShimInstallGate.acquire() else {
+                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, installLease] in
+                guard let installToken = await installLease.acquire() else {
                     return nil
                 }
                 defer {
-                    runtimeFilesystem.agentCommandShimInstallGate.release(installToken)
+                    installLease.release(installToken)
                 }
                 guard !Task.isCancelled else { return nil }
                 return await runtimeFilesystem.installAgentCommandShims(
@@ -47,12 +51,12 @@ extension TerminalSurface {
             }
             #else
             let installOperation: @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
-                guard let installToken = await runtimeFilesystem.agentCommandShimInstallGate.acquire() else {
+                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, installLease] in
+                guard let installToken = await installLease.acquire() else {
                     return nil
                 }
                 defer {
-                    runtimeFilesystem.agentCommandShimInstallGate.release(installToken)
+                    installLease.release(installToken)
                 }
                 guard !Task.isCancelled else { return nil }
                 return await runtimeFilesystem.installAgentCommandShims(
@@ -71,6 +75,7 @@ extension TerminalSurface {
                 self.agentCommandShims = shims
                 self.agentCommandShimInstallTask = nil
                 self.agentCommandShimCompletionTask = nil
+                self.agentCommandShimInstallLease = nil
                 self.agentCommandShimDeadlineTask?.cancel()
                 self.agentCommandShimDeadlineTask = nil
                 // The deadline may have already released spawn without the
@@ -90,6 +95,8 @@ extension TerminalSurface {
                 try? await clock.sleep(for: deadline, tolerance: nil)
                 guard !Task.isCancelled else { return }
                 guard let self, !self.agentCommandShimInstallCompleted else { return }
+                self.agentCommandShimInstallLease?.invalidate()
+                self.agentCommandShimInstallTask?.cancel()
                 self.agentCommandShimInstallCompleted = true
                 self.agentCommandShimDeadlineTask = nil
                 let source = self.agentCommandShimPendingCreationSource ?? source
@@ -103,6 +110,8 @@ extension TerminalSurface {
 
     @MainActor
     func cancelAgentCommandShimInstallLifecycle() {
+        agentCommandShimInstallLease?.invalidate()
+        agentCommandShimInstallLease = nil
         agentCommandShimCompletionTask?.cancel()
         agentCommandShimCompletionTask = nil
         agentCommandShimInstallTask?.cancel()

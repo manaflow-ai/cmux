@@ -3,6 +3,8 @@ public import CmuxTerminalCore
 
 /// Limits command-shim installation to one live operation per runtime
 /// filesystem owner, including an installer that does not stop on cancellation.
+/// After an active deadline expires, new work is rejected until that installer
+/// returns and releases its filesystem ownership.
 public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
     private final class Acquisition: @unchecked Sendable {
         private let lock = NSLock()
@@ -74,6 +76,7 @@ public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
     private var waiterHead: Waiter?
     private var waiterTail: Waiter?
     private var waiters: [ObjectIdentifier: Waiter] = [:]
+    private var rejectsAcquisitionsUntilRelease = false
 
     /// Creates an idle install gate with a fixed pending-work limit.
     ///
@@ -114,6 +117,11 @@ public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
             return
         }
         activeToken = nil
+        if rejectsAcquisitionsUntilRelease {
+            rejectsAcquisitionsUntilRelease = false
+            lock.unlock()
+            return
+        }
         while let waiter = waiterHead {
             removeWaiterLocked(waiter)
             guard waiter.acquisition.completeWithPermit() else {
@@ -135,12 +143,38 @@ public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
         }
     }
 
+    func rejectAcquisitions(untilReleaseOf token: UUID) {
+        var rejectedContinuations: [CheckedContinuation<UUID?, Never>] = []
+        lock.lock()
+        guard activeToken == token else {
+            lock.unlock()
+            return
+        }
+        rejectsAcquisitionsUntilRelease = true
+        while let waiter = waiterHead {
+            removeWaiterLocked(waiter)
+            waiter.acquisition.completeAfterCancellation()
+            rejectedContinuations.append(waiter.continuation)
+        }
+        lock.unlock()
+
+        for continuation in rejectedContinuations {
+            continuation.resume(returning: nil)
+        }
+    }
+
     private func enqueue(
         acquisition: Acquisition,
         continuation: CheckedContinuation<UUID?, Never>,
         onQueued: @escaping @Sendable () -> Void
     ) {
         lock.lock()
+        if rejectsAcquisitionsUntilRelease {
+            lock.unlock()
+            acquisition.completeAfterCancellation()
+            continuation.resume(returning: nil)
+            return
+        }
         if activeToken == nil {
             let token = UUID()
             activeToken = token
@@ -216,6 +250,54 @@ public final class TerminalSurfaceCommandShimInstallGate: @unchecked Sendable {
         waiter.previous = nil
         waiter.next = nil
         waiters.removeValue(forKey: ObjectIdentifier(waiter.acquisition))
+    }
+}
+
+final class TerminalSurfaceCommandShimInstallLease: @unchecked Sendable {
+    private let gate: TerminalSurfaceCommandShimInstallGate
+    private let lock = NSLock()
+    private var isInvalidated = false
+    private var token: UUID?
+
+    init(gate: TerminalSurfaceCommandShimInstallGate) {
+        self.gate = gate
+    }
+
+    func acquire() async -> UUID? {
+        guard let token = await gate.acquire() else { return nil }
+        guard publish(token) else {
+            gate.release(token)
+            return nil
+        }
+        return token
+    }
+
+    private func publish(_ token: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isInvalidated else { return false }
+        self.token = token
+        return true
+    }
+
+    func invalidate() {
+        lock.lock()
+        isInvalidated = true
+        let token = token
+        lock.unlock()
+
+        if let token {
+            gate.rejectAcquisitions(untilReleaseOf: token)
+        }
+    }
+
+    func release(_ token: UUID) {
+        lock.lock()
+        if self.token == token {
+            self.token = nil
+        }
+        lock.unlock()
+        gate.release(token)
     }
 }
 
