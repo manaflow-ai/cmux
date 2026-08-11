@@ -457,6 +457,16 @@ extension SSHForegroundAuthenticationRetryPolicy {
             cmux_ssh_auth_frozen_count=$(/usr/bin/awk \
               'NF >= 5 { count += 1 } END { print count + 0 }' \
               "$cmux_ssh_auth_frozen_processes") || return 1
+            if [ "${CMUX_SSH_AUTH_DEBUG_FREEZE:-}" = 1 ]; then
+              printf '%s\n' '--- ordered' >&2
+              /bin/cat "$cmux_ssh_auth_ordered_processes" >&2 || true
+              printf '%s\n' '--- signaled' >&2
+              /bin/cat "$cmux_ssh_auth_signaled_processes" >&2 || true
+              printf '%s\n' '--- snapshot' >&2
+              /bin/cat "$cmux_ssh_auth_poststop_snapshot" >&2 || true
+              printf '%s\n' '--- frozen' >&2
+              /bin/cat "$cmux_ssh_auth_frozen_processes" >&2 || true
+            fi
             if [ "$cmux_ssh_auth_signaled_count" = \
               "$cmux_ssh_auth_frozen_count" ]; then break; fi
             cmux_ssh_auth_deadline_allows_work || return 1
