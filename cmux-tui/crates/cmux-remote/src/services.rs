@@ -253,6 +253,7 @@ pub struct DaemonServices {
     mux_upload_budget: MuxUploadBudget,
 }
 
+#[cfg(unix)]
 fn validate_renderer_host_hello(
     response: &Frame,
     request_id: u64,
@@ -1918,6 +1919,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn renderer_host_hello_requires_acknowledgements_and_exact_grant_identity() {
         let terminal_id = TerminalId::random().unwrap();

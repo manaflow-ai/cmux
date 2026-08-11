@@ -136,7 +136,7 @@ impl DaemonCleanupPauseHandle {
     }
 
     fn assert_not_reached_before(&self, other_shutdown: &thread::JoinHandle<anyhow::Result<()>>) {
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(3);
         loop {
             match self.reached.try_recv() {
                 Ok(()) => panic!("an unrelated daemon entered the lifecycle cleanup pause"),
@@ -148,10 +148,7 @@ impl DaemonCleanupPauseHandle {
             if other_shutdown.is_finished() {
                 return;
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "unrelated daemon shutdown did not finish"
-            );
+            assert!(Instant::now() < deadline, "unrelated daemon shutdown did not finish");
             thread::sleep(Duration::from_millis(1));
         }
     }
@@ -4289,8 +4286,8 @@ mod tests {
                 .unwrap_err();
         }
         caller.join().unwrap();
-        let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while link_socket.exists() && std::time::Instant::now() < cleanup_deadline {
+        let cleanup_deadline = Instant::now() + Duration::from_secs(3);
+        while link_socket.exists() && Instant::now() < cleanup_deadline {
             thread::sleep(Duration::from_millis(10));
         }
 
@@ -4353,10 +4350,8 @@ mod tests {
 
         let runtime_path = state_dir.join("runtime.json");
         let outcome_path = state_dir.join("shutdown.json");
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while (runtime_path.exists() || !outcome_path.exists())
-            && std::time::Instant::now() < deadline
-        {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while (runtime_path.exists() || !outcome_path.exists()) && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
 
@@ -4987,18 +4982,14 @@ mod tests {
 
         cut_tx.send(()).unwrap();
         proxy.join().unwrap();
-        let deadline =
-            std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(3));
+        let deadline = Instant::now() + instrumented_test_timeout(Duration::from_secs(3));
         let pid = loop {
             if let Ok(value) = fs::read_to_string(&pid_file)
                 && let Ok(pid) = value.parse::<libc::pid_t>()
             {
                 break pid;
             }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "client did not enter reconnect SSH bootstrap"
-            );
+            assert!(Instant::now() < deadline, "client did not enter reconnect SSH bootstrap");
             thread::sleep(Duration::from_millis(10));
         };
 
@@ -5028,9 +5019,8 @@ mod tests {
             "client shutdown waited for the reconnect SSH bootstrap timeout"
         );
 
-        let deadline =
-            std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(2));
-        while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
+        let deadline = Instant::now() + instrumented_test_timeout(Duration::from_secs(2));
+        while unsafe { libc::kill(pid, 0) } == 0 && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "cancelled SSH child is still alive");
