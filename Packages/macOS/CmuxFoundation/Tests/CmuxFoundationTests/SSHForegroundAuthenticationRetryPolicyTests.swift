@@ -710,6 +710,119 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func forceFrozenProcessesRevalidatesPIDIdentityImmediatelyBeforeKill(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-auth-frozen-pid-reuse-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 0; }
+        cmux_ssh_auth_stable_identity() {
+          printf '11|Fri_Jan_2_00:00:00_1970\n'
+        }
+        kill() {
+          printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"
+          return 0
+        }
+        printf '101 1 11 Thu_Jan_1_00:00:00_1970 T\n' > "$CMUX_TEST_FROZEN"
+        /bin/cp "$CMUX_TEST_FROZEN" "$CMUX_TEST_OWNED" || exit 99
+        printf '101 1 11 T Thu Jan 1 00:00:00 1970\n' > "$CMUX_TEST_SNAPSHOT"
+        : > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        if cmux_ssh_auth_force_frozen_processes "$CMUX_TEST_SNAPSHOT"; then exit 98; fi
+        test ! -s "$CMUX_TEST_SIGNALS" || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_GROUPS": root.appendingPathComponent("groups").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_OWNED": root.appendingPathComponent("owned").path,
+                "CMUX_TEST_OWNED_NEXT": root.appendingPathComponent("owned.next").path,
+                "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+                "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func forceFrozenGroupsRevalidateCurrentMembershipImmediatelyBeforeKill(
+        shellPath: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-auth-frozen-group-reuse-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 0; }
+        cmux_ssh_auth_take_process_snapshot() {
+          printf '202 1 11 T Fri Jan 2 00:00:00 1970\n' > "$1"
+        }
+        kill() {
+          printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"
+          return 0
+        }
+        : > "$CMUX_TEST_FROZEN"
+        printf '101 1 11 Thu_Jan_1_00:00:00_1970 T\n' > "$CMUX_TEST_OWNED"
+        printf '11\n' > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_CURRENT_SNAPSHOT"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        if cmux_ssh_auth_force_frozen_processes "$CMUX_TEST_INITIAL_SNAPSHOT"; then
+          exit 98
+        fi
+        test ! -s "$CMUX_TEST_SIGNALS" || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_CURRENT_SNAPSHOT": root.appendingPathComponent("current").path,
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_GROUPS": root.appendingPathComponent("groups").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_INITIAL_SNAPSHOT": root.appendingPathComponent("initial").path,
+                "CMUX_TEST_OWNED": root.appendingPathComponent("owned").path,
+                "CMUX_TEST_OWNED_NEXT": root.appendingPathComponent("owned.next").path,
+                "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func freezePassesAbsoluteDeadlineToIdentityValidationAndStopsOnTimeout(
         shellPath: String
     ) throws {
