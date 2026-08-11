@@ -2929,11 +2929,9 @@ pub fn load() -> Config {
                     session: session
                         .filter(|value| !value.trim().is_empty())
                         .unwrap_or_else(|| "main".to_string()),
-                    binary: binary
-                        .filter(|value| !value.trim().is_empty())
-                        .unwrap_or_else(|| {
-                            crate::machine_runtime::default_ssh_remote_binary().to_string()
-                        }),
+                    binary: binary.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| {
+                        crate::machine_runtime::default_ssh_remote_binary().to_string()
+                    }),
                 }
             }
             _ => {
