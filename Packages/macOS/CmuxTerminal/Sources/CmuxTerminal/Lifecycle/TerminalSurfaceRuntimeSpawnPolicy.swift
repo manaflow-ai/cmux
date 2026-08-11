@@ -5,4 +5,7 @@ public enum TerminalSurfaceRuntimeSpawnPolicy: Sendable {
 
     /// Pace creation through the session-restore queue to avoid a login-shell stampede.
     case pacedSessionRestore
+
+    /// Hold native runtime creation until the startup restore is explicitly admitted.
+    case heldForStartupRestoreAdmission
 }

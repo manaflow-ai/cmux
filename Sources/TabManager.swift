@@ -1276,6 +1276,14 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
+            if let initialTerminalStartupRestoreAgent,
+               let initialTerminalPanel = newWorkspace.focusedTerminalPanel {
+                newWorkspace.commitTerminalStartupRestore(
+                    panel: initialTerminalPanel,
+                    snapshot: initialTerminalStartupRestoreAgent,
+                    hasQueuedStartupInput: initialTerminalInput != nil
+                )
+            }
             // The global insertion-index rules don't know about group sections.
             // Re-run the group-aware normalize so a freshly-added workspace
             // can't land inside another group's contiguous section.

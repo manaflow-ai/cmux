@@ -3378,13 +3378,6 @@ final class Workspace: Identifiable, ObservableObject {
                 bindSurface(tabId, toPanelId: terminalPanel.id)
                 initialTabId = tabId
                 rememberTerminalConfigInheritanceSource(terminalPanel)
-                if let initialTerminalStartupRestoreAgent {
-                    commitTerminalStartupRestore(
-                        panelId: terminalPanel.id,
-                        snapshot: initialTerminalStartupRestoreAgent,
-                        hasQueuedStartupInput: initialTerminalInput != nil
-                    )
-                }
             }
         }
 
@@ -8074,7 +8067,7 @@ final class Workspace: Identifiable, ObservableObject {
         bindSurface(newTabId, toPanelId: newPanel.id)
         if let startupRestoreAgent {
             commitTerminalStartupRestore(
-                panelId: newPanel.id,
+                panel: newPanel,
                 snapshot: startupRestoreAgent,
                 hasQueuedStartupInput: initialInput != nil
             )
@@ -11585,7 +11578,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if let startupRestoreAgent {
             commitTerminalStartupRestore(
-                panelId: newPanel.id,
+                panel: newPanel,
                 snapshot: startupRestoreAgent,
                 hasQueuedStartupInput: initialInput != nil
             )

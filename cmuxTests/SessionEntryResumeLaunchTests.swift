@@ -145,20 +145,20 @@ struct SessionEntryResumeLaunchTests {
         )
         let launch = try #require(entry.resumeLaunch)
         let snapshot = try #require(launch.startupRestoreAgent)
-        let workspace = Workspace(
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = tabManager.addWorkspace(
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
-            initialTerminalStartupRestoreAgent: snapshot
+            initialTerminalStartupRestoreAgent: snapshot,
+            autoWelcomeIfNeeded: false
         )
-        defer { workspace.teardownAllPanels() }
         let panelID = try #require(workspace.focusedPanelId)
         #expect(
             workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId
                 == "vault-claude-session"
         )
 
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
         let target = ControlSurfaceResumeTarget.workspace(
             tabManager: tabManager,
             workspace: workspace,
@@ -228,6 +228,12 @@ struct SessionEntryResumeLaunchTests {
         )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
+        let sourcePanel = try #require(source.terminalPanel(for: sourcePanelID))
+        source.commitTerminalStartupRestore(
+            panel: sourcePanel,
+            snapshot: restorableAgent,
+            hasQueuedStartupInput: true
+        )
         #expect(
             source.restoredResumeSessionWorkingDirectoriesByPanelId[sourcePanelID]
                 == launch.workingDirectory
@@ -299,12 +305,14 @@ struct SessionEntryResumeLaunchTests {
         )
         service.start()
 
-        let workspace = Workspace(
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = tabManager.addWorkspace(
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
-            initialTerminalStartupRestoreAgent: restorableAgent
+            initialTerminalStartupRestoreAgent: restorableAgent,
+            autoWelcomeIfNeeded: false
         )
-        defer { workspace.teardownAllPanels() }
         let panelID = try #require(workspace.focusedPanelId)
         let record = try #require(registry.record(sessionID: sessionID))
 
