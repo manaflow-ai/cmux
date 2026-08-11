@@ -2349,8 +2349,8 @@ impl Mux {
     }
 
     /// A local PTY cannot outlive its owning process on platforms without
-    /// per-terminal hosts. Remove its durable tab during recovery instead of
-    /// presenting a topology entry with no runtime behind it.
+    /// per-terminal hosts. Remove its durable tabs during recovery instead of
+    /// presenting topology entries with no runtime behind them.
     #[cfg(not(unix))]
     fn discard_unrecoverable_restored_terminals(self: &Arc<Self>) -> anyhow::Result<()> {
         let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
@@ -2363,13 +2363,30 @@ impl Mux {
                 .lock()
                 .unwrap()
                 .terminal_resource_id(&terminal.terminal_id)?;
-            let tab_id = public_id.and_then(|public_id| {
-                let state = self.state.lock().unwrap();
-                let slot =
-                    state.resource_indexes.content.get(&ContentPublicId::Terminal(public_id))?;
-                state.resource_indexes.tab_ids.get(slot).cloned()
-            });
-            if let Some(tab_id) = tab_id {
+            let tab_ids = public_id
+                .map(|public_id| {
+                    let state = self.state.lock().unwrap();
+                    state
+                        .resource_indexes
+                        .content_placements
+                        .get(&ContentPublicId::Terminal(public_id))
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|slot| state.resource_indexes.tab_ids.get(slot).cloned())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if tab_ids.is_empty() {
+                self.close_terminal_with_mutation(
+                    &terminal.terminal_id,
+                    terminal.incarnation.as_deref(),
+                    None,
+                    None,
+                    &WorkspaceMutation::local("cmux-tui-recovery"),
+                )?;
+                continue;
+            }
+            for tab_id in tab_ids {
                 let selectors = crate::ResourceSelectors {
                     tab: Some(tab_id.to_string()),
                     ..Self::ordinary_resource_selectors()
@@ -2380,14 +2397,6 @@ impl Mux {
                     Map::new(),
                 )?;
                 self.emit_resource_topology_legacy_events(ResourceOperation::TabClose, &commit);
-            } else {
-                self.close_terminal_with_mutation(
-                    &terminal.terminal_id,
-                    terminal.incarnation.as_deref(),
-                    None,
-                    None,
-                    &WorkspaceMutation::local("cmux-tui-recovery"),
-                )?;
             }
         }
         Ok(())

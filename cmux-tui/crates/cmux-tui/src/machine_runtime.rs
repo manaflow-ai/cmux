@@ -1,6 +1,6 @@
 //! Config-backed machine catalog and transport connectors.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -17,7 +17,6 @@ use crate::session::{RemoteSession, Session};
 const SSH_CONFIG_MAX_DEPTH: usize = 16;
 const SSH_CONFIG_MAX_FILES: usize = 256;
 const SSH_CONFIG_MAX_HOSTS: usize = 4096;
-const MACHINE_WARM_WORKERS: usize = 4;
 pub(crate) const MACHINE_CONNECTION_TIMEOUT_SECONDS: u64 = 95;
 const MACHINE_CONNECTION_TIMEOUT: Duration =
     Duration::from_secs(MACHINE_CONNECTION_TIMEOUT_SECONDS);
@@ -448,6 +447,7 @@ impl MachineConnectCancellation {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    #[cfg(test)]
     pub(crate) fn wait_until_cancelled(&self) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while !self.is_cancelled() {
@@ -684,42 +684,6 @@ impl MachineConnectionHub {
             };
         }
         self.inner.changed.notify_all();
-    }
-
-    /// Warm every explicitly registered machine without extending startup.
-    /// A fixed worker count prevents a large catalog from spawning an SSH
-    /// process storm.
-    pub(crate) fn warm_all(&self) {
-        let keys = {
-            let Ok(slots) = self.inner.slots.lock() else { return };
-            slots
-                .iter()
-                .filter_map(|(key, slot)| {
-                    matches!(slot.state, MachineConnectionState::Disconnected).then_some(*key)
-                })
-                .collect::<VecDeque<_>>()
-        };
-        if keys.is_empty() {
-            return;
-        }
-        let queue = Arc::new(Mutex::new(keys));
-        let worker_count = MACHINE_WARM_WORKERS.min(queue.lock().map_or(0, |queue| queue.len()));
-        for index in 0..worker_count {
-            let hub = self.clone();
-            let queue = Arc::clone(&queue);
-            let _ = std::thread::Builder::new().name(format!("machine-warm-{index}")).spawn(
-                move || {
-                    loop {
-                        if hub.inner.closed.load(Ordering::Acquire) {
-                            break;
-                        }
-                        let key = queue.lock().ok().and_then(|mut queue| queue.pop_front());
-                        let Some(key) = key else { break };
-                        let _ = hub.connect_with_retry(key, false);
-                    }
-                },
-            );
-        }
     }
 
     pub(crate) fn phases(&self) -> Vec<(MachineKey, MachineConnectionPhase)> {
