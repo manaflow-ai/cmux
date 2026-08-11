@@ -353,7 +353,7 @@ mod windows {
         if status == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(status as i32)) }
     }
 
-    fn current_user_sid() -> io::Result<Vec<u8>> {
+    fn current_user_sid() -> io::Result<Vec<u32>> {
         let token = current_process_token()?;
         let mut required = 0_u32;
         // SAFETY: `token` is valid and the null-buffer query writes only the
@@ -389,10 +389,15 @@ mod windows {
         if sid_length == 0 {
             return Err(io::Error::last_os_error());
         }
-        let mut owned = vec![0_u8; sid_length as usize];
+        let sid_bytes = sid_length as usize;
+        let mut owned = vec![0_u32; sid_bytes.div_ceil(size_of::<u32>())];
         // SAFETY: both SID pointers are valid for `sid_length` bytes.
         unsafe {
-            std::ptr::copy_nonoverlapping(sid.cast::<u8>(), owned.as_mut_ptr(), owned.len());
+            std::ptr::copy_nonoverlapping(
+                sid.cast::<u8>(),
+                owned.as_mut_ptr().cast::<u8>(),
+                sid_bytes,
+            );
         }
         Ok(owned)
     }
