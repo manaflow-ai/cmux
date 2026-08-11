@@ -59,6 +59,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelIsSimulator = CommandPaletteContextKeys(rawValue: "panel.isSimulator")
     /// Whether the focused panel is a text file preview editor.
     public static let panelIsFilePreviewTextEditor = CommandPaletteContextKeys(rawValue: "panel.isFilePreviewTextEditor")
+    /// Whether the focused panel previews a file in any backend.
+    public static let panelIsFilePreview = CommandPaletteContextKeys(rawValue: "panel.isFilePreview")
     /// Whether the focused panel is a terminal.
     public static let panelIsTerminal = CommandPaletteContextKeys(rawValue: "panel.isTerminal")
     /// Whether the focused panel sits in a pane.
