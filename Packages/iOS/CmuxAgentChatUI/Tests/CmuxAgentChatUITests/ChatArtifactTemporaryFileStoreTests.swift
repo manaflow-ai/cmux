@@ -125,8 +125,8 @@ struct ChatArtifactTemporaryFileStoreTests {
                 progress: { _ in }
             )
             Issue.record("a truncated stream must not produce a preview file")
-        } catch is ChatArtifactError {
-            // Expected: the incomplete transfer remains typed end to end.
+        } catch let error as ChatArtifactError {
+            #expect(error == .transferInterrupted)
         } catch {
             Issue.record("unexpected error: \(error)")
         }

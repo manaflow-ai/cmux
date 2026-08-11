@@ -81,14 +81,14 @@ struct MobileArtifactChunkFetchLoopTests {
             }
             Issue.record("empty non-EOF chunk should fail")
         } catch let error as ChatArtifactError {
-            #expect(error != .loadFailed)
+            #expect(error == .invalidResponse)
         } catch {
             Issue.record("unexpected error: \(error)")
         }
 
         let snapshot = await script.snapshot()
         #expect(snapshot.requestedOffsets == [0])
-        #expect(snapshot.deliveredChunks == [stalled])
+        #expect(snapshot.deliveredChunks.isEmpty)
     }
 
     @Test
@@ -99,18 +99,16 @@ struct MobileArtifactChunkFetchLoopTests {
             totalSize: 7,
             eof: true
         )
-        let script = MobileArtifactChunkScript(chunks: [malformed])
-
         do {
             _ = try await MobileArtifactChunkFetchLoop().run(
                 collectsData: true,
                 progress: nil
-            ) { offset in
-                try await script.fetch(offset: offset)
+            ) { _ in
+                malformed
             } onChunk: { _ in }
             Issue.record("an out-of-order chunk should fail")
-        } catch is ChatArtifactError {
-            // Expected: malformed transfer metadata is a typed protocol failure.
+        } catch let error as ChatArtifactError {
+            #expect(error == .invalidResponse)
         } catch {
             Issue.record("unexpected error: \(error)")
         }

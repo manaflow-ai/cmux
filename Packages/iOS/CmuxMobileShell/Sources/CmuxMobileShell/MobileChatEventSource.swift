@@ -362,7 +362,7 @@ public actor MobileChatEventSource: ChatEventSource {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw MobileChatArtifactFailureClassifier().classify(error)
+            throw MobileArtifactFailureClassifier().classify(error, method: method)
         }
     }
 
@@ -419,9 +419,9 @@ public actor MobileChatEventSource: ChatEventSource {
             } catch MobileArtifactLaneFetchError.failedAfterFirstByte {
                 // Once the lane exposed bytes, mixing in an RPC restart could
                 // splice two file versions into one preview.
-                throw ChatArtifactError.loadFailed
+                throw ChatArtifactError.transferInterrupted
             } catch MobileArtifactLaneFetchError.invalidDescriptor {
-                throw ChatArtifactError.loadFailed
+                throw ChatArtifactError.invalidResponse
             }
         }
         return try await fetchArtifactChunksOverRPC(

@@ -9,10 +9,10 @@ import Testing
 struct TerminalArtifactGalleryFailureTests {
     @Test
     func preservesSpecificFailureMeaning() {
-        #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.macUnreachable) == .macUnreachable)
-        #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.sessionNotFound) == .sessionMissing)
-        #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.fileNotFound) != .loadFailed)
-        #expect(TerminalArtifactGalleryFailure(error: CocoaError(.fileReadUnknown)) == .loadFailed)
+        #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.macUnreachable).error == .macUnreachable)
+        #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.sessionNotFound).error == .sessionNotFound)
+        #expect(TerminalArtifactGalleryFailure(error: ChatArtifactError.fileNotFound).error == .fileNotFound)
+        #expect(TerminalArtifactGalleryFailure(error: CocoaError(.fileReadUnknown)).error == .loadFailed)
     }
 }
 #endif

@@ -536,60 +536,33 @@ extension TerminalArtifactFilesSheet {
         failure: TerminalArtifactGalleryFailure,
         retry: @escaping @MainActor () async -> Void
     ) -> some View {
+        let presentation = ChatArtifactFailurePresentation(
+            error: failure.error,
+            scope: scope == .session ? .chat : .terminal
+        )
         ContentUnavailableView {
             Label(
-                failureTitle(failure),
-                systemImage: failureSystemImage(failure)
+                presentation.title,
+                systemImage: presentation.systemImage
             )
         } description: {
-            Text(failureMessage(failure))
+            Text(presentation.message)
         } actions: {
-            Button {
-                Task { await retry() }
-            } label: {
-                Label(
-                    String(
-                        localized: "terminal.artifact.gallery.retry",
-                        defaultValue: "Retry",
-                        bundle: .module
-                    ),
-                    systemImage: "arrow.clockwise"
-                )
+            if presentation.allowsRetry {
+                Button {
+                    Task { await retry() }
+                } label: {
+                    Label(
+                        String(
+                            localized: "terminal.artifact.gallery.retry",
+                            defaultValue: "Retry",
+                            bundle: .module
+                        ),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
-        }
-    }
-
-    private func failureTitle(_ failure: TerminalArtifactGalleryFailure) -> String {
-        switch failure {
-        case .macUnreachable:
-            String(localized: "terminal.artifact.gallery.unreachable.title", defaultValue: "Mac unreachable", bundle: .module)
-        case .sessionMissing:
-            String(localized: "terminal.artifact.gallery.session_missing.title", defaultValue: "Session not found", bundle: .module)
-        case .loadFailed:
-            String(localized: "terminal.artifact.gallery.load_failed.title", defaultValue: "Couldn’t load files", bundle: .module)
-        }
-    }
-
-    private func failureMessage(_ failure: TerminalArtifactGalleryFailure) -> String {
-        switch failure {
-        case .macUnreachable:
-            String(localized: "terminal.artifact.gallery.unreachable.message", defaultValue: "Check the connection to your Mac and try again.", bundle: .module)
-        case .sessionMissing:
-            String(localized: "terminal.artifact.gallery.session_missing.message", defaultValue: "The chat session for these files is no longer available.", bundle: .module)
-        case .loadFailed:
-            String(localized: "terminal.artifact.gallery.load_failed.message", defaultValue: "The file list couldn’t be loaded. Try again.", bundle: .module)
-        }
-    }
-
-    private func failureSystemImage(_ failure: TerminalArtifactGalleryFailure) -> String {
-        switch failure {
-        case .macUnreachable:
-            "wifi.exclamationmark"
-        case .sessionMissing:
-            "exclamationmark.bubble"
-        case .loadFailed:
-            "exclamationmark.triangle"
         }
     }
 

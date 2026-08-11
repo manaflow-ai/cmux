@@ -29,13 +29,23 @@ struct ArtifactByteReaderTests {
             let file = directory.appendingPathComponent("artifact.txt")
             #expect(FileManager.default.createFile(atPath: file.path, contents: Data("hello".utf8)))
 
-            do {
-                _ = try ArtifactByteReader().list(path: file.path)
-                Issue.record("listing a file should fail")
-            } catch ArtifactByteReader.Error.fileNotFound {
-                Issue.record("an existing non-directory must not be reported as missing")
-            } catch {
-                // Expected: the path exists, but directory listing does not apply.
+            #expect(throws: ArtifactByteReader.Error.notDirectory) {
+                try ArtifactByteReader().list(path: file.path)
+            }
+        }
+    }
+
+    @Test("a path removed from the Mac is reported as missing")
+    func missingPath() throws {
+        try withTemporaryDirectory { directory in
+            let missing = directory.appendingPathComponent("removed.txt")
+            let reader = ArtifactByteReader()
+
+            #expect(throws: ArtifactByteReader.Error.fileNotFound) {
+                try reader.stat(path: missing.path)
+            }
+            #expect(throws: ArtifactByteReader.Error.fileNotFound) {
+                try reader.fetch(path: missing.path, offset: 0, length: 16)
             }
         }
     }
@@ -49,13 +59,8 @@ struct ArtifactByteReaderTests {
             try #require(Darwin.chmod(file.path, 0o000) == 0)
             defer { _ = Darwin.chmod(file.path, 0o600) }
 
-            do {
-                _ = try ArtifactByteReader().fetch(path: file.path, offset: 0, length: 16)
-                Issue.record("an unreadable file should fail")
-            } catch ArtifactByteReader.Error.fileNotFound {
-                Issue.record("permission denial must not be reported as a missing file")
-            } catch {
-                // Expected: a distinct permission/read failure.
+            #expect(throws: ArtifactByteReader.Error.permissionDenied) {
+                try ArtifactByteReader().fetch(path: file.path, offset: 0, length: 16)
             }
         }
     }
@@ -66,13 +71,8 @@ struct ArtifactByteReaderTests {
             let file = directory.appendingPathComponent("damaged.png")
             try Data("not a png".utf8).write(to: file)
 
-            do {
-                _ = try ArtifactByteReader().thumbnail(path: file.path, maxDimension: 128)
-                Issue.record("damaged image data should fail")
-            } catch ArtifactByteReader.Error.unsupportedMedia {
-                Issue.record("a recognized but damaged image must not be reported as an unsupported type")
-            } catch {
-                // Expected: a distinct decode failure.
+            #expect(throws: ArtifactByteReader.Error.corruptMedia) {
+                try ArtifactByteReader().thumbnail(path: file.path, maxDimension: 128)
             }
         }
     }
@@ -182,7 +182,7 @@ struct ArtifactByteReaderTests {
             do {
                 _ = try ArtifactByteReader().fetch(path: fifo.path, offset: 0, length: 1)
                 Issue.record("fetching a FIFO should fail")
-            } catch ArtifactByteReader.Error.unsupportedMedia {
+            } catch ArtifactByteReader.Error.notRegularFile {
                 // Expected: opening a FIFO for reading could block indefinitely.
             } catch {
                 Issue.record("unexpected error: \(error)")
@@ -203,7 +203,7 @@ struct ArtifactByteReaderTests {
             do {
                 _ = try ArtifactByteReader().thumbnail(path: fifo.path, maxDimension: 128)
                 Issue.record("thumbnailing a FIFO should fail")
-            } catch ArtifactByteReader.Error.unsupportedMedia {
+            } catch ArtifactByteReader.Error.notRegularFile {
                 // Expected: ImageIO must never open an unverified FIFO path.
             } catch {
                 Issue.record("unexpected error: \(error)")
@@ -225,7 +225,7 @@ struct ArtifactByteReaderTests {
                 let opened = try ArtifactByteReader().openVerifiedRegularFile(path: fifo.path)
                 try? opened.handle.close()
                 Issue.record("descriptor validation should reject a FIFO")
-            } catch ArtifactByteReader.Error.unsupportedMedia {
+            } catch ArtifactByteReader.Error.notRegularFile {
                 // Expected: the nonblocking descriptor is identified as a FIFO.
             } catch {
                 Issue.record("unexpected error: \(error)")

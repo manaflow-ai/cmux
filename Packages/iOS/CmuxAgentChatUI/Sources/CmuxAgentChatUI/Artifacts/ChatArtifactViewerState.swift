@@ -12,11 +12,5 @@ enum ChatArtifactViewerState: Equatable, Sendable {
     case text
     case markdown
     case binary(stat: ChatArtifactStat)
-    case tooLarge(actualSize: Int64?, limit: Int64)
-    case unsupportedMedia
-    case fileMissing
-    case sessionMissing
-    case loadFailed
-    case macUnreachable
-    case forbidden
+    case failure(error: ChatArtifactError, actualSize: Int64?)
 }

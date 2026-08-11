@@ -4833,6 +4833,31 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Mac unreachable"].exists)
     }
 
+    /// A live Mac that cannot find the referenced path must identify the stale
+    /// file instead of blaming the connection used by the rest of the app.
+    @MainActor
+    func testAgentChatMissingAttachmentFileReportsFileNotFound() throws {
+        let app = launchAgentChatPreviewApp(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AGENT_CHAT_ARTIFACT_FAILURE": "file_not_found",
+        ])
+        let table = app.tables["ChatTranscriptTableView"]
+        _ = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
+        let attachment = app.buttons["ChatAttachmentButton"]
+        XCTAssertTrue(attachment.waitForExistence(timeout: 4))
+        XCTAssertEqual(attachment.label, "ci-failure.png")
+        guard scrollTranscript(table, toReveal: attachment, timeout: 10) else {
+            XCTFail("Missing attachment never became visible")
+            return
+        }
+
+        tap(attachment, in: app)
+
+        XCTAssertTrue(app.staticTexts["File not found"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["The file is no longer available on your Mac."].exists)
+        XCTAssertFalse(app.staticTexts["Mac unreachable"].exists)
+    }
+
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
     /// composer must translate the actual transcript table frame upward with the
     /// composer while preserving the table's own bottom-visible content. The table

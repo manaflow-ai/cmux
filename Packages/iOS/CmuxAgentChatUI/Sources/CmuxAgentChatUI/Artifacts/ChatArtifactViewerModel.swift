@@ -1,5 +1,6 @@
 import CmuxAgentChat
 import Foundation
+import ImageIO
 import Observation
 
 /// Main-actor state machine for one progressively loaded artifact path.
@@ -56,6 +57,12 @@ final class ChatArtifactViewerModel {
             let loadedStat = try await loader.stat(path: path)
             try Task.checkCancellation()
             guard path == activePath else { return }
+            guard loadedStat.exists else {
+                throw ChatArtifactError.fileNotFound
+            }
+            guard loadedStat.size >= 0 else {
+                throw ChatArtifactError.invalidResponse
+            }
             stat = loadedStat
             activeStat = loadedStat
             totalBytes = loadedStat.size
@@ -77,7 +84,10 @@ final class ChatArtifactViewerModel {
                 ? policy.maxMediaPreviewBytes
                 : policy.maxPreviewBytes
             guard loadedStat.size <= limit else {
-                state = .tooLarge(actualSize: loadedStat.size, limit: limit)
+                state = .failure(
+                    error: .tooLarge(limitBytes: limit),
+                    actualSize: loadedStat.size
+                )
                 return
             }
 
@@ -267,6 +277,9 @@ final class ChatArtifactViewerModel {
         try Task.checkCancellation()
         guard path == activePath else { return }
         let data = await accumulator.value()
+        guard Self.canDecodeImage(data) else {
+            throw ChatArtifactError.corruptMedia
+        }
         state = .image(data: data)
     }
 
@@ -319,24 +332,17 @@ final class ChatArtifactViewerModel {
         stat: ChatArtifactStat?
     ) -> ChatArtifactViewerState {
         guard let artifactError = error as? ChatArtifactError else {
-            return .loadFailed
+            return .failure(error: .loadFailed, actualSize: stat?.size)
         }
-        switch artifactError {
-        case .fileNotFound:
-            return .fileMissing
-        case .sessionNotFound:
-            return .sessionMissing
-        case .forbidden:
-            return .forbidden
-        case .macUnreachable:
-            return .macUnreachable
-        case .loadFailed, .unavailable, .unsupported, .invalidParams:
-            return .loadFailed
-        case .unsupportedMedia:
-            return .unsupportedMedia
-        case .tooLarge(let limitBytes):
-            return .tooLarge(actualSize: stat?.size, limit: limitBytes)
+        return .failure(error: artifactError, actualSize: stat?.size)
+    }
+
+    private static func canDecodeImage(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0 else {
+            return false
         }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil) != nil
     }
 
     private static let maximumCopyContentsBytes: Int64 = 4 * 1024 * 1024

@@ -50,25 +50,13 @@ struct TerminalArtifactSelection: Identifiable, Equatable {
     var id: String { "\(workspaceID)#\(surfaceID)#\(sessionID ?? "terminal")#\(path)" }
 }
 
-enum TerminalArtifactGalleryFailure: Equatable {
-    case macUnreachable
-    case sessionMissing
-    case loadFailed
+struct TerminalArtifactGalleryFailure: Equatable {
+    let error: ChatArtifactError
+
+    static let loadFailed = Self(error: ChatArtifactError.loadFailed)
 
     init(error: any Error) {
-        guard let artifactError = error as? ChatArtifactError else {
-            self = .loadFailed
-            return
-        }
-        switch artifactError {
-        case .macUnreachable:
-            self = .macUnreachable
-        case .sessionNotFound:
-            self = .sessionMissing
-        case .unsupported, .invalidParams, .forbidden, .fileNotFound,
-             .unsupportedMedia, .unavailable, .loadFailed, .tooLarge:
-            self = .loadFailed
-        }
+        self.error = (error as? ChatArtifactError) ?? .loadFailed
     }
 }
 

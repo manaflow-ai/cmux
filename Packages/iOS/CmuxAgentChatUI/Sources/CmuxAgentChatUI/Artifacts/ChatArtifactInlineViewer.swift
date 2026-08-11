@@ -37,7 +37,7 @@ public struct ChatArtifactInlineViewer: View {
         let actionDescriptor = inlineActionDescriptor(snapshot: snapshot)
         ChatArtifactViewerRouteView(
             snapshot: snapshot,
-            scope: .terminal,
+            scope: viewerScope,
             actions: pageModel.actions(
                 loader: loader,
                 quickLookCanPreview: { fileURL in
@@ -70,20 +70,12 @@ public struct ChatArtifactInlineViewer: View {
         }
         .chatArtifactFileActionPresentation(fileActionPresentationBinding)
         .alert(
-            String(
-                localized: "chat.artifact.action_failed.title",
-                defaultValue: "Couldn't complete action",
-                bundle: .module
-            ),
+            fileActionFailurePresentation.title,
             isPresented: fileActionErrorBinding
         ) {
             Button(String(localized: "chat.artifact.ok", defaultValue: "OK", bundle: .module)) {}
         } message: {
-            Text(String(
-                localized: "chat.artifact.action_failed.message",
-                defaultValue: "Check the connection to your Mac and try again.",
-                bundle: .module
-            ))
+            Text(fileActionFailurePresentation.message)
         }
         #endif
         .task(id: LoadIdentity(path: path, retryGeneration: snapshot.retryGeneration)) {
@@ -152,7 +144,27 @@ public struct ChatArtifactInlineViewer: View {
             set: { pageModel.setShowsFileActionError($0) }
         )
     }
+
+    private var fileActionFailurePresentation: ChatArtifactFailurePresentation {
+        ChatArtifactFailurePresentation(
+            error: pageModel.fileActionState.failure ?? .loadFailed,
+            scope: viewerScope
+        )
+    }
     #endif
+
+    private var viewerScope: ChatArtifactViewerScope {
+        switch loader.scope {
+        case .chat:
+            .chat
+        case .terminal:
+            .terminal
+        case .workspaceChanges:
+            .workspaceChanges
+        case .unsupported:
+            .terminal
+        }
+    }
 
     private var imageActionPerformer: (@MainActor (ChatArtifactAction) -> Void)? {
         #if os(iOS)
