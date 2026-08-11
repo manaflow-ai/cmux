@@ -6775,13 +6775,6 @@ const MIN_CONTENT_WIDTH: u16 = 40;
 const MIN_TABBED_PANE_HEIGHT: u16 = 3;
 const RAIL_REVEAL_HYSTERESIS: u16 = 4;
 
-#[derive(Clone, Copy, Default)]
-struct SidebarWidthOverrides {
-    workspace: Option<u16>,
-    machine: Option<u16>,
-    tabs: Option<u16>,
-}
-
 fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option<u16> {
     let configured_max = if configured_max > 0 { configured_max } else { u16::MAX };
     let effective_max = available.min(configured_max);
