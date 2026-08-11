@@ -1,6 +1,8 @@
 use std::fs;
 #[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
@@ -168,6 +170,114 @@ impl HeadlessServer {
 #[cfg(unix)]
 fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
     child.wait_timeout(timeout).unwrap().is_some()
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+struct ProcessExitSignal {
+    descriptor: OwnedFd,
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+impl ProcessExitSignal {
+    fn observe(pid: u32) -> std::io::Result<Self> {
+        let pid = libc::pid_t::try_from(pid).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "process ID exceeds pid_t")
+        })?;
+        #[cfg(target_os = "linux")]
+        let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as libc::c_int;
+        #[cfg(target_vendor = "apple")]
+        let descriptor = unsafe { libc::kqueue() };
+        if descriptor < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: pidfd_open or kqueue returned a new owned descriptor.
+        let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+
+        #[cfg(target_vendor = "apple")]
+        {
+            let change = libc::kevent {
+                ident: pid as libc::uintptr_t,
+                filter: libc::EVFILT_PROC,
+                flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_ONESHOT,
+                fflags: libc::NOTE_EXIT,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            };
+            let registered = unsafe {
+                libc::kevent(
+                    descriptor.as_raw_fd(),
+                    &raw const change,
+                    1,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null(),
+                )
+            };
+            if registered < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+
+        Ok(Self { descriptor })
+    }
+
+    fn wait_until(&self, deadline: Instant) -> std::io::Result<bool> {
+        #[cfg(target_os = "linux")]
+        {
+            let mut descriptor =
+                libc::pollfd { fd: self.descriptor.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let timeout_ms = remaining.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
+                let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+                if ready > 0 {
+                    if descriptor.revents & libc::POLLNVAL != 0 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "process-exit descriptor became invalid",
+                        ));
+                    }
+                    return Ok(true);
+                }
+                if ready == 0 {
+                    return Ok(false);
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
+            }
+        }
+        #[cfg(target_vendor = "apple")]
+        {
+            let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let timeout = libc::timespec {
+                    tv_sec: libc::time_t::try_from(remaining.as_secs())
+                        .unwrap_or(libc::time_t::MAX),
+                    tv_nsec: libc::c_long::from(remaining.subsec_nanos()),
+                };
+                let ready = unsafe {
+                    libc::kevent(
+                        self.descriptor.as_raw_fd(),
+                        std::ptr::null(),
+                        0,
+                        &raw mut event,
+                        1,
+                        &raw const timeout,
+                    )
+                };
+                if ready >= 0 {
+                    return Ok(ready > 0);
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -1042,7 +1152,7 @@ fn explicit_attach_registers_a_full_session_tui_client() {
     panic!("explicit attach never registered the full session");
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
 #[test]
 fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let mut server = HeadlessServer::start_with_config(
@@ -1075,13 +1185,26 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let used_durable_host = !records.is_empty();
     let mut owned_pids = vec![plugin_pid];
     owned_pids.extend(records.iter().map(|(_, record)| record.host_pid));
+    let owned_process_exits = owned_pids
+        .iter()
+        .copied()
+        .map(ProcessExitSignal::observe)
+        .collect::<std::io::Result<Vec<_>>>()
+        .expect("observe server-owned process exits");
 
     let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
+    let shutdown_deadline = Instant::now() + Duration::from_secs(10);
     // SAFETY: this PID is the live child owned by the test fixture.
     assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
-    let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
-    let owned_processes_stopped =
-        owned_pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid));
+    let server_stopped = wait_for_child_exit(
+        &mut server.child,
+        shutdown_deadline.saturating_duration_since(Instant::now()),
+    );
+    let process_exits_published = owned_process_exits.iter().all(|process_exit| {
+        process_exit.wait_until(shutdown_deadline).expect("wait for server-owned process exit")
+    });
+    let owned_processes_stopped = process_exits_published
+        && owned_pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid));
 
     // Keep lifecycle regressions leak-free. Every captured process group and
     // record belongs to this fixture's private state root.

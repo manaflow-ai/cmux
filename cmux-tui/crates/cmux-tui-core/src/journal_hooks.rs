@@ -969,7 +969,7 @@ mod tests {
         manifest.exec.argv = vec![
             "/bin/sh".into(),
             "-c".into(),
-            "exec 3<&0; (/bin/sh -c 'kill -STOP $$' <&3) & exit 0".into(),
+            "exec 3<&0; (/bin/cat <&3 >/dev/null) & exit 0".into(),
         ];
         let delivery = JournalHookDelivery {
             manifest,
