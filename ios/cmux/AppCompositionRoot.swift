@@ -137,11 +137,26 @@ final class AppCompositionRoot {
             consent: telemetryConsent,
             diagnosticLog: diagnosticLog
         )
+        #if DEBUG
+        let pushNotificationSettings:
+            (@MainActor () async -> MobilePushSystemSettings)?
+        if UITestConfig.mockDataEnabled {
+            // Full-app mock tests run on freshly erased simulators. Keep the
+            // real SpringBoard authorization alert out of unrelated UI flows.
+            pushNotificationSettings = { .authorizationOnly(.denied) }
+        } else {
+            pushNotificationSettings = nil
+        }
+        #else
+        let pushNotificationSettings:
+            (@MainActor () async -> MobilePushSystemSettings)? = nil
+        #endif
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
             diagnosticLog: diagnosticLog,
-            phoneAPIOrigin: auth.config.apiBaseURL
+            phoneAPIOrigin: auth.config.apiBaseURL,
+            notificationSettings: pushNotificationSettings
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {

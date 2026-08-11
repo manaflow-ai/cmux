@@ -2619,8 +2619,8 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(disconnectedShell.waitForExistence(timeout: 8))
 
-        let addComputer = app.buttons["MobileShowAddDeviceButton"]
-        XCTAssertTrue(addComputer.waitForExistence(timeout: 4))
+        let addComputer = app.buttons["MobileShowAddDeviceToolbarButton"]
+        XCTAssertTrue(addComputer.waitForExistence(timeout: 8))
         XCTAssertTrue(addComputer.isHittable)
         tap(addComputer, in: app)
 
@@ -6798,11 +6798,13 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: true, environment: launchEnvironment, launchArguments: [
             "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
             "-cmux.mobile.taskComposerEnabled", "YES",
-            "-cmux.notifications.pushEnabled", "NO",
         ])
 
         let hostField = app.textFields["MobileAddDeviceHostField"]
-        XCTAssertTrue(hostField.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            hostField.waitForExistence(timeout: 20),
+            "The initial Add Computer field must appear before manual pairing."
+        )
         hostField.tap()
         hostField.typeText("127.0.0.1")
 
