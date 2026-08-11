@@ -6531,13 +6531,10 @@ mod unix {
             assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
             let directory = File::open(&root).unwrap();
 
-            let opened = open_terminal_host_child_at(
-                &directory,
-                OsStr::new("record.json"),
-                libc::O_RDONLY,
-            )
-            .unwrap()
-            .unwrap();
+            let opened =
+                open_terminal_host_child_at(&directory, OsStr::new("record.json"), libc::O_RDONLY)
+                    .unwrap()
+                    .unwrap();
 
             assert!(opened.metadata().unwrap().file_type().is_fifo());
             drop(opened);
