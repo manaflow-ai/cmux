@@ -3557,9 +3557,10 @@ impl Mux {
         }
         surface_ids.sort_unstable();
         surface_ids.dedup();
-        changed_screens = unique_screen_ids(changed_screens.into_iter().chain(
-            surface_ids.iter().filter_map(|surface| surface_screen_id(state, *surface)),
-        ));
+        changed_screens =
+            unique_screen_ids(changed_screens.into_iter().chain(
+                surface_ids.iter().filter_map(|surface| surface_screen_id(state, *surface)),
+            ));
         let workspace_ids = surface_ids
             .iter()
             .filter_map(|surface| state.pane_of(*surface))

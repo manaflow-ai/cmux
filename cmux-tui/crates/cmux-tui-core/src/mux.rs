@@ -20691,31 +20691,23 @@ mod tests {
                 .iter()
                 .filter_map(|surface| state.surfaces.get(surface))
                 .find(|surface| {
-                    state
-                        .pane_of(surface.id)
-                        .and_then(|pane| state.screen_of(pane))
-                        .is_some_and(|(workspace, _)| {
-                            state.workspaces[workspace].id == inactive.workspace
-                        })
+                    state.pane_of(surface.id).and_then(|pane| state.screen_of(pane)).is_some_and(
+                        |(workspace, _)| state.workspaces[workspace].id == inactive.workspace,
+                    )
                 })
                 .cloned()
                 .unwrap()
         });
         let secondary_id = restore_terminal_id(904);
         let secondary_content = ContentPublicId::Terminal(secondary_id.clone());
-        let index_only_tab = mux.with_state(|state| {
-            state.resource_indexes.tab_ids[&index_only.id].clone()
-        });
+        let index_only_tab =
+            mux.with_state(|state| state.resource_indexes.tab_ids[&index_only.id].clone());
 
         let resource_commit = {
             let mut registry = mux.workspace_registry.lock().unwrap();
             let topology = registry.resource_topology_snapshot().unwrap();
-            let mut tab = topology
-                .tabs
-                .iter()
-                .find(|tab| tab.public_id == index_only_tab)
-                .cloned()
-                .unwrap();
+            let mut tab =
+                topology.tabs.iter().find(|tab| tab.public_id == index_only_tab).cloned().unwrap();
             tab.content_id = secondary_content.clone();
             tab.terminal_id = Some(host.terminal_id.clone());
             let terminal = registry.terminal_record(&host.terminal_id).unwrap().unwrap();
