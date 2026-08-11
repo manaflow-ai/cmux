@@ -95,12 +95,92 @@ pub enum BootstrapOutcome {
 
 pub struct SshBootstrapper {
     config: SshBootstrapConfig,
+    cancellation: Option<SshBootstrapCancellation>,
+    #[cfg(test)]
+    lifecycle_events: Option<tokio::sync::mpsc::UnboundedSender<SshBootstrapLifecycleEvent>>,
+}
+
+#[derive(Clone)]
+pub struct SshBootstrapCancellation {
+    registration_open: std::sync::Arc<std::sync::Mutex<bool>>,
+    cancelled: tokio::sync::watch::Sender<bool>,
+    active_attempts: tokio::sync::watch::Sender<usize>,
+}
+
+impl SshBootstrapCancellation {
+    pub async fn cancel_and_wait(&self) {
+        let mut active_attempts = {
+            let mut registration_open = self.registration_open.lock().unwrap();
+            *registration_open = false;
+            self.cancelled.send_replace(true);
+            self.active_attempts.subscribe()
+        };
+        while *active_attempts.borrow() != 0 {
+            if active_attempts.changed().await.is_err() {
+                break;
+            }
+        }
+    }
+
+    fn begin_attempt(&self) -> Result<SshBootstrapAttemptRegistration, BootstrapError> {
+        let registration_open = self.registration_open.lock().unwrap();
+        if !*registration_open {
+            return Err(BootstrapError::Io(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "SSH bootstrap was cancelled",
+            )));
+        }
+        self.active_attempts.send_modify(|active| *active += 1);
+        Ok(SshBootstrapAttemptRegistration { active_attempts: self.active_attempts.clone() })
+    }
+
+    fn subscribe(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.cancelled.subscribe()
+    }
+}
+
+struct SshBootstrapAttemptRegistration {
+    active_attempts: tokio::sync::watch::Sender<usize>,
+}
+
+impl Drop for SshBootstrapAttemptRegistration {
+    fn drop(&mut self) {
+        self.active_attempts.send_modify(|active| *active = active.saturating_sub(1));
+    }
 }
 
 impl SshBootstrapper {
     pub fn new(config: SshBootstrapConfig) -> Result<Self, BootstrapError> {
         config.validate()?;
-        Ok(Self { config })
+        Ok(Self {
+            config,
+            cancellation: None,
+            #[cfg(test)]
+            lifecycle_events: None,
+        })
+    }
+
+    pub fn with_cancellation(mut self) -> (Self, SshBootstrapCancellation) {
+        let (cancelled, receiver) = tokio::sync::watch::channel(false);
+        drop(receiver);
+        let (active_attempts, receiver) = tokio::sync::watch::channel(0);
+        drop(receiver);
+        let cancellation = SshBootstrapCancellation {
+            registration_open: std::sync::Arc::new(std::sync::Mutex::new(true)),
+            cancelled,
+            active_attempts,
+        };
+        self.cancellation = Some(cancellation.clone());
+        (self, cancellation)
+    }
+
+    #[cfg(test)]
+    fn with_lifecycle_events(
+        mut self,
+        lifecycle_events: tokio::sync::mpsc::UnboundedSender<SshBootstrapLifecycleEvent>,
+    ) -> Self {
+        self.lifecycle_events = Some(lifecycle_events);
+        self
     }
 
     pub async fn probe(&self) -> Result<Option<RemoteProbe>, BootstrapError> {
@@ -253,6 +333,8 @@ impl SshBootstrapper {
         &self,
         remote_arguments: [&str; N],
     ) -> Result<RemoteOutput, BootstrapError> {
+        let mut attempt_registration =
+            self.cancellation.as_ref().map(SshBootstrapCancellation::begin_attempt).transpose()?;
         let mut command = Command::new(&self.config.ssh_binary);
         command.arg("-T");
         if let Some(port) = self.config.port {
@@ -287,6 +369,16 @@ impl SshBootstrapper {
                 )));
             }
         };
+        #[cfg(not(test))]
+        let mut child =
+            BootstrapChildOwner::new(child, self.cancellation.clone(), attempt_registration.take());
+        #[cfg(test)]
+        let mut child = BootstrapChildOwner::new(
+            child,
+            self.cancellation.clone(),
+            attempt_registration.take(),
+            self.lifecycle_events.clone(),
+        );
         let completion = tokio::time::timeout(self.config.timeout, async {
             // Drain both pipes concurrently so either stream can fill without
             // blocking the other stream or the child exit observation.
@@ -300,16 +392,135 @@ impl SshBootstrapper {
         let (stdout, stderr, status) = match completion {
             Ok(Ok(result)) => result,
             Ok(Err(error)) => {
-                terminate_and_reap(&mut child).await;
+                child.cancel_and_reap().await;
                 return Err(error);
             }
             Err(_) => {
-                terminate_and_reap(&mut child).await;
+                child.cancel_and_reap().await;
                 return Err(BootstrapError::Timeout);
             }
         };
         Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
     }
+}
+
+struct BootstrapChildOwner {
+    cancel: Option<tokio::sync::oneshot::Sender<()>>,
+    task: Option<tokio::task::JoinHandle<std::io::Result<std::process::ExitStatus>>>,
+}
+
+impl BootstrapChildOwner {
+    #[cfg(not(test))]
+    fn new(
+        child: Child,
+        cancellation: Option<SshBootstrapCancellation>,
+        registration: Option<SshBootstrapAttemptRegistration>,
+    ) -> Self {
+        let (cancel, cancelled) = tokio::sync::oneshot::channel();
+        let external_cancellation = cancellation.as_ref().map(SshBootstrapCancellation::subscribe);
+        let task = tokio::spawn(async move {
+            let result =
+                wait_for_child_or_cancellation(child, cancelled, external_cancellation).await;
+            drop(registration);
+            result
+        });
+        Self { cancel: Some(cancel), task: Some(task) }
+    }
+
+    #[cfg(test)]
+    fn new(
+        child: Child,
+        cancellation: Option<SshBootstrapCancellation>,
+        registration: Option<SshBootstrapAttemptRegistration>,
+        lifecycle_events: Option<tokio::sync::mpsc::UnboundedSender<SshBootstrapLifecycleEvent>>,
+    ) -> Self {
+        let pid = child.id();
+        if let (Some(events), Some(pid)) = (&lifecycle_events, pid) {
+            let _ = events.send(SshBootstrapLifecycleEvent::Spawned(pid));
+        }
+        let (cancel, cancelled) = tokio::sync::oneshot::channel();
+        let external_cancellation = cancellation.as_ref().map(SshBootstrapCancellation::subscribe);
+        let task = tokio::spawn(async move {
+            let result =
+                wait_for_child_or_cancellation(child, cancelled, external_cancellation).await;
+            if result.is_ok()
+                && let (Some(events), Some(pid)) = (lifecycle_events, pid)
+            {
+                let _ = events.send(SshBootstrapLifecycleEvent::Reaped(pid));
+            }
+            drop(registration);
+            result
+        });
+        Self { cancel: Some(cancel), task: Some(task) }
+    }
+
+    async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        let result = match self.task.as_mut() {
+            Some(task) => task.await,
+            None => {
+                return Err(std::io::Error::other("SSH child owner was already awaited"));
+            }
+        };
+        self.task.take();
+        self.cancel.take();
+        result.map_err(|error| std::io::Error::other(format!("SSH child owner failed: {error}")))?
+    }
+
+    async fn cancel_and_reap(&mut self) {
+        if let Some(cancel) = self.cancel.take() {
+            let _ = cancel.send(());
+        }
+        if self.task.is_some() {
+            let _ = self.wait().await;
+        }
+    }
+}
+
+impl Drop for BootstrapChildOwner {
+    fn drop(&mut self) {
+        if let Some(cancel) = self.cancel.take() {
+            let _ = cancel.send(());
+        }
+    }
+}
+
+async fn wait_for_child_or_cancellation(
+    mut child: Child,
+    mut cancelled: tokio::sync::oneshot::Receiver<()>,
+    mut external_cancellation: Option<tokio::sync::watch::Receiver<bool>>,
+) -> std::io::Result<std::process::ExitStatus> {
+    tokio::select! {
+        result = child.wait() => result,
+        _ = &mut cancelled => {
+            let _ = child.start_kill();
+            child.wait().await
+        }
+        _ = wait_for_external_cancellation(&mut external_cancellation) => {
+            let _ = child.start_kill();
+            child.wait().await
+        }
+    }
+}
+
+async fn wait_for_external_cancellation(
+    cancellation: &mut Option<tokio::sync::watch::Receiver<bool>>,
+) {
+    let Some(cancelled) = cancellation else {
+        std::future::pending::<()>().await;
+        return;
+    };
+    while !*cancelled.borrow() {
+        if cancelled.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SshBootstrapLifecycleEvent {
+    Spawned(u32),
+    Reaped(u32),
 }
 
 async fn read_bounded(
@@ -532,6 +743,81 @@ mod tests {
             error,
             BootstrapError::PackageUnavailable(version) if version == "0.0.0-r2.test"
         ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancelled_bootstrap_reaps_the_spawned_ssh_child() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(&script, "#!/bin/sh\nexec /usr/bin/tail -f /dev/null\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        let (lifecycle_tx, mut lifecycle_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (bootstrapper, cancellation) = SshBootstrapper::new(config)
+            .unwrap()
+            .with_lifecycle_events(lifecycle_tx)
+            .with_cancellation();
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let mut bootstrap = Box::pin(bootstrapper.probe());
+            let pid = tokio::select! {
+                event = lifecycle_rx.recv() => match event {
+                    Some(SshBootstrapLifecycleEvent::Spawned(pid)) => pid,
+                    Some(event) => panic!("unexpected SSH bootstrap event: {event:?}"),
+                    None => panic!("SSH bootstrap lifecycle ended before spawn"),
+                },
+                result = &mut bootstrap => {
+                    panic!("SSH bootstrap ended before cancellation: {result:?}")
+                }
+            };
+
+            cancellation.cancel_and_wait().await;
+            assert_eq!(lifecycle_rx.recv().await, Some(SshBootstrapLifecycleEvent::Reaped(pid)));
+            drop(bootstrap);
+        })
+        .await
+        .expect("cancelled SSH bootstrap did not reap its child");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn deadline_reaps_the_spawned_ssh_child_before_returning() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(&script, "#!/bin/sh\nexec /usr/bin/tail -f /dev/null\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.timeout = Duration::from_millis(20);
+        let (lifecycle_tx, mut lifecycle_rx) = tokio::sync::mpsc::unbounded_channel();
+        let bootstrapper =
+            SshBootstrapper::new(config).unwrap().with_lifecycle_events(lifecycle_tx);
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let error = bootstrapper.probe().await.unwrap_err();
+            assert!(matches!(error, BootstrapError::Timeout));
+            let spawned = lifecycle_rx.recv().await;
+            let reaped = lifecycle_rx.recv().await;
+            assert!(matches!(
+                (spawned, reaped),
+                (
+                    Some(SshBootstrapLifecycleEvent::Spawned(spawned_pid)),
+                    Some(SshBootstrapLifecycleEvent::Reaped(reaped_pid))
+                ) if spawned_pid == reaped_pid
+            ));
+        })
+        .await
+        .expect("SSH bootstrap deadline did not reap its child");
     }
 
     #[cfg(unix)]
