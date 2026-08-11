@@ -95,7 +95,7 @@ def main() -> int:
             str(HELPER),
             sys.executable,
             "-c",
-            "import time; time.sleep(0.35)",
+            "import os, time; os.close(1); os.close(2); time.sleep(0.35)",
         ],
         cwd=ROOT,
         text=True,

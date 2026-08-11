@@ -279,7 +279,22 @@ def main() -> int:
             return POST_TEST_FAILED_EXIT_CODE
         return TIMEOUT_EXIT_CODE
 
-    _, status = os.waitpid(pid, 0)
+    if heartbeat is None:
+        _, status = os.waitpid(pid, 0)
+    else:
+        while True:
+            finished, status = os.waitpid(pid, os.WNOHANG)
+            if finished:
+                break
+            if heartbeat_deadline is not None and time.monotonic() >= heartbeat_deadline:
+                elapsed = time.monotonic() - started_at
+                write_child_output(
+                    f"[xcodebuild still running after {elapsed:.0f}s]\n".encode(),
+                    log_file,
+                    stdout_fd,
+                )
+                heartbeat_deadline = time.monotonic() + heartbeat
+            time.sleep(0.1)
     if log_file is not None:
         log_file.close()
     return child_exit_code(status)
