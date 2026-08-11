@@ -3354,6 +3354,10 @@ final class Workspace: Identifiable, ObservableObject {
                 initialEnvironmentOverrides: Self.startupEnvironment(
                     workspaceEnvironment: sanitizedWorkspaceEnvironment,
                     overlaying: initialTerminalEnvironment
+                ),
+                runtimeSpawnPolicy: Self.terminalRuntimeSpawnPolicy(
+                    requestedPolicy: .immediate,
+                    startupRestoreAgent: initialTerminalStartupRestoreAgent
                 )
             )
             configureNewTerminalPanel(
@@ -3375,12 +3379,10 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = tabId
                 rememberTerminalConfigInheritanceSource(terminalPanel)
                 if let initialTerminalStartupRestoreAgent {
-                    seedSessionRestoredAgentState(
+                    commitTerminalStartupRestore(
                         panelId: terminalPanel.id,
-                        restorableAgent: initialTerminalStartupRestoreAgent,
-                        willRunStartupCommand: false,
-                        willRunStartupInput: initialTerminalInput != nil,
-                        resumeSessionWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory
+                        snapshot: initialTerminalStartupRestoreAgent,
+                        hasQueuedStartupInput: initialTerminalInput != nil
                     )
                 }
             }
@@ -8031,7 +8033,10 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: runtimeSpawnPolicy
+            runtimeSpawnPolicy: Self.terminalRuntimeSpawnPolicy(
+                requestedPolicy: runtimeSpawnPolicy,
+                startupRestoreAgent: startupRestoreAgent
+            )
         )
         configureNewTerminalPanel(
             newPanel,
@@ -8068,12 +8073,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         bindSurface(newTabId, toPanelId: newPanel.id)
         if let startupRestoreAgent {
-            seedSessionRestoredAgentState(
+            commitTerminalStartupRestore(
                 panelId: newPanel.id,
-                restorableAgent: startupRestoreAgent,
-                willRunStartupCommand: false,
-                willRunStartupInput: initialInput != nil,
-                resumeSessionWorkingDirectory: startupRestoreAgent.workingDirectory
+                snapshot: startupRestoreAgent,
+                hasQueuedStartupInput: initialInput != nil
             )
         }
         publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
@@ -11547,7 +11550,11 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment,
+            runtimeSpawnPolicy: Self.terminalRuntimeSpawnPolicy(
+                requestedPolicy: .immediate,
+                startupRestoreAgent: startupRestoreAgent
+            )
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -11577,12 +11584,10 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         if let startupRestoreAgent {
-            seedSessionRestoredAgentState(
+            commitTerminalStartupRestore(
                 panelId: newPanel.id,
-                restorableAgent: startupRestoreAgent,
-                willRunStartupCommand: false,
-                willRunStartupInput: initialInput != nil,
-                resumeSessionWorkingDirectory: startupRestoreAgent.workingDirectory
+                snapshot: startupRestoreAgent,
+                hasQueuedStartupInput: initialInput != nil
             )
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
