@@ -2381,6 +2381,109 @@ final class cmuxUITests: XCTestCase {
         keepScreenshot(named: "task-minimal-attachments-accessibility-xxxl", app: app)
     }
 
+    /// The fixture's layout switch exposes only its 44-point button through
+    /// accessibility, so rendered pixels must catch a symbol that draws beyond
+    /// that frame. Both layouts share the control and must keep its glyph inset.
+    @MainActor
+    func testTaskComposerLayoutToggleGlyphStaysInsideControlAtAccessibilityXXXL() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: [
+                "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+                "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS": "1",
+                "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "classic",
+            ],
+            launchArguments: [
+                "-UIPreferredContentSizeCategoryName",
+                "UICTContentSizeCategoryAccessibilityXXXL",
+            ]
+        )
+        defer { app.terminate() }
+
+        let toggle = app.buttons["MobileTaskComposerToggleLayoutFixture"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 8))
+
+        func overflowPixelCount(layout: String) throws -> Int {
+            let frame = toggle.frame
+            XCTAssertEqual(frame.width, 44, accuracy: 1)
+            XCTAssertEqual(frame.height, 44, accuracy: 1)
+
+            let screenshot = app.screenshot()
+            let allowedGlyphFrame = frame.insetBy(dx: 2, dy: 2)
+            let scanFrame = CGRect(
+                x: frame.minX - 16,
+                y: frame.minY - 2,
+                width: frame.width + 32,
+                height: frame.height + 14
+            )
+            let overflowRegions = [
+                CGRect(
+                    x: scanFrame.minX,
+                    y: scanFrame.minY,
+                    width: allowedGlyphFrame.minX - scanFrame.minX,
+                    height: scanFrame.height
+                ),
+                CGRect(
+                    x: allowedGlyphFrame.maxX,
+                    y: scanFrame.minY,
+                    width: scanFrame.maxX - allowedGlyphFrame.maxX,
+                    height: scanFrame.height
+                ),
+                CGRect(
+                    x: allowedGlyphFrame.minX,
+                    y: scanFrame.minY,
+                    width: allowedGlyphFrame.width,
+                    height: allowedGlyphFrame.minY - scanFrame.minY
+                ),
+                CGRect(
+                    x: allowedGlyphFrame.minX,
+                    y: allowedGlyphFrame.maxY,
+                    width: allowedGlyphFrame.width,
+                    height: scanFrame.maxY - allowedGlyphFrame.maxY
+                ),
+            ]
+            let overflowPixels = try overflowRegions.reduce(into: 0) { count, region in
+                count += try nearBlackPixelCount(
+                    in: region,
+                    screenshot: screenshot.image,
+                    screenFrame: app.frame
+                )
+            }
+            let glyphPixels = try nearBlackPixelCount(
+                in: allowedGlyphFrame,
+                screenshot: screenshot.image,
+                screenFrame: app.frame
+            )
+            XCTAssertGreaterThan(
+                glyphPixels,
+                0,
+                "The screenshot probe must observe the \(layout) layout-switch glyph"
+            )
+
+            let attachment = XCTAttachment(screenshot: screenshot)
+            attachment.name = "task-\(layout)-layout-toggle-accessibility-xxxl"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            return overflowPixels
+        }
+
+        XCTAssertEqual(toggle.value as? String, "classic")
+        let classicOverflowPixels = try overflowPixelCount(layout: "classic")
+
+        toggle.tap()
+        let composerLayout = NSPredicate(format: "value == %@", "composer")
+        expectation(for: composerLayout, evaluatedWith: toggle)
+        waitForExpectations(timeout: 3)
+        let minimalOverflowPixels = try overflowPixelCount(layout: "minimal")
+
+        XCTAssertEqual(
+            classicOverflowPixels + minimalOverflowPixels,
+            0,
+            "The layout-switch SF Symbol rendered outside its inset 44-point control frame "
+                + "(classic: \(classicOverflowPixels) pixels, minimal: \(minimalOverflowPixels) pixels)"
+        )
+    }
+
     @MainActor
     func testTaskComposerFullImagePreviewAppliesOrientationAndBoundsDecode() throws {
         let app = launchApp(mockData: false, environment: [
@@ -4624,6 +4727,19 @@ final class cmuxUITests: XCTestCase {
             let o = y * bytesPerRow + x * 4
             return RGB(r: Int(data[o]), g: Int(data[o + 1]), b: Int(data[o + 2]))
         }
+
+        func nearBlackPixelCount(maxChannel: UInt8 = 96) -> Int {
+            var count = 0
+            for y in 0..<height {
+                for x in 0..<width {
+                    let offset = y * bytesPerRow + x * 4
+                    if max(data[offset], data[offset + 1], data[offset + 2]) <= maxChannel {
+                        count += 1
+                    }
+                }
+            }
+            return count
+        }
     }
 
     @MainActor
@@ -5818,6 +5934,43 @@ final class cmuxUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor
+    private func nearBlackPixelCount(
+        in screenRect: CGRect,
+        screenshot: UIImage,
+        screenFrame: CGRect
+    ) throws -> Int {
+        let clippedScreenRect = screenRect.intersection(screenFrame)
+        guard !clippedScreenRect.isNull,
+              !clippedScreenRect.isEmpty,
+              screenFrame.width > 0,
+              screenFrame.height > 0 else {
+            return 0
+        }
+
+        let scaleX = screenshot.size.width / screenFrame.width
+        let scaleY = screenshot.size.height / screenFrame.height
+        let imageRect = CGRect(
+            x: (clippedScreenRect.minX - screenFrame.minX) * scaleX,
+            y: (clippedScreenRect.minY - screenFrame.minY) * scaleY,
+            width: clippedScreenRect.width * scaleX,
+            height: clippedScreenRect.height * scaleY
+        ).intersection(CGRect(origin: .zero, size: screenshot.size))
+        guard !imageRect.isNull, !imageRect.isEmpty else { return 0 }
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = screenshot.scale
+        format.opaque = true
+        let cropped = UIGraphicsImageRenderer(size: imageRect.size, format: format).image { _ in
+            screenshot.draw(at: CGPoint(x: -imageRect.minX, y: -imageRect.minY))
+        }
+        let cgImage = try XCTUnwrap(
+            cropped.cgImage,
+            "Could not read the task-composer screenshot crop"
+        )
+        return BitmapPixels(cgImage).nearBlackPixelCount()
     }
 
     private func keepAttachmentGeometry(
