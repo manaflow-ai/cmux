@@ -26302,13 +26302,14 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_surface_close_retains_failed_process_ownership_until_reconciled() {
+    fn ordinary_terminal_close_retains_failed_process_ownership_until_reconciled() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let owned = mux.surface(surface.id).unwrap();
+        let identity = mux.resource_terminal_host_identity(&owned).unwrap();
         owned.set_server_shutdown_failure_for_test(true);
 
-        assert!(mux.close_surface(surface.id).unwrap());
+        mux.close_terminal(&identity.terminal_id, &identity.incarnation).unwrap();
         assert!(mux.surface(surface.id).is_none());
         assert_eq!(mux.shutdown_owners.len(), 1);
 
@@ -26318,13 +26319,14 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_surface_close_reconciles_a_transient_termination_failure() {
+    fn ordinary_terminal_close_reconciles_a_transient_termination_failure() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let owned = mux.surface(surface.id).unwrap();
+        let identity = mux.resource_terminal_host_identity(&owned).unwrap();
         let (failing, attempts) = owned.set_recovering_server_shutdown_for_test();
 
-        assert!(mux.close_surface(surface.id).unwrap());
+        mux.close_terminal(&identity.terminal_id, &identity.incarnation).unwrap();
         assert_eq!(mux.shutdown_owners.len(), 1);
         assert_eq!(attempts.load(), 1);
 
@@ -26342,14 +26344,15 @@ mod tests {
     }
 
     #[test]
-    fn retained_shutdown_owners_bound_future_surface_admission() {
+    fn retained_terminal_shutdown_owners_bound_future_surface_admission() {
         let mux = test_mux();
         mux.set_shutdown_owner_capacity_for_test(1);
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let owned = mux.surface(surface.id).unwrap();
+        let identity = mux.resource_terminal_host_identity(&owned).unwrap();
         owned.set_server_shutdown_failure_for_test(true);
 
-        assert!(mux.close_surface(surface.id).unwrap());
+        mux.close_terminal(&identity.terminal_id, &identity.incarnation).unwrap();
         assert_eq!(mux.shutdown_owners.len(), 1);
 
         let error = mux.new_workspace(None, Some((80, 24))).unwrap_err();
@@ -26357,13 +26360,14 @@ mod tests {
     }
 
     #[test]
-    fn permanent_shutdown_owner_failure_stops_automatic_retry_sweeps() {
+    fn permanent_terminal_shutdown_owner_failure_stops_automatic_retry_sweeps() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let owned = mux.surface(surface.id).unwrap();
+        let identity = mux.resource_terminal_host_identity(&owned).unwrap();
         let (_failing, attempts) = owned.set_recovering_server_shutdown_for_test();
 
-        assert!(mux.close_surface(surface.id).unwrap());
+        mux.close_terminal(&identity.terminal_id, &identity.incarnation).unwrap();
         assert!(
             mux.shutdown_owner_reconciler
                 .wait_until_degraded(Instant::now() + Duration::from_secs(1)),
