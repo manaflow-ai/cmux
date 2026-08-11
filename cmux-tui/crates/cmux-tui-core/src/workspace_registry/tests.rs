@@ -1038,7 +1038,7 @@ fn session_guard_coordinator_owner_publishes_lock_availability() {
     let lock_dir = prepare_session_guard_dir(&root).unwrap();
     let coordinator_path = session_guard_coordinator_path(&lock_dir);
     let held = SessionLease::acquire_coordinator_blocking(&coordinator_path).unwrap();
-    let (registered_sender, registered_receiver) = std::sync::mpsc::channel();
+    let (armed_sender, armed_receiver) = std::sync::mpsc::channel();
     let (acquired_sender, acquired_receiver) = std::sync::mpsc::channel();
 
     let waiter = std::thread::spawn(move || {
@@ -1046,15 +1046,15 @@ fn session_guard_coordinator_owner_publishes_lock_availability() {
             &coordinator_path,
             std::time::Instant::now() + std::time::Duration::from_secs(5),
             || {
-                let _ = registered_sender.send(());
+                let _ = armed_sender.send(());
             },
         );
         let _ = acquired_sender.send(lease);
     });
 
-    registered_receiver
+    armed_receiver
         .recv_timeout(std::time::Duration::from_secs(2))
-        .expect("waiter did not publish its registration");
+        .expect("waiter did not arm its availability receiver");
     drop(held);
     let acquired = acquired_receiver
         .recv_timeout(std::time::Duration::from_secs(2))

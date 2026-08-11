@@ -5371,7 +5371,7 @@ impl SessionLease {
     fn acquire_coordinator_until(
         path: &Path,
         deadline: std::time::Instant,
-        mut on_waiter_registered: impl FnMut(),
+        mut on_waiter_armed: impl FnMut(),
     ) -> anyhow::Result<Self> {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;
@@ -5394,7 +5394,6 @@ impl SessionLease {
             let waiter = SessionCoordinatorWaiter::register(path).with_context(|| {
                 format!("register workspace session coordinator waiter: {}", path.display())
             })?;
-            on_waiter_registered();
 
             // Registration precedes this second lock attempt. If the owner
             // released before it saw the registration, this attempt observes
@@ -5409,6 +5408,7 @@ impl SessionLease {
                 }
             }
 
+            on_waiter_armed();
             if !waiter.wait_until(deadline).with_context(|| {
                 format!("wait for workspace session coordinator: {}", path.display())
             })? {
