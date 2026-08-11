@@ -1217,8 +1217,7 @@ fn rename_session_dir_for_reset_at(
         root_directory,
         root,
         session_name,
-        "session",
-        "workspace session state",
+        ("session", "workspace session state"),
         session_dir,
         expected_fingerprint,
         locked_directory,
@@ -1238,8 +1237,7 @@ fn rename_terminal_host_dir_for_reset_at(
         root_directory,
         root,
         session_name,
-        "terminal-hosts",
-        "terminal host state",
+        ("terminal-hosts", "terminal host state"),
         terminal_host_root,
         expected_fingerprint,
         locked_directory,
@@ -1251,14 +1249,14 @@ fn rename_reset_dir_for_deletion_at(
     root_directory: &File,
     root: &Path,
     session_name: &str,
-    kind: &str,
-    label: &str,
+    kind_and_label: (&str, &str),
     source: &Path,
     expected_fingerprint: &str,
     locked_directory: &File,
 ) -> anyhow::Result<PathBuf> {
     use std::os::fd::AsRawFd;
 
+    let (kind, label) = kind_and_label;
     let source_name = source
         .file_name()
         .ok_or_else(|| anyhow::anyhow!("reset path has no file name: {}", source.display()))?;
