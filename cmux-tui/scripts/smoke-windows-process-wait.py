@@ -194,7 +194,7 @@ def main() -> None:
                         "terminal",
                         terminal,
                         "process",
-                        "get",
+                        "show",
                     )
                 )
                 pid = int(process["pid"])
