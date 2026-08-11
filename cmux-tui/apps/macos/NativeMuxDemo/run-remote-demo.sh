@@ -229,9 +229,6 @@ cleanup() {
   fi
   CLEANUP_STARTED=1
   set +e
-  if (( exit_status != 0 )) && [[ "$LIFECYCLE_READY" == "0" ]]; then
-    lifecycle_event "failed $exit_status"
-  fi
   if [[ -z "$APP_PID" ]]; then
     APP_PID="$(find_run_app_pid || true)"
   fi
@@ -289,6 +286,9 @@ cleanup() {
   fi
   if [[ "$LOCAL_ROOT" == "$TEMP_PARENT"/cmux-native-remote-client.* ]]; then
     rm -rf -- "$LOCAL_ROOT"
+  fi
+  if (( exit_status != 0 )) && [[ "$LIFECYCLE_READY" == "0" ]]; then
+    lifecycle_event "failed $exit_status"
   fi
   exit "$exit_status"
 }
