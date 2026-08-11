@@ -3097,9 +3097,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(modelPill.isHittable)
         modelPill.tap()
         let snapshotA = app.buttons[snapshotAName]
-        let snapshotB = app.buttons[snapshotBName]
+        let firstMenuSnapshotB = app.buttons[snapshotBName]
         XCTAssertTrue(snapshotA.waitForExistence(timeout: 4))
-        XCTAssertTrue(snapshotB.exists)
+        XCTAssertTrue(firstMenuSnapshotB.exists)
         tapMenuItem(snapshotA, in: app)
         XCTAssertEqual(modelPill.value as? String, snapshotAName)
 
@@ -3108,12 +3108,13 @@ final class cmuxUITests: XCTestCase {
         // accessibility query here can outlive the production RPC timeout and
         // turn a menu-snapshot test into a closed-connection test.
         await hostServer.releaseTaskModelResponses()
-        XCTAssertTrue(snapshotB.waitForExistence(timeout: 4))
+        let presentedSnapshotB = app.buttons[snapshotBName]
+        XCTAssertTrue(presentedSnapshotB.waitForExistence(timeout: 4))
         XCTAssertTrue(
-            snapshotB.exists,
+            presentedSnapshotB.exists,
             "The presented UIKit menu must retain its backend snapshot after the live catalog changes"
         )
-        tapMenuItem(snapshotB, in: app)
+        tapMenuItem(presentedSnapshotB, in: app)
         // The pill keeps the human-readable title selected from the presented
         // menu snapshot. The submitted request below proves the corresponding
         // opaque identifier remains authoritative after the host replacement.
