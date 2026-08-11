@@ -56,6 +56,8 @@ actor TerminalSurfaceAgentCommandShimRemovalLane {
         let attemptLimit: Int
         let operation:
             @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
+        let reportFailure:
+            @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
         let request: TerminalSurfaceAgentCommandShimRemovalRequest
     }
 
@@ -68,7 +70,9 @@ actor TerminalSurfaceAgentCommandShimRemovalLane {
         _ shims: TerminalSurfaceAgentCommandShimSet,
         attemptLimit: Int,
         operation:
-        @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
+        @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void,
+        reportFailure:
+        @escaping @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
     ) -> TerminalSurfaceAgentCommandShimRemovalRequest {
         precondition(attemptLimit > 0)
         if let request = requests[shims.directoryPath] { return request }
@@ -80,6 +84,7 @@ actor TerminalSurfaceAgentCommandShimRemovalLane {
                 shims: shims,
                 attemptLimit: attemptLimit,
                 operation: operation,
+                reportFailure: reportFailure,
                 request: request
             )
         )
@@ -110,6 +115,9 @@ actor TerminalSurfaceAgentCommandShimRemovalLane {
                 } catch {
                     outcome = .failure(String(reflecting: error))
                 }
+            }
+            if case let .failure(description) = outcome {
+                pending.reportFailure(pending.shims, description)
             }
             await pending.request.resolve(outcome)
             requests[pending.directoryPath] = nil
@@ -166,7 +174,8 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
             request = await removalLane.submit(
                 shims,
                 attemptLimit: removalAttemptLimit,
-                operation: remove
+                operation: remove,
+                reportFailure: reportRemovalFailure
             )
             removalRequest = request
             shouldWaitForDeadline = true
@@ -201,9 +210,8 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
             self.shims = nil
             removalRequest = nil
             return true
-        case let .failure(description):
+        case .failure:
             removalRequest = nil
-            reportRemovalFailure(shims, description)
             return false
         case .timedOut:
             reportRemovalFailure(

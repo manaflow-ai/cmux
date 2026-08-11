@@ -65,9 +65,7 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
         guard retryTask == nil else { return }
         let retryDelays = retryDelays
         retryTask = Task.detached(priority: .utility) { [weak self] in
-            var delayIndex = 0
-            while !Task.isCancelled {
-                let delay = retryDelays[delayIndex]
+            for delay in retryDelays {
                 do {
                     try await retryClock.sleep(for: delay, tolerance: nil)
                 } catch {
@@ -77,8 +75,8 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
                 if await self.retryAll(retryClock: retryClock) {
                     return
                 }
-                delayIndex = (delayIndex + 1) % retryDelays.count
             }
+            await self?.finishRetrySchedule()
         }
     }
 
@@ -100,6 +98,11 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
         leases[directoryPath] = nil
         guard leases.isEmpty else { return }
         retryTask?.cancel()
+        retryTask = nil
+    }
+
+    private func finishRetrySchedule() {
+        leases.removeAll(keepingCapacity: false)
         retryTask = nil
     }
 }
