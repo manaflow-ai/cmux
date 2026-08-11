@@ -19677,6 +19677,75 @@ mod tests {
     }
 
     #[test]
+    fn kitty_quota_close_clears_a_late_block_for_the_retiring_surface() {
+        let mux = test_mux();
+        let retiring = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(retiring.id).unwrap());
+        let other = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        wait_for_kitty_image_budget(&mux);
+
+        let retiring_id = retiring.id;
+        *mux.kitty_image_budget_operation.lock().unwrap() =
+            Some(Arc::new(move |surface, limits, _deadline| {
+                if surface.id == retiring_id {
+                    anyhow::bail!("injected blocked Kitty quota surface");
+                }
+                surface.set_kitty_graphics_limits(
+                    limits.image_bytes,
+                    limits.inflight_bytes,
+                    limits.images,
+                    limits.placements,
+                )
+            }));
+        close_terminal_runtime_for_test(&mux, &other);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(mux.kitty_image_budget.lock().unwrap().blocked_surfaces.contains(&retiring.id));
+
+        let first_removal_attempt = Arc::new(AtomicBool::new(true));
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+            let first_removal_attempt = first_removal_attempt.clone();
+            let release = release.clone();
+            move |surface, _limits, _deadline| {
+                if surface.id == retiring_id && first_removal_attempt.swap(false, Ordering::AcqRel)
+                {
+                    started_tx.send(()).unwrap();
+                    let (released, changed) = &*release;
+                    let mut released = released.lock().unwrap();
+                    while !*released {
+                        released = changed.wait(released).unwrap();
+                    }
+                }
+                anyhow::bail!("injected retiring Kitty quota failure")
+            }
+        }));
+
+        close_terminal_runtime_for_test(&mux, &retiring);
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        mux.kitty_image_budget.lock().unwrap().blocked_surfaces.insert(retiring.id);
+        {
+            let (released, changed) = &*release;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while mux.kitty_image_budget.lock().unwrap().worker_running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        let budget = mux.kitty_image_budget.lock().unwrap();
+        assert!(!budget.entries.contains_key(&retiring.id));
+        assert!(
+            !budget.blocked_surfaces.contains(&retiring.id),
+            "a retired surface kept Kitty graphics globally blocked"
+        );
+    }
+
+    #[test]
     fn kitty_quota_worker_disables_graphics_but_admits_terminals_after_persistent_failure() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
