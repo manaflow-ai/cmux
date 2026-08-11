@@ -23,6 +23,10 @@ struct CMUXMobileRootView: View {
     /// Optional so previews and hosts without the app root still render.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
+    /// Optional environment models do not reliably invalidate this root when a
+    /// child sheet mutates them. Mirror the store's existing change stream so
+    /// capability closures are rebuilt for the newly selected method.
+    @State private var observedConnectionMethod: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -256,6 +260,15 @@ struct CMUXMobileRootView: View {
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
             #endif
+        }
+        .task(id: connectionMethodStore.map(ObjectIdentifier.init)) {
+            guard let connectionMethodStore else {
+                observedConnectionMethod = nil
+                return
+            }
+            for await method in connectionMethodStore.changes() {
+                observedConnectionMethod = method
+            }
         }
         .onDisappear {
             cancelInjectedAttachTask(retryLaunchRoute: true)
@@ -881,17 +894,17 @@ struct CMUXMobileRootView: View {
     }
 
     private func showAddDevice() {
-        guard allowsManualPairing else { return }
+        guard currentlyAllowsManualPairing else { return }
         presentPairing(.manual)
     }
 
     private func showPairingScanner() {
-        guard allowsManualPairing else { return }
+        guard currentlyAllowsManualPairing else { return }
         presentPairing(.scanner(entry: .settingsReplay))
     }
 
     private func showOnboardingPairingScanner() {
-        guard allowsManualPairing else { return }
+        guard currentlyAllowsManualPairing else { return }
         presentPairing(.scanner(entry: .onboardingFallback))
     }
 
@@ -915,6 +928,17 @@ struct CMUXMobileRootView: View {
     }
 
     private var allowsManualPairing: Bool {
+        #if os(iOS)
+        (observedConnectionMethod ?? connectionMethodStore?.method) == .tailscale
+        #else
+        true
+        #endif
+    }
+
+    /// Re-check the source of truth when an already-rendered action fires. This
+    /// closes the brief transition where the observation task has not consumed
+    /// a newly selected method yet.
+    private var currentlyAllowsManualPairing: Bool {
         #if os(iOS)
         connectionMethodStore?.method == .tailscale
         #else

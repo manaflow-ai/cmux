@@ -435,6 +435,9 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
         tap(tailscale, in: app)
+        XCTAssertTrue(
+            app.buttons["MobileSettingsTailscaleScanButton"].waitForExistence(timeout: 4)
+        )
 
         let done = app.buttons["MobileSettingsDone"]
         XCTAssertTrue(done.waitForExistence(timeout: 4))
