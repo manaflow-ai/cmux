@@ -430,6 +430,13 @@ class GhosttyApp {
         }
     )
 
+    /// One immutable app-bundle inspection shared by both terminal ownership graphs.
+    private static let terminalSurfaceLaunchResourceSnapshot =
+        TerminalSurfaceLaunchResourceSnapshot.loadOffMainThread(
+            resourceURL: Bundle.main.resourceURL,
+            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
+        )
+
     /// Capabilities that exist only in the legacy embedded ownership graph.
     @MainActor
     static let terminalSurfaceEmbeddedRuntimeDependencies = TerminalSurfaceEmbeddedRuntimeDependencies(
@@ -439,6 +446,7 @@ class GhosttyApp {
         runtimeTeardown: GhosttyApp.terminalSurfaceRuntimeTeardown,
         restoreSpawnScheduler: GhosttyApp.terminalSurfaceRestoreSpawnScheduler,
         runtimeFilesystem: .live(),
+        launchResourceSnapshot: GhosttyApp.terminalSurfaceLaunchResourceSnapshot,
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize
     )
@@ -458,6 +466,7 @@ class GhosttyApp {
         runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
+        launchResourceSnapshot: GhosttyApp.terminalSurfaceLaunchResourceSnapshot,
         userGhosttyShellIntegrationMode: {
             GhosttyApp.shared.userGhosttyShellIntegrationMode
         },

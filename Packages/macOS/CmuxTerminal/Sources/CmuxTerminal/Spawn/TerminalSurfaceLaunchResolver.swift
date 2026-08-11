@@ -3,6 +3,80 @@ public import Foundation
 internal import CMUXAgentLaunch
 internal import Darwin
 
+/// Fixed app-bundle resources used while assembling terminal launches.
+///
+/// The bundle does not change during a normal process lifetime. Inspect these
+/// paths once, off the main thread, then share this immutable value across all
+/// terminal launch resolutions.
+public struct TerminalSurfaceLaunchResourceSnapshot: Sendable, Equatable {
+    public let wrapperDirectoryURL: URL?
+    public let cliBinPath: String?
+    public let bundledCLIPath: String?
+    public let ghosttyCLIPath: String?
+    public let shellIntegrationDirectoryPath: String?
+
+    public init(
+        wrapperDirectoryURL: URL?,
+        cliBinPath: String?,
+        bundledCLIPath: String?,
+        ghosttyCLIPath: String?,
+        shellIntegrationDirectoryPath: String?
+    ) {
+        self.wrapperDirectoryURL = wrapperDirectoryURL
+        self.cliBinPath = cliBinPath
+        self.bundledCLIPath = bundledCLIPath
+        self.ghosttyCLIPath = ghosttyCLIPath
+        self.shellIntegrationDirectoryPath = shellIntegrationDirectoryPath
+    }
+
+    public nonisolated static func loadOffMainThread(
+        resourceURL: URL?,
+        isExecutableFile: @escaping @Sendable (String) -> Bool,
+        directoryExists: @escaping @Sendable (String) -> Bool = { path in
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(
+                atPath: path,
+                isDirectory: &isDirectory
+            ) && isDirectory.boolValue
+        }
+    ) -> Self {
+        let inspect: @Sendable () -> Self = {
+            guard let resourceURL else {
+                return Self(
+                    wrapperDirectoryURL: nil,
+                    cliBinPath: nil,
+                    bundledCLIPath: nil,
+                    ghosttyCLIPath: nil,
+                    shellIntegrationDirectoryPath: nil
+                )
+            }
+            let wrapperDirectoryURL = resourceURL.appendingPathComponent(
+                "bin",
+                isDirectory: true
+            )
+            let bundledCLIPath = wrapperDirectoryURL.appendingPathComponent("cmux").path
+            let ghosttyCLIPath = wrapperDirectoryURL.appendingPathComponent("ghostty").path
+            let shellIntegrationDirectoryPath = resourceURL.appendingPathComponent(
+                "shell-integration",
+                isDirectory: true
+            ).path
+            return Self(
+                wrapperDirectoryURL: wrapperDirectoryURL,
+                cliBinPath: wrapperDirectoryURL.path,
+                bundledCLIPath: isExecutableFile(bundledCLIPath) ? bundledCLIPath : nil,
+                ghosttyCLIPath: isExecutableFile(ghosttyCLIPath) ? ghosttyCLIPath : nil,
+                shellIntegrationDirectoryPath: directoryExists(shellIntegrationDirectoryPath)
+                    ? shellIntegrationDirectoryPath
+                    : nil
+            )
+        }
+        if Thread.isMainThread {
+            return DispatchQueue.global(qos: .userInitiated).sync(execute: inspect)
+        }
+        return inspect()
+    }
+}
+
 /// Resolves one authoritative terminal launch for either process ownership model.
 @MainActor
 public final class TerminalSurfaceLaunchResolver {
@@ -13,7 +87,7 @@ public final class TerminalSurfaceLaunchResolver {
     private let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
     private let sessionPortBase: Int
     private let sessionPortRangeSize: Int
-    private let resourceURL: URL?
+    private let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot
     private let bundleIdentifier: String?
     private let ambientEnvironment: [String: String]
     private let defaultShellArguments: DefaultShellArguments
@@ -37,6 +111,7 @@ public final class TerminalSurfaceLaunchResolver {
             sessionPortBase: dependencies.sessionPortBase,
             sessionPortRangeSize: dependencies.sessionPortRangeSize,
             resourceURL: resourceURL,
+            launchResourceSnapshot: dependencies.launchResourceSnapshot,
             bundleIdentifier: bundleIdentifier,
             ambientEnvironment: ambientEnvironment,
             defaultShellArguments: Self.macOSLoginShellArguments,
@@ -54,6 +129,7 @@ public final class TerminalSurfaceLaunchResolver {
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
         resourceURL: URL?,
+        launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot? = nil,
         bundleIdentifier: String?,
         ambientEnvironment: [String: String],
         defaultShellArguments: @escaping DefaultShellArguments,
@@ -67,7 +143,11 @@ public final class TerminalSurfaceLaunchResolver {
         self.runtimeFilesystem = runtimeFilesystem
         self.sessionPortBase = sessionPortBase
         self.sessionPortRangeSize = sessionPortRangeSize
-        self.resourceURL = resourceURL
+        self.launchResourceSnapshot = launchResourceSnapshot
+            ?? TerminalSurfaceLaunchResourceSnapshot.loadOffMainThread(
+                resourceURL: resourceURL,
+                isExecutableFile: runtimeFilesystem.isExecutableFile
+            )
         self.bundleIdentifier = bundleIdentifier
         self.ambientEnvironment = ambientEnvironment
         self.defaultShellArguments = defaultShellArguments
@@ -80,7 +160,7 @@ public final class TerminalSurfaceLaunchResolver {
         _ request: TerminalSurfaceLaunchRequest
     ) async -> TerminalSurfaceResolvedLaunch {
         let shims: TerminalSurfaceAgentCommandShimSet?
-        if let wrapperDirectoryURL = resourceURL?.appendingPathComponent("bin", isDirectory: true) {
+        if let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL {
             let attempt = TerminalSurfaceCommandShimInstallAttempt(
                 filesystem: runtimeFilesystem,
                 wrapperDirectoryURL: wrapperDirectoryURL,
@@ -140,9 +220,8 @@ public final class TerminalSurfaceLaunchResolver {
                 inheritedClaudeConfigDir
             )
         }
-        if let bundledCLIURL = resourceURL?.appendingPathComponent("bin/cmux"),
-           runtimeFilesystem.isExecutableFile(bundledCLIURL.path) {
-            setManagedValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
+        if let bundledCLIPath = launchResourceSnapshot.bundledCLIPath {
+            setManagedValue("CMUX_BUNDLED_CLI_PATH", bundledCLIPath)
         }
         if let bundleIdentifier, !bundleIdentifier.isEmpty {
             setManagedValue("CMUX_BUNDLE_ID", bundleIdentifier)
@@ -185,10 +264,8 @@ public final class TerminalSurfaceLaunchResolver {
             setManagedValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
 
-        if let cliBinURL = resourceURL?.appendingPathComponent("bin") {
-            let cliBinPath = cliBinURL.path
-            let ghosttyCLIPath = cliBinURL.appendingPathComponent("ghostty").path
-            if runtimeFilesystem.isExecutableFile(ghosttyCLIPath) {
+        if let cliBinPath = launchResourceSnapshot.cliBinPath {
+            if let ghosttyCLIPath = launchResourceSnapshot.ghosttyCLIPath {
                 setManagedValue("GHOSTTY_BIN", ghosttyCLIPath)
             }
             let currentPath = environment["PATH"] ?? ambientEnvironment["PATH"] ?? ""
@@ -218,8 +295,7 @@ public final class TerminalSurfaceLaunchResolver {
 
         var managedShellCommand: String?
         if spawnPolicy.shellIntegrationEnabled,
-           let integrationDir = resourceURL?.appendingPathComponent("shell-integration").path,
-           TerminalSurface.shellIntegrationDirectoryExists(integrationDir) {
+           let integrationDir = launchResourceSnapshot.shellIntegrationDirectoryPath {
             setManagedValue("CMUX_SHELL_INTEGRATION", "1")
             setManagedValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
             TerminalSurface.applyManagedGitWatchEnvironment(

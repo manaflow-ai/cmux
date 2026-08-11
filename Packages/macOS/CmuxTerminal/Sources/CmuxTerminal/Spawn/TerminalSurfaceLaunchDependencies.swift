@@ -13,6 +13,8 @@ public struct TerminalSurfaceLaunchDependencies {
     public let sessionPortBase: Int
     /// The number of consecutive ports available from ``sessionPortBase``.
     public let sessionPortRangeSize: Int
+    /// The process-wide fixed app-bundle resource inspection.
+    public let launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot?
     /// Reads the current Ghostty shell-integration mode.
     public let userGhosttyShellIntegrationMode: @MainActor () -> String
     /// Resolves the user's login shell, or returns `nil` to use the fallback shell.
@@ -41,6 +43,7 @@ public struct TerminalSurfaceLaunchDependencies {
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
+        launchResourceSnapshot: TerminalSurfaceLaunchResourceSnapshot? = nil,
         userGhosttyShellIntegrationMode: @escaping @MainActor () -> String,
         resolvedUserShell: @escaping @MainActor () -> String? = { nil },
         userGhosttyCommand: @escaping @MainActor () -> GhosttyConfiguredCommand? = { nil },
@@ -51,6 +54,7 @@ public struct TerminalSurfaceLaunchDependencies {
         self.runtimeFilesystem = runtimeFilesystem
         self.sessionPortBase = sessionPortBase
         self.sessionPortRangeSize = sessionPortRangeSize
+        self.launchResourceSnapshot = launchResourceSnapshot
         self.userGhosttyShellIntegrationMode = userGhosttyShellIntegrationMode
         self.resolvedUserShell = resolvedUserShell
         self.userGhosttyCommand = userGhosttyCommand
