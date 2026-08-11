@@ -26272,6 +26272,45 @@ mod tests {
     }
 
     #[test]
+    fn terminal_host_callbacks_accept_catalog_aliases_for_one_runtime() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let identity = mux.resource_terminal_host_identity(&surface).unwrap();
+        let alias = restore_terminal_id(906);
+        {
+            let mut state = mux.state.lock().unwrap();
+            assert!(state.terminal_catalog.insert(alias.clone(), surface.clone()).is_none());
+            state
+                .terminal_catalog_by_host
+                .entry(identity.terminal_id.clone())
+                .or_default()
+                .insert(alias.clone());
+        }
+        wait_for_kitty_image_budget(&mux);
+        let limits = mux.kitty_image_limits_for_reconnect(&surface).unwrap();
+
+        assert!(mux.terminal_host_connection_lost(surface.id, &identity));
+        assert!(mux.terminal_host_reconnected(surface.id, &identity, limits));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(&identity.terminal_id)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+
+        {
+            let mut state = mux.state.lock().unwrap();
+            let removed = state.terminal_catalog.remove(&alias).unwrap();
+            unregister_terminal_catalog_host(&mux, &mut state, &alias, &removed);
+        }
+        mux.shutdown();
+    }
+
+    #[test]
     fn stale_move_replay_projects_the_latest_canonical_workspace() {
         const TERMINAL: &str = "00000000000040008000000000000003";
         let mux = test_mux();
