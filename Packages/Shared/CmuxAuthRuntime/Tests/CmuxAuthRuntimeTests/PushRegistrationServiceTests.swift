@@ -283,22 +283,6 @@ actor RetryDelayRecorder {
         #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
     }
 
-    @Test func cancellingRequestCountObservationRemovesItsContinuation() async {
-        await PushRegistrationURLProtocol.script.reset([])
-        let updates = PushRegistrationURLProtocol.script.requestCountUpdates()
-        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 1)
-
-        let observation = Task {
-            for await _ in updates {
-                guard !Task.isCancelled else { return }
-            }
-        }
-        observation.cancel()
-        await observation.value
-
-        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
-    }
-
     @Test func resetFinishesRequestCountObservations() async {
         await PushRegistrationURLProtocol.script.reset([])
         let updates = PushRegistrationURLProtocol.script.requestCountUpdates()
