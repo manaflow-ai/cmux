@@ -5,6 +5,21 @@ internal import os
 
 private let terminalSurfacePartialShimRemovalAttemptLimit = 3
 private let terminalSurfaceStaleShimMinimumAge: TimeInterval = 60
+private let terminalSurfaceStaleShimMaximumEntryCount = 64
+
+final class TerminalSurfaceAgentCommandShimStaleCleanupOwner: Sendable {
+    private let claimedParentDirectories = OSAllocatedUnfairLock(initialState: Set<String>())
+
+    func claim(_ parentDirectory: URL) -> Bool {
+        let path = parentDirectory.standardizedFileURL.path
+        return claimedParentDirectories.withLock { claimed in
+            claimed.insert(path).inserted
+        }
+    }
+}
+
+private let terminalSurfaceAgentCommandShimStaleCleanupOwner =
+    TerminalSurfaceAgentCommandShimStaleCleanupOwner()
 
 private func terminalSurfaceProcessIsAlive(_ processID: pid_t) -> Bool {
     guard processID > 0 else { return false }
@@ -139,15 +154,19 @@ extension TerminalSurface {
                 [.posixPermissions: 0o700],
                 ofItemAtPath: shimParentDirectory.path
             )
-            removeStaleAgentCommandShimDirectories(
-                in: shimParentDirectory,
-                ownerProcessID: ownerProcessID,
-                ownerUserID: geteuid(),
-                now: .now,
-                minimumAge: terminalSurfaceStaleShimMinimumAge,
-                isProcessAlive: terminalSurfaceProcessIsAlive,
-                fileManager: fileManager
-            )
+            if terminalSurfaceAgentCommandShimStaleCleanupOwner.claim(shimParentDirectory) {
+                removeStaleAgentCommandShimDirectories(
+                    in: shimParentDirectory,
+                    ownerProcessID: ownerProcessID,
+                    ownerUserID: geteuid(),
+                    now: .now,
+                    minimumAge: terminalSurfaceStaleShimMinimumAge,
+                    maximumEntryCount: terminalSurfaceStaleShimMaximumEntryCount,
+                    isCancelled: isCancelled,
+                    isProcessAlive: terminalSurfaceProcessIsAlive,
+                    fileManager: fileManager
+                )
+            }
             var isDirectory: ObjCBool = false
             if fileManager.fileExists(
                 atPath: shimDirectory.path,
@@ -214,17 +233,27 @@ extension TerminalSurface {
         ownerUserID: uid_t,
         now: Date,
         minimumAge: TimeInterval,
+        maximumEntryCount: Int,
+        isCancelled: () -> Bool,
         isProcessAlive: (pid_t) -> Bool,
         fileManager: FileManager
     ) {
         let parentDirectory = shimParentDirectory.standardizedFileURL
-        guard let entries = try? fileManager.contentsOfDirectory(
+        guard maximumEntryCount > 0,
+              !isCancelled(),
+              let entries = fileManager.enumerator(
             at: parentDirectory,
             includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
+            errorHandler: nil
         ) else { return }
 
-        for entry in entries {
+        var inspectedEntryCount = 0
+        while inspectedEntryCount < maximumEntryCount,
+              !isCancelled(),
+              let entry = entries.nextObject() as? URL
+        {
+            inspectedEntryCount += 1
             let candidate = entry.standardizedFileURL
             guard candidate.deletingLastPathComponent() == parentDirectory,
                   let processID = agentCommandShimOwnerProcessID(

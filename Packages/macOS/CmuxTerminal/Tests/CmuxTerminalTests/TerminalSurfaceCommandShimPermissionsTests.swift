@@ -323,6 +323,8 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             ownerUserID: ownerUserID.uint32Value,
             now: now,
             minimumAge: 60,
+            maximumEntryCount: 256,
+            isCancelled: { false },
             isProcessAlive: { $0 == liveProcessID },
             fileManager: fileManager
         )
@@ -331,6 +333,78 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         #expect(fileManager.fileExists(atPath: staleLiveDirectory.path))
         #expect(fileManager.fileExists(atPath: recentDeadDirectory.path))
         #expect(fileManager.fileExists(atPath: malformedDirectory.path))
+    }
+
+    @Test("Stale cleanup owner claims one pass per temporary root")
+    func staleCleanupOwnerClaimsOnePassPerTemporaryRoot() {
+        let owner = TerminalSurfaceAgentCommandShimStaleCleanupOwner()
+        let firstRoot = URL(fileURLWithPath: "/tmp/cmux-shim-cleanup-a", isDirectory: true)
+        let equivalentFirstRoot = firstRoot.appending(path: "..", directoryHint: .isDirectory)
+            .appending(path: firstRoot.lastPathComponent, directoryHint: .isDirectory)
+        let secondRoot = URL(fileURLWithPath: "/tmp/cmux-shim-cleanup-b", isDirectory: true)
+
+        #expect(owner.claim(firstRoot))
+        #expect(!owner.claim(equivalentFirstRoot))
+        #expect(owner.claim(secondRoot))
+    }
+
+    @Test("Stale cleanup pass honors entry and cancellation bounds")
+    func staleCleanupPassHonorsEntryAndCancellationBounds() throws {
+        let fileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceCommandShimSweepBoundsTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        for processID in [50_001, 50_002, 50_003] {
+            let directory = root.appending(
+                path: "v1-p\(processID)-\(UUID().uuidString)-\(UUID().uuidString)",
+                directoryHint: .isDirectory
+            )
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: false)
+            try fileManager.setAttributes(
+                [.modificationDate: now.addingTimeInterval(-120)],
+                ofItemAtPath: directory.path
+            )
+        }
+        let attributes = try fileManager.attributesOfItem(atPath: root.path)
+        let ownerUserID = try #require(attributes[.ownerAccountID] as? NSNumber)
+
+        TerminalSurface.removeStaleAgentCommandShimDirectories(
+            in: root,
+            ownerProcessID: 50_000,
+            ownerUserID: ownerUserID.uint32Value,
+            now: now,
+            minimumAge: 60,
+            maximumEntryCount: 1,
+            isCancelled: { false },
+            isProcessAlive: { _ in false },
+            fileManager: fileManager
+        )
+        let afterBoundedPass = try fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil
+        )
+        #expect(afterBoundedPass.count == 2)
+
+        TerminalSurface.removeStaleAgentCommandShimDirectories(
+            in: root,
+            ownerProcessID: 50_000,
+            ownerUserID: ownerUserID.uint32Value,
+            now: now,
+            minimumAge: 60,
+            maximumEntryCount: 64,
+            isCancelled: { true },
+            isProcessAlive: { _ in false },
+            fileManager: fileManager
+        )
+        let afterCancelledPass = try fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil
+        )
+        #expect(afterCancelledPass.count == 2)
     }
 
     @Test("Fallback preserves literal glob characters in PATH entries")
