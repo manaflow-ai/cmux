@@ -194,7 +194,7 @@ struct VaultRestoreRelaunchPersistenceTests {
             )
         )
 
-        restored.terminalStartupRestoreCoordinator.discardPendingRestore(
+        restored.terminalStartupRestoreCoordinator.cancelPendingRestore(
             panelID: restoredPanelID
         )
 
@@ -237,7 +237,7 @@ struct VaultRestoreRelaunchPersistenceTests {
         let panel = try #require(workspace.terminalPanel(for: panelID))
 
         #expect(!panel.surface.canCreateRuntimeSurface)
-        workspace.terminalStartupRestoreCoordinator.discardPendingRestore(
+        workspace.terminalStartupRestoreCoordinator.cancelPendingRestore(
             panelID: panelID
         )
 

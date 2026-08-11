@@ -30,6 +30,7 @@ final class TerminalStartupRestoreCoordinator {
         let willRunStartupInput: Bool
         let resumeWorkingDirectory: String?
         let chatResumeBinding: PendingChatResumeBinding?
+        let ownedResumeLaunchClaim: SessionRestorableAgentSnapshot?
 
         var willRunStartupWork: Bool {
             willRunStartupCommand || willRunStartupInput
@@ -91,6 +92,7 @@ final class TerminalStartupRestoreCoordinator {
     ///   - resumeWorkingDirectory: Working directory owned by the resumed agent launch.
     ///   - chatWorkingDirectory: Working directory used to resolve the resumed transcript.
     ///   - agentSessionAlreadyActive: Whether another surface already owns the live session.
+    ///   - ownsResumeLaunchClaim: Whether this transaction claimed the agent resume launch.
     func stage(
         panel: TerminalPanel,
         snapshot: SessionRestorableAgentSnapshot?,
@@ -100,7 +102,8 @@ final class TerminalStartupRestoreCoordinator {
         willRunStartupInput: Bool,
         resumeWorkingDirectory: String?,
         chatWorkingDirectory: String? = nil,
-        agentSessionAlreadyActive: Bool = false
+        agentSessionAlreadyActive: Bool = false,
+        ownsResumeLaunchClaim: Bool = false
     ) {
         pendingRestoresByPanelID[panel.id] = PendingRestore(
             panel: panel,
@@ -114,7 +117,8 @@ final class TerminalStartupRestoreCoordinator {
                 resumeBinding: resumeBinding,
                 workingDirectory: chatWorkingDirectory ?? resumeWorkingDirectory,
                 agentSessionAlreadyActive: agentSessionAlreadyActive
-            )
+            ),
+            ownedResumeLaunchClaim: ownsResumeLaunchClaim ? snapshot : nil
         )
     }
 
@@ -142,9 +146,26 @@ final class TerminalStartupRestoreCoordinator {
         return true
     }
 
-    /// Drops one staged transaction after its terminal fails to transfer.
-    func discardPendingRestore(panelID: UUID) {
-        pendingRestoresByPanelID.removeValue(forKey: panelID)
+    /// Cancels one staged transaction whose terminal cannot join its destination topology.
+    ///
+    /// Cancellation releases only the resume-launch claim owned by this transaction and
+    /// tears down the held terminal so it cannot remain permanently admission-gated.
+    ///
+    /// - Parameter panelID: Panel whose staged restore can no longer commit.
+    /// - Returns: Whether a staged transaction was cancelled.
+    @discardableResult
+    func cancelPendingRestore(panelID: UUID) -> Bool {
+        guard let pending = pendingRestoresByPanelID.removeValue(forKey: panelID) else {
+            return false
+        }
+        if let claim = pending.ownedResumeLaunchClaim {
+            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                kind: claim.kind.rawValue,
+                sessionId: claim.sessionId
+            )
+        }
+        pending.panel.close()
+        return true
     }
 
     /// Atomically commits staged restore state before releasing terminal runtimes.
@@ -184,9 +205,11 @@ final class TerminalStartupRestoreCoordinator {
         }
     }
 
-    /// Drops staged transactions and clears all committed lifecycle metadata.
+    /// Cancels staged transactions and clears all committed lifecycle metadata.
     func removeAllRestores() {
-        pendingRestoresByPanelID.removeAll(keepingCapacity: false)
+        for panelID in Array(pendingRestoresByPanelID.keys) {
+            cancelPendingRestore(panelID: panelID)
+        }
         lifecycle.removeAllSessionRestores()
     }
 

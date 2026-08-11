@@ -133,14 +133,11 @@ extension DockSplitStore {
                     to: terminalStartupRestoreCoordinator
                 )
             } else {
-                sourceWorkspace.terminalStartupRestoreCoordinator.discardPendingRestore(
-                    panelID: detached.panelId
-                )
-                AgentHibernationController.shared.discardTrackingStateForClosedPanel(
-                    workspaceId: detached.sourceWorkspaceId,
-                    panelId: detached.panelId
-                )
-                detached.panel.close()
+                let cancelledRestore = sourceWorkspace
+                    .terminalStartupRestoreCoordinator
+                    .cancelPendingRestore(panelID: detached.panelId)
+                // Browser and other non-startup transfers have no restore transaction.
+                if !cancelledRestore { detached.panel.close() }
             }
             return restoredPanelId
         }
@@ -363,7 +360,8 @@ extension DockSplitStore {
             willRunStartupCommand: false,
             willRunStartupInput: willRunAgentInput,
             resumeWorkingDirectory: resumeSessionWorkingDirectory,
-            agentSessionAlreadyActive: agentSessionAlreadyActive
+            agentSessionAlreadyActive: agentSessionAlreadyActive,
+            ownsResumeLaunchClaim: agentLaunch != nil
         )
         if let hibernation, let restorableAgent, restorableAgent.resumeCommand != nil {
             terminal.enterAgentHibernation(
