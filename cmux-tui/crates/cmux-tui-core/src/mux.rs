@@ -4064,8 +4064,9 @@ impl Mux {
         let live_incarnations = {
             let state = self.state.lock().unwrap();
             let mut live = HashMap::<String, HashSet<String>>::new();
-            for identity in
-                state.surfaces.values().filter_map(|surface| surface.live_terminal_host_identity())
+            for identity in unique_surface_runtimes(&state)
+                .iter()
+                .filter_map(|surface| surface.live_terminal_host_identity())
             {
                 live.entry(identity.terminal_id).or_default().insert(identity.incarnation);
             }
