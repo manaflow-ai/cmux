@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import Dispatch
 import Foundation
 import Testing
 @testable import CmuxTerminal
@@ -259,6 +260,42 @@ struct TerminalSurfaceLaunchResolverTests {
         #expect(asynchronous.arguments == ["/usr/bin/login", "-flp", "tester"])
         #expect(recorder.invocationCount == 1)
         #expect(!recorder.resolvedOnMainThread)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func hungDefaultShellLookupUsesInjectedDeadlineFallback() async throws {
+        let blocker = DispatchSemaphore(value: 0)
+        defer { blocker.signal() }
+        let clock = LaunchResolverManualClock()
+        let resolver = makeResolver(
+            defaultArguments: ["/bin/zsh", "-l"],
+            defaultArgumentsProvider: {
+                blocker.wait()
+                return ["/usr/bin/login", "-flp", "tester"]
+            },
+            agentCommandShimInstallDeadline: .seconds(5),
+            agentCommandShimInstallDeadlineClock: clock
+        )
+        let request = TerminalSurfaceLaunchRequest(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            configTemplate: nil,
+            workingDirectory: nil,
+            portOrdinal: 0,
+            initialCommand: nil,
+            initialInput: nil,
+            initialEnvironmentOverrides: [:],
+            additionalEnvironment: [:]
+        )
+        let resolution = Task {
+            await resolver.resolveInstallingCommandShim(request)
+        }
+        try await clock.waitUntilSleepers()
+
+        clock.advance(by: .seconds(5))
+        let resolved = await resolution.value.resolvedLaunch
+
+        #expect(resolved.arguments == ["/bin/zsh", "-l"])
     }
 
     @Test(.timeLimit(.minutes(1)))
