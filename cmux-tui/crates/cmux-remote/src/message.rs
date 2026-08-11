@@ -139,7 +139,6 @@ impl MessageStream {
     }
 }
 
-
 #[derive(Debug)]
 pub enum ServicesError {
     Service(ServiceError),
@@ -216,4 +215,3 @@ impl From<crate::mux_input::MuxInputError> for ServicesError {
         Self::MuxInput(error)
     }
 }
-
