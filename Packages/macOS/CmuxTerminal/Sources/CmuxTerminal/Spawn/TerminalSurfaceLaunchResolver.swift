@@ -44,7 +44,7 @@ public final class TerminalSurfaceLaunchResolver {
             ambientEnvironment: ambientEnvironment,
             defaultShellArguments: ["/bin/zsh", "-l"],
             asynchronousDefaultShellArguments:
-                terminalSurfaceCurrentUserLoginShellArguments,
+            terminalSurfaceCurrentUserLoginShellArguments,
             agentCommandShimInstallDeadline: dependencies.agentCommandShimInstallDeadline,
             agentCommandShimInstallDeadlineClock: dependencies.agentCommandShimInstallDeadlineClock
         )
@@ -84,8 +84,8 @@ public final class TerminalSurfaceLaunchResolver {
             )
         self.bundleIdentifier = bundleIdentifier
         self.ambientEnvironment = ambientEnvironment
-        self.synchronousDefaultShellArguments = defaultShellArguments
-        self.defaultShellArgumentsProvider = TerminalSurfaceDefaultShellArgumentsProvider(
+        synchronousDefaultShellArguments = defaultShellArguments
+        defaultShellArgumentsProvider = TerminalSurfaceDefaultShellArgumentsProvider(
             resolve: asynchronousDefaultShellArguments ?? { defaultShellArguments }
         )
         self.launchResourceSnapshotDeadline = launchResourceSnapshotDeadline
@@ -120,7 +120,7 @@ public final class TerminalSurfaceLaunchResolver {
             shims = await withTaskCancellationHandler {
                 await attempt.value()
             } onCancel: {
-                attempt.cancel()
+                Task { await attempt.cancel() }
             }
         } else {
             shims = nil
@@ -238,7 +238,8 @@ public final class TerminalSurfaceLaunchResolver {
         )
         setManagedValue("CMUX_SOCKET", "")
         if let inheritedClaudeConfigDir = ambientEnvironment["CLAUDE_CONFIG_DIR"],
-           !inheritedClaudeConfigDir.isEmpty {
+           !inheritedClaudeConfigDir.isEmpty
+        {
             environment["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(
                 inheritedClaudeConfigDir
             )
@@ -257,7 +258,8 @@ public final class TerminalSurfaceLaunchResolver {
 
         let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
         for (key, value) in spawnPolicy.socketAuthenticationEnvironment
-            where !key.isEmpty && !value.isEmpty {
+            where !key.isEmpty && !value.isEmpty
+        {
             setManagedValue(key, value)
         }
         if !spawnPolicy.claudeHooksEnabled {
@@ -321,7 +323,8 @@ public final class TerminalSurfaceLaunchResolver {
         )
         var managedShellCommand: String?
         if spawnPolicy.shellIntegrationEnabled,
-           let integrationDir = launchResourceSnapshot.shellIntegrationDirectoryPath {
+           let integrationDir = launchResourceSnapshot.shellIntegrationDirectoryPath
+        {
             setManagedValue("CMUX_SHELL_INTEGRATION", "1")
             setManagedValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
             TerminalSurface.applyManagedGitWatchEnvironment(
@@ -332,12 +335,13 @@ public final class TerminalSurfaceLaunchResolver {
             )
             if let resolvedShell,
                let command = TerminalSurface.applyManagedShellSpecificStartupEnvironment(
-                shell: resolvedShell,
-                integrationDir: integrationDir,
-                userGhosttyShellIntegrationMode: userGhosttyShellIntegrationMode(),
-                to: &environment,
-                protectedKeys: &protectedKeys
-            ), surfaceConfiguredCommand == nil {
+                   shell: resolvedShell,
+                   integrationDir: integrationDir,
+                   userGhosttyShellIntegrationMode: userGhosttyShellIntegrationMode(),
+                   to: &environment,
+                   protectedKeys: &protectedKeys
+               ), surfaceConfiguredCommand == nil
+            {
                 managedShellCommand = command
             }
         }
@@ -381,138 +385,10 @@ public final class TerminalSurfaceLaunchResolver {
             requiresDefaultShellArguments: requiresDefaultShellArguments
         )
     }
-
-}
-
-/// Owns a best-effort shim install without making terminal launch wait for a
-/// filesystem operation to acknowledge cancellation. The installer is asked
-/// to stop at the injected deadline, but this owner can publish `nil` first and
-/// release launch even when an OS filesystem call returns late.
-private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendable {
-    private enum State {
-        case pending
-        case resolved(TerminalSurfaceAgentCommandShimSet?)
-    }
-
-    private let lock = NSLock()
-    private var state = State.pending
-    private var continuation:
-        CheckedContinuation<TerminalSurfaceAgentCommandShimSet?, Never>?
-    private var installTask: Task<Void, Never>?
-    private var deadlineTask: Task<Void, Never>?
-    private let installLease: TerminalSurfaceCommandShimInstallLease
-
-    init(
-        filesystem: TerminalSurfaceRuntimeFilesystem,
-        wrapperDirectoryURL: URL,
-        surfaceID: UUID,
-        deadline: Duration,
-        clock: any Clock<Duration>
-    ) {
-        let installLease = TerminalSurfaceCommandShimInstallLease(
-            gate: filesystem.agentCommandShimInstallGate
-        )
-        self.installLease = installLease
-        let temporaryDirectory = filesystem.agentCommandShimTemporaryDirectory
-        let installTask = Task.detached(priority: .utility) { [weak self, installLease] in
-            guard let installToken = await installLease.acquire() else {
-                self?.resolve(nil)
-                return
-            }
-            defer {
-                installLease.release(installToken)
-            }
-            guard !Task.isCancelled else { return }
-            let shims = await filesystem.installAgentCommandShims(
-                wrapperDirectoryURL,
-                surfaceID,
-                temporaryDirectory
-            )
-            guard self?.resolve(shims) == true else {
-                if let shims {
-                    await filesystem.cleanupUnownedAgentCommandShims(
-                        shims,
-                        retryClock: clock
-                    )
-                }
-                return
-            }
-        }
-        let deadlineTask = Task.detached(priority: .utility) { [weak self] in
-            do {
-                try await clock.sleep(for: deadline, tolerance: nil)
-            } catch {
-                return
-            }
-            self?.resolve(nil, invalidatingInstall: true)
-        }
-        attach(installTask: installTask, deadlineTask: deadlineTask)
-    }
-
-    func value() async -> TerminalSurfaceAgentCommandShimSet? {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            switch state {
-            case .pending:
-                precondition(self.continuation == nil)
-                self.continuation = continuation
-                lock.unlock()
-            case .resolved(let shims):
-                lock.unlock()
-                continuation.resume(returning: shims)
-            }
-        }
-    }
-
-    func cancel() {
-        resolve(nil, invalidatingInstall: true)
-    }
-
-    private func attach(
-        installTask: Task<Void, Never>,
-        deadlineTask: Task<Void, Never>
-    ) {
-        lock.lock()
-        guard case .pending = state else {
-            lock.unlock()
-            installTask.cancel()
-            deadlineTask.cancel()
-            return
-        }
-        self.installTask = installTask
-        self.deadlineTask = deadlineTask
-        lock.unlock()
-    }
-
-    @discardableResult
-    private func resolve(
-        _ shims: TerminalSurfaceAgentCommandShimSet?,
-        invalidatingInstall: Bool = false
-    ) -> Bool {
-        lock.lock()
-        guard case .pending = state else {
-            lock.unlock()
-            return false
-        }
-        state = .resolved(shims)
-        let continuation = continuation
-        self.continuation = nil
-        let installTask = installTask
-        self.installTask = nil
-        let deadlineTask = deadlineTask
-        self.deadlineTask = nil
-        lock.unlock()
-
-        if invalidatingInstall {
-            installLease.invalidate()
-        }
-        installTask?.cancel()
-        deadlineTask?.cancel()
-        continuation?.resume(returning: shims)
-        return true
-    }
 }
 
 private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
 }

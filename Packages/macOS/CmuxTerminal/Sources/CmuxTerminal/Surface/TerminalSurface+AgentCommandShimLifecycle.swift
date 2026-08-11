@@ -37,83 +37,85 @@ extension TerminalSurface {
             agentCommandShimInstallLease = installLease
             agentCommandShimInstallResultGate = installResultGate
             #if compiler(>=6.2)
-            let installOperation: @concurrent @Sendable () async -> AgentCommandShimSet? = {
-                [
-                    surfaceId,
-                    temporaryDirectory,
-                    runtimeFilesystem,
-                    launchResourceProvider,
-                    cleanupRetryClock,
-                    installLease,
-                    installResultGate
-                ] in
-                let launchResourceSnapshot = await launchResourceProvider.snapshot()
-                guard let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL else {
-                    return nil
-                }
-                guard !Task.isCancelled else { return nil }
-                guard let installToken = await installLease.acquire() else {
-                    return nil
-                }
-                defer {
-                    installLease.release(installToken)
-                }
-                guard !Task.isCancelled else { return nil }
-                let shims = await runtimeFilesystem.installAgentCommandShims(
-                    wrapperDirectoryURL,
-                    surfaceId,
-                    temporaryDirectory
-                )
-                guard installResultGate.acceptResult() else {
-                    if let shims {
-                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(
-                            shims,
-                            retryClock: cleanupRetryClock
-                        )
+                let installOperation: @concurrent @Sendable () async -> AgentCommandShimSet? = {
+                    [
+                        surfaceId,
+                        temporaryDirectory,
+                        runtimeFilesystem,
+                        launchResourceProvider,
+                        cleanupRetryClock,
+                        installLease,
+                        installResultGate
+                    ] in
+                    let launchResourceSnapshot = await launchResourceProvider.snapshot()
+                    guard let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL else {
+                        return nil
                     }
-                    return nil
+                    guard !Task.isCancelled else { return nil }
+                    guard let installToken = await installLease.acquire() else {
+                        return nil
+                    }
+                    guard !Task.isCancelled else {
+                        await installLease.release(installToken)
+                        return nil
+                    }
+                    let shims = await runtimeFilesystem.installAgentCommandShims(
+                        wrapperDirectoryURL,
+                        surfaceId,
+                        temporaryDirectory
+                    )
+                    await installLease.release(installToken)
+                    guard await installResultGate.acceptResult() else {
+                        if let shims {
+                            await runtimeFilesystem.cleanupUnownedAgentCommandShims(
+                                shims,
+                                retryClock: cleanupRetryClock
+                            )
+                        }
+                        return nil
+                    }
+                    return shims
                 }
-                return shims
-            }
             #else
-            let installOperation: @Sendable () async -> AgentCommandShimSet? = {
-                [
-                    surfaceId,
-                    temporaryDirectory,
-                    runtimeFilesystem,
-                    launchResourceProvider,
-                    cleanupRetryClock,
-                    installLease,
-                    installResultGate
-                ] in
-                let launchResourceSnapshot = await launchResourceProvider.snapshot()
-                guard let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL else {
-                    return nil
-                }
-                guard !Task.isCancelled else { return nil }
-                guard let installToken = await installLease.acquire() else {
-                    return nil
-                }
-                defer {
-                    installLease.release(installToken)
-                }
-                guard !Task.isCancelled else { return nil }
-                let shims = await runtimeFilesystem.installAgentCommandShims(
-                    wrapperDirectoryURL,
-                    surfaceId,
-                    temporaryDirectory
-                )
-                guard installResultGate.acceptResult() else {
-                    if let shims {
-                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(
-                            shims,
-                            retryClock: cleanupRetryClock
-                        )
+                let installOperation: @Sendable () async -> AgentCommandShimSet? = {
+                    [
+                        surfaceId,
+                        temporaryDirectory,
+                        runtimeFilesystem,
+                        launchResourceProvider,
+                        cleanupRetryClock,
+                        installLease,
+                        installResultGate
+                    ] in
+                    let launchResourceSnapshot = await launchResourceProvider.snapshot()
+                    guard let wrapperDirectoryURL = launchResourceSnapshot.wrapperDirectoryURL else {
+                        return nil
                     }
-                    return nil
+                    guard !Task.isCancelled else { return nil }
+                    guard let installToken = await installLease.acquire() else {
+                        return nil
+                    }
+                    guard !Task.isCancelled else {
+                        await installLease.release(installToken)
+                        return nil
+                    }
+                    let shims = await runtimeFilesystem.installAgentCommandShims(
+                        wrapperDirectoryURL,
+                        surfaceId,
+                        temporaryDirectory
+                    )
+                    await installLease.release(installToken)
+                    guard await installResultGate.acceptResult() else {
+                        if let shims {
+                            await runtimeFilesystem.cleanupUnownedAgentCommandShims(
+                                shims,
+                                retryClock: cleanupRetryClock
+                            )
+                        }
+                        return nil
+                    }
+                    return shims
                 }
-                return shims
-            }
             #endif
             let installTask = Task.detached(priority: .utility, operation: installOperation)
             agentCommandShimInstallTask = installTask
@@ -122,7 +124,7 @@ extension TerminalSurface {
                 weak view,
                 runtimeFilesystem,
                 launchResourceProvider,
-                cleanupRetryClock,
+                cleanupRetryClock
             ] in
                 let launchResourceSnapshot = await launchResourceProvider.snapshot()
                 let shims = await installTask.value
@@ -170,10 +172,10 @@ extension TerminalSurface {
                     ?? .unavailable
                 guard !Task.isCancelled else { return }
                 guard let self, self.agentCommandShimPreparation == nil else { return }
-                guard self.agentCommandShimInstallResultGate?.expire() == true else {
+                guard await self.agentCommandShimInstallResultGate?.expire() == true else {
                     return
                 }
-                self.agentCommandShimInstallLease?.invalidate()
+                await self.agentCommandShimInstallLease?.invalidate()
                 self.agentCommandShimInstallTask?.cancel()
                 self.agentCommandShimPreparation = TerminalSurfaceAgentCommandShimPreparation(
                     commandShims: nil,
@@ -191,9 +193,9 @@ extension TerminalSurface {
 
     @MainActor
     func cancelAgentCommandShimInstallLifecycle() {
-        agentCommandShimInstallResultGate?.expire()
+        let installResultGate = agentCommandShimInstallResultGate
         agentCommandShimInstallResultGate = nil
-        agentCommandShimInstallLease?.invalidate()
+        let installLease = agentCommandShimInstallLease
         agentCommandShimInstallLease = nil
         agentCommandShimCompletionTask?.cancel()
         agentCommandShimCompletionTask = nil
@@ -207,6 +209,10 @@ extension TerminalSurface {
         // runtime generation can try again.
         if agentCommandShimPreparation?.commandShims == nil {
             agentCommandShimPreparation = nil
+        }
+        Task {
+            _ = await installResultGate?.expire()
+            await installLease?.invalidate()
         }
     }
 

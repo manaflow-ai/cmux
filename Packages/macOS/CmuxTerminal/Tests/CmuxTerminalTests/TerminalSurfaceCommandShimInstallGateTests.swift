@@ -1,6 +1,6 @@
+@testable import CmuxTerminal
 import Foundation
 import Testing
-@testable import CmuxTerminal
 
 @Suite("Terminal surface command shim install gate")
 struct TerminalSurfaceCommandShimInstallGateTests {
@@ -11,7 +11,7 @@ struct TerminalSurfaceCommandShimInstallGateTests {
 
         #expect(await gate.acquire() == nil)
 
-        gate.release(activeToken)
+        await gate.release(activeToken)
     }
 
     @Test("The waiter limit rejects excess restore work")
@@ -31,6 +31,6 @@ struct TerminalSurfaceCommandShimInstallGateTests {
 
         queued.cancel()
         #expect(await queued.value == nil)
-        gate.release(activeToken)
+        await gate.release(activeToken)
     }
 }

@@ -1,20 +1,21 @@
-import Foundation
 import CmuxFoundation
 import CmuxGit
 import CmuxRemoteSession
 import CmuxSettings
 import CmuxSidebarGit
+import CmuxTerminalCore
 import CmuxWorkspaces
+import Foundation
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
-// Production constructors require the process composition. Unit tests that
-// intentionally exercise the legacy in-process terminal opt in here instead
-// of giving Debug app builds an implicit embedded fallback.
+/// Production constructors require the process composition. Unit tests that
+/// intentionally exercise the legacy in-process terminal opt in here instead
+/// of giving Debug app builds an implicit embedded fallback.
 extension TabManager {
     @MainActor
     convenience init(

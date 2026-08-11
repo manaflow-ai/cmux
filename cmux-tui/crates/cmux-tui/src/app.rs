@@ -25059,7 +25059,7 @@ mod tests {
         .unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
-        let completion = loop {
+        loop {
             let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
             if matches!(
                 &event,
@@ -25585,12 +25585,22 @@ mod tests {
             Some(Screen::Alternate)
         );
 
-        let (mut app, _events) = test_app_with_events(session);
+        let (mut app, events) = test_app_with_events(session);
         app.sidebar_visible = false;
         app.replace_tree(tree);
         let action =
             app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)).unwrap();
         assert_eq!(action, RenderAction::None);
+        loop {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            if matches!(
+                &event,
+                AppEvent::ClearHistorySucceeded { surface: completed, .. }
+                    if *completed == surface.id
+            ) {
+                break;
+            }
+        }
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
 
         let expected = b"\x1b[107;9u";
@@ -39282,13 +39292,16 @@ mod tests {
     }
 
     fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
+        let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
         let pty_failures = Arc::new(PtyFailureIngress::default());
         let failure_ingress = pty_failures.clone();
+        let failure_tx = events.clone();
         let pty_input = PtyInputDispatcher::spawn(move |failure| {
-            failure_ingress.push(failure);
+            if failure_ingress.push(failure) {
+                let _ = failure_tx.try_send(AppEvent::PtyFailuresReady);
+            }
         })
         .unwrap();
-        let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
         let layout_resize_owner = session.allocate_layout_resize_owner();
         let session =
             OrderedSession::new(session, pty_input.sender(), events.clone(), layout_resize_owner);
