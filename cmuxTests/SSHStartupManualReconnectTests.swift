@@ -102,18 +102,34 @@ struct SSHStartupManualReconnectTests {
         )
     }
 
-    @Test func terminalTeardownDisablesRemoteInputReportingModesBeforePrompt() {
-        let startupCommand = CMUXCLI(args: ["cmux"]).buildReusableSSHStartupCommand(
-            sshCommand: "exit 7",
-            shellFeatures: "",
-            remoteRelayPort: 0,
-            isShellSnippet: true,
-            reconnectLimitDefault: 0
-        )
+    @Test func terminalTeardownDisablesRemoteInputReportingModesBeforePrompt() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-terminal-mode-reset-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        try Self.writeShellFile(at: fakeSSH, lines: ["#!/bin/sh", "exit 7"])
+        for executable in [fakeCLI, fakeSSH] {
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+
+        let startupCommand = try Self.generatedVMSSHInitialStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "0"
         let result = Self.runProcess(
             executablePath: "/usr/bin/script",
             arguments: ["-q", "-F", "/dev/null", "/bin/sh", "-c", startupCommand],
-            environment: ProcessInfo.processInfo.environment,
+            environment: environment,
             standardInput: "\n",
             timeout: 5
         )
