@@ -20721,8 +20721,7 @@ mod tests {
         )
         .unwrap();
 
-        let terminal_ids =
-            agent_terminal_ids_from_journal_ingresses([&first, &second]).unwrap();
+        let terminal_ids = agent_terminal_ids_from_journal_ingresses([&first, &second]).unwrap();
         assert_eq!(terminal_ids, HashSet::from([terminal_id]));
     }
 
