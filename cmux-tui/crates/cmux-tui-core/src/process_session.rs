@@ -2234,6 +2234,38 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn macos_process_identity_survives_exec() {
+        use std::io::{BufRead, BufReader, Write};
+
+        let mut child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("read _; exec /bin/sh -c 'printf \"ready\\n\"; read _'")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let process = StableProcessHandle::capture(pid).unwrap().unwrap();
+        let mut input = child.stdin.take().unwrap();
+        let mut output = BufReader::new(child.stdout.take().unwrap());
+
+        writeln!(input, "continue").unwrap();
+        input.flush().unwrap();
+        let mut ready = String::new();
+        output.read_line(&mut ready).unwrap();
+        assert_eq!(ready, "ready\n");
+
+        assert!(process.matches_current().unwrap());
+        assert!(process.signal(0).unwrap());
+
+        writeln!(input, "finish").unwrap();
+        input.flush().unwrap();
+        assert!(child.wait().unwrap().success());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn macos_session_query_is_scoped_to_the_owned_session() {
         let mut child = spawn_session_child();
         let session = libc::pid_t::try_from(child.id()).unwrap();
