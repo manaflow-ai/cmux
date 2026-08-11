@@ -2418,18 +2418,32 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   # The bounded fallback resumed its partial STOP journal. Do
                   # not kill only the root and orphan the remaining closure.
                   # Publish the exact root as durable recovery ownership.
-                  if cmux_ssh_auth_preserve_unpublished_root; then
-                    cmux_ssh_auth_durable_cleanup_pending=1
-                  else
+                  cmux_ssh_auth_handoff_retry_delay=1
+                  while [ "$cmux_ssh_auth_durable_cleanup_pending" != 1 ]; do
+                    if cmux_ssh_auth_preserve_unpublished_root; then
+                      cmux_ssh_auth_durable_cleanup_pending=1
+                      break
+                    fi
                     # A failed write or queue insertion is not a durable
-                    # handoff. Retain this process as the cleanup owner and
-                    # retry the complete tree transaction before returning.
-                    cmux_ssh_auth_force_unpublished_process_tree \
-                      "$cmux_ssh_auth_root_pid" \
-                      "$cmux_ssh_auth_observed_parent" \
-                      "$cmux_ssh_auth_root_group" \
-                      "$cmux_ssh_auth_root_started" || true
-                  fi
+                    # handoff. Retain this process as the cleanup owner until
+                    # the full tree is gone or durable recovery owns it.
+                    if cmux_ssh_auth_force_unpublished_process_tree \
+                        "$cmux_ssh_auth_root_pid" \
+                        "$cmux_ssh_auth_observed_parent" \
+                        "$cmux_ssh_auth_root_group" \
+                        "$cmux_ssh_auth_root_started"; then
+                      break
+                    fi
+                    /bin/sleep "$cmux_ssh_auth_handoff_retry_delay"
+                    case "$cmux_ssh_auth_handoff_retry_delay" in
+                      1|2|4)
+                        cmux_ssh_auth_handoff_retry_delay=$((
+                          cmux_ssh_auth_handoff_retry_delay * 2
+                        ))
+                        ;;
+                      *) cmux_ssh_auth_handoff_retry_delay=8 ;;
+                    esac
+                  done
                 fi
               fi
             fi
