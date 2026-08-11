@@ -458,12 +458,17 @@ impl Mux {
         let mut live_tabs = HashSet::new();
         let mut patch = Vec::new();
         let mut public = Vec::new();
-        for workspace_id in workspace_ids {
+        for workspace_id in live
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id)
+            .filter(|workspace| workspace_ids.contains(workspace))
+        {
             let workspace = projected
-                .workspace_by_id(*workspace_id)
+                .workspace_by_id(workspace_id)
                 .with_context(|| format!("terminal scope lost workspace {workspace_id}"))?;
             let position = live
-                .workspace_index(*workspace_id)
+                .workspace_index(workspace_id)
                 .with_context(|| format!("terminal scope lost live workspace {workspace_id}"))?;
             patch.push(ResourceChange::UpsertWorkspace {
                 workspace: RegistryWorkspace {
