@@ -1433,27 +1433,15 @@ pub(crate) fn mac_process_birth_identity(pid: u32) -> Option<MacProcessBirthIden
         return Some(identity.birth);
     }
     let bsd = mac_process_bsd_info(pid)?;
-    if bsd.pbi_status == libc::SZOMB {
-        return None;
-    }
-    Some(MacProcessBirthIdentity {
-        seconds: bsd.pbi_start_tvsec,
-        microseconds: bsd.pbi_start_tvusec,
-    })
+    mac_process_birth_from_bsd(&bsd)
 }
 
-/// Return one atomic birth-identity and PID-version record for exact signaling.
+/// Return one birth-identity and PID-version record safe for exact signaling.
 #[cfg(target_os = "macos")]
 pub(crate) fn mac_process_signal_identity(pid: u32) -> Option<MacProcessSignalIdentity> {
     let info = mac_process_info_with_unique_id(pid)?;
-    if info.bsd.pbi_status == libc::SZOMB {
-        return None;
-    }
     Some(MacProcessSignalIdentity {
-        birth: MacProcessBirthIdentity {
-            seconds: info.bsd.pbi_start_tvsec,
-            microseconds: info.bsd.pbi_start_tvusec,
-        },
+        birth: mac_process_birth_from_bsd(&info.bsd)?,
         pid_version: info.unique.id_version as u32,
     })
 }
@@ -1471,12 +1459,53 @@ fn mac_process_snapshot(pid: u32) -> Option<ProcessSnapshot> {
 
 #[cfg(target_os = "macos")]
 fn mac_process_info_with_unique_id(pid: u32) -> Option<MacBsdInfoWithUniqueId> {
+    if let Some(info) = mac_process_combined_info_with_unique_id(pid) {
+        return Some(info);
+    }
+
+    // Some macOS process-security contexts deny the combined BSD and unique
+    // record. Bracket the unrestricted unique record with process births so a
+    // recycled PID can never pair a prior owner with a replacement's version.
+    let before = mac_process_bsd_info(pid)?;
+    let before_birth = mac_process_birth_from_bsd(&before)?;
+    let unique = mac_process_unique_info(pid)?;
+    let after = mac_process_bsd_info(pid)?;
+    if before_birth != mac_process_birth_from_bsd(&after)? {
+        return None;
+    }
+    Some(MacBsdInfoWithUniqueId { bsd: after, unique })
+}
+
+#[cfg(target_os = "macos")]
+fn mac_process_combined_info_with_unique_id(pid: u32) -> Option<MacBsdInfoWithUniqueId> {
     const PROC_PIDT_BSDINFOWITHUNIQID: libc::c_int = 18;
     let pid_int = libc::c_int::try_from(pid).ok()?;
     let mut info = std::mem::MaybeUninit::<MacBsdInfoWithUniqueId>::zeroed();
     let size = libc::c_int::try_from(size_of::<MacBsdInfoWithUniqueId>()).ok()?;
     let written = unsafe {
         libc::proc_pidinfo(pid_int, PROC_PIDT_BSDINFOWITHUNIQID, 0, info.as_mut_ptr().cast(), size)
+    };
+    if written != size {
+        return None;
+    }
+    // SAFETY: proc_pidinfo initialized the full structure.
+    Some(unsafe { info.assume_init() })
+}
+
+#[cfg(target_os = "macos")]
+fn mac_process_unique_info(pid: u32) -> Option<MacProcessUniqueInfo> {
+    const PROC_PIDUNIQIDENTIFIERINFO: libc::c_int = 17;
+    let pid_int = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<MacProcessUniqueInfo>::zeroed();
+    let size = libc::c_int::try_from(size_of::<MacProcessUniqueInfo>()).ok()?;
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid_int,
+            PROC_PIDUNIQIDENTIFIERINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
     };
     if written != size {
         return None;
@@ -1499,6 +1528,17 @@ fn mac_process_bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
     }
     // SAFETY: proc_pidinfo initialized the full structure.
     Some(unsafe { info.assume_init() })
+}
+
+#[cfg(target_os = "macos")]
+fn mac_process_birth_from_bsd(info: &libc::proc_bsdinfo) -> Option<MacProcessBirthIdentity> {
+    if info.pbi_status == libc::SZOMB {
+        return None;
+    }
+    Some(MacProcessBirthIdentity {
+        seconds: info.pbi_start_tvsec,
+        microseconds: info.pbi_start_tvusec,
+    })
 }
 
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
