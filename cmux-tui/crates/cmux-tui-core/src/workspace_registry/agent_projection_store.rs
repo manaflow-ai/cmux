@@ -1049,10 +1049,8 @@ fn clear_agent_projection_journal_rebuild_target(
 fn clear_agent_projection_journal_rebuild_start(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
-    transaction.execute(
-        "DELETE FROM meta WHERE key = ?1",
-        [AGENT_PROJECTION_JOURNAL_REBUILD_START_KEY],
-    )?;
+    transaction
+        .execute("DELETE FROM meta WHERE key = ?1", [AGENT_PROJECTION_JOURNAL_REBUILD_START_KEY])?;
     Ok(())
 }
 
@@ -1544,9 +1542,8 @@ fn merge_projection(
         if different_structured_turn && !next.begins_turn {
             return current;
         }
-        let begins_new_structured_turn = current.source_session.is_some()
-            && next.begins_turn
-            && different_structured_turn;
+        let begins_new_structured_turn =
+            current.source_session.is_some() && next.begins_turn && different_structured_turn;
         if matches!(current.state.as_str(), "done" | "interrupted") && begins_new_structured_turn {
             return next;
         }
