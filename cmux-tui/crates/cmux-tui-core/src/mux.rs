@@ -27484,7 +27484,7 @@ mod tests {
     }
 
     #[test]
-    fn bulk_surface_close_uses_one_shared_termination_deadline() {
+    fn server_shutdown_uses_bounded_parallel_termination_fanout() {
         let mux = test_mux();
         let first = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -27504,7 +27504,10 @@ mod tests {
         }
 
         let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
-        let close = std::thread::spawn(move || result_tx.send(mux.close_pane(pane)).unwrap());
+        let close_mux = mux.clone();
+        let close = std::thread::spawn(move || {
+            result_tx.send(close_mux.close_all_surfaces_for_shutdown()).unwrap()
+        });
         assert!(
             shutdown_gate.wait_until_entered(
                 SHUTDOWN_FANOUT_WORKERS,
@@ -27513,8 +27516,18 @@ mod tests {
             "bulk close did not use the bounded parallel shutdown fanout"
         );
         shutdown_gate.release();
-        assert!(result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap());
+        let error = result_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .expect_err("gated terminal owners unexpectedly completed shutdown");
+        assert!(error.to_string().contains("could not terminate 64 surface process"));
         close.join().unwrap();
+
+        for surface in &surfaces {
+            surface.set_server_shutdown_failure_for_test(false);
+        }
+        mux.close_all_surfaces_for_shutdown().unwrap();
+        assert!(mux.shutdown_owners.is_empty());
     }
 
     #[cfg(unix)]
