@@ -1905,6 +1905,7 @@ private extension DockShortcutRoutingTests {
         KeyboardShortcutSettings.resetAll()
 
         let appDelegate = AppDelegate()
+        appDelegate.notificationStore = TerminalNotificationStore.shared
         let suiteName = "DockShortcutRoutingTests.paneHistory.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         let settings = UserDefaultsSettingsClient(defaults: defaults)
