@@ -9339,9 +9339,7 @@ impl Mux {
         records: TerminalHostRecords,
     ) -> anyhow::Result<()> {
         #[cfg(test)]
-        if let Some(hook) = self.terminal_host_cleanup_hook.lock().unwrap().clone() {
-            anyhow::ensure!(hook(), "forced terminal-host cleanup failure");
-        }
+        self.run_terminal_host_cleanup_hook()?;
         #[cfg(unix)]
         {
             for (path, record) in records {
@@ -9379,6 +9377,8 @@ impl Mux {
         &self,
         result: &Value,
     ) -> anyhow::Result<()> {
+        #[cfg(test)]
+        self.run_terminal_host_cleanup_hook()?;
         let identities = terminal_host_cleanup_identities(result)?;
         let mut runtimes = Vec::new();
         let mut removed = Vec::new();
@@ -9411,6 +9411,14 @@ impl Mux {
             self.terminate_terminal_runtime(&runtime);
         }
         self.terminate_discovered_terminal_hosts(&missing)
+    }
+
+    #[cfg(test)]
+    fn run_terminal_host_cleanup_hook(&self) -> anyhow::Result<()> {
+        if let Some(hook) = self.terminal_host_cleanup_hook.lock().unwrap().clone() {
+            anyhow::ensure!(hook(), "forced terminal-host cleanup failure");
+        }
+        Ok(())
     }
 
     fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
