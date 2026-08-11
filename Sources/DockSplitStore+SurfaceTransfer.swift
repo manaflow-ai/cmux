@@ -141,6 +141,13 @@ extension DockSplitStore {
                 )
         }
         let preservedTransfer = removeDetachedSurfaceTransfer(forPanelID: panelId)
+        let notificationStore = resolvedNotificationStore()
+        let wasManuallyUnread = scope == .global
+            ? notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true
+            : preservedTransfer?.manuallyUnread == true
         let restoredAgentObservation = SharedLiveAgentIndex.shared.index?.entry(
             workspaceId: preservedTransfer?.sessionRestoreWorkspaceId ?? workspaceId,
             panelId: panelId
@@ -349,7 +356,7 @@ extension DockSplitStore {
             cachedTitle: titleMetadata.cachedTitle,
             customTitle: titleMetadata.customTitle,
             customTitleSource: titleMetadata.customTitleSource,
-            manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
+            manuallyUnread: wasManuallyUnread,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             restorableAgent: transferredRestorableAgent,
             restorableAgentResumeState: transferredResumeState,
@@ -370,6 +377,7 @@ extension DockSplitStore {
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
+        applyWindowDockUnreadState(false, panelId: panelId)
         clearSessionRestoreState(panelId: panelId)
         return detached
     }
@@ -441,6 +449,10 @@ extension DockSplitStore {
             inPane: paneId,
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
+        )
+        applyWindowDockUnreadState(
+            detached.manuallyUnread,
+            panelId: detached.panelId
         )
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =
@@ -537,6 +549,10 @@ extension DockSplitStore {
             inPane: newPane,
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
+        )
+        applyWindowDockUnreadState(
+            detached.manuallyUnread,
+            panelId: detached.panelId
         )
         if let terminalPanel = panel as? TerminalPanel {
             if let owningWorkspace =

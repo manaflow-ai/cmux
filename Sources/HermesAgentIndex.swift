@@ -73,7 +73,7 @@ extension SessionEntry {
         // indexed Hermes profile and cmux hooks belong to the resumed process,
         // even when another Hermes installation appears earlier on PATH. The
         // wrapper token is POSIX-only, so keep it inside a portable /bin/sh
-        // command before the cwd guard is added by resumeCommandWithCwd.
+        // command before the cwd guard is added by copyResumeCommand.
         var parts = [AgentResumeArgv.hermesWrapperShellExecutableToken]
         let profilePin = HermesAgentResumeProfilePin(
             hermesHome: hermesHome,
