@@ -382,14 +382,36 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
     }
 
     private static func waitForProcessExit(_ processID: Int32, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            errno = 0
-            if Darwin.kill(processID, 0) == -1, errno == ESRCH {
-                return true
-            }
-            Thread.sleep(forTimeInterval: 0.01)
+        errno = 0
+        if Darwin.kill(processID, 0) == -1, errno == ESRCH {
+            return true
         }
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        // This test observes a PID created by the shell fixture, so it has no
+        // Foundation Process object whose termination handler it can own.
+        let exitSource = DispatchSource.makeProcessSource(
+            identifier: processID,
+            eventMask: .exit,
+            queue: .global(qos: .utility)
+        )
+        exitSource.setEventHandler { exitSignal.signal() }
+        exitSource.activate()
+
+        // Close the registration race if the fixture exited before kqueue
+        // armed the process source.
+        errno = 0
+        if Darwin.kill(processID, 0) == -1, errno == ESRCH {
+            exitSource.cancel()
+            return true
+        }
+
+        let observedExit = exitSignal.wait(timeout: .now() + timeout) == .success
+        exitSource.cancel()
+        if observedExit {
+            return true
+        }
+
         errno = 0
         return Darwin.kill(processID, 0) == -1 && errno == ESRCH
     }
