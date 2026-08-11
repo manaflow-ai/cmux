@@ -141,8 +141,6 @@ static void CmuxWriteAppHostProcessReceipt(void) {
         close(leaseDescriptor);
         CmuxFailAppHostProcessReceipt(@"attempt lease state could not be verified");
     }
-    CmuxWatchAppHostAttemptLease(leaseDescriptor);
-
     pid_t pid = getpid();
     NSURL *receiptURL = [directoryURL URLByAppendingPathComponent:
                          [NSString stringWithFormat:@"app-host-%d.receipt", pid]
@@ -186,6 +184,7 @@ static void CmuxWriteAppHostProcessReceipt(void) {
         CmuxDiscardTemporaryAppHostReceipt(descriptor, temporaryURL);
         CmuxFailAppHostProcessReceipt(@"receipt file could not be published atomically");
     }
+    CmuxWatchAppHostAttemptLease(leaseDescriptor);
     CmuxAppHostReceiptFD = descriptor;
     CmuxAppHostLeaseFD = leaseDescriptor;
 }

@@ -81,8 +81,6 @@ enum AppHostProcessReceipt {
                 Darwin.close(leaseDescriptor)
                 fail("attempt lease state could not be verified")
             }
-            watchAttemptLease(leaseDescriptor)
-
             let pid = getpid()
             let receiptURL = directoryURL.appendingPathComponent("app-host-\(pid).receipt", isDirectory: false)
             var descriptor: Int32 = -1
@@ -148,6 +146,7 @@ enum AppHostProcessReceipt {
                 discardTemporaryReceipt(descriptor, at: temporaryURL)
                 fail("receipt file could not be published atomically")
             }
+            watchAttemptLease(leaseDescriptor)
             return (descriptor, leaseDescriptor)
         } catch {
             fail(error.localizedDescription)
