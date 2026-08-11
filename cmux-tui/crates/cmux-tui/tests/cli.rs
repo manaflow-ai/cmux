@@ -181,20 +181,17 @@ fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
 enum FixtureProcessState {
     Captured,
     GracefulExit,
-    ForceSignaled,
     ExitPublished,
 }
 
 #[cfg(any(target_os = "linux", target_vendor = "apple"))]
 struct FixtureProcessOwner {
-    process_group: u32,
     lease_reader: File,
     lease_guard: Option<File>,
     lease_dir: PathBuf,
     ready: bool,
     durable_records:
         Vec<(std::path::PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)>,
-    durable_exit_validated: bool,
     state: FixtureProcessState,
 }
 
@@ -218,13 +215,11 @@ impl FixtureProcessOwner {
         let lease_guard = OpenOptions::new().write(true).open(&lease_path)?;
 
         Ok(Self {
-            process_group: 0,
             lease_reader,
             lease_guard: Some(lease_guard),
             lease_dir,
             ready: false,
             durable_records: Vec::new(),
-            durable_exit_validated: true,
             state: FixtureProcessState::Captured,
         })
     }
@@ -250,16 +245,12 @@ impl FixtureProcessOwner {
 
     fn capture(
         &mut self,
-        process_group: u32,
         durable_records: Vec<(
             std::path::PathBuf,
             cmux_tui_core::terminal_host_runtime::TerminalHostRecord,
         )>,
         deadline: Instant,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(process_group != 0, "fixture process group is missing");
-        self.process_group = process_group;
-        self.durable_exit_validated = durable_records.is_empty();
         self.durable_records = durable_records;
         anyhow::ensure!(
             self.wait_for_ready(deadline)?,
@@ -281,50 +272,6 @@ impl FixtureProcessOwner {
         Ok(true)
     }
 
-    fn force_stop_and_wait(&mut self, deadline: Instant) -> anyhow::Result<()> {
-        match self.state {
-            FixtureProcessState::ExitPublished => return Ok(()),
-            FixtureProcessState::Captured => {
-                if self.wait_for_group_eof(Instant::now())? {
-                    self.state = FixtureProcessState::ExitPublished;
-                    self.validate_durable_exit()?;
-                    return Ok(());
-                }
-                signal_test_process_group(self.process_group, libc::SIGKILL);
-                self.state = FixtureProcessState::ForceSignaled;
-            }
-            FixtureProcessState::GracefulExit | FixtureProcessState::ForceSignaled => {}
-        }
-        anyhow::ensure!(
-            self.wait_for_group_eof(deadline)?,
-            "fixture process group {} did not publish EOF after SIGKILL",
-            self.process_group
-        );
-        self.state = FixtureProcessState::ExitPublished;
-        self.validate_durable_exit()
-    }
-
-    fn remove_durable_record(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.durable_exit_validated && self.state == FixtureProcessState::ExitPublished,
-            "durable fixture record is not safe to remove"
-        );
-        for (record_path, record) in &self.durable_records {
-            match cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
-                record_path,
-                record,
-            ) {
-                Ok(true) => {}
-                Ok(false) => {
-                    anyhow::bail!("durable fixture record remained live after process-group EOF")
-                }
-                Err(_) if !record_path.exists() => {}
-                Err(error) => return Err(error),
-            }
-        }
-        Ok(())
-    }
-
     fn validate_durable_exit(&mut self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.state == FixtureProcessState::ExitPublished,
@@ -339,7 +286,6 @@ impl FixtureProcessOwner {
                 "durable fixture host did not release its exact liveness proof"
             );
         }
-        self.durable_exit_validated = true;
         Ok(())
     }
 
@@ -416,16 +362,6 @@ impl FixtureProcessOwner {
 impl Drop for FixtureProcessOwner {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.lease_dir);
-    }
-}
-
-#[cfg(unix)]
-fn signal_test_process_group(pid: u32, signal: libc::c_int) {
-    let Ok(pid) = libc::pid_t::try_from(pid) else { return };
-    // SAFETY: the test just captured this isolated PTY process group from its
-    // private terminal-host record or process-info response.
-    unsafe {
-        libc::kill(-pid, signal);
     }
 }
 
@@ -1316,14 +1252,7 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
         }),
     )
     .expect("start configured sidebar plugin");
-    let surface = sidebar["surface"].as_u64().expect("sidebar plugin surface");
-    let plugin_pid = try_json_socket_request(
-        &server.socket,
-        serde_json::json!({"id": 2, "cmd": "process-info", "surface": surface}),
-    )
-    .and_then(|response| response["pid"].as_u64())
-    .and_then(|pid| u32::try_from(pid).ok())
-    .expect("sidebar plugin PID");
+    sidebar["surface"].as_u64().expect("sidebar plugin surface");
 
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
     let records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
@@ -1331,11 +1260,31 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let used_durable_host = !records.is_empty();
     process_owner
         .capture(
-            plugin_pid,
             records.iter().map(|(path, record)| (path.clone(), record.clone())).collect(),
             Instant::now() + Duration::from_secs(10),
         )
         .expect("capture sidebar plugin process owner");
+
+    // A durable host is an unexpected failure for this server-owned plug-in.
+    // Keep the live server as the sole cleanup owner before testing SIGINT.
+    // The production resource-close path must publish both the plug-in group
+    // EOF and exact durable-host death before the server can shut down.
+    let preclosed_unexpected_resources = if used_durable_host {
+        let cleanup_deadline = Instant::now() + Duration::from_secs(10);
+        assert!(
+            server.close_all_resources(),
+            "live server did not close unexpected durable sidebar resources"
+        );
+        assert!(
+            process_owner
+                .wait_for_graceful_exit(cleanup_deadline)
+                .expect("verify unexpected durable sidebar cleanup"),
+            "production resource cleanup did not publish process-group EOF"
+        );
+        true
+    } else {
+        false
+    };
 
     let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
     let shutdown_deadline = Instant::now() + Duration::from_secs(10);
@@ -1345,23 +1294,15 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
         &mut server.child,
         shutdown_deadline.saturating_duration_since(Instant::now()),
     );
-    let owned_processes_stopped = process_owner
-        .wait_for_graceful_exit(shutdown_deadline)
-        .expect("wait for server-owned process-group EOF");
+    let owned_processes_stopped = preclosed_unexpected_resources
+        || process_owner
+            .wait_for_graceful_exit(shutdown_deadline)
+            .expect("wait for server-owned process-group EOF");
     // The shell leader and /bin/cat child hold the same non-CLOEXEC FIFO
     // writer. EOF is the kernel-owned proof that the complete fixture process
     // group exited, including a child left behind by its leader. Unexpected
-    // durable hosts stay in this result and fail below. Their records can be
-    // removed only after group EOF and exact host liveness both report dead.
-    if !owned_processes_stopped || used_durable_host {
-        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
-        process_owner
-            .force_stop_and_wait(cleanup_deadline)
-            .expect("force and reap live sidebar fixture process group");
-        process_owner
-            .remove_durable_record()
-            .expect("remove exited durable sidebar fixture record");
-    }
+    // durable hosts are closed through the live production server path above
+    // and still fail the ownership assertion below.
 
     assert!(server_stopped, "SIGINT did not complete graceful server shutdown");
     assert!(

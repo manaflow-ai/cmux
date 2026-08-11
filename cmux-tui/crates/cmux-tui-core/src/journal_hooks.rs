@@ -969,6 +969,50 @@ mod tests {
     }
 
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    struct HookFixtureGates {
+        release: Option<std::fs::File>,
+        abort: Option<std::fs::File>,
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    impl HookFixtureGates {
+        fn open(
+            release_path: &std::path::Path,
+            abort_path: &std::path::Path,
+        ) -> std::io::Result<Self> {
+            let release = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_CLOEXEC)
+                .open(release_path)?;
+            let abort = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_CLOEXEC)
+                .open(abort_path)?;
+            Ok(Self { release: Some(release), abort: Some(abort) })
+        }
+
+        fn release_direct_hook(&mut self) -> std::io::Result<()> {
+            let mut release = self.release.take().ok_or_else(|| {
+                std::io::Error::other("hook fixture release gate was already disarmed")
+            })?;
+            release.write_all(b"release\n")
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    impl Drop for HookFixtureGates {
+        fn drop(&mut self) {
+            // These files must close before thread::scope joins the delivery
+            // worker. Closing release unblocks the direct hook, and closing
+            // abort lets its descendant leave voluntarily on every unwind.
+            self.release.take();
+            self.abort.take();
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     fn wait_for_fifo_event(
         descriptor: std::os::fd::RawFd,
         event: libc::c_short,
@@ -1052,12 +1096,6 @@ mod tests {
             .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
             .open(&lease_path)
             .expect("register hook descendant lease reader");
-        let mut release_gate = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(libc::O_CLOEXEC)
-            .open(&release_path)
-            .expect("open hook release gate");
         let mut manifest = manifest();
         manifest.exec.argv = vec![
             "/bin/sh".into(),
@@ -1076,12 +1114,8 @@ mod tests {
         let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
         let failure_deadline = Instant::now() + Duration::from_secs(2);
         let ((exit_code, error), descendant_stopped) = std::thread::scope(|scope| {
-            let abort_gate = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .custom_flags(libc::O_CLOEXEC)
-                .open(&abort_path)
-                .expect("open hook fixture abort gate");
+            let mut gates = HookFixtureGates::open(&release_path, &abort_path)
+                .expect("open hook fixture gates");
             let (result_tx, result_rx) = mpsc::sync_channel(1);
             scope.spawn(move || {
                 let _ = result_tx.send(execute_delivery(&delivery, &attempt));
@@ -1094,15 +1128,12 @@ mod tests {
             lease_reader.read_exact(&mut ready).expect("read hook descendant lease publication");
             assert_eq!(&ready, b"ready\n");
             drop(lease_registration);
-            release_gate.write_all(b"release\n").expect("release direct hook process");
+            gates.release_direct_hook().expect("release direct hook process");
             let result = match result_rx
                 .recv_timeout(failure_deadline.saturating_duration_since(Instant::now()))
             {
                 Ok(result) => result,
-                Err(error) => {
-                    drop(abort_gate);
-                    panic!("hook delivery did not complete after release: {error}");
-                }
+                Err(error) => panic!("hook delivery did not complete after release: {error}"),
             };
             let descendant_stopped = wait_for_fifo_eof(&mut lease_reader, failure_deadline)
                 .expect("wait for hook descendant lease release");
