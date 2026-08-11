@@ -131,6 +131,18 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         return "if [ \"\(status)\" -eq 0 ]; then \(reauthenticationRequired)=0; \(authenticationRetry)=0; \(authenticationSucceeded)=1; else case \"\(status)\" in 254) \(authenticationRetry)=$((\(authenticationRetry) + 1)); if [ \"$\(authenticationSucceeded)\" -eq 0 ] && [ \"$\(authenticationRetry)\" -ge \"$\(authenticationRetryLimit)\" ]; then \(variablePrefix)_status=255; \(terminalFailureCommand); fi ;; \(unclassifiedFailureExitStatus)) \(variablePrefix)_status=255; if [ \"$\(authenticationSucceeded)\" -eq 0 ]; then \(terminalFailureCommand); fi ;; *) \(terminalFailureCommand) ;; esac; fi"
     }
 
+    /// Builds the shared creation, publication, and recovery handoff for one authentication group.
+    ///
+    /// The failure command runs before status 255 fallback handling and must
+    /// preserve any entrypoint-specific pending signal. Recovery is scheduled
+    /// only after the new directory is exported and present in the queue.
+    ///
+    /// - Parameter failureCommand: Trusted shell commands for group-creation failure.
+    /// - Returns: One POSIX-shell line that creates and publishes the group.
+    public func authenticationGroupCreationShellLine(failureCommand: String) -> String {
+        "CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir) || { \(failureCommand); }; export CMUX_SSH_AUTH_GROUP_DIR; cmux_ssh_schedule_failed_auth_group_recovery"
+    }
+
     /// Builds the final removal command for a reaped authentication attempt's bounded state.
     ///
     /// Callers run this only after the authentication root has exited, when no late
