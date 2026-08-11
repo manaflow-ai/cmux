@@ -452,21 +452,32 @@ impl Mux {
     ) -> anyhow::Result<ResourceEffectProjection> {
         let active_workspace =
             live.workspaces.get(live.active_workspace).map(|workspace| workspace.id);
+        let selection_before = active_tree_selection(live);
+        let selection_after = active_tree_selection(projected);
         let target_tabs = target_surfaces
             .iter()
             .filter_map(|surface| live.resource_indexes.tab_ids.get(surface).cloned())
             .collect::<HashSet<_>>();
-        let mut affected_panes = target_surfaces
+        let mut target_panes = target_surfaces
             .iter()
             .filter_map(|surface| live.resource_indexes.tab_pane.get(surface).copied())
             .collect::<Vec<_>>();
+        target_panes.sort_unstable();
+        target_panes.dedup();
+        let target_pane_set = target_panes.iter().copied().collect::<HashSet<_>>();
+        let mut affected_panes = target_panes.clone();
+        if selection_before.pane != selection_after.pane
+            && let Some(pane) = selection_after.pane
+        {
+            affected_panes.push(pane);
+        }
         affected_panes.sort_unstable();
         affected_panes.dedup();
-        let before_panes = affected_panes
+        let before_panes = target_panes
             .iter()
             .filter_map(|pane| live.resource_indexes.pane_ids.get(pane).cloned())
             .collect::<HashSet<_>>();
-        let removed_panes = affected_panes
+        let removed_panes = target_panes
             .iter()
             .filter(|pane| !projected.resource_indexes.pane_ids.contains_key(pane))
             .copied()
@@ -483,6 +494,15 @@ impl Mux {
             .collect::<Vec<_>>();
         changed_screens.sort_unstable();
         changed_screens.dedup();
+        let changed_screen_set = changed_screens.iter().copied().collect::<HashSet<_>>();
+        let mut published_screens = changed_screens.clone();
+        if selection_before.screen != selection_after.screen
+            && let Some(screen) = selection_after.screen
+        {
+            published_screens.push(screen);
+        }
+        published_screens.sort_unstable();
+        published_screens.dedup();
         let before_screens = changed_screens
             .iter()
             .filter_map(|screen| live.resource_indexes.screen_ids.get(screen).cloned())
@@ -567,7 +587,7 @@ impl Mux {
         }
 
         let mut live_screens = HashSet::new();
-        for screen_slot in &changed_screens {
+        for screen_slot in &published_screens {
             let Some((workspace_id, screen_index)) = screen_context.get(screen_slot).copied()
             else {
                 continue;
@@ -584,7 +604,9 @@ impl Mux {
                 screen,
             )?;
             let layout = resource_content::public_layout_from_registry(&durable, projected)?;
-            patch.push(ResourceChange::UpsertScreen(durable));
+            if changed_screen_set.contains(screen_slot) {
+                patch.push(ResourceChange::UpsertScreen(durable));
+            }
             public.push((
                 "screen",
                 screen.public_id.to_string(),
@@ -618,19 +640,21 @@ impl Mux {
                 .with_context(|| format!("terminal scope lost workspace {workspace_id}"))?;
             let screen = &workspace.screens[screen_index];
             live_panes.insert(pane.public_id.clone());
-            let active_tab = pane
-                .tabs
-                .get(pane.active_tab)
-                .and_then(|surface| projected.resource_indexes.tab_ids.get(surface))
-                .cloned();
-            patch.push(ResourceChange::UpsertPane(RegistryPane {
-                public_id: pane.public_id.clone(),
-                screen_id: screen.public_id.clone(),
-                name: pane.name.clone(),
-                active_tab,
-                creation_ordinal: pane.active_at,
-            }));
-            let mut tab_order = Vec::with_capacity(pane.tabs.len());
+            let is_target_pane = target_pane_set.contains(&pane_slot);
+            if is_target_pane {
+                let active_tab = pane
+                    .tabs
+                    .get(pane.active_tab)
+                    .and_then(|surface| projected.resource_indexes.tab_ids.get(surface))
+                    .cloned();
+                patch.push(ResourceChange::UpsertPane(RegistryPane {
+                    public_id: pane.public_id.clone(),
+                    screen_id: screen.public_id.clone(),
+                    name: pane.name.clone(),
+                    active_tab,
+                    creation_ordinal: pane.active_at,
+                }));
+            }
             public.push((
                 "pane",
                 pane.public_id.to_string(),
@@ -644,6 +668,10 @@ impl Mux {
                     "zoomed":screen.zoomed_pane == Some(pane.id),
                 }),
             ));
+            if !is_target_pane {
+                continue;
+            }
+            let mut tab_order = Vec::with_capacity(pane.tabs.len());
             for (tab_index, surface_slot) in pane.tabs.iter().enumerate() {
                 let surface = projected.surfaces.get(surface_slot);
                 let identity = surface
