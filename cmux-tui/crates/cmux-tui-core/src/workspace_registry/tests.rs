@@ -7048,9 +7048,13 @@ fn journal_agent_unidentified_completion_cannot_finish_active_run() {
         sensitivity: JournalSensitivity::Sensitive,
     };
     for (index, event) in ["AgentStart", "AgentEnd"].into_iter().enumerate() {
-        let ingress =
-            crate::agent_hook_journal_ingress("codex", event, Some(terminal_id.as_str()), json!({}))
-                .unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            event,
+            Some(terminal_id.as_str()),
+            json!({}),
+        )
+        .unwrap();
         registry
             .append_journal_ingress(
                 &ingress,

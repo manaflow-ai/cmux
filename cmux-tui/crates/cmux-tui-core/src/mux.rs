@@ -20709,10 +20709,8 @@ mod tests {
 
     #[test]
     fn journal_agent_pending_rebuild_does_not_publish_stale_cache() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-agent-pending-publish-{}",
-            WorkspacePublicId::random().unwrap()
-        ));
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-pending-publish-{}", WorkspacePublicId::random().unwrap()));
         let session = "journal-agent-pending-publish";
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
         let mux = Mux::from_workspace_registry(
@@ -20738,11 +20736,7 @@ mod tests {
             TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
                 .unwrap();
         let surface_id = mux.resource_surface_for_terminal(&terminal_id).unwrap();
-        mux.workspace_registry
-            .lock()
-            .unwrap()
-            .hold_agent_projection_rebuild_for_test()
-            .unwrap();
+        mux.workspace_registry.lock().unwrap().hold_agent_projection_rebuild_for_test().unwrap();
         let (observed_sender, observed_receiver) = std::sync::mpsc::sync_channel(1);
         let observed_mux = Arc::downgrade(&mux);
         mux.install_journal_before_publish_for_test(Arc::new(move || {
