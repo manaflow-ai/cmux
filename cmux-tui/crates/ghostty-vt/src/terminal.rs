@@ -3344,7 +3344,9 @@ impl Terminal {
     }
 
     fn vt_replay_cursor_plan(&mut self) -> Result<ReplayCursorPlan> {
-        let (x, y) = self.cursor_position().ok_or(Error::InvalidValue)?;
+        let Some((x, y)) = self.cursor_position() else {
+            return Ok(ReplayCursorPlan { bytes: Vec::new() });
+        };
         let origin_mode = self.mode(6, false);
         let (row, column) = if origin_mode {
             let (origin_x, origin_y) = self.scrolling_region_origin(x, y)?;
