@@ -5629,7 +5629,7 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     impl TestProcessExit {
-        fn observe(pid: libc::pid_t) -> Self {
+        fn observe(pid: libc::pid_t) -> Option<Self> {
             use std::os::fd::FromRawFd;
 
             #[cfg(target_os = "linux")]
@@ -5639,6 +5639,15 @@ mod tests {
             #[cfg(target_vendor = "apple")]
             // SAFETY: kqueue returns a new descriptor without external state.
             let descriptor = unsafe { libc::kqueue() };
+            #[cfg(target_os = "linux")]
+            if descriptor < 0 {
+                let error = std::io::Error::last_os_error();
+                if matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EPERM)) {
+                    return None;
+                }
+                panic!("observe helper child {pid}: {error}");
+            }
+            #[cfg(target_vendor = "apple")]
             assert!(
                 descriptor >= 0,
                 "observe helper child {pid}: {}",
@@ -5677,7 +5686,7 @@ mod tests {
                 );
             }
 
-            Self { descriptor }
+            Some(Self { descriptor })
         }
 
         fn wait(self, timeout: Duration) {
@@ -5809,10 +5818,12 @@ mod tests {
 
         let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
         wait_for_helper_reaped(reaped_receiver);
-        child_exit.wait(Duration::from_secs(2));
+        if let Some(child_exit) = child_exit {
+            child_exit.wait(Duration::from_secs(2));
+            assert!(!unix_process_is_live(child_pid), "helper child {child_pid} was not killed");
+        }
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
-        assert!(!unix_process_is_live(child_pid), "helper child {child_pid} was not killed");
     }
 
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
@@ -5848,13 +5859,15 @@ mod tests {
 
         let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
         wait_for_helper_reaped(reaped_receiver);
-        child_exit.wait(Duration::from_secs(2));
+        if let Some(child_exit) = child_exit {
+            child_exit.wait(Duration::from_secs(2));
+            assert!(
+                !unix_process_is_live(child_pid),
+                "descendant process-group child {child_pid} was not killed"
+            );
+        }
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
-        assert!(
-            !unix_process_is_live(child_pid),
-            "descendant process-group child {child_pid} was not killed"
-        );
     }
 
     #[cfg(unix)]
