@@ -3082,7 +3082,7 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
         commit_browser_topology(
             &mut registry,
             "duplicate-browser-seed",
-            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 0, 24),
+            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
         );
     }
     let legacy = Connection::open(&database).unwrap();
