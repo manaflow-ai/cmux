@@ -4366,6 +4366,52 @@ mod tests {
     }
 
     #[derive(Default)]
+    struct FakeReapControlState {
+        waiting: bool,
+        release_requested: bool,
+    }
+
+    #[derive(Default)]
+    struct FakeReapControl {
+        state: Mutex<FakeReapControlState>,
+        changed: Condvar,
+    }
+
+    impl FakeReapControl {
+        fn mark_waiting(&self) {
+            self.state.lock().unwrap().waiting = true;
+            self.changed.notify_all();
+        }
+
+        fn wait_until_waiting(&self) {
+            let state = self.state.lock().unwrap();
+            let (state, timeout) = self
+                .changed
+                .wait_timeout_while(state, Duration::from_secs(1), |state| !state.waiting)
+                .unwrap();
+            assert!(state.waiting && !timeout.timed_out(), "fake renderer never entered wait");
+        }
+
+        fn release(&self) {
+            self.state.lock().unwrap().release_requested = true;
+            self.changed.notify_all();
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakeReapHold(Arc<FakeReapControl>);
+
+    impl FakeReapHold {
+        fn wait_until_waiting(&self) {
+            self.0.wait_until_waiting();
+        }
+
+        fn release(&self) {
+            self.0.release();
+        }
+    }
+
+    #[derive(Default)]
     struct FakeProcessRecord {
         crashed: bool,
         control_closed: bool,
@@ -4373,6 +4419,7 @@ mod tests {
         reaped: bool,
         terminated_at: Option<Instant>,
         reap_delay: Duration,
+        reap_control: Option<Arc<FakeReapControl>>,
         sent_messages: Vec<RendererControlMessage>,
         decoder: Option<RendererControlIncrementalDecoder>,
         receive_count: usize,
@@ -4415,6 +4462,15 @@ mod tests {
 
         fn set_reap_delay(&self, pid: u32, reap_delay: Duration) {
             self.0.lock().unwrap().processes.get_mut(&pid).unwrap().reap_delay = reap_delay;
+        }
+
+        fn hold_reap(&self, pid: u32) -> FakeReapHold {
+            let control = Arc::new(FakeReapControl::default());
+            let mut state = self.0.lock().unwrap();
+            let record = state.processes.get_mut(&pid).unwrap();
+            record.reap_delay = Duration::from_secs(1);
+            record.reap_control = Some(control.clone());
+            FakeReapHold(control)
         }
 
         fn set_wait_failures(&self, pid: u32, failures: usize) {
@@ -4551,6 +4607,16 @@ mod tests {
                     }
                     record.reap_delay.saturating_sub(elapsed)
                 };
+                if let Some(control) = self
+                    .state
+                    .lock()
+                    .unwrap()
+                    .processes
+                    .get(&self.pid)
+                    .and_then(|record| record.reap_control.clone())
+                {
+                    control.mark_waiting();
+                }
                 thread::park_timeout(remaining);
             }
         }
@@ -6545,6 +6611,47 @@ mod tests {
         assert!(spawner.control_closed(pid));
         assert!(spawner.record(pid).0, "termination must be requested before reporting");
         assert!(!spawner.record(pid).1, "the background reaper still owns this process");
+    }
+
+    #[test]
+    fn explicit_reap_release_quiesces_owned_renderer_without_sleep() {
+        let mut spawner = FakeSpawner::default();
+        let workspace_uuid = WorkspaceUuid::new();
+        let process = spawner
+            .spawn(&SpawnRequest {
+                daemon_instance_id: daemon(),
+                workspace_uuid,
+                renderer_epoch: 78,
+            })
+            .unwrap();
+        let pid = process.pid();
+        let reap_hold = spawner.hold_reap(pid);
+        let identity = RendererWorkerIdentity {
+            workspace_uuid,
+            renderer_epoch: 78,
+            process_id: Some(pid),
+            process_instance_token: process.process_instance_token(),
+        };
+        let reaper = RendererProcessReaper::start(Arc::new(|| {})).unwrap();
+        let report = reaper.retire(
+            vec![RetiredRendererProcess {
+                identity,
+                process,
+                _permit: reaper.try_acquire().unwrap(),
+            }],
+            Duration::ZERO,
+        );
+        assert_eq!(report.unreaped, vec![identity]);
+
+        reap_hold.wait_until_waiting();
+        reap_hold.release();
+
+        assert!(reaper.wait_until_epoch_quiesced(
+            workspace_uuid,
+            identity.renderer_epoch,
+            Duration::from_millis(50),
+        ));
+        assert!(spawner.record(pid).1);
     }
 
     #[test]
