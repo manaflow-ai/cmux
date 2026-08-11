@@ -160,6 +160,9 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
+    var showSettings: () -> Void = {}
+    var deviceTreePresentation = MobileChildSheetPresentation()
+    var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -183,9 +186,6 @@ struct WorkspaceShellView: View {
     // instead of stranding the user on a deactivated search tab whose selected
     // (tinted) search control suggests a search is still in progress.
     @State private var searchSelectionReturnsToWorkspaces = false
-    @State private var showingRootSettings = false
-    @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
-    @State private var showingRootDeviceTree = false
     @State private var rootToolbarMachineSnapshots: WorkspaceMachineSnapshots?
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
@@ -202,7 +202,6 @@ struct WorkspaceShellView: View {
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     @Environment(ToastCenter.self) var toasts
-    @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
     #if os(iOS)
@@ -328,21 +327,10 @@ struct WorkspaceShellView: View {
             .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
                 notificationFeedProjection.update(items: items)
             }
-            .sheet(isPresented: $showingRootSettings, onDismiss: {
-                settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
-            }) {
-                MobileSettingsView(
-                    connectedHostName: store.connectedHostName,
-                    startPairingScanner: {
-                        settingsPairingScannerHandoff.requestScannerAfterDismiss(
-                            isSettingsPresented: $showingRootSettings
-                        )
-                    },
-                    signOut: signOut,
-                    store: store
-                )
-            }
-            .sheet(isPresented: $showingRootDeviceTree) {
+            .sheet(
+                isPresented: deviceTreePresentation.isPresented,
+                onDismiss: deviceTreePresentation.didDismiss
+            ) {
                 DeviceTreeView(
                     store: store,
                     selectWorkspace: { id in
@@ -473,7 +461,10 @@ struct WorkspaceShellView: View {
             compactNavigationPath = [selectedWorkspaceID]
         }
         #if os(iOS)
-        .sheet(isPresented: $isTaskComposerPresented) {
+        .sheet(
+            isPresented: taskComposerPresentation.isPresented,
+            onDismiss: taskComposerPresentation.didDismiss
+        ) {
             TaskComposerSheet(
                 store: store,
                 submitTaskComposer: submitTaskComposerFromShell
@@ -573,7 +564,7 @@ struct WorkspaceShellView: View {
     }
 
     private func openTaskComposer() {
-        isTaskComposerPresented = true
+        taskComposerPresentation.present()
     }
 
     private var taskComposerAction: (() -> Void)? {
@@ -704,8 +695,8 @@ struct WorkspaceShellView: View {
     @ToolbarContentBuilder
     private var rootToolbarContent: some ToolbarContent {
         WorkspaceRootToolbarLiveContent(
-            openSettings: { showingRootSettings = true },
-            openDevices: { showingRootDeviceTree = true },
+            openSettings: showSettings,
+            openDevices: { deviceTreePresentation.present() },
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
