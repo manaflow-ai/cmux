@@ -13755,6 +13755,10 @@ mod tests {
         let terminal_id =
             TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
                 .unwrap();
+        let terminal_surface = first
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| first.surface(surface))
+            .expect("created terminal surface");
         let exit = crate::terminal_host_protocol::TerminalExit {
             outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
             exited_at_ms: 4_567_890,
@@ -13762,13 +13766,19 @@ mod tests {
         assert!(first.persist_terminal_exit_for_test(&terminal_id, &exit).unwrap());
         assert_eq!(first.resource_surface_for_terminal(&terminal_id), None);
         assert!(disconnect_client(&first, client, false));
-        assert!(
-            scheduler.close_and_wait(Duration::from_secs(10)),
-            "terminal request dispatcher did not stop"
-        );
+        drop(scheduler);
         drop(writer);
+        terminal_surface.shutdown_for_daemon();
+        assert_eq!(
+            terminal_surface.wait_for_terminal_host_proxy_finish_for_test(
+                Instant::now() + Duration::from_secs(10)
+            ),
+            Some(true),
+            "terminal host proxy did not release the first mux"
+        );
         first.shutdown();
         assert_eq!(Arc::strong_count(&first), 1, "terminal workers retained the first mux");
+        drop(terminal_surface);
         drop(first);
 
         let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();

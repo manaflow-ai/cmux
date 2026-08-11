@@ -1207,6 +1207,50 @@ impl PtyTerminalRuntime {
     }
 }
 
+#[cfg(test)]
+#[derive(Default)]
+struct TerminalHostProxyCompletion {
+    finished: Mutex<bool>,
+    changed: Condvar,
+}
+
+#[cfg(test)]
+impl TerminalHostProxyCompletion {
+    fn finish(&self) {
+        let mut finished = self.finished.lock().unwrap();
+        *finished = true;
+        self.changed.notify_all();
+    }
+
+    fn wait_until_finished(&self, deadline: Instant) -> bool {
+        let mut finished = self.finished.lock().unwrap();
+        while !*finished {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, timeout) = self.changed.wait_timeout(finished, remaining).unwrap();
+            finished = next;
+            if timeout.timed_out() && !*finished {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+#[cfg(test)]
+struct TerminalHostProxyCompletionGuard(Arc<Surface>);
+
+#[cfg(test)]
+impl Drop for TerminalHostProxyCompletionGuard {
+    fn drop(&mut self) {
+        if let Some(pty) = self.0.as_pty() {
+            pty.host_proxy_completion.finish();
+        }
+    }
+}
+
 /// Content runtime shared by every view placement of one terminal.
 ///
 /// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
@@ -1247,6 +1291,8 @@ pub struct PtyTerminalRuntime {
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     host_connection_state: AtomicU8,
+    #[cfg(test)]
+    host_proxy_completion: TerminalHostProxyCompletion,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     dirty: AtomicBool,
@@ -2178,6 +2224,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                #[cfg(test)]
+                host_proxy_completion: TerminalHostProxyCompletion::default(),
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
@@ -2565,6 +2613,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                #[cfg(test)]
+                host_proxy_completion: TerminalHostProxyCompletion::default(),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(title),
                 pwd: Mutex::new(pwd),
@@ -2614,6 +2664,8 @@ impl Surface {
             let mux = mux.clone();
             let scrollback = opts.scrollback;
             move || {
+                #[cfg(test)]
+                let _completion = TerminalHostProxyCompletionGuard(surface.clone());
                 let mut sequence_boundary = sequence_boundary;
                 let mut protocol_version = protocol_version;
                 'connection: loop {
@@ -3430,6 +3482,7 @@ impl Surface {
                 dead: AtomicBool::new(true),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
+                host_proxy_completion: TerminalHostProxyCompletion::default(),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
@@ -3654,6 +3707,7 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                host_proxy_completion: TerminalHostProxyCompletion::default(),
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
@@ -4849,6 +4903,16 @@ impl Surface {
         Some(TerminalHostConnectionState::from_u8(
             pty.host_connection_state.load(Ordering::Acquire),
         ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for_terminal_host_proxy_finish_for_test(
+        &self,
+        deadline: Instant,
+    ) -> Option<bool> {
+        let pty = self.as_pty()?;
+        pty.host_identity.as_ref()?;
+        Some(pty.host_proxy_completion.wait_until_finished(deadline))
     }
 
     /// Ask the host to mint a one-use renderer credential. The durable owner
