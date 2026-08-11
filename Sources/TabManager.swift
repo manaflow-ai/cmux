@@ -1193,6 +1193,7 @@ class TabManager: ObservableObject {
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
+        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialTerminalEnvironment: [String: String] = [:],
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
@@ -1220,6 +1221,7 @@ class TabManager: ObservableObject {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
+                initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -1242,6 +1244,7 @@ class TabManager: ObservableObject {
                 titleSource: titleSource,
                 workingDirectory: overrideWorkingDirectory,
                 initialSurface: initialSurface,
+                initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
                 workspaceEnvironment: workspaceEnvironment,
                 inheritWorkingDirectory: inheritWorkingDirectory,
                 select: select,
@@ -1326,6 +1329,17 @@ class TabManager: ObservableObject {
                 guard let self,
                       let workspace = self.tabs.first(where: { $0.id == workspaceID }) else {
                     return
+                }
+                if initialSurface == .terminal,
+                   let initialTerminalStartupRestoreAgent,
+                   workspace.panels[surfaceID] is TerminalPanel {
+                    workspace.seedSessionRestoredAgentState(
+                        panelId: surfaceID,
+                        restorableAgent: initialTerminalStartupRestoreAgent,
+                        willRunStartupCommand: false,
+                        willRunStartupInput: initialTerminalInput != nil,
+                        resumeSessionWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory
+                    )
                 }
                 if select {
                     self.selectedTabId = workspaceID

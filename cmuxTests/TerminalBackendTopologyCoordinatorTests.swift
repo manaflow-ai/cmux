@@ -2430,6 +2430,65 @@ struct TerminalBackendTopologyCoordinatorTests {
         ) == .projected(placement.receipt))
     }
 
+    @Test @MainActor
+    func workspaceCreationSeedsRestoreSnapshotAfterCanonicalProjection() async throws {
+        let authority = makeAuthority()
+        let mutationCoordinator = TerminalBackendTopologyMutationCoordinator(
+            mutator: RejectingTopologyMutator(createWorkspaceAuthority: authority)
+        )
+        let composition = TerminalClientComposition(
+            terminalPanelFactory: CanonicalTestTerminalPanelFactory(),
+            terminalBackendTopologyMutationCoordinator: mutationCoordinator,
+            terminalBackendTopologyAdoptionRegistry: TerminalBackendTopologyAdoptionRegistry()
+        )
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "canonical-resume-session",
+            workingDirectory: "/tmp/canonical-resume"
+        )
+
+        let outcome = manager.requestAddWorkspace(
+            workingDirectory: agent.workingDirectory,
+            initialTerminalInput: " cmux restore codex canonical-resume-session\n",
+            initialTerminalStartupRestoreAgent: agent
+        )
+        guard case .submittedToBackend(let submission) = outcome else {
+            Issue.record("Expected workspace creation to enter the backend mutation queue")
+            return
+        }
+        let workspaceID = try #require(submission.workspaceID)
+        let surfaceID = try #require(submission.surfaceID)
+        try manager.installCanonicalTopology(try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            )]
+        ))
+        for _ in 0..<200 {
+            if mutationCoordinator.submissionStatus(requestID: submission.requestID)?.isFinished == true {
+                break
+            }
+            await Task.yield()
+        }
+
+        let workspace = try #require(manager.tabs.first { $0.id == workspaceID })
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[surfaceID]?.sessionId
+                == "canonical-resume-session"
+        )
+        #expect(
+            workspace.restoredResumeSessionWorkingDirectoriesByPanelId[surfaceID]
+                == "/tmp/canonical-resume"
+        )
+    }
+
     @Test(.timeLimit(.minutes(1))) @MainActor
     func loginShellRespawnUsesCanonicalBackendWithoutReplacingPanel() async throws {
         let authority = makeAuthority()
@@ -4605,15 +4664,18 @@ private actor RespawnTopologyRecorder {
 
 private struct RejectingTopologyMutator: TerminalBackendTopologyMutating {
     let createWorkspacePlacement: BackendSurfacePlacement?
+    let createWorkspaceAuthority: BackendAuthority?
     let respawnPlacement: BackendSurfacePlacement?
     let respawnRecorder: RespawnTopologyRecorder?
 
     init(
         createWorkspacePlacement: BackendSurfacePlacement? = nil,
+        createWorkspaceAuthority: BackendAuthority? = nil,
         respawnPlacement: BackendSurfacePlacement? = nil,
         respawnRecorder: RespawnTopologyRecorder? = nil
     ) {
         self.createWorkspacePlacement = createWorkspacePlacement
+        self.createWorkspaceAuthority = createWorkspaceAuthority
         self.respawnPlacement = respawnPlacement
         self.respawnRecorder = respawnRecorder
     }
@@ -4627,6 +4689,26 @@ private struct RejectingTopologyMutator: TerminalBackendTopologyMutating {
         name: String?, launch: BackendTerminalLaunch, columns: UInt16?, rows: UInt16?
     ) async throws -> BackendSurfacePlacement {
         if let createWorkspacePlacement { return createWorkspacePlacement }
+        if let createWorkspaceAuthority {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "request_id": requestID.uuidString.lowercased(),
+                "daemon_instance_id": createWorkspaceAuthority.daemonInstanceID.rawValue
+                    .uuidString.lowercased(),
+                "session_id": createWorkspaceAuthority.sessionID.rawValue.uuidString.lowercased(),
+                "base_revision": 0,
+                "revision": 1,
+                "replayed": false,
+                "surface": 1,
+                "surface_uuid": surfaceID.rawValue.uuidString.lowercased(),
+                "pane": 1,
+                "pane_uuid": UUID().uuidString.lowercased(),
+                "screen": 1,
+                "screen_uuid": UUID().uuidString.lowercased(),
+                "workspace": 1,
+                "workspace_uuid": workspaceID.rawValue.uuidString.lowercased(),
+            ])
+            return try JSONDecoder().decode(BackendSurfacePlacement.self, from: data)
+        }
         return try reject()
     }
 
