@@ -1244,6 +1244,32 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_opencode_message_id_does_not_conflict_with_session_id() {
+        let ingress = agent_hook_journal_ingress(
+            "opencode",
+            "message.updated",
+            None,
+            json!({
+                "event": {
+                    "properties": {
+                        "info": {
+                            "id":"message-1",
+                            "sessionID":"opencode-session",
+                        }
+                    }
+                }
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "opencode-session");
+        assert_eq!(
+            ingress.payload["native"]["identifiers"]["agent_session_id"],
+            "opencode-session"
+        );
+    }
+
+    #[test]
     fn nested_agent_edges_are_stable_and_indexable_without_payload_scans() {
         let root = agent_hook_journal_ingress(
             "codex",
