@@ -355,7 +355,8 @@ struct TerminalSurfaceLaunchResolverTests {
             resourceURL: resourceURL,
             bundleIdentifier: "com.cmux.test",
             ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
-            defaultShellArguments: defaultArgumentsProvider ?? { defaultArguments },
+            defaultShellArguments: defaultArguments,
+            asynchronousDefaultShellArguments: defaultArgumentsProvider,
             agentCommandShimInstallDeadline: agentCommandShimInstallDeadline,
             agentCommandShimInstallDeadlineClock: agentCommandShimInstallDeadlineClock
         )

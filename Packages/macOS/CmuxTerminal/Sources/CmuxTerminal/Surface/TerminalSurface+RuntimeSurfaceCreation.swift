@@ -43,7 +43,7 @@ extension TerminalSurface {
             ambientEnvironment: ProcessInfo.processInfo.environment,
             // Embedded Ghostty computes its own default-shell argv. The shared
             // resolver still requires a valid mutually-exclusive launch form.
-            defaultShellArguments: { ["/bin/zsh", "-l"] }
+            defaultShellArguments: ["/bin/zsh", "-l"]
         ).resolve(
             TerminalSurfaceLaunchRequest(
                 workspaceID: tabId,

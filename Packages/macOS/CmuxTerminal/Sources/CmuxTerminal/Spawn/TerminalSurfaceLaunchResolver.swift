@@ -16,7 +16,7 @@ public final class TerminalSurfaceLaunchResolver {
     private let launchResourceProvider: TerminalSurfaceLaunchResourceProvider
     private let bundleIdentifier: String?
     private let ambientEnvironment: [String: String]
-    private let defaultShellArguments: DefaultShellArguments
+    private let synchronousDefaultShellArguments: [String]
     private let defaultShellArgumentsProvider: TerminalSurfaceDefaultShellArgumentsProvider
     private let resolvedUserShell: @MainActor () -> String?
     private let userGhosttyCommand: @MainActor () -> GhosttyConfiguredCommand?
@@ -41,7 +41,8 @@ public final class TerminalSurfaceLaunchResolver {
             launchResourceProvider: dependencies.launchResourceProvider,
             bundleIdentifier: bundleIdentifier,
             ambientEnvironment: ambientEnvironment,
-            defaultShellArguments: Self.macOSLoginShellArguments,
+            defaultShellArguments: ["/bin/zsh", "-l"],
+            asynchronousDefaultShellArguments: Self.macOSLoginShellArguments,
             agentCommandShimInstallDeadline: dependencies.agentCommandShimInstallDeadline,
             agentCommandShimInstallDeadlineClock: dependencies.agentCommandShimInstallDeadlineClock
         )
@@ -59,7 +60,8 @@ public final class TerminalSurfaceLaunchResolver {
         launchResourceProvider: TerminalSurfaceLaunchResourceProvider? = nil,
         bundleIdentifier: String?,
         ambientEnvironment: [String: String],
-        defaultShellArguments: @escaping DefaultShellArguments,
+        defaultShellArguments: [String],
+        asynchronousDefaultShellArguments: DefaultShellArguments? = nil,
         agentCommandShimInstallDeadline: Duration = .seconds(5),
         agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock()
     ) {
@@ -78,9 +80,9 @@ public final class TerminalSurfaceLaunchResolver {
             )
         self.bundleIdentifier = bundleIdentifier
         self.ambientEnvironment = ambientEnvironment
-        self.defaultShellArguments = defaultShellArguments
+        self.synchronousDefaultShellArguments = defaultShellArguments
         self.defaultShellArgumentsProvider = TerminalSurfaceDefaultShellArgumentsProvider(
-            resolve: defaultShellArguments
+            resolve: asynchronousDefaultShellArguments ?? { defaultShellArguments }
         )
         self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock
@@ -144,7 +146,7 @@ public final class TerminalSurfaceLaunchResolver {
             request,
             commandShims: commandShims,
             launchResourceSnapshot: launchResourceSnapshot,
-            defaultShellArguments: defaultShellArguments()
+            defaultShellArguments: synchronousDefaultShellArguments
         )
     }
 

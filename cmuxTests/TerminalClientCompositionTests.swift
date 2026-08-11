@@ -2422,7 +2422,7 @@ struct TerminalClientCompositionTests {
             resourceURL: URL(fileURLWithPath: "/tmp/cmux-test-resources"),
             bundleIdentifier: "com.cmux.test.persistent-terminal",
             ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
-            defaultShellArguments: { ["/bin/zsh", "-l"] }
+            defaultShellArguments: ["/bin/zsh", "-l"]
         )
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -3114,13 +3114,15 @@ struct TerminalClientCompositionTests {
 
     @MainActor
     private func makeLaunchResolver() -> TerminalSurfaceLaunchResolver {
-        let dependencies = GhosttyApp.terminalSurfaceRuntimeDependencies
+        let dependencies = GhosttyApp.terminalSurfaceLaunchDependencies
         return TerminalSurfaceLaunchResolver(
-            engine: dependencies.engine,
-            spawnPolicyProvider: dependencies.spawnPolicy,
+            userGhosttyShellIntegrationMode: dependencies.userGhosttyShellIntegrationMode,
+            resolvedUserShell: dependencies.resolvedUserShell,
+            userGhosttyCommand: dependencies.userGhosttyCommand,
+            spawnPolicyProvider: dependencies.spawnPolicyProvider,
             runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
-                installClaudeCommandShim: { _, _, _ in nil },
+                agentCommandShimTemporaryDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
+                installAgentCommandShims: { _, _, _ in nil },
                 isExecutableFile: { _ in false }
             ),
             sessionPortBase: 40_000,
@@ -3128,7 +3130,7 @@ struct TerminalClientCompositionTests {
             resourceURL: nil,
             bundleIdentifier: "com.cmux.test.persistent-terminal",
             ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
-            defaultShellArguments: { ["/bin/zsh", "-l"] }
+            defaultShellArguments: ["/bin/zsh", "-l"]
         )
     }
 
