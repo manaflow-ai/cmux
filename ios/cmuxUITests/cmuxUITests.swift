@@ -9214,6 +9214,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedTerminalID = "terminal-build"
     private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
     private var requestCountsByMethod: [String: Int] = [:]
+    private var eventSubscriptionStreamIDs: Set<String> = []
     private var replayCounts: [String: Int] = [:]
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
@@ -9685,7 +9686,25 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         case "terminal.create":
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
-            result = ["stream_id": params["stream_id"] as? String ?? "events"]
+            let streamID = params["stream_id"] as? String ?? "events"
+            let alreadySubscribed = eventSubscriptionStreamIDs.contains(streamID)
+            eventSubscriptionStreamIDs.insert(streamID)
+            result = [
+                "stream_id": streamID,
+                "topics": params["topics"] as? [String] ?? [],
+                "already_subscribed": alreadySubscribed,
+            ]
+        case "mobile.events.unsubscribe":
+            let streamID = params["stream_id"] as? String ?? "events"
+            eventSubscriptionStreamIDs.remove(streamID)
+            result = ["stream_id": streamID]
+        case "mobile.events.probe":
+            let streamID = params["stream_id"] as? String ?? ""
+            result = [
+                "stream_id": streamID,
+                "subscribed": eventSubscriptionStreamIDs.contains(streamID),
+                "event_transport": "control_v1",
+            ]
         case "mobile.host.status":
             result = mobileHostStatusResult()
         case "mobile.task.models.list":
