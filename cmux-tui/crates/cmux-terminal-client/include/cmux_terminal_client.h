@@ -52,6 +52,9 @@ typedef struct {
     uint32_t end_reason;
 } CmuxFrontendResourceUpdate;
 
+#define CMUX_FRONTEND_RESOURCE_UPDATE_MAX_BYTES (32u * 1024u * 1024u)
+extern const size_t CMUX_FRONTEND_RESOURCE_UPDATE_MAX_BYTES_VALUE;
+
 typedef enum {
     CMUX_FRONTEND_RESOURCE_STREAM_END_NONE = 0,
     CMUX_FRONTEND_RESOURCE_STREAM_END_COMPLETED = 1,

@@ -819,6 +819,7 @@ func resourceDrainRejectsOversizedFirstEnvelopeBeforeAllocation() {
     var requestedPayloadBuffer = false
     let batch = drainFrontendResourceUpdates(
         maximumBytes: 3,
+        maximumEnvelopeBytes: 3,
         discard: { discarded = true },
         copy: { descriptor, buffer, _ in
             descriptor = CmuxFrontendResourceUpdate()
@@ -833,6 +834,32 @@ func resourceDrainRejectsOversizedFirstEnvelopeBeforeAllocation() {
     #expect(!batch.hasMore)
     #expect(discarded)
     #expect(!requestedPayloadBuffer)
+}
+
+@Test
+func resourceDrainAcceptsOneProtocolEnvelopeAboveTheBatchBudget() {
+    var pending = [Data("four".utf8)]
+    var discarded = false
+    let batch = drainFrontendResourceUpdates(
+        maximumBytes: 3,
+        maximumEnvelopeBytes: 4,
+        discard: { discarded = true },
+        copy: { descriptor, buffer, capacity in
+            descriptor = CmuxFrontendResourceUpdate()
+            guard let payload = pending.first else { return true }
+            descriptor.payload_length = payload.count
+            guard let buffer, capacity >= payload.count else { return true }
+            payload.copyBytes(to: buffer, count: payload.count)
+            pending.removeFirst()
+            return true
+        }
+    )
+
+    #expect(batch.envelopes == [Data("four".utf8)])
+    #expect(batch.hasMore)
+    #expect(!batch.overflowed)
+    #expect(!discarded)
+    #expect(pending.isEmpty)
 }
 
 @Test
@@ -1064,6 +1091,13 @@ func invalidResetBlocksLaterRenderEventsAndReadyState() {
     )
     let geometry = TerminalGeometry(cols: 80, rows: 24)
 
+    view.setMarkedText(
+        "old",
+        selectedRange: NSRange(location: 3, length: 0),
+        replacementRange: NSRange(location: NSNotFound, length: 0)
+    )
+    #expect(view.hasMarkedText())
+
     view.apply(TerminalRenderEvent(
         kind: .reset,
         geometry: geometry,
@@ -1077,10 +1111,41 @@ func invalidResetBlocksLaterRenderEventsAndReadyState() {
     view.apply(TerminalRenderEvent(kind: .ready, geometry: geometry, payload: Data()))
 
     #expect(!view.renderStreamValid)
+    #expect(!view.hasMarkedText())
+    #expect(view.markedRange().location == NSNotFound)
     #expect(view.initializationError == testLocalization.text(
         "error.terminal_snapshot",
         "The terminal snapshot was invalid."
     ))
+}
+
+@Test @MainActor
+func exitClearsMarkedTextFromThePreviousInputEpoch() {
+    let input = AsyncStream<TerminalInput>.makeStream()
+    let drops = AsyncStream<Void>.makeStream()
+    let relay = GhosttyTerminalInputRelay(
+        continuation: input.continuation,
+        dropContinuation: drops.continuation
+    )
+    let view = GhosttyRemoteSurfaceView(
+        runtime: nil,
+        inputRelay: relay,
+        localization: testLocalization
+    )
+
+    view.setMarkedText(
+        "old",
+        selectedRange: NSRange(location: 3, length: 0),
+        replacementRange: NSRange(location: NSNotFound, length: 0)
+    )
+    view.apply(TerminalRenderEvent(
+        kind: .exit,
+        geometry: TerminalGeometry(cols: 80, rows: 24),
+        payload: Data()
+    ))
+
+    #expect(!view.hasMarkedText())
+    #expect(view.markedRange().location == NSNotFound)
 }
 
 @Test

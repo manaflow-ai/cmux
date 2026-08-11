@@ -26,6 +26,10 @@ const FRONTEND_CONNECTION_CANCELLED_ERROR: &str = "frontend connection cancelled
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const RESOURCE_UPDATE_QUEUE_MAX_ITEMS: usize = 256;
 const RESOURCE_UPDATE_QUEUE_MAX_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES * 2;
+
+#[unsafe(no_mangle)]
+pub static CMUX_FRONTEND_RESOURCE_UPDATE_MAX_BYTES_VALUE: usize =
+    REMOTE_SESSION_MESSAGE_MAX_BYTES;
 const RESOURCE_STREAM_END_NONE: u8 = 0;
 const RESOURCE_STREAM_END_COMPLETED: u8 = 1;
 const RESOURCE_STREAM_END_CANCELED: u8 = 2;
@@ -1516,6 +1520,14 @@ mod tests {
         assert!(queue.updates.is_empty());
         assert_eq!(queue.bytes, 0);
         assert!(!state.resource_updates_overflowed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn resource_update_limit_matches_the_protocol_envelope_limit() {
+        assert_eq!(
+            CMUX_FRONTEND_RESOURCE_UPDATE_MAX_BYTES_VALUE,
+            REMOTE_SESSION_MESSAGE_MAX_BYTES
+        );
     }
 
     #[test]

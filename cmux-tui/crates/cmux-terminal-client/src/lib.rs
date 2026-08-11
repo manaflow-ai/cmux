@@ -668,9 +668,15 @@ impl ClientState {
         if !accepted {
             self.status = "renderer-backpressure".into();
             self.resync_count = self.resync_count.saturating_add(1);
+            self.fail_closed_for_stream_restart();
             return FrameEffect::Restart;
         }
         FrameEffect::Continue
+    }
+
+    fn fail_closed_for_stream_restart(&mut self) {
+        self.bootstrap_committed = false;
+        self.ready = false;
     }
 
     fn prepare_handshake(&mut self, terminal_id: TerminalPublicId) -> Result<(), String> {
@@ -914,6 +920,7 @@ impl ClientState {
                 self.source_cursor = frame.sequence;
                 self.resync_count = self.resync_count.saturating_add(1);
                 self.status = "resync-required".into();
+                self.fail_closed_for_stream_restart();
                 FrameEffect::Restart
             }
             // Targeted resize acknowledgements are outside the source
@@ -1288,6 +1295,12 @@ fn set_client_status(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates, s
     updates.notify();
 }
 
+fn restart_stream(state: &Arc<Mutex<ClientState>>, updates: &ClientUpdates) -> StreamOutcome {
+    state.lock().unwrap().fail_closed_for_stream_restart();
+    updates.notify();
+    StreamOutcome::Restart
+}
+
 fn finish_decoder(
     decoder: &FrameDecoder,
     state: &Arc<Mutex<ClientState>>,
@@ -1314,7 +1327,7 @@ async fn receive_frames(
                 if chunk.lane != Lane::Interactive {
                     set_client_status(&state, &updates, "wrong-lane".into());
                     let _ = finish_decoder(&decoder, &state, &updates);
-                    return StreamOutcome::Restart;
+                    return restart_stream(&state, &updates);
                 }
                 match decoder.push(&chunk.payload) {
                     Ok(frames) => {
@@ -1335,19 +1348,22 @@ async fn receive_frames(
                                 Err(error) => {
                                     set_client_status(&state, &updates, error);
                                     let _ = finish_decoder(&decoder, &state, &updates);
-                                    return StreamOutcome::Restart;
+                                    return restart_stream(&state, &updates);
                                 }
                             }
                         }
                         if let Some(outcome) = outcome {
                             let _ = finish_decoder(&decoder, &state, &updates);
-                            return outcome;
+                            return match outcome {
+                                StreamOutcome::Restart => restart_stream(&state, &updates),
+                                StreamOutcome::Stop => StreamOutcome::Stop,
+                            };
                         }
                     }
                     Err(error) => {
                         set_client_status(&state, &updates, format!("codec: {error}"));
                         let _ = finish_decoder(&decoder, &state, &updates);
-                        return StreamOutcome::Restart;
+                        return restart_stream(&state, &updates);
                     }
                 }
                 if chunk.finished || chunk.reset {
@@ -1358,20 +1374,20 @@ async fn receive_frames(
                             if chunk.reset { "stream-reset" } else { "stream-closed" }.into(),
                         );
                     }
-                    return StreamOutcome::Restart;
+                    return restart_stream(&state, &updates);
                 }
             }
             Ok(None) => {
                 if finish_decoder(&decoder, &state, &updates) {
                     set_client_status(&state, &updates, "stream-closed".into());
                 }
-                return StreamOutcome::Restart;
+                return restart_stream(&state, &updates);
             }
             Err(error) => {
                 if finish_decoder(&decoder, &state, &updates) {
                     set_client_status(&state, &updates, format!("stream: {error}"));
                 }
-                return StreamOutcome::Restart;
+                return restart_stream(&state, &updates);
             }
         }
     }
@@ -3178,6 +3194,11 @@ mod tests {
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap(),
             ));
+            {
+                let mut state = state.lock().unwrap();
+                state.bootstrap_committed = true;
+                state.ready = true;
+            }
             let receiver = tokio::spawn(receive_frames(
                 stream,
                 state.clone(),
@@ -3198,6 +3219,8 @@ mod tests {
                 state.lock().unwrap().status.contains("truncated"),
                 "stream termination discarded the decoder's buffered prefix"
             );
+            assert!(!state.lock().unwrap().ready);
+            assert!(!state.lock().unwrap().bootstrap_committed);
             client.shutdown().await;
             daemon.shutdown().await;
         });
@@ -3260,6 +3283,8 @@ mod tests {
                 let mut state = state.lock().unwrap();
                 state.materialize_frame().unwrap();
                 assert_eq!(state.status, "resync-required");
+                assert!(!state.ready);
+                assert!(!state.bootstrap_committed);
                 assert!(!state.frame_text.contains("must-not-apply"));
             }
             let _ = incoming.stream.close().await;

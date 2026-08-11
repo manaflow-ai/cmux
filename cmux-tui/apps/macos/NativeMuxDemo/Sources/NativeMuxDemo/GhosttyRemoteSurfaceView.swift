@@ -236,6 +236,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   func apply(_ event: TerminalRenderEvent) {
     switch event.kind {
     case .reset:
+      clearLocalInputEpoch()
       ready = false
       renderStreamValid = false
       lastReportedGeometry = nil
@@ -267,12 +268,23 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
         ghostty_surface_refresh(surface)
       }
     case .exit:
+      clearLocalInputEpoch()
       ready = false
       renderStreamValid = false
     }
   }
 
+  private func clearLocalInputEpoch() {
+    markedText.mutableString.setString("")
+    markedTextRange = NSRange(location: NSNotFound, length: 0)
+    markedTextSelection = NSRange(location: NSNotFound, length: 0)
+    keyTextAccumulator = nil
+    locallyConsumedKeyCodes.removeAll()
+    sentRightMousePress = false
+  }
+
   private func failClosedForInvalidSnapshot() {
+    clearLocalInputEpoch()
     ready = false
     renderStreamValid = false
     lastReportedGeometry = nil
