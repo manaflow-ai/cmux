@@ -4222,7 +4222,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func recoverySweepSchedulingDoesNotBlockSSHStartup(shellPath: String) throws {
+    func recoverySweepSchedulingDoesNotBlockStartupOrHideCurrentQueueEntry(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-recovery-scheduling-\(UUID().uuidString)", isDirectory: true)
@@ -4232,6 +4232,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_resume_failed_auth_group_reapers() {
+          if [ -n "${CMUX_SSH_AUTH_GROUP_DIR:-}" ]; then
+            : > "$CMUX_TEST_RECOVERY_GROUP_LEAK"
+          fi
           : > "$CMUX_TEST_RECOVERY_STARTED"
           cmux_test_worker_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
           while [ ! -e "$CMUX_TEST_RECOVERY_RELEASE" ]; do
@@ -4241,6 +4244,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           done
           : > "$CMUX_TEST_RECOVERY_DONE"
         }
+        CMUX_SSH_AUTH_GROUP_DIR="$TMPDIR/cmux-ssh-auth-group.current"
+        export CMUX_SSH_AUTH_GROUP_DIR
         cmux_ssh_schedule_failed_auth_group_recovery || exit 99
         : > "$CMUX_TEST_STARTUP_CONTINUED"
         test -e "$CMUX_TEST_STARTUP_CONTINUED" || exit 98
@@ -4259,12 +4264,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           [ "$cmux_test_done_now" -lt "$cmux_test_done_deadline" ] || exit 94
           /bin/sleep 0.01
         done
+        [ ! -e "$CMUX_TEST_RECOVERY_GROUP_LEAK" ] || exit 93
         """
 
         let result = try runShellCommand(
             command,
             environment: [
                 "CMUX_TEST_RECOVERY_DONE": root.appendingPathComponent("done").path,
+                "CMUX_TEST_RECOVERY_GROUP_LEAK": root.appendingPathComponent("group-leak").path,
                 "CMUX_TEST_RECOVERY_RELEASE": root.appendingPathComponent("release").path,
                 "CMUX_TEST_RECOVERY_STARTED": root.appendingPathComponent("started").path,
                 "CMUX_TEST_STARTUP_CONTINUED": root.appendingPathComponent("continued").path,
@@ -4464,7 +4471,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         test "$(/usr/bin/awk 'END { print NR + 0 }' "$CMUX_TEST_PASSES")" \
           -eq 1 || exit 95
-        /usr/bin/grep -Eq '^recovery-v1\|[A-Fa-f0-9]{32}\|1$' \
+        /usr/bin/grep -Eq '^recovery-v1\\|[A-Fa-f0-9]{32}\\|1$' \
           "$cmux_test_failed" || exit 94
         test ! -d \
           "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.lock" || exit 93

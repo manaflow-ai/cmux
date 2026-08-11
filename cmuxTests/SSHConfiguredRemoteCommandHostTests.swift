@@ -107,9 +107,17 @@ struct SSHConfiguredRemoteCommandHostTests {
         )
         let startupCommand = try #require(createParams["initial_command"] as? String)
         let startupURL = URL(fileURLWithPath: startupCommand)
-        let startupArtifact = FileManager.default.fileExists(atPath: startupURL.path)
-            ? try String(contentsOf: startupURL, encoding: .utf8)
-            : startupCommand
+        let startupArtifact: String
+        if FileManager.default.fileExists(atPath: startupURL.path) {
+            startupArtifact = try String(contentsOf: startupURL, encoding: .utf8)
+        } else if let payloadPrefix = startupCommand.range(of: "cmux_payload="),
+                  let lineEnd = startupCommand[payloadPrefix.upperBound...].firstIndex(of: "\n") {
+            let encodedScript = String(startupCommand[payloadPrefix.upperBound..<lineEnd])
+            let scriptData = try #require(Data(base64Encoded: encodedScript))
+            startupArtifact = try #require(String(data: scriptData, encoding: .utf8))
+        } else {
+            startupArtifact = startupCommand
+        }
         #expect(
             startupArtifact.contains(
                 "export CMUX_SSH_AUTH_GROUP_DIR\n    cmux_ssh_schedule_failed_auth_group_recovery\n    ( cmux_ssh_foreground_auth )"
