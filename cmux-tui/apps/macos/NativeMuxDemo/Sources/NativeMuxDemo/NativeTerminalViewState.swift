@@ -7,4 +7,5 @@ struct NativeTerminalViewState {
   let errorMessage: String
   let isAttached: Bool
   let didExit: Bool
+  let retryAttach: (() -> Void)?
 }

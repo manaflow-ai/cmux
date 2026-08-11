@@ -275,6 +275,7 @@ func resourceDrainUsesTheCDescriptorTwoCallContract() throws {
     #expect(batch.endReason == .gap)
     #expect(!batch.overflowed)
     #expect(batch.envelopes.count == 2)
+    #expect(!batch.hasMore)
     let sequences = try batch.envelopes.map { payload in
         let object = try #require(
             JSONSerialization.jsonObject(with: payload) as? [String: Int]
@@ -282,6 +283,56 @@ func resourceDrainUsesTheCDescriptorTwoCallContract() throws {
         return try #require(object["sequence"])
     }
     #expect(sequences == [1, 2])
+}
+
+@Test
+func resourceDrainStopsAtTheEnvelopeBudget() {
+    var pending = [Data("one".utf8), Data("two".utf8), Data("three".utf8)]
+    let copy: (inout CmuxFrontendResourceUpdate, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        descriptor = CmuxFrontendResourceUpdate()
+        guard let payload = pending.first else { return true }
+        descriptor.payload_length = payload.count
+        guard let buffer, capacity >= payload.count else { return true }
+        payload.copyBytes(to: buffer, count: payload.count)
+        pending.removeFirst()
+        return true
+    }
+
+    let first = drainFrontendResourceUpdates(maximumEnvelopes: 2, copy: copy)
+    #expect(first.envelopes.count == 2)
+    #expect(first.hasMore)
+    #expect(pending.count == 1)
+
+    let second = drainFrontendResourceUpdates(maximumEnvelopes: 2, copy: copy)
+    #expect(second.envelopes == [Data("three".utf8)])
+    #expect(!second.hasMore)
+    #expect(pending.isEmpty)
+}
+
+@Test
+func resourceDrainLeavesTheNextEnvelopeAtTheByteBudget() {
+    var pending = [Data("four".utf8), Data("five".utf8)]
+    let copy: (inout CmuxFrontendResourceUpdate, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        descriptor = CmuxFrontendResourceUpdate()
+        guard let payload = pending.first else { return true }
+        descriptor.payload_length = payload.count
+        guard let buffer, capacity >= payload.count else { return true }
+        payload.copyBytes(to: buffer, count: payload.count)
+        pending.removeFirst()
+        return true
+    }
+
+    let first = drainFrontendResourceUpdates(maximumBytes: 6, copy: copy)
+    #expect(first.envelopes == [Data("four".utf8)])
+    #expect(first.hasMore)
+    #expect(pending.count == 1)
+
+    let second = drainFrontendResourceUpdates(maximumBytes: 6, copy: copy)
+    #expect(second.envelopes == [Data("five".utf8)])
+    #expect(!second.hasMore)
+    #expect(pending.isEmpty)
 }
 
 @Test

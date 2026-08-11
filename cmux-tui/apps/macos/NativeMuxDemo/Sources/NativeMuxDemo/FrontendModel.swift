@@ -255,9 +255,10 @@ final class FrontendModel {
                     guard !Task.isCancelled else { break }
                     guard let self else { continue }
                     let batch = await service.drainResourceUpdates()
-                    if batch.overflowed || (batch.envelopes.isEmpty && !batch.ended) {
+                    if batch.overflowed {
                         self.scheduleRefresh()
-                    } else if batch.envelopes.contains(where: { self.applyResourceDelta($0) == false }) {
+                    } else if !batch.envelopes.isEmpty,
+                              batch.envelopes.contains(where: { self.applyResourceDelta($0) == false }) {
                         // The projection accepts snapshots during bootstrap/resync.
                         // Delta application is deliberately fail-closed until every
                         // resource kind has a typed projection adapter.

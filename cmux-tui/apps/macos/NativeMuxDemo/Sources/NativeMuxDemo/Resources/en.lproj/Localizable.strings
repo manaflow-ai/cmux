@@ -19,6 +19,7 @@
 "pane.close" = "Close pane";
 "tab.close" = "Close tab";
 "terminal.connecting" = "Attaching terminal…";
+"terminal.retry_attach" = "Retry";
 "terminal.exited" = "Process exited";
 "browser.invalid_url" = "This browser tab has no valid URL.";
 "browser.manual_load" = "This tab does not load remote content until you open it.";
