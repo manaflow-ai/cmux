@@ -447,6 +447,11 @@ impl MachineConnectCancellation {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    pub(crate) fn with_active<T>(&self, operation: impl FnOnce() -> T) -> Option<T> {
+        let _state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.is_cancelled() { None } else { Some(operation()) }
+    }
+
     #[cfg(any(windows, test))]
     pub(crate) fn wait_until_cancelled(&self) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -521,14 +526,7 @@ impl MachineConnectionHub {
     pub(crate) fn register(&self, key: MachineKey, connector: MachineConnectFn) {
         let Ok(mut slots) = self.inner.slots.lock() else { return };
         match slots.get_mut(&key) {
-            Some(slot) => {
-                if let Some(attempt) = slot.active_attempt.take() {
-                    attempt.cancellation.cancel();
-                }
-                slot.connector = connector;
-                slot.state = MachineConnectionState::Disconnected;
-                self.inner.changed.notify_all();
-            }
+            Some(slot) => slot.connector = connector,
             None => {
                 slots.insert(
                     key,
@@ -557,6 +555,7 @@ impl MachineConnectionHub {
     }
 
     fn connect_with_retry(&self, key: MachineKey, retry_failed: bool) -> anyhow::Result<Session> {
+        let mut observed_attempt = false;
         loop {
             if self.inner.closed.load(Ordering::Acquire) {
                 anyhow::bail!(crate::localization::catalog().sidebar.no_active_session);
@@ -574,6 +573,7 @@ impl MachineConnectionHub {
                     return Ok(connection.session.clone());
                 }
                 MachineConnectionState::Connecting => {
+                    observed_attempt = true;
                     let deadline = slot
                         .active_attempt
                         .as_ref()
@@ -612,7 +612,7 @@ impl MachineConnectionHub {
                     drop(slots);
                 }
                 MachineConnectionState::Failed(error)
-                    if !retry_failed || slot.active_attempt.is_some() =>
+                    if !retry_failed || observed_attempt || slot.active_attempt.is_some() =>
                 {
                     return Err(anyhow::anyhow!(error.clone()));
                 }
@@ -642,6 +642,7 @@ impl MachineConnectionHub {
                         }
                         return Err(error.into());
                     }
+                    observed_attempt = true;
                 }
             }
         }
@@ -787,12 +788,16 @@ fn machine_connection_timeout_message() -> String {
         .machine_connection_timed_out(MACHINE_CONNECTION_TIMEOUT.as_secs())
 }
 
+pub(crate) fn machine_connection_canceled_message() -> &'static str {
+    crate::localization::catalog().sidebar.machine_connection_canceled
+}
+
 fn connect_target(
     target: &MachineTargetConfig,
     cancellation: Arc<MachineConnectCancellation>,
 ) -> anyhow::Result<MachineConnection> {
     if cancellation.is_cancelled() {
-        anyhow::bail!("machine connection was canceled");
+        anyhow::bail!(machine_connection_canceled_message());
     }
     match target {
         MachineTargetConfig::Unix { socket } => Ok(MachineConnection {
@@ -845,7 +850,7 @@ fn managed_ssh_options(
     {
         anyhow::bail!("machine address must be a host or user@host without whitespace");
     }
-    let host = if port.is_some() && host.contains(':') && !host.starts_with('[') {
+    let host = if host.contains(':') && !host.starts_with('[') {
         format!("[{host}]")
     } else {
         host.to_string()
@@ -927,6 +932,57 @@ mod tests {
     }
 
     #[test]
+    fn failed_connection_attempt_returns_after_one_try_per_request() {
+        let key = MachineKey(42);
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let connector_calls = Arc::clone(&calls);
+        let connector: MachineConnectFn = Arc::new(move |_| {
+            connector_calls.fetch_add(1, Ordering::Relaxed);
+            anyhow::bail!("test connection failed")
+        });
+        let hub = MachineConnectionHub::new([(key, connector)]);
+
+        assert!(hub.connect(key).is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+        assert!(hub.connect(key).is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn cancellation_waits_for_an_active_publication_guard() {
+        let cancellation = Arc::new(MachineConnectCancellation::default());
+        let guarded = Arc::clone(&cancellation);
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let publication = std::thread::spawn(move || {
+            guarded.with_active(|| {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            })
+        });
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let canceling = Arc::clone(&cancellation);
+        let (cancel_started_tx, cancel_started_rx) = std::sync::mpsc::sync_channel(1);
+        let (cancelled_tx, cancelled_rx) = std::sync::mpsc::sync_channel(1);
+        let cancel = std::thread::spawn(move || {
+            cancel_started_tx.send(()).unwrap();
+            canceling.cancel();
+            cancelled_tx.send(()).unwrap();
+        });
+
+        cancel_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(cancelled_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        release_tx.send(()).unwrap();
+        cancelled_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert_eq!(publication.join().unwrap(), Some(()));
+        cancel.join().unwrap();
+        assert!(cancellation.is_cancelled());
+        assert!(cancellation.with_active(|| ()).is_none());
+    }
+
+    #[test]
     fn connected_target_is_deduplicated() {
         let mut runtime = MachineRuntime::new(PathBuf::from("/tmp/current.sock"), Vec::new());
         let first = runtime.connect_machine("lawrence@mini.local").unwrap();
@@ -965,6 +1021,18 @@ mod tests {
                 "ClearAllForwardings=yes",
             ]
         );
+    }
+
+    #[test]
+    fn managed_ssh_brackets_ipv6_addresses_for_url_parsing() {
+        let without_port =
+            managed_ssh_options("2001:db8::1", None, None, None, "main", "cmux-tui").unwrap();
+        let with_port =
+            managed_ssh_options("2001:db8::1", Some("build"), Some(2222), None, "main", "cmux-tui")
+                .unwrap();
+
+        assert_eq!(without_port.destination, "[2001:db8::1]");
+        assert_eq!(with_port.destination, "build@[2001:db8::1]:2222");
     }
 
     #[test]

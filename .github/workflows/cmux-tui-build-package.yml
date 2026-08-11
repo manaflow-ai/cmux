@@ -80,6 +80,7 @@ jobs:
           TARGET_SET: ${{ inputs.target_set }}
           PACKAGE_NPM: ${{ inputs.package_npm }}
           PACKAGE_PYPI: ${{ inputs.package_pypi }}
+          INCLUDE_WINDOWS: ${{ inputs.include_windows }}
           MACOS_RUNNER: ${{ inputs.macos_runner != '' && inputs.macos_runner || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
           LINUX_RUNNER: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
           LINUX_ARM64_RUNNER: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
@@ -141,6 +142,8 @@ jobs:
           )
           if packages_requested and target_set != "all":
               raise SystemExit("npm and PyPI packaging require target_set=all")
+          if packages_requested and os.environ["INCLUDE_WINDOWS"] != "true":
+              raise SystemExit("npm and PyPI packaging require include_windows=true")
 
           print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
 
@@ -480,6 +483,15 @@ jobs:
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Run native Windows tests
+        shell: bash
+        run: |
+          unset CMUX_GHOSTTY_SRC
+          cd cmux-tui
+          # The published Rust SDK, sidebar wrapper, and terminal-host client use Unix sockets.
+          # Test every Windows-capable workspace crate on the hosted Windows runner.
+          cargo test --workspace --exclude cmux-sdk --exclude cmux-sidebar --exclude cmux-terminal-client --locked --target x86_64-pc-windows-gnu
+
       - name: Verify long Windows state path
         shell: bash
         run: |
@@ -526,7 +538,9 @@ jobs:
             # fail instead of starting an owner that dies with its carrier.
             grep -F "could not start Windows mux owner: Access is denied" <<<"$output"
           fi
-          cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-stop --session ci-smoke
+          if [[ "$status" -eq 0 ]]; then
+            cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-stop --session ci-smoke
+          fi
 
       - name: Verify native Windows SSH through hosted OpenSSH
         shell: pwsh
@@ -560,7 +574,7 @@ jobs:
     needs:
       - build
       - build-windows
-    if: inputs.package_npm || inputs.package_pypi
+    if: inputs.include_windows && (inputs.package_npm || inputs.package_pypi)
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
