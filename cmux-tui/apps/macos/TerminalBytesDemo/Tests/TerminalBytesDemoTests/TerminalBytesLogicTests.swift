@@ -1,8 +1,113 @@
 import AppKit
 import Foundation
+import Observation
 import Testing
 
 @testable import TerminalBytesDemo
+
+private final class TestProgress: @unchecked Sendable {
+    static let shared = TestProgress()
+
+    private let lock = NSLock()
+    private var generationStorage: UInt64 = 0
+    private var waiters: [(UInt64, CheckedContinuation<Void, Never>)] = []
+
+    var generation: UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return generationStorage
+    }
+
+    func signal() {
+        lock.lock()
+        generationStorage &+= 1
+        let ready = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for (_, continuation) in ready {
+            continuation.resume()
+        }
+    }
+
+    func wait(after observedGeneration: UInt64) async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if generationStorage != observedGeneration {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append((observedGeneration, continuation))
+                lock.unlock()
+            }
+        }
+    }
+}
+
+private final class ManualTerminalClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var time: Duration = .zero
+    private let ticks: AsyncStream<Void>
+    private let tickContinuation: AsyncStream<Void>.Continuation
+    private let sleepRequests: AsyncStream<Duration>
+    private let requestContinuation: AsyncStream<Duration>.Continuation
+
+    init() {
+        let tickEvents = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        ticks = tickEvents.stream
+        tickContinuation = tickEvents.continuation
+        let requests = AsyncStream.makeStream(
+            of: Duration.self,
+            bufferingPolicy: .unbounded
+        )
+        sleepRequests = requests.stream
+        requestContinuation = requests.continuation
+    }
+
+    var clock: TerminalModelClock {
+        TerminalModelClock(
+            now: { [self] in now },
+            sleepUntil: { [self] deadline, _ in
+                try await sleep(until: deadline)
+            }
+        )
+    }
+
+    var now: Duration {
+        lock.lock()
+        defer { lock.unlock() }
+        return time
+    }
+
+    func advance(by duration: Duration) {
+        lock.lock()
+        time += duration
+        lock.unlock()
+        tickContinuation.yield()
+    }
+
+    func nextSleepDeadline() async -> Duration {
+        for await deadline in sleepRequests {
+            return deadline
+        }
+        Issue.record("The manual clock stopped before receiving a sleep request.")
+        return .zero
+    }
+
+    private func sleep(until deadline: Duration) async throws {
+        requestContinuation.yield(deadline)
+        var iterator = ticks.makeAsyncIterator()
+        while now < deadline {
+            guard await iterator.next() != nil else {
+                try Task.checkCancellation()
+                throw CancellationError()
+            }
+            try Task.checkCancellation()
+        }
+    }
+}
 
 private final class LockedFlag: @unchecked Sendable {
     // NSLock protects every access to storage, including calls from injected
@@ -20,6 +125,7 @@ private final class LockedFlag: @unchecked Sendable {
         lock.lock()
         storage = true
         lock.unlock()
+        TestProgress.shared.signal()
     }
 }
 
@@ -38,6 +144,7 @@ private final class LockedCounter: @unchecked Sendable {
         lock.lock()
         storage += 1
         lock.unlock()
+        TestProgress.shared.signal()
     }
 }
 
@@ -54,9 +161,11 @@ private final class LockedInputs: @unchecked Sendable {
     @discardableResult
     func record(_ value: String) -> Int {
         lock.lock()
-        defer { lock.unlock() }
         storage.append(value)
-        return storage.count
+        let count = storage.count
+        lock.unlock()
+        TestProgress.shared.signal()
+        return count
     }
 }
 
@@ -167,11 +276,17 @@ struct TerminalBytesLogicTests {
     private func waitUntil(
         _ predicate: @escaping @MainActor () -> Bool
     ) async -> Bool {
-        for _ in 0..<100 {
-            if predicate() { return true }
-            try? await Task.sleep(for: .milliseconds(10))
+        while true {
+            let generation = TestProgress.shared.generation
+            var satisfied = false
+            withObservationTracking {
+                satisfied = predicate()
+            } onChange: {
+                TestProgress.shared.signal()
+            }
+            if satisfied { return true }
+            await TestProgress.shared.wait(after: generation)
         }
-        return predicate()
     }
 
     @Test
@@ -398,6 +513,48 @@ struct TerminalBytesLogicTests {
         await Task.yield()
         #expect(attempts.value == 4)
         model.shutdown()
+    }
+
+    @Test @MainActor
+    func rejectedResizeRetryUsesTheInjectedClockAndCancelsOnShutdown() async throws {
+        let attempts = LockedCounter()
+        let clock = ManualTerminalClock()
+        let handle = TerminalClientHandle(
+            rawAddress: 11,
+            attachClient: { _, _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, _, _ in },
+            resizeClient: { _, _, _ in
+                attempts.increment()
+                return false
+            },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            initiallyConnected: true,
+            clock: clock.clock
+        )
+
+        model.resize(to: TerminalGeometry(cols: 120, rows: 40))
+        #expect(await waitUntil { attempts.value == 1 })
+        #expect(await clock.nextSleepDeadline() == .milliseconds(50))
+
+        clock.advance(by: .milliseconds(50))
+        #expect(await waitUntil { attempts.value == 2 })
+        #expect(await clock.nextSleepDeadline() == .milliseconds(150))
+
+        model.shutdown()
+        clock.advance(by: .seconds(1))
+        await Task.yield()
+        #expect(attempts.value == 2)
     }
 
     @Test @MainActor
