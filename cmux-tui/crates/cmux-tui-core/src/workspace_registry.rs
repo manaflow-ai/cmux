@@ -543,14 +543,17 @@ impl PersistentSessionStateResetter {
         if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
             return Ok(reset);
         }
+        let confirmation_request = ResetConfirmationRequest {
+            state_root: root,
+            session_name,
+            session_dir: &session_dir,
+            terminal_host_root: &terminal_host_root,
+            pending_reset_dirs: &pending_reset_dirs,
+            path_tokens: &confirmation_path_tokens,
+        };
         let confirmation = require_reset_confirmation_for_guard(
             &session_guard,
-            root,
-            session_name,
-            &session_dir,
-            &terminal_host_root,
-            &pending_reset_dirs,
-            &confirmation_path_tokens,
+            &confirmation_request,
             confirm_reset,
         )?;
         if pending_reset_dirs.len() != confirmation.pending_reset_dir_fingerprints.len() {
@@ -746,6 +749,15 @@ struct ResetConfirmationSnapshot {
     session_fingerprint: String,
     terminal_host_fingerprint: String,
     pending_reset_dir_fingerprints: Vec<String>,
+}
+
+struct ResetConfirmationRequest<'a> {
+    state_root: &'a Path,
+    session_name: &'a str,
+    session_dir: &'a Path,
+    terminal_host_root: &'a Path,
+    pending_reset_dirs: &'a [PendingSessionResetDir],
+    path_tokens: &'a ResetConfirmationPathTokens,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1410,22 +1422,17 @@ fn reset_confirmation_snapshot(
 #[cfg(unix)]
 fn require_reset_confirmation_at(
     root_directory: &File,
-    state_root: &Path,
-    session_name: &str,
-    session_dir: &Path,
-    terminal_host_root: &Path,
-    pending_reset_dirs: &[PendingSessionResetDir],
-    path_tokens: &ResetConfirmationPathTokens,
+    request: &ResetConfirmationRequest<'_>,
     confirm_reset: Option<&str>,
 ) -> anyhow::Result<ResetConfirmationSnapshot> {
     let confirmation = reset_confirmation_snapshot_at(
         root_directory,
-        state_root,
-        session_name,
-        session_dir,
-        terminal_host_root,
-        pending_reset_dirs,
-        path_tokens,
+        request.state_root,
+        request.session_name,
+        request.session_dir,
+        request.terminal_host_root,
+        request.pending_reset_dirs,
+        request.path_tokens,
     )?;
     if confirm_reset == Some(confirmation.confirm_reset.as_str()) {
         return Ok(confirmation);
@@ -2462,7 +2469,7 @@ fn open_reset_child_dir(
                 parent_fd,
                 name.as_ptr(),
                 &how as *const ResetOpenHow,
-                std::mem::size_of::<ResetOpenHow>(),
+                size_of::<ResetOpenHow>(),
             )
         };
         if descriptor >= 0 {
@@ -5993,43 +6000,24 @@ fn validate_terminal_host_reset_dir_for_guard(
 #[cfg(unix)]
 fn require_reset_confirmation_for_guard(
     guard: &SessionResetGuard,
-    state_root: &Path,
-    session_name: &str,
-    session_dir: &Path,
-    terminal_host_root: &Path,
-    pending_reset_dirs: &[PendingSessionResetDir],
-    path_tokens: &ResetConfirmationPathTokens,
+    request: &ResetConfirmationRequest<'_>,
     confirm_reset: Option<&str>,
 ) -> anyhow::Result<ResetConfirmationSnapshot> {
-    require_reset_confirmation_at(
-        &guard.root,
-        state_root,
-        session_name,
-        session_dir,
-        terminal_host_root,
-        pending_reset_dirs,
-        path_tokens,
-        confirm_reset,
-    )
+    require_reset_confirmation_at(&guard.root, request, confirm_reset)
 }
 
 #[cfg(not(unix))]
 fn require_reset_confirmation_for_guard(
     _guard: &SessionResetGuard,
-    state_root: &Path,
-    session_name: &str,
-    session_dir: &Path,
-    terminal_host_root: &Path,
-    pending_reset_dirs: &[PendingSessionResetDir],
-    _path_tokens: &ResetConfirmationPathTokens,
+    request: &ResetConfirmationRequest<'_>,
     confirm_reset: Option<&str>,
 ) -> anyhow::Result<ResetConfirmationSnapshot> {
     require_reset_confirmation(
-        state_root,
-        session_name,
-        session_dir,
-        terminal_host_root,
-        pending_reset_dirs,
+        request.state_root,
+        request.session_name,
+        request.session_dir,
+        request.terminal_host_root,
+        request.pending_reset_dirs,
         confirm_reset,
     )
 }
