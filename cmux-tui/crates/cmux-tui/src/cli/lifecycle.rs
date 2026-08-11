@@ -304,7 +304,7 @@ fn read_response(
         {
             return Err(ExchangeError::Timeout);
         }
-        Err(_) => return Err(ExchangeError::Transport),
+        Err(error) => return Err(exchange_io_error(error)),
     }
     if bytes.len() > RESPONSE_LIMIT || !bytes.ends_with(b"\n") {
         return Err(ExchangeError::InvalidResponse);
@@ -336,6 +336,15 @@ fn require_time_remaining(
 fn exchange_io_error(error: std::io::Error) -> ExchangeError {
     if matches!(error.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) {
         ExchangeError::Timeout
+    } else if matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::NotConnected
+            | std::io::ErrorKind::UnexpectedEof
+    ) {
+        ExchangeError::Closed
     } else {
         ExchangeError::Transport
     }
@@ -361,6 +370,7 @@ fn wait_for_close(
                     .unexpected_after_stop
                     .to_string());
             }
+            Err(ExchangeError::Closed) => return Ok(()),
             Err(error) => {
                 let messages = &crate::localization::catalog().local_server;
                 return Err(if error == ExchangeError::Timeout {
@@ -519,6 +529,14 @@ mod tests {
         );
         assert_eq!(
             exchange_io_error(io::Error::from(io::ErrorKind::BrokenPipe)),
+            ExchangeError::Closed
+        );
+        assert_eq!(
+            exchange_io_error(io::Error::from(io::ErrorKind::ConnectionReset)),
+            ExchangeError::Closed
+        );
+        assert_eq!(
+            exchange_io_error(io::Error::from(io::ErrorKind::Other)),
             ExchangeError::Transport
         );
     }
