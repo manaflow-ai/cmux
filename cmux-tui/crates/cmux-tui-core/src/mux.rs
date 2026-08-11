@@ -5081,9 +5081,7 @@ impl Mux {
                 // durable readers, but keep resource readers asleep because
                 // the derived agent cache does not contain this commit.
                 self.publish_journal_commit();
-                eprintln!(
-                    "cmux-tui: refresh agent cache after durable journal commit: {error:#}"
-                );
+                eprintln!("cmux-tui: refresh agent cache after durable journal commit: {error:#}");
                 self.request_daemon_shutdown();
             }
         }
