@@ -258,9 +258,12 @@ public final class TerminalSurfaceLaunchResolver {
             managedShellCommand: managedShellCommand,
             resolvedShell: resolvedShell
         )
-        let initialInput = request.runtimeInitialInput?.nilIfEmpty
-            ?? request.initialInput?.nilIfEmpty
+        let runtimeInitialInput = request.runtimeInitialInput?.nilIfEmpty
+        let appInitialInput = request.initialInput?.nilIfEmpty
             ?? baseConfig.initialInput?.nilIfEmpty
+        let initialInput = runtimeInitialInput.map {
+            $0 + (appInitialInput ?? "")
+        } ?? appInitialInput
         let launchForm = configuredLaunchForm
             ?? TerminalSurfaceLaunchForm(arguments: defaultShellArguments())
             ?? .fallbackLoginShell
