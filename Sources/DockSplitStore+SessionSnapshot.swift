@@ -520,18 +520,14 @@ extension DockSplitStore {
         let expectedSessionId = managedBinding != nil
             ? managedBinding?.checkpointId
             : restorableAgent?.sessionId
-        let relevantObservation = observation.flatMap { entry -> RestorableAgentSessionIndex.Entry? in
-            guard let expectedKind,
-                  let expectedSessionId,
-                  entry.snapshot.kind.rawValue == expectedKind.rawValue,
-                  ManagedAgentSessionIdentity.sessionIDsMatch(
-                      kind: expectedKind.rawValue,
-                      lhs: entry.snapshot.sessionId,
-                      rhs: expectedSessionId
-                  ) else {
-                return nil
-            }
-            return entry
+        let relevantObservation: RestorableAgentSessionIndex.Entry?
+        if let expectedKind, let expectedSessionId {
+            relevantObservation = observation?.matchingAgentSession(
+                kind: expectedKind.rawValue,
+                sessionId: expectedSessionId
+            )
+        } else {
+            relevantObservation = nil
         }
         let confirmedRuntimeIdentities: Set<AgentPIDProcessIdentity> = {
             guard let expectedKind, expectedKind != .claude,

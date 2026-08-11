@@ -380,10 +380,13 @@ extension Workspace {
             clearRestoredAgentSnapshot(panelId: panelId)
         }
         if let compatibleRestorableAgent = reconciledIndexedRestorableAgent,
-           let restorableAgentObservation {
+           let matchingObservation = restorableAgentObservation?.matchingAgentSession(
+               kind: compatibleRestorableAgent.kind.rawValue,
+               sessionId: compatibleRestorableAgent.sessionId
+           ) {
             reconcileCompletedRestoredAgent(
                 panelId: panelId,
-                observation: restorableAgentObservation
+                observation: matchingObservation
             )
             if restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit {
                 let fingerprint = TabManager.restorableAgentSnapshotFingerprint(compatibleRestorableAgent)
@@ -525,6 +528,10 @@ extension Workspace {
                     if !confirmedRuntimeProcessIdentities.isEmpty {
                         return true
                     }
+                    let matchingObservation = restorableAgentObservation?.matchingAgentSession(
+                        kind: bindingKind.rawValue,
+                        sessionId: bindingSessionId
+                    )
                     guard let effectiveRestorableAgent,
                           effectiveRestorableAgent.kind.rawValue == bindingKind.rawValue,
                           ManagedAgentSessionIdentity.sessionIDsMatch(
@@ -532,19 +539,13 @@ extension Workspace {
                               lhs: effectiveRestorableAgent.sessionId,
                               rhs: bindingSessionId
                           ),
-                          let restorableAgentObservation,
-                          restorableAgentObservation.snapshot.kind.rawValue == bindingKind.rawValue,
-                          ManagedAgentSessionIdentity.sessionIDsMatch(
-                              kind: bindingKind.rawValue,
-                              lhs: restorableAgentObservation.snapshot.sessionId,
-                              rhs: bindingSessionId
-                          ) else {
+                          let matchingObservation else {
                         return false
                     }
-                    return restorableAgentObservation.processLiveness
+                    return matchingObservation.processLiveness
                         .wasRunning(
                             fallingBackTo: panelShellActivityStates[panelId],
-                            recordedProcessIdentities: restorableAgentObservation.agentProcessIdentities,
+                            recordedProcessIdentities: matchingObservation.agentProcessIdentities,
                             confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                             currentProcessIdentity: currentAgentProcessIdentity,
                             processPresence: agentProcessPresence
@@ -556,10 +557,14 @@ extension Workspace {
                     panelId: panelId,
                     currentProcessIdentity: currentAgentProcessIdentity
                 )
-                return (restorableAgentObservation?.processLiveness ?? .unknown)
+                let matchingObservation = restorableAgentObservation?.matchingAgentSession(
+                    kind: effectiveRestorableAgent.kind.rawValue,
+                    sessionId: effectiveRestorableAgent.sessionId
+                )
+                return (matchingObservation?.processLiveness ?? .unknown)
                     .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],
-                        recordedProcessIdentities: restorableAgentObservation?.agentProcessIdentities ?? [:],
+                        recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
                         confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                         currentProcessIdentity: currentAgentProcessIdentity,
                         processPresence: agentProcessPresence
