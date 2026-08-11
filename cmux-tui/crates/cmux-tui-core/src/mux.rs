@@ -1936,7 +1936,6 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
-    agent_projection_rebuild_terminals: Mutex<HashSet<TerminalPublicId>>,
     agent_projection_rebuild_running: AtomicBool,
     #[cfg(test)]
     agent_projection_refresh_failure: AtomicBool,
@@ -2311,7 +2310,6 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records),
-            agent_projection_rebuild_terminals: Mutex::new(HashSet::new()),
             agent_projection_rebuild_running: AtomicBool::new(false),
             #[cfg(test)]
             agent_projection_refresh_failure: AtomicBool::new(false),
@@ -5016,16 +5014,21 @@ impl Mux {
         }
         let result = (|| -> anyhow::Result<(bool, bool)> {
             let registry = mux.workspace_registry.lock().unwrap();
-            let (checkpoint_ready, pending, terminal_ids) =
+            let (checkpoint_ready, pending, refresh_range) =
                 registry.continue_agent_projection_rebuild_page()?;
-            let mut rebuild_terminals = mux.agent_projection_rebuild_terminals.lock().unwrap();
-            rebuild_terminals.extend(terminal_ids);
             if !checkpoint_ready {
                 return Ok((false, pending));
             }
-            let terminal_ids = std::mem::take(&mut *rebuild_terminals);
-            drop(rebuild_terminals);
-            mux.refresh_agent_records_for_terminals(&registry, terminal_ids)?;
+            if let Some((after_sequence, through_sequence)) = refresh_range {
+                // Refresh one fixed prefix through a single streamed query.
+                // The records lock keeps list-agents from observing a partial
+                // checkpoint while the registry lock excludes a newer write.
+                mux.refresh_agent_records_for_journal_range(
+                    &registry,
+                    after_sequence,
+                    through_sequence,
+                )?;
+            }
             Ok((true, pending))
         })();
         match result {
@@ -5153,6 +5156,33 @@ impl Mux {
             records.insert(projection.terminal_id, record);
         }
         Ok(())
+    }
+
+    fn refresh_agent_records_for_journal_range(
+        &self,
+        registry: &WorkspaceRegistry,
+        after_sequence: u64,
+        through_sequence: u64,
+    ) -> anyhow::Result<()> {
+        #[cfg(test)]
+        if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
+            anyhow::bail!("forced agent projection refresh failure");
+        }
+        let mut records = self.agent_records.lock().unwrap();
+        registry.visit_agent_projection_rebuild_range(
+            after_sequence,
+            through_sequence,
+            |projection| {
+                let record = public_projections::terminal_agent_record(
+                    &projection.state,
+                    &projection.source,
+                    projection.source_session,
+                    projection.updated_at_ms,
+                )?;
+                records.insert(projection.terminal_id, record);
+                Ok(())
+            },
+        )
     }
 
     pub(crate) fn journal_hook_states(

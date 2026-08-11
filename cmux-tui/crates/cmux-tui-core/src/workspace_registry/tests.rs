@@ -7503,6 +7503,54 @@ fn journal_agent_late_completion_from_older_turn_keeps_new_active_turn() {
 }
 
 #[test]
+fn journal_agent_projection_checkpoint_refresh_visits_terminal_once() {
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-checkpoint-refresh-range").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-checkpoint-refresh-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    let mut sequences = Vec::new();
+    for (index, event) in ["SessionStart", "TurnStart", "TurnEnd"].into_iter().enumerate() {
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            event,
+            Some(terminal_id.as_str()),
+            json!({"session_id":"refresh-session","turn_id":"refresh-turn"}),
+        )
+        .unwrap();
+        sequences.push(
+            registry
+                .append_journal_ingress(
+                    &ingress,
+                    &validated,
+                    "client_checkpoint_refresh_range",
+                    &format!("journal_agent_checkpoint_refresh_range_{index}"),
+                )
+                .unwrap()
+                .sequence,
+        );
+    }
+
+    let mut visited = Vec::new();
+    registry
+        .visit_agent_projection_rebuild_range(
+            sequences[0].saturating_sub(1),
+            *sequences.last().unwrap(),
+            |projection| {
+                visited.push((projection.terminal_id, projection.state));
+                Ok(())
+            },
+        )
+        .unwrap();
+
+    assert_eq!(visited, vec![(terminal_id, "idle".to_string())]);
+}
+
+#[test]
 fn journal_agent_same_turn_identity_does_not_reopen_final_session() {
     let mut registry = WorkspaceRegistry::in_memory("journal-agent-same-turn-after-final").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-same-turn-after-final-topology");
