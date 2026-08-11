@@ -171,15 +171,15 @@ extension CMUXCLI {
             if sessionRunningExitCode == .bridgeClosedWithoutProgress {
                 message = String(
                     localized: "cli.sshPtyAttach.bridgeClosedWithoutProgress",
-                    defaultValue: "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running"
+                    defaultValue: "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                 )
             } else {
-                let detail = String(
+                message = String(
                     localized: "cli.sshPtyAttach.bridgeClosedSessionRunning",
                     defaultValue: "The SSH terminal connection ended while the remote session is still running; reconnecting.",
                     bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                 )
-                message = detail
             }
             throw CLIError(
                 message: message,

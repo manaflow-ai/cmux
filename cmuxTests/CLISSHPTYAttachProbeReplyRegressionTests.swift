@@ -124,6 +124,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ["sessions": [["session_id": 42]], "errors": []],
         ]
         for (index, malformedResult) in malformedResults.enumerated() {
+            let malformedCase = "malformed result \(index): \(malformedResult)"
             let cliPath = try bundledCLIPath()
             let socketPath = makeSocketPath("sshptymalformed\(index)")
             let listenerFD = try bindUnixSocket(at: socketPath)
@@ -185,20 +186,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
 
             wait(for: [socketHandled, bridgeHandled], timeout: 5)
-            #expect(!result.timedOut)
-            #expect(result.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue)
-            #expect(result.stderr.contains("remote session state could be confirmed"))
+            #expect(!result.timedOut, Comment(rawValue: malformedCase))
+            #expect(
+                result.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue,
+                Comment(rawValue: malformedCase)
+            )
+            #expect(
+                result.stderr.contains("remote session state could be confirmed"),
+                Comment(rawValue: malformedCase)
+            )
             let requests = state.snapshot().compactMap { self.jsonObject($0) }
             let methods = requests.compactMap { $0["method"] as? String }
-            #expect(!methods.contains("workspace.remote.pty_attach_end"))
+            #expect(
+                !methods.contains("workspace.remote.pty_attach_end"),
+                Comment(rawValue: malformedCase)
+            )
             let reconciliationRequests = requests.filter {
                 $0["method"] as? String == "workspace.remote.pty_sessions"
             }
-            #expect(reconciliationRequests.count == 1)
+            #expect(reconciliationRequests.count == 1, Comment(rawValue: malformedCase))
             for request in reconciliationRequests {
                 let params = request["params"] as? [String: Any]
-                #expect(params?["acknowledge_lifecycle"] as? Bool != true)
-                #expect(params?["acknowledge_lifecycle_if_session_absent"] as? Bool != true)
+                #expect(
+                    params?["acknowledge_lifecycle"] as? Bool != true,
+                    Comment(rawValue: malformedCase)
+                )
+                #expect(
+                    params?["acknowledge_lifecycle_if_session_absent"] as? Bool != true,
+                    Comment(rawValue: malformedCase)
+                )
             }
         }
     }

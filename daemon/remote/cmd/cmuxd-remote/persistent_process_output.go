@@ -59,6 +59,17 @@ func routePersistentDaemonProcessOutputStream(
 	targetFD int,
 	writer io.Writer,
 ) (*persistentDaemonProcessOutputStream, error) {
+	savedFD, err := syscall.Dup(targetFD)
+	if err != nil {
+		return nil, err
+	}
+	closeSaved := true
+	defer func() {
+		if closeSaved {
+			_ = syscall.Close(savedFD)
+		}
+	}()
+
 	reader, pipeWriter, err := os.Pipe()
 	if err != nil {
 		return nil, err
@@ -68,17 +79,6 @@ func routePersistentDaemonProcessOutputStream(
 		if closePipe {
 			_ = reader.Close()
 			_ = pipeWriter.Close()
-		}
-	}()
-
-	savedFD, err := syscall.Dup(targetFD)
-	if err != nil {
-		return nil, err
-	}
-	closeSaved := true
-	defer func() {
-		if closeSaved {
-			_ = syscall.Close(savedFD)
 		}
 	}()
 
