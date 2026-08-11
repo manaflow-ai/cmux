@@ -1285,6 +1285,20 @@ func surfaceFocusRequiresActiveApplicationKeyWindowAndFirstResponder() {
     ))
 }
 
+@Test
+func connectionAdmissionBlocksCleanupOverlap() {
+    #expect(frontendConnectionIsAdmitted(
+        isConnecting: false,
+        isDisconnecting: false,
+        isShuttingDown: false
+    ))
+    #expect(!frontendConnectionIsAdmitted(
+        isConnecting: false,
+        isDisconnecting: true,
+        isShuttingDown: false
+    ))
+}
+
 @Test @MainActor
 func ghosttyApplicationFocusFollowsActivationNotifications() {
     let center = NotificationCenter()

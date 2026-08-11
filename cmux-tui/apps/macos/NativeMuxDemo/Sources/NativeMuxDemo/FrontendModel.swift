@@ -212,6 +212,14 @@ func frontendFocusMutationIsAdmitted(
     pendingMutations < maximumPendingMutations && pendingRetirements == 0
 }
 
+func frontendConnectionIsAdmitted(
+    isConnecting: Bool,
+    isDisconnecting: Bool,
+    isShuttingDown: Bool
+) -> Bool {
+    !isConnecting && !isDisconnecting && !isShuttingDown
+}
+
 @MainActor
 @Observable
 final class FrontendModel {
@@ -221,6 +229,7 @@ final class FrontendModel {
     var invitation: String
     private(set) var snapshot: ResourceSnapshot?
     private(set) var isConnecting = false
+    private(set) var terminalControllerRevision: UInt64 = 0
     private(set) var errorMessage = ""
     private(set) var transportDiagnostics = ""
     private(set) var selectedWorkspaceID: String?
@@ -239,6 +248,7 @@ final class FrontendModel {
     @ObservationIgnored private var didFinishGhosttyRuntimeLoad = false
     @ObservationIgnored private let shouldAutoConnect: Bool
     @ObservationIgnored private var didAutoConnect = false
+    @ObservationIgnored private var isDisconnecting = false
     @ObservationIgnored private var isShuttingDown = false
     @ObservationIgnored private var machineID: String?
     @ObservationIgnored private var sessionID: String?
@@ -297,7 +307,11 @@ final class FrontendModel {
     }
 
     func connect() {
-        guard !isConnecting, !isShuttingDown else { return }
+        guard frontendConnectionIsAdmitted(
+            isConnecting: isConnecting,
+            isDisconnecting: isDisconnecting,
+            isShuttingDown: isShuttingDown
+        ) else { return }
         let invitation = invitation.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !invitation.isEmpty else {
             errorMessage = localization.text(
@@ -369,7 +383,9 @@ final class FrontendModel {
                     to: []
                 )
                 transportDiagnostics = transportDiagnosticEntries.joined(separator: "\n")
-                isConnecting = false
+                if !isDisconnecting {
+                    isConnecting = false
+                }
             } catch {
                 await disconnectAfterFailure(error)
             }
@@ -378,6 +394,9 @@ final class FrontendModel {
     }
 
     private func disconnectAfterFailure(_ error: any Error) async {
+        guard !isDisconnecting else { return }
+        isDisconnecting = true
+        isConnecting = true
         updatesTask?.cancel()
         refreshTask?.cancel()
         let controllers = Array(terminalControllers.values)
@@ -412,8 +431,9 @@ final class FrontendModel {
         if let owned {
             await owned.shutdown()
         }
-        isConnecting = false
         recordAndPresent(error)
+        isDisconnecting = false
+        isConnecting = false
     }
 
     private func recordAndPresent(_ error: any Error) {
@@ -715,6 +735,12 @@ final class FrontendModel {
     }
 
     private func reconcileTerminalControllers(_ next: ResourceSnapshot) {
+        var didChangeControllers = false
+        defer {
+            if didChangeControllers {
+                terminalControllerRevision &+= 1
+            }
+        }
         let placements: [String: String] = {
             guard let workspaceID = selectedWorkspaceID,
                   let screenID = selectedScreenID,
@@ -728,6 +754,7 @@ final class FrontendModel {
         }
         for paneID in removed {
             guard let controller = terminalControllers.removeValue(forKey: paneID) else { continue }
+            didChangeControllers = true
             retireTerminalController(controller)
         }
         guard let service else { return }
@@ -747,6 +774,7 @@ final class FrontendModel {
                 localization: localization
             )
             terminalControllers[paneID] = controller
+            didChangeControllers = true
             controller.attach()
         }
     }
@@ -795,6 +823,7 @@ final class FrontendModel {
     }
 
     func terminalViewStates() -> [String: NativeTerminalViewState] {
+        _ = terminalControllerRevision
         terminalControllers.mapValues(\.viewState)
     }
 

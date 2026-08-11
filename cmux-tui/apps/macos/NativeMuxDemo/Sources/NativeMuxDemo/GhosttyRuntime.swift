@@ -9,6 +9,8 @@ private let nativeGhosttyReadClipboardCallback:
     UnsafeMutableRawPointer?
   ) -> Bool = { _, _, _ in false }
 
+/// Safety: the detached loader is the only owner until `take()` transfers the
+/// C handle to the main-actor runtime. Deinit frees an untransferred handle.
 private final class NativeGhosttyLoadedConfiguration: @unchecked Sendable {
   private var config: ghostty_config_t?
 
