@@ -50,6 +50,30 @@ struct PasteboardRejectedHTMLFallbackTests {
         )
     }
 
+    @Test("RTFD flavor with rejected HTML preserves advertised plain text")
+    func rtfdWithRejectedHTMLPreservesPlainText() {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-rtfd-rejected-html-\(UUID().uuidString)")
+        )
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        let depth = 1_024
+        let rejectedHTML = String(repeating: "<div>", count: depth)
+            + "rich"
+            + String(repeating: "</div>", count: depth)
+        pasteboard.declareTypes([.rtfd, .html, .string], owner: nil)
+        pasteboard.setData(Data([0x00]), forType: .rtfd)
+        pasteboard.setString(rejectedHTML, forType: .html)
+        pasteboard.setString("plain fallback", forType: .string)
+
+        #expect(
+            TerminalPasteboardService().stringContents(from: pasteboard)
+                == "plain fallback"
+        )
+    }
+
     @Test("image with rejected HTML falls through to valid RTF")
     func imageWithRejectedHTMLFallsThroughToRTF() throws {
         let pasteboard = NSPasteboard(
