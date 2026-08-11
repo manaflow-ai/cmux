@@ -3635,7 +3635,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           "$CMUX_TEST_GROUP_RECORD")
         test "$cmux_test_publisher" = "$cmux_test_group" || exit 96
         /bin/kill -KILL "$cmux_test_publisher" 2>/dev/null || exit 95
-        cmux_test_wait_pid_exit "$cmux_test_publisher" 3000 || exit 94
+        cmux_test_wait_process_group_exit "$cmux_test_group" 3000 || exit 94
         /bin/kill -KILL "$cmux_test_auth_root" 2>/dev/null || true
         wait "$cmux_test_auth_root" 2>/dev/null || true
         if /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null; then exit 94; fi
@@ -3716,7 +3716,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_group=$(/usr/bin/awk -F '|' '{ print $2 }' \
           "$CMUX_TEST_GROUP_RECORD")
         /bin/kill -KILL "$cmux_test_publisher" 2>/dev/null || exit 95
-        cmux_test_wait_pid_exit "$cmux_test_publisher" 3000 || exit 94
+        cmux_test_wait_process_group_exit "$cmux_test_group" 3000 || exit 94
         /bin/kill -KILL "$cmux_test_auth_root" 2>/dev/null || true
         wait "$cmux_test_auth_root" 2>/dev/null || true
         if /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null; then exit 94; fi
@@ -4409,6 +4409,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let releaseFile = temporaryDirectory.appendingPathComponent("producer-release")
         try fileManager.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         try #require(Darwin.mkfifo(releaseFile.path, 0o600) == 0)
+        let releaseDescriptor = Darwin.open(releaseFile.path, O_RDWR | O_NONBLOCK)
+        try #require(releaseDescriptor >= 0)
+        defer { Darwin.close(releaseDescriptor) }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -4448,7 +4451,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ) {
             fileManager.fileExists(atPath: readyFile.path) || !process.isRunning
         }
-        #expect(becameReady && fileManager.fileExists(atPath: readyFile.path))
+        try #require(
+            becameReady &&
+                fileManager.fileExists(atPath: readyFile.path) &&
+                process.isRunning,
+            "Diagnostic producer exited before publishing readiness"
+        )
 
         let temporaryEntries = try fileManager.contentsOfDirectory(
             at: temporaryDirectory,
@@ -4492,13 +4500,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             }
             return lastClassifications.contains("transient\n") || !process.isRunning
         }
-        #expect(
-            classifiedWhileRunning && lastClassifications.contains("transient\n"),
+        try #require(
+            classifiedWhileRunning &&
+                lastClassifications.contains("transient\n") &&
+                process.isRunning,
             "A newline-free stderr stream must be classified incrementally with bounded records; observed \(lastClassifications)"
         )
-        let releaseHandle = try FileHandle(forWritingTo: releaseFile)
-        try releaseHandle.write(contentsOf: Data([0x0A]))
-        try releaseHandle.close()
+        let releaseResult = Data([0x0A]).withUnsafeBytes {
+            Darwin.write(releaseDescriptor, $0.baseAddress, $0.count)
+        }
+        try #require(releaseResult == 1, "Could not release the diagnostic producer")
         try waitForExit(process, stderrCapture: stderrCapture)
         #expect(process.terminationStatus == 254)
     }
@@ -4647,34 +4658,48 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 return not glob.glob(path)
             raise ValueError(f"unsupported lifecycle condition: {mode}")
 
-        if condition():
-            raise SystemExit(0)
-        watch_path = os.path.dirname(path) or "."
-        descriptor = os.open(watch_path, os.O_RDONLY)
-        queue = select.kqueue()
+        desired_watch_path = os.path.dirname(path) or "."
+
+        def nearest_existing_directory():
+            candidate = desired_watch_path
+            while not os.path.isdir(candidate):
+                parent = os.path.dirname(candidate) or "."
+                if parent == candidate:
+                    return "."
+                candidate = parent
+            return candidate
+
         changes = select.KQ_NOTE_WRITE | select.KQ_NOTE_DELETE | select.KQ_NOTE_RENAME
         changes |= select.KQ_NOTE_EXTEND | select.KQ_NOTE_ATTRIB | select.KQ_NOTE_LINK
-        event = select.kevent(
-            descriptor,
-            filter=select.KQ_FILTER_VNODE,
-            flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_CLEAR,
-            fflags=changes,
-        )
-        queue.control([event], 0, 0)
-        try:
+
+        deadline = time.monotonic() + int(timeout_millis) / 1000
+        while True:
             if condition():
                 raise SystemExit(0)
-            deadline = time.monotonic() + int(timeout_millis) / 1000
-            while True:
+
+            watch_path = nearest_existing_directory()
+            descriptor = os.open(watch_path, os.O_RDONLY)
+            queue = select.kqueue()
+            event = select.kevent(
+                descriptor,
+                filter=select.KQ_FILTER_VNODE,
+                flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_CLEAR,
+                fflags=changes,
+            )
+            try:
+                queue.control([event], 0, 0)
+                if condition():
+                    raise SystemExit(0)
+                if nearest_existing_directory() != watch_path:
+                    continue
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise SystemExit(1)
-                queue.control(None, 1, remaining)
-                if condition():
-                    raise SystemExit(0)
-        finally:
-            queue.close()
-            os.close(descriptor)
+                if not queue.control(None, 1, remaining):
+                    raise SystemExit(1)
+            finally:
+                queue.close()
+                os.close(descriptor)
         CMUX_TEST_WAIT_PY
         }
 
@@ -4711,6 +4736,72 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         finally:
             queue.close()
         CMUX_TEST_PID_WAIT_PY
+        }
+
+        cmux_test_wait_process_group_exit() {
+          /usr/bin/python3 - "$1" "$2" <<'CMUX_TEST_GROUP_WAIT_PY'
+        import errno
+        import select
+        import subprocess
+        import sys
+        import time
+
+        target_group = int(sys.argv[1])
+        deadline = time.monotonic() + int(sys.argv[2]) / 1000
+        queue = select.kqueue()
+        registered = set()
+
+        def members():
+            output = subprocess.check_output(
+                ["/bin/ps", "-axo", "pid=,pgid=,state="],
+                text=True,
+            )
+            result = set()
+            for line in output.splitlines():
+                fields = line.split()
+                if (
+                    len(fields) == 3
+                    and int(fields[1]) == target_group
+                    and not fields[2].startswith("Z")
+                ):
+                    result.add(int(fields[0]))
+            return result
+
+        try:
+            while True:
+                current = members()
+                if not current:
+                    raise SystemExit(0)
+                for pid in current - registered:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD | select.KQ_EV_ENABLE | select.KQ_EV_ONESHOT,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    try:
+                        queue.control([event], 0, 0)
+                    except OSError as error:
+                        if error.errno != errno.ESRCH:
+                            raise
+                        continue
+                    registered.add(pid)
+                current = members()
+                if not current:
+                    raise SystemExit(0)
+                if current - registered:
+                    continue
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SystemExit(1)
+                events = queue.control(None, max(1, len(registered)), remaining)
+                if not events:
+                    raise SystemExit(1)
+                for event in events:
+                    registered.discard(event.ident)
+        finally:
+            queue.close()
+        CMUX_TEST_GROUP_WAIT_PY
         }
 
         cmux_test_stop_pids() {
