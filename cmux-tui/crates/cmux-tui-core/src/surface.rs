@@ -6503,10 +6503,12 @@ impl Surface {
     /// resource lifetime. Hosted runtimes have no local process owner here.
     pub(crate) fn local_process_shutdown_owner(&self) -> Option<SurfaceShutdownOwner> {
         let Surface::Pty(pty) = self else { return None };
-        let Some(LocalProcess::Owned(process)) = pty.local_process.as_deref() else { return None };
-        Some(SurfaceShutdownOwner {
-            kind: SurfaceShutdownOwnerKind::Local(LocalProcess::Owned(process.clone())),
-        })
+        let process = match pty.local_process.as_deref()? {
+            LocalProcess::Owned(process) => LocalProcess::Owned(process.clone()),
+            #[cfg(test)]
+            LocalProcess::Untracked(killer) => LocalProcess::Untracked(killer.clone()),
+        };
+        Some(SurfaceShutdownOwner { kind: SurfaceShutdownOwnerKind::Local(process) })
     }
 
     #[cfg(test)]
