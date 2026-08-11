@@ -15061,11 +15061,7 @@ fn register_terminal_host_placement_checked(
     let Some(identity) = mux.resource_terminal_host_identity(surface) else {
         return Ok(());
     };
-    state
-        .terminal_placements_by_host
-        .entry(identity.terminal_id)
-        .or_default()
-        .insert(surface.id);
+    state.terminal_placements_by_host.entry(identity.terminal_id).or_default().insert(surface.id);
     Ok(())
 }
 
@@ -20648,12 +20644,8 @@ mod tests {
                 .insert(surface.id);
         }
 
-        let error = insert_surface_checked(
-            &mux,
-            &mut mux.state.lock().unwrap(),
-            surface.clone(),
-        )
-        .unwrap_err();
+        let error = insert_surface_checked(&mux, &mut mux.state.lock().unwrap(), surface.clone())
+            .unwrap_err();
 
         assert!(error.to_string().contains("duplicate terminal host placement"));
         mux.with_state(|state| {
