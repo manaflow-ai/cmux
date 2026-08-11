@@ -12451,7 +12451,7 @@ struct CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(response, mode: idFormat)))
             if !errors.isEmpty {
-                throw CLIError(message: sshSessionListFailureMessage(errors))
+                throw CLIError(message: sshSessionListFailureMessage())
             }
             return
         }
@@ -12476,12 +12476,11 @@ struct CMUXCLI {
             print("\(workspacePrefix)\(sessionID) attachments=\(attachments.count) size=\(effectiveCols)x\(effectiveRows) scrollback_bytes=\(scrollbackBytes)")
         }
         if !errors.isEmpty {
-            throw CLIError(message: sshSessionListFailureMessage(errors))
+            throw CLIError(message: sshSessionListFailureMessage())
         }
     }
 
-    func sshSessionListFailureMessage(_ errors: [[String: Any]]) -> String {
-        _ = errors
+    func sshSessionListFailureMessage() -> String {
         return String(
             localized: "cli.sshSessionList.remoteStateUnavailable",
             defaultValue: "Remote PTY session state is unavailable for one or more workspaces.",
@@ -13086,6 +13085,19 @@ struct CMUXCLI {
         }
         var reconnectInputFilterStopRequested = false
         var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
+        func finishBridgeClosedNormally() throws {
+            resizeMonitor.cancel()
+            readinessDelivery?.cancel()
+            _ = try reconcileBridgeEnd(
+                intentionalOnly: false,
+                sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
+                    receivedLiveOutput: outputProgress.receivedLiveOutput,
+                    readyUptime: bridgeReadyUptime
+                ),
+                reconciliationUnavailableExitCode: .bridgeClosedSessionRunning
+            )
+            attachFinished = true
+        }
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
@@ -13095,31 +13107,11 @@ struct CMUXCLI {
                 reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
-                resizeMonitor.cancel()
-                readinessDelivery?.cancel()
-                _ = try reconcileBridgeEnd(
-                    intentionalOnly: false,
-                    sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
-                        receivedLiveOutput: outputProgress.receivedLiveOutput,
-                        readyUptime: bridgeReadyUptime
-                    ),
-                    reconciliationUnavailableExitCode: .bridgeClosedSessionRunning
-                )
-                attachFinished = true
+                try finishBridgeClosedNormally()
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
-                    resizeMonitor.cancel()
-                    readinessDelivery?.cancel()
-                    _ = try reconcileBridgeEnd(
-                        intentionalOnly: false,
-                        sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
-                            receivedLiveOutput: outputProgress.receivedLiveOutput,
-                            readyUptime: bridgeReadyUptime
-                        ),
-                        reconciliationUnavailableExitCode: .bridgeClosedSessionRunning
-                    )
-                    attachFinished = true
+                    try finishBridgeClosedNormally()
                     return
                 }
                 throw CLIError(message: "ssh-pty-attach: bridge read failed")

@@ -54708,6 +54708,23 @@
         "en": {
           "stringUnit": {
             "state": "translated",
+            "value": "The SSH terminal connection ended; the remote session may still be running."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナル接続が終了しました。リモートセッションはまだ実行中の可能性があります。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.bridgeClosedSessionRunningReconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
             "value": "The SSH terminal connection ended while the remote session is still running; cmux is reconnecting."
           }
         },
