@@ -8,7 +8,7 @@ $binaryPath = (Resolve-Path $Binary).Path
 $testRoot = Join-Path $env:RUNNER_TEMP "cmux-native-ssh"
 $keyPath = Join-Path $testRoot "id_ed25519"
 $knownHosts = Join-Path $testRoot "known_hosts"
-$remoteState = Join-Path $testRoot "remote-state"
+$remoteState = Join-Path $env:LOCALAPPDATA "cmux\remote"
 $session = "hosted-windows-ssh"
 $client = $null
 
@@ -87,7 +87,25 @@ try {
     }
 
     $listing = & $binaryPath --socket $snapshot.local_socket --json workspace list
-    if ($LASTEXITCODE -ne 0) { throw "native Windows SSH workspace list failed" }
+    if ($LASTEXITCODE -ne 0) {
+        $detail = "SSH bridge did not exit after the failed request"
+        if ($client.WaitForExit(5000)) {
+            $stderr = $client.StandardError.ReadToEnd().Trim()
+            $detail = if ([string]::IsNullOrWhiteSpace($stderr)) {
+                "SSH bridge exited without a diagnostic"
+            } else {
+                $stderr
+            }
+        }
+        $ownerLog = Join-Path $remoteState "sessions\$session\owner.log"
+        if (Test-Path $ownerLog) {
+            $ownerDiagnostic = (Get-Content -Raw $ownerLog).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($ownerDiagnostic)) {
+                $detail = "$detail; owner: $ownerDiagnostic"
+            }
+        }
+        throw "native Windows SSH workspace list failed: $detail"
+    }
     $listing | ConvertFrom-Json | Out-Null
 
     & $binaryPath --socket $snapshot.local_socket --json session current shutdown | Out-Null
