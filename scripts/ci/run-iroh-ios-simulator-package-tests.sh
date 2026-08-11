@@ -156,8 +156,11 @@ cleanup() {
 trap cleanup EXIT
 
 xcrun simctl boot "$simulator_id"
+# Intel CoreSimulator can spend several minutes in "Waiting on System App"
+# on a freshly created device. Keep the wait bounded, but allow the same clean
+# boot to finish instead of misclassifying runner startup as a transport failure.
 python3 "$repo_root/scripts/ci/run_with_timeout.py" \
-  --timeout-seconds 180 \
+  --timeout-seconds 600 \
   -- xcrun simctl bootstatus "$simulator_id" -b
 
 test_root="${RUNNER_TEMP:-/tmp}/cmux-iroh-ios-simulator-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
