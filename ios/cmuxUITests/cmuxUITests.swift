@@ -6337,14 +6337,15 @@ final class cmuxUITests: XCTestCase {
     private func launchConnectedApp(
         port: UInt16,
         assertStatusRows: Bool = true,
+        environment: [String: String] = [:],
         launchArguments: [String] = []
     ) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
+        var launchEnvironment = environment
+        launchEnvironment["CMUX_UITEST_ATTACH_URL"] = attachURL.absoluteString
         let app = launchApp(
             mockData: true,
-            environment: [
-                "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
-            ],
+            environment: launchEnvironment,
             launchArguments: launchArguments
         )
         waitForWorkspaceShell(in: app)
