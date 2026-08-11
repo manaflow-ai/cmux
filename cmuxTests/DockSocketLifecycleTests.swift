@@ -13,6 +13,7 @@ struct DockSocketLifecycleTests {
     private static let socketWorkerQueue = DispatchQueue(label: "DockSocketLifecycleTests.socketWorker")
 
     @Test("Browser focus mode is explicit socket focus intent")
+    @MainActor
     func browserFocusModeIsExplicitSocketFocusIntent() {
 #if DEBUG
         #expect(
@@ -108,8 +109,11 @@ struct DockSocketLifecycleTests {
             ]
         )
 
+        let createdBrowserIdString = try #require(
+            result["surface_id"] as? String
+        )
         let createdBrowserId = try #require(
-            UUID(uuidString: try #require(result["surface_id"] as? String))
+            UUID(uuidString: createdBrowserIdString)
         )
         let createdBrowser = try #require(
             dock.browserPanel(for: createdBrowserId)

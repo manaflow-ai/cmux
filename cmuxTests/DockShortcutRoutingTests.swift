@@ -355,14 +355,15 @@ struct DockShortcutRoutingTests {
                 let browser = try #require(
                     harness.dock.browserPanel(for: browserId)
                 )
+                let webView = try #require(browser.webView as? CmuxWebView)
                 let workspaceCountBefore = harness.tabManager.tabs.count
 
                 #expect(
-                    browser.webView
+                    webView
                         .contextMenuCanMoveTabToNewWorkspace?() == true
                 )
                 #expect(
-                    browser.webView
+                    webView
                         .contextMenuMoveTabToNewWorkspace?() == true
                 )
 
