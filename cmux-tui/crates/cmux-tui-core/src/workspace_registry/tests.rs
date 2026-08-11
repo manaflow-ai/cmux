@@ -1016,7 +1016,9 @@ fn reset_session_guard_coordinator_busy_fails_without_waiting_forever() {
     let root = temp_root("session-guard-coordinator-busy");
     fs::create_dir_all(&root).unwrap();
     let lock_dir = prepare_session_guard_dir(&root).unwrap();
-    let _held = SessionLease::acquire(&session_guard_coordinator_path(&lock_dir)).unwrap();
+    let _held =
+        SessionLease::acquire_coordinator_blocking(&session_guard_coordinator_path(&lock_dir))
+            .unwrap();
     let started = std::time::Instant::now();
 
     let error = match acquire_existing_session_reset_guard(&root, "blocked-by-coordinator") {
@@ -1026,6 +1028,33 @@ fn reset_session_guard_coordinator_busy_fails_without_waiting_forever() {
 
     assert!(started.elapsed() < std::time::Duration::from_secs(1));
     assert!(format!("{error:#}").contains("workspace session coordinator is busy"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn session_guard_coordinator_owner_publishes_lock_availability() {
+    let root = temp_root("session-guard-coordinator-publication");
+    fs::create_dir_all(&root).unwrap();
+    let lock_dir = prepare_session_guard_dir(&root).unwrap();
+    let coordinator_path = session_guard_coordinator_path(&lock_dir);
+    let held = SessionLease::acquire_coordinator_blocking(&coordinator_path).unwrap();
+    let waiter = SessionCoordinatorWaiter::register(&coordinator_path).unwrap();
+
+    drop(held);
+    assert!(
+        waiter
+            .wait_until(std::time::Instant::now() + std::time::Duration::from_secs(2))
+            .expect("wait for coordinator availability"),
+        "coordinator owner did not publish lock availability"
+    );
+    drop(waiter);
+    let acquired = SessionLease::acquire_coordinator_until(
+        &coordinator_path,
+        std::time::Instant::now() + std::time::Duration::from_secs(2),
+    )
+    .expect("waiter did not acquire the published coordinator lock");
+    drop(acquired);
+
     fs::remove_dir_all(root).unwrap();
 }
 

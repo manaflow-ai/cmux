@@ -7,13 +7,14 @@ internal import Foundation
 /// The persistent PTY wrappers therefore need stderr context before deciding
 /// whether an initial authentication attempt belongs in their reconnect loop.
 public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
-    /// Maximum consecutive transport failures before foreground auth surfaces the outage.
+    /// Maximum consecutive initial transport failures before foreground auth surfaces the outage.
     public let maximumConsecutiveTransientFailures = 20
 
     /// Internal shell status for a status-255 failure with no recognized diagnostic.
     ///
-    /// Callers surface this as 255 without retrying. Only a recognized transient
-    /// transport diagnostic enters the foreground-authentication reconnect loop.
+    /// Before the first successful authentication, callers surface this as 255
+    /// without retrying. An established persistent session may retry it because
+    /// wake-related transport failures do not always emit a recognized diagnostic.
     public let unclassifiedFailureExitStatus = 252
 
     private let transientFailurePattern: String
@@ -46,6 +47,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "remote host identification has changed",
             "authentication failed",
             "too many authentication failures",
+            "bad owner or permissions",
             "bad configuration option",
             "no matching host key type found",
             "no matching cipher found",
@@ -58,6 +60,30 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "bad interpreter",
             "exec format error",
         ].joined(separator: "|")
+    }
+
+    /// Builds the shared result handler for persistent foreground authentication.
+    ///
+    /// A successful authentication arms persistent retry behavior. Before that
+    /// first success, unclassified failures and the transient retry limit still
+    /// fail closed. After success, transient and unclassified failures return to
+    /// the surrounding reconnect loop, while classified permanent failures run
+    /// `terminalFailureCommand` immediately.
+    ///
+    /// - Parameters:
+    ///   - variablePrefix: Trusted POSIX-shell variable prefix for the wrapper's state.
+    ///   - terminalFailureCommand: Shell command that terminates the surrounding retry loop.
+    /// - Returns: One POSIX-shell line that handles the foreground authentication status.
+    public func persistentAuthenticationResultShellLine(
+        variablePrefix: String,
+        terminalFailureCommand: String
+    ) -> String {
+        let status = "$\(variablePrefix)_status"
+        let reauthenticationRequired = "\(variablePrefix)_reauth_required"
+        let authenticationRetry = "\(variablePrefix)_auth_retry"
+        let authenticationRetryLimit = "\(variablePrefix)_auth_retry_limit"
+        let authenticationSucceeded = "\(variablePrefix)_auth_succeeded"
+        return "if [ \"\(status)\" -eq 0 ]; then \(reauthenticationRequired)=0; \(authenticationRetry)=0; \(authenticationSucceeded)=1; else case \"\(status)\" in 254) \(authenticationRetry)=$((\(authenticationRetry) + 1)); if [ \"$\(authenticationSucceeded)\" -eq 0 ] && [ \"$\(authenticationRetry)\" -ge \"$\(authenticationRetryLimit)\" ]; then \(variablePrefix)_status=255; \(terminalFailureCommand); fi ;; \(unclassifiedFailureExitStatus)) \(variablePrefix)_status=255; if [ \"$\(authenticationSucceeded)\" -eq 0 ]; then \(terminalFailureCommand); fi ;; *) \(terminalFailureCommand) ;; esac; fi"
     }
 
     /// Builds the shell helper that terminates a foreground-authentication process tree.
