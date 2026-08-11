@@ -717,6 +717,7 @@ dependencies = [
  "unicode-width",
  "url",
  "uuid",
+ "wait-timeout",
  "zeroize",
 ]
 

@@ -845,6 +845,12 @@ mod tests {
     };
     use serde_json::Value;
     use sha2::Digest;
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    use std::io::Read;
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    use std::os::fd::AsRawFd;
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
 
     fn document(kind: &str, payload: Value) -> JournalDocument {
         JournalDocument::new(SessionJournalRecord {
@@ -962,24 +968,184 @@ mod tests {
         assert!(!filter.matches(&manifest, &document("hook.delivery.completed", json!({}))));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    struct HookFixtureGates {
+        release: Option<std::fs::File>,
+        abort: Option<std::fs::File>,
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    impl HookFixtureGates {
+        fn open(
+            release_path: &std::path::Path,
+            abort_path: &std::path::Path,
+        ) -> std::io::Result<Self> {
+            let release = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_CLOEXEC)
+                .open(release_path)?;
+            let abort = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_CLOEXEC)
+                .open(abort_path)?;
+            Ok(Self { release: Some(release), abort: Some(abort) })
+        }
+
+        fn release_direct_hook(&mut self) -> std::io::Result<()> {
+            let mut release = self.release.take().ok_or_else(|| {
+                std::io::Error::other("hook fixture release gate was already disarmed")
+            })?;
+            release.write_all(b"release\n")
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    impl Drop for HookFixtureGates {
+        fn drop(&mut self) {
+            // These files must close before thread::scope joins the delivery
+            // worker. Closing release unblocks the direct hook, and closing
+            // abort lets its descendant leave voluntarily on every unwind.
+            self.release.take();
+            self.abort.take();
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    fn wait_for_fifo_event(
+        descriptor: std::os::fd::RawFd,
+        event: libc::c_short,
+        deadline: Instant,
+    ) -> std::io::Result<bool> {
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(false);
+            }
+            let timeout_ms = remaining.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
+            let mut poll_descriptor =
+                libc::pollfd { fd: descriptor, events: libc::POLLIN | libc::POLLHUP, revents: 0 };
+            let ready = unsafe { libc::poll(&raw mut poll_descriptor, 1, timeout_ms) };
+            if ready > 0 {
+                if poll_descriptor.revents & event != 0 {
+                    return Ok(true);
+                }
+                if poll_descriptor.revents & (libc::POLLERR | libc::POLLNVAL) != 0 {
+                    return Err(std::io::Error::other(format!(
+                        "fixture lease poll failed with events {:#x}",
+                        poll_descriptor.revents
+                    )));
+                }
+                continue;
+            }
+            if ready == 0 {
+                return Ok(false);
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    fn wait_for_fifo_eof(reader: &mut std::fs::File, deadline: Instant) -> std::io::Result<bool> {
+        loop {
+            if !wait_for_fifo_event(reader.as_raw_fd(), libc::POLLIN | libc::POLLHUP, deadline)? {
+                return Ok(false);
+            }
+            let mut unexpected = [0; 1];
+            match reader.read(&mut unexpected) {
+                Ok(0) => return Ok(true),
+                Ok(_) => {
+                    return Err(std::io::Error::other(
+                        "hook descendant wrote after its lease publication",
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn hook_exit_is_not_blocked_by_a_descendant_holding_stdin_open() {
+        let fixture_path = std::env::temp_dir().join(format!(
+            "cmux-hook-stdin-lease-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let lease_path = fixture_path.with_extension("lease");
+        let release_path = fixture_path.with_extension("release");
+        let abort_path = fixture_path.with_extension("abort");
+        for path in [&lease_path, &release_path, &abort_path] {
+            let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+                .expect("hook fixture FIFO path");
+            assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        }
+        let mut lease_reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
+            .open(&lease_path)
+            .expect("open hook descendant lease reader");
+        let lease_registration = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
+            .open(&lease_path)
+            .expect("register hook descendant lease reader");
         let mut manifest = manifest();
-        manifest.exec.argv =
-            vec!["/bin/sh".into(), "-c".into(), "exec 3<&0; (/bin/sleep 3 <&3) & exit 0".into()];
+        manifest.exec.argv = vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "exec 3<&0; (/bin/sh -c 'exec 4>\"$1\"; printf \"ready\\n\" >&4; IFS= read -r abort < \"$2\"' cmux-hook-child \"$1\" \"$3\" <&3) & IFS= read -r release < \"$2\"; exit 0".into(),
+            "cmux-hook-test".into(),
+            lease_path.to_string_lossy().into_owned(),
+            release_path.to_string_lossy().into_owned(),
+            abort_path.to_string_lossy().into_owned(),
+        ];
         let delivery = JournalHookDelivery {
             manifest,
             event: document("plugin.test.large", json!({"value":"x".repeat(1024 * 1024)})).record,
             attempt: 0,
         };
         let attempt = JournalHookAttempt { attempt: 1, causation_id: "event_started".into() };
-        let started = Instant::now();
-        let (exit_code, error) = execute_delivery(&delivery, &attempt);
+        let failure_deadline = Instant::now() + Duration::from_secs(2);
+        let ((exit_code, error), descendant_stopped) = std::thread::scope(|scope| {
+            let mut gates = HookFixtureGates::open(&release_path, &abort_path)
+                .expect("open hook fixture gates");
+            let (result_tx, result_rx) = mpsc::sync_channel(1);
+            scope.spawn(move || {
+                let _ = result_tx.send(execute_delivery(&delivery, &attempt));
+            });
+            let lease_ready =
+                wait_for_fifo_event(lease_reader.as_raw_fd(), libc::POLLIN, failure_deadline)
+                    .expect("wait for hook descendant lease publication");
+            assert!(lease_ready, "hook descendant did not publish its lease");
+            let mut ready = [0; 6];
+            lease_reader.read_exact(&mut ready).expect("read hook descendant lease publication");
+            assert_eq!(&ready, b"ready\n");
+            drop(lease_registration);
+            gates.release_direct_hook().expect("release direct hook process");
+            let result = match result_rx
+                .recv_timeout(failure_deadline.saturating_duration_since(Instant::now()))
+            {
+                Ok(result) => result,
+                Err(error) => panic!("hook delivery did not complete after release: {error}"),
+            };
+            let descendant_stopped = wait_for_fifo_eof(&mut lease_reader, failure_deadline)
+                .expect("wait for hook descendant lease release");
+            (result, descendant_stopped)
+        });
+        let _ = std::fs::remove_file(&lease_path);
+        let _ = std::fs::remove_file(&release_path);
+        let _ = std::fs::remove_file(&abort_path);
 
         assert_eq!(exit_code, Some(0), "{error:?}");
         assert_eq!(error, None);
-        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(descendant_stopped, "hook process-group cleanup retained its stdin holder");
     }
 
     #[test]

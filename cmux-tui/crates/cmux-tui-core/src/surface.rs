@@ -1207,6 +1207,44 @@ impl PtyTerminalRuntime {
     }
 }
 
+#[cfg(test)]
+struct TerminalRuntimeOwnerCompletion {
+    active_workers: Mutex<usize>,
+    changed: Condvar,
+}
+
+#[cfg(test)]
+impl TerminalRuntimeOwnerCompletion {
+    fn new(active_workers: usize) -> Self {
+        Self { active_workers: Mutex::new(active_workers), changed: Condvar::new() }
+    }
+
+    fn finish_worker(&self) {
+        let mut active_workers = self.active_workers.lock().unwrap();
+        assert_ne!(*active_workers, 0, "terminal runtime worker finished more than once");
+        *active_workers -= 1;
+        if *active_workers == 0 {
+            self.changed.notify_all();
+        }
+    }
+
+    fn wait_until_finished(&self, deadline: Instant) -> bool {
+        let mut active_workers = self.active_workers.lock().unwrap();
+        while *active_workers != 0 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, timeout) = self.changed.wait_timeout(active_workers, remaining).unwrap();
+            active_workers = next;
+            if timeout.timed_out() && *active_workers != 0 {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 /// Content runtime shared by every view placement of one terminal.
 ///
 /// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
@@ -1247,6 +1285,8 @@ pub struct PtyTerminalRuntime {
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     host_connection_state: AtomicU8,
+    #[cfg(test)]
+    owner_completion: TerminalRuntimeOwnerCompletion,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     dirty: AtomicBool,
@@ -1716,6 +1756,18 @@ impl TerminalStreamProgress {
     fn resource_subscription_count(&self) -> u64 {
         self.state.lock().unwrap().resource_subscriptions
     }
+
+    #[cfg(test)]
+    fn resource_waiting_without_deadline_count(&self) -> usize {
+        self.state
+            .lock()
+            .unwrap()
+            .resource_waiters
+            .values()
+            .filter_map(|waiter| waiter.upgrade())
+            .filter(|waiter| waiter.is_waiting_without_deadline())
+            .count()
+    }
 }
 
 impl TerminalStreamSubscription<'_> {
@@ -2166,6 +2218,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                #[cfg(test)]
+                owner_completion: TerminalRuntimeOwnerCompletion::new(2),
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
@@ -2211,6 +2265,9 @@ impl Surface {
         std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
             let surface = surface.clone();
             move || {
+                #[cfg(test)]
+                let owner =
+                    surface.as_pty().expect("surface reader got non-pty surface").terminal.clone();
                 let mut buf = [0u8; 64 * 1024];
                 loop {
                     let n = match reader.read(&mut buf) {
@@ -2304,6 +2361,11 @@ impl Surface {
                     pty.local_pty_drained.store(true, Ordering::Release);
                 }
                 publish_local_exit_if_ready(&surface);
+                #[cfg(test)]
+                {
+                    drop(surface);
+                    owner.owner_completion.finish_worker();
+                }
             }
         })?;
 
@@ -2312,11 +2374,19 @@ impl Surface {
         std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
             let surface = surface.clone();
             move || {
+                #[cfg(test)]
+                let owner =
+                    surface.as_pty().expect("surface reaper got non-pty surface").terminal.clone();
                 let exit = wait_for_native_child_status(child.as_mut());
                 if let Some(pty) = surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
                 }
                 publish_local_exit_if_ready(&surface);
+                #[cfg(test)]
+                {
+                    drop(surface);
+                    owner.owner_completion.finish_worker();
+                }
             }
         })?;
 
@@ -2553,6 +2623,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                #[cfg(test)]
+                owner_completion: TerminalRuntimeOwnerCompletion::new(1),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(title),
                 pwd: Mutex::new(pwd),
@@ -2602,9 +2674,13 @@ impl Surface {
             let mux = mux.clone();
             let scrollback = opts.scrollback;
             move || {
-                let mut sequence_boundary = sequence_boundary;
-                let mut protocol_version = protocol_version;
-                'connection: loop {
+                #[cfg(test)]
+                let owner =
+                    surface.as_pty().expect("host proxy got non-pty surface").terminal.clone();
+                (|| {
+                    let mut sequence_boundary = sequence_boundary;
+                    let mut protocol_version = protocol_version;
+                    'connection: loop {
                     let mut stager =
                         HostedFrameStager::new_for_version(sequence_boundary, protocol_version);
                     let mut received_exit = None;
@@ -3152,8 +3228,15 @@ impl Surface {
                         protocol_version = replacement_protocol_version;
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
-                        continue 'connection;
+                            continue 'connection;
+                        }
                     }
+                })();
+                #[cfg(test)]
+                {
+                    drop(surface);
+                    drop(mux);
+                    owner.owner_completion.finish_worker();
                 }
             }
         })?;
@@ -3418,6 +3501,7 @@ impl Surface {
                 dead: AtomicBool::new(true),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
+                owner_completion: TerminalRuntimeOwnerCompletion::new(0),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
@@ -3642,6 +3726,7 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                owner_completion: TerminalRuntimeOwnerCompletion::new(0),
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
@@ -3920,6 +4005,11 @@ impl Surface {
     #[cfg(test)]
     pub(crate) fn terminal_stream_subscription_count_for_test(&self) -> Option<u64> {
         Some(self.as_pty()?.stream_progress.resource_subscription_count())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_stream_indefinite_waiter_count_for_test(&self) -> Option<usize> {
+        Some(self.as_pty()?.stream_progress.resource_waiting_without_deadline_count())
     }
 
     pub fn encode_mouse(
@@ -4832,6 +4922,15 @@ impl Surface {
         Some(TerminalHostConnectionState::from_u8(
             pty.host_connection_state.load(Ordering::Acquire),
         ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for_terminal_runtime_owners_for_test(
+        &self,
+        deadline: Instant,
+    ) -> Option<bool> {
+        let pty = self.as_pty()?;
+        Some(pty.owner_completion.wait_until_finished(deadline))
     }
 
     /// Ask the host to mint a one-use renderer credential. The durable owner

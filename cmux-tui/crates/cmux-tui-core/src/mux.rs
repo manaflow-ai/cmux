@@ -1558,11 +1558,18 @@ fn validate_cell_pixel_convergence(
 pub(crate) struct ResourceWaitWake {
     notified: Mutex<bool>,
     changed: Condvar,
+    #[cfg(test)]
+    waiting_without_deadline: AtomicBool,
 }
 
 impl Default for ResourceWaitWake {
     fn default() -> Self {
-        Self { notified: Mutex::new(false), changed: Condvar::new() }
+        Self {
+            notified: Mutex::new(false),
+            changed: Condvar::new(),
+            #[cfg(test)]
+            waiting_without_deadline: AtomicBool::new(false),
+        }
     }
 }
 
@@ -1588,10 +1595,21 @@ impl ResourceWaitWake {
                         return false;
                     }
                 }
-                None => notified = self.changed.wait(notified).unwrap(),
+                None => {
+                    #[cfg(test)]
+                    self.waiting_without_deadline.store(true, Ordering::Release);
+                    notified = self.changed.wait(notified).unwrap();
+                    #[cfg(test)]
+                    self.waiting_without_deadline.store(false, Ordering::Release);
+                }
             }
         }
         true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_waiting_without_deadline(&self) -> bool {
+        self.waiting_without_deadline.load(Ordering::Acquire)
     }
 }
 
@@ -1685,6 +1703,19 @@ impl TerminalExitWaiters {
     #[cfg(test)]
     fn waiter_count(&self, terminal_id: &TerminalPublicId) -> usize {
         self.waiters.lock().unwrap().get(terminal_id).map(HashMap::len).unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    fn waiting_without_deadline_count(&self, terminal_id: &TerminalPublicId) -> usize {
+        self.waiters
+            .lock()
+            .unwrap()
+            .get(terminal_id)
+            .into_iter()
+            .flat_map(HashMap::values)
+            .filter_map(|waiter| waiter.upgrade())
+            .filter(|waiter| waiter.is_waiting_without_deadline())
+            .count()
     }
 }
 
@@ -4449,6 +4480,14 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn terminal_exit_indefinite_waiter_count_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> usize {
+        self.terminal_exit_waiters.waiting_without_deadline_count(terminal_id)
+    }
+
+    #[cfg(test)]
     pub(crate) fn reset_terminal_exit_state_query_count_for_test(&self) {
         self.terminal_exit_state_queries.store(0, Ordering::Release);
     }
@@ -4886,6 +4925,13 @@ impl Mux {
         hook: impl FnOnce() + Send + 'static,
     ) {
         *self.journal_segment_prepare_hook.lock().unwrap() = Some(Box::new(hook));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observe_next_journal_ingress_failure_for_test(
+        &self,
+    ) -> crate::journal_ingress::JournalIngressFailureObservation {
+        self.journal_ingress.observe_next_failure()
     }
 
     #[cfg(test)]
@@ -19639,22 +19685,14 @@ mod tests {
 
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            let detached = mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_none();
-            let retry_finished = !mux.terminal_exit_detaches.contains(TERMINAL);
-            if detached && retry_finished {
-                break;
-            }
-            assert!(Instant::now() < deadline, "atomic exit retry did not detach the terminal");
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        assert!(
+            mux.terminal_exit_detaches.wait_until_finished(TERMINAL, deadline),
+            "atomic exit retry did not detach the terminal"
+        );
+        assert!(mux.resolve_terminal(TERMINAL).unwrap().unwrap().surface.is_none());
         assert_eq!(
             mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
             TerminalLifecycle::Exited
-        );
-        assert!(
-            mux.terminal_exit_detaches.wait_until_finished(TERMINAL, deadline),
-            "terminal detach retry worker did not release its ownership"
         );
     }
 

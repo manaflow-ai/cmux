@@ -1,14 +1,18 @@
 use std::fs;
 #[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(unix)]
+use wait_timeout::ChildExt;
 
 use cmux_tui_core::platform::transport;
 
@@ -25,6 +29,19 @@ impl HeadlessServer {
     }
 
     fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
+        Self::start_with_config_and_env(name, config_contents, std::iter::empty::<(&str, &str)>())
+    }
+
+    fn start_with_config_and_env<I, K, V>(
+        name: &str,
+        config_contents: Option<&str>,
+        extra_env: I,
+    ) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<std::ffi::OsStr>,
+        V: AsRef<std::ffi::OsStr>,
+    {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
@@ -36,16 +53,17 @@ impl HeadlessServer {
         if let Some(contents) = config_contents {
             fs::write(&config, contents).unwrap();
         }
-        let child = Command::new(bin())
+        let mut command = Command::new(bin());
+        command
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .envs(extra_env)
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+        let child = command.spawn().unwrap();
         let server = Self { child, socket, state, dir };
         server.wait_for_socket();
         server
@@ -165,35 +183,280 @@ impl HeadlessServer {
 
 #[cfg(unix)]
 fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if child.try_wait().unwrap().is_some() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    false
+    child.wait_timeout(timeout).unwrap().is_some()
 }
 
-#[cfg(unix)]
-fn wait_for_processes_to_exit(pids: &[u32], timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid)) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    false
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+const FIXTURE_FAILURE_CLEANUP: Duration = Duration::from_secs(2);
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FixtureProcessState {
+    Captured,
+    GracefulExit,
+    AbortRequested,
+    ExitPublished,
 }
 
-#[cfg(unix)]
-fn signal_test_process_group(pid: u32, signal: libc::c_int) {
-    let Ok(pid) = libc::pid_t::try_from(pid) else { return };
-    // SAFETY: the test just captured this isolated PTY process group from its
-    // private terminal-host record or process-info response.
-    unsafe {
-        libc::kill(-pid, signal);
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+struct FixtureProcessOwner {
+    lease_listener: Option<UnixListener>,
+    abort_listener: Option<UnixListener>,
+    lease: Option<UnixStream>,
+    abort: Option<UnixStream>,
+    lease_dir: PathBuf,
+    lease_path: PathBuf,
+    abort_path: PathBuf,
+    ready: bool,
+    durable_records: Vec<(PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)>,
+    state: FixtureProcessState,
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+impl FixtureProcessOwner {
+    fn prepare(name: &str) -> std::io::Result<Self> {
+        let lease_dir = unique_temp_dir(name);
+        fs::create_dir_all(&lease_dir)?;
+        let lease_path = lease_dir.join("group-lease.sock");
+        let abort_path = lease_dir.join("abort.sock");
+        let lease_listener = UnixListener::bind(&lease_path)?;
+        let abort_listener = UnixListener::bind(&abort_path)?;
+
+        Ok(Self {
+            lease_listener: Some(lease_listener),
+            abort_listener: Some(abort_listener),
+            lease: None,
+            abort: None,
+            lease_dir,
+            lease_path,
+            abort_path,
+            ready: false,
+            durable_records: Vec::new(),
+            state: FixtureProcessState::Captured,
+        })
+    }
+
+    fn fixture_command(&self) -> std::io::Result<Vec<String>> {
+        Ok(vec![
+            std::env::current_exe()?.to_string_lossy().into_owned(),
+            "--ignored".to_string(),
+            "--exact".to_string(),
+            "sidebar_fixture_process_supervisor".to_string(),
+            "--nocapture".to_string(),
+        ])
+    }
+
+    fn fixture_environment(&self) -> [(&'static str, &std::ffi::OsStr); 2] {
+        [
+            ("CMUX_TUI_TEST_GROUP_LEASE", self.lease_path.as_os_str()),
+            ("CMUX_TUI_TEST_GROUP_ABORT", self.abort_path.as_os_str()),
+        ]
+    }
+
+    fn capture(
+        &mut self,
+        durable_records: Vec<(PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostRecord)>,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        self.durable_records = durable_records;
+        let lease_listener = self
+            .lease_listener
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("fixture lease listener was already consumed"))?;
+        let abort_listener = self
+            .abort_listener
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("fixture abort listener was already consumed"))?;
+        self.lease = Some(Self::accept_until(&lease_listener, deadline)?);
+        self.abort = Some(Self::accept_until(&abort_listener, deadline)?);
+        self.lease.as_ref().unwrap().set_nonblocking(true)?;
+        anyhow::ensure!(
+            self.wait_for_ready(deadline)?,
+            "fixture supervisor did not publish its process-group lease"
+        );
+        Ok(())
+    }
+
+    fn wait_for_graceful_exit(&mut self, deadline: Instant) -> anyhow::Result<bool> {
+        anyhow::ensure!(self.state == FixtureProcessState::Captured);
+        self.state = FixtureProcessState::GracefulExit;
+        if !self.wait_for_group_eof(deadline)? {
+            self.state = FixtureProcessState::Captured;
+            return Ok(false);
+        }
+        self.state = FixtureProcessState::ExitPublished;
+        self.validate_durable_exit()?;
+        Ok(true)
+    }
+
+    fn validate_durable_exit(&mut self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.state == FixtureProcessState::ExitPublished,
+            "durable fixture state requires process-group EOF"
+        );
+        for (record_path, record) in &self.durable_records {
+            anyhow::ensure!(
+                cmux_tui_core::terminal_host_runtime::terminal_host_record_liveness(
+                    record_path,
+                    record,
+                )? == cmux_tui_core::terminal_host_runtime::TerminalHostLiveness::Dead,
+                "durable fixture host did not release its exact liveness proof"
+            );
+        }
+        Ok(())
+    }
+
+    fn wait_for_ready(&mut self, deadline: Instant) -> std::io::Result<bool> {
+        let mut bytes = Vec::new();
+        while Self::wait_for_fd(
+            self.lease
+                .as_ref()
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotConnected,
+                        "fixture lease is not connected",
+                    )
+                })?
+                .as_raw_fd(),
+            libc::POLLIN | libc::POLLHUP,
+            deadline,
+        )? {
+            let mut buffer = [0_u8; 32];
+            match self.lease.as_mut().unwrap().read(&mut buffer) {
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "fixture supervisor exited before lease publication",
+                    ));
+                }
+                Ok(count) => {
+                    bytes.extend_from_slice(&buffer[..count]);
+                    if bytes.windows(b"ready\n".len()).any(|window| window == b"ready\n") {
+                        self.ready = true;
+                        return Ok(true);
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(false)
+    }
+
+    fn wait_for_group_eof(&mut self, deadline: Instant) -> std::io::Result<bool> {
+        if !self.ready {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "fixture process-group lease was not armed",
+            ));
+        }
+        self.wait_for_lease_eof(deadline)
+    }
+
+    fn wait_for_lease_eof(&mut self, deadline: Instant) -> std::io::Result<bool> {
+        let Some(descriptor) = self.lease.as_ref().map(|lease| lease.as_raw_fd()) else {
+            return Ok(true);
+        };
+        while Self::wait_for_fd(descriptor, libc::POLLIN | libc::POLLHUP, deadline)? {
+            let mut buffer = [0_u8; 32];
+            match self.lease.as_mut().unwrap().read(&mut buffer) {
+                Ok(0) => return Ok(true),
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(false)
+    }
+
+    fn request_abort_and_wait(&mut self, deadline: Instant) -> std::io::Result<bool> {
+        if self.state == FixtureProcessState::ExitPublished {
+            return Ok(true);
+        }
+        self.state = FixtureProcessState::AbortRequested;
+        if let Some(mut abort) = self.abort.take() {
+            let _ = abort.write_all(b"abort\n");
+            let _ = abort.shutdown(std::net::Shutdown::Write);
+        }
+        if self.wait_for_lease_eof(deadline)? {
+            self.state = FixtureProcessState::ExitPublished;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn accept_until(listener: &UnixListener, deadline: Instant) -> std::io::Result<UnixStream> {
+        listener.set_nonblocking(true)?;
+        loop {
+            if !Self::wait_for_fd(listener.as_raw_fd(), libc::POLLIN, deadline)? {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "fixture supervisor did not connect before deadline",
+                ));
+            }
+            match listener.accept() {
+                Ok((stream, _)) => return Ok(stream),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock
+                    ) => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    fn wait_for_fd(
+        descriptor: std::os::fd::RawFd,
+        events: libc::c_short,
+        deadline: Instant,
+    ) -> std::io::Result<bool> {
+        let mut descriptor = libc::pollfd { fd: descriptor, events, revents: 0 };
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(false);
+            }
+            let timeout_ms = remaining.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
+            let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+            if ready > 0 {
+                if descriptor.revents & events != 0 {
+                    return Ok(true);
+                }
+                if descriptor.revents & (libc::POLLERR | libc::POLLNVAL) != 0 {
+                    return Err(std::io::Error::other(format!(
+                        "fixture supervisor descriptor failed with events {:#x}",
+                        descriptor.revents
+                    )));
+                }
+                continue;
+            }
+            if ready == 0 {
+                return Ok(false);
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+impl Drop for FixtureProcessOwner {
+    fn drop(&mut self) {
+        let cleanup_complete = self.state == FixtureProcessState::ExitPublished
+            || self
+                .request_abort_and_wait(Instant::now() + FIXTURE_FAILURE_CLEANUP)
+                .unwrap_or(false);
+        if cleanup_complete {
+            let _ = fs::remove_dir_all(&self.lease_dir);
+        } else {
+            eprintln!(
+                "fixture supervisor did not publish process-group EOF; retained {}",
+                self.lease_dir.display()
+            );
+        }
     }
 }
 
@@ -402,7 +665,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     }
 
     #[cfg(unix)]
-    fn accept_with_deadline(listener: &UnixListener) -> std::os::unix::net::UnixStream {
+    fn accept_with_deadline(listener: &UnixListener) -> UnixStream {
         listener.set_nonblocking(true).unwrap();
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
@@ -1059,12 +1322,71 @@ fn explicit_attach_registers_a_full_session_tui_client() {
     panic!("explicit attach never registered the full session");
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+fn clear_close_on_exec(descriptor: std::os::fd::RawFd) -> std::io::Result<()> {
+    // SAFETY: descriptor is the live lease socket owned by this supervisor.
+    let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: F_SETFD changes only the close-on-exec flag on the same live
+    // lease descriptor so each exact child inherits the kernel-owned proof.
+    if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+#[test]
+#[ignore = "launched as the server-owned sidebar fixture supervisor"]
+fn sidebar_fixture_process_supervisor() {
+    let Some(lease_path) = std::env::var_os("CMUX_TUI_TEST_GROUP_LEASE") else {
+        return;
+    };
+    let Some(abort_path) = std::env::var_os("CMUX_TUI_TEST_GROUP_ABORT") else {
+        return;
+    };
+
+    let mut lease = UnixStream::connect(lease_path).expect("connect fixture group lease");
+    let mut abort = UnixStream::connect(abort_path).expect("connect fixture abort channel");
+    clear_close_on_exec(lease.as_raw_fd()).expect("make fixture group lease inheritable");
+
+    // The supervisor is the single test-only owner for every fixture member.
+    // All members inherit the same lease, and only this owner can end and reap
+    // them after an abort request.
+    let mut members = vec![Command::new("/bin/cat").spawn().expect("start fixture member")];
+    lease.write_all(b"ready\n").expect("publish fixture group lease");
+
+    let mut request = [0_u8; 1];
+    let _ = abort.read(&mut request);
+    for member in &mut members {
+        // The exact Child handle retains ownership even when exit races this
+        // abort request. wait below is the single authoritative reap.
+        let _ = member.kill();
+    }
+    for mut member in members {
+        member.wait().expect("reap fixture member after abort");
+    }
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
 #[test]
 fn graceful_shutdown_stops_server_owned_sidebar_process() {
-    let mut server = HeadlessServer::start_with_config(
+    let mut process_owner =
+        FixtureProcessOwner::prepare("sidebar-host-shutdown-lease").expect("create process lease");
+    let config = serde_json::json!({
+        "sidebar": {
+            "plugin": {
+                "command": process_owner.fixture_command().expect("locate fixture supervisor"),
+            }
+        }
+    })
+    .to_string();
+    let mut server = HeadlessServer::start_with_config_and_env(
         "sidebar-host-shutdown",
-        Some(r#"{"sidebar":{"plugin":{"command":["/bin/cat"]}}}"#),
+        Some(&config),
+        process_owner.fixture_environment(),
     );
     let sidebar = try_json_socket_request(
         &server.socket,
@@ -1077,50 +1399,57 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
         }),
     )
     .expect("start configured sidebar plugin");
-    let surface = sidebar["surface"].as_u64().expect("sidebar plugin surface");
-    let plugin_pid = try_json_socket_request(
-        &server.socket,
-        serde_json::json!({"id": 2, "cmd": "process-info", "surface": surface}),
-    )
-    .and_then(|response| response["pid"].as_u64())
-    .and_then(|pid| u32::try_from(pid).ok())
-    .expect("sidebar plugin PID");
+    sidebar["surface"].as_u64().expect("sidebar plugin surface");
 
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
     let records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
         .expect("load sidebar terminal-host record");
     let used_durable_host = !records.is_empty();
-    let mut owned_pids = vec![plugin_pid];
-    owned_pids.extend(records.iter().map(|(_, record)| record.host_pid));
+    process_owner
+        .capture(
+            records.iter().map(|(path, record)| (path.clone(), record.clone())).collect(),
+            Instant::now() + Duration::from_secs(10),
+        )
+        .expect("capture sidebar plugin process owner");
+
+    // A durable host is an unexpected failure for this server-owned plug-in.
+    // Keep the live server as the sole cleanup owner before testing SIGINT.
+    // The production resource-close path must publish both the plug-in group
+    // EOF and exact durable-host death before the server can shut down.
+    let preclosed_unexpected_resources = if used_durable_host {
+        let cleanup_deadline = Instant::now() + Duration::from_secs(10);
+        assert!(
+            server.close_all_resources(),
+            "live server did not close unexpected durable sidebar resources"
+        );
+        assert!(
+            process_owner
+                .wait_for_graceful_exit(cleanup_deadline)
+                .expect("verify unexpected durable sidebar cleanup"),
+            "production resource cleanup did not publish process-group EOF"
+        );
+        true
+    } else {
+        false
+    };
 
     let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
+    let shutdown_deadline = Instant::now() + Duration::from_secs(10);
     // SAFETY: this PID is the live child owned by the test fixture.
     assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
-    let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
-    let owned_processes_stopped = wait_for_processes_to_exit(&owned_pids, Duration::from_secs(5));
-
-    // Keep lifecycle regressions leak-free. Every captured process group and
-    // record belongs to this fixture's private state root.
-    if !owned_processes_stopped {
-        for pid in &owned_pids {
-            signal_test_process_group(*pid, libc::SIGTERM);
-        }
-        if !wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
-            for pid in &owned_pids {
-                signal_test_process_group(*pid, libc::SIGKILL);
-            }
-            assert!(
-                wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)),
-                "fixture could not reap its isolated sidebar processes"
-            );
-        }
-        for (record_path, record) in &records {
-            let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
-                record_path,
-                record,
-            );
-        }
-    }
+    let server_stopped = wait_for_child_exit(
+        &mut server.child,
+        shutdown_deadline.saturating_duration_since(Instant::now()),
+    );
+    let owned_processes_stopped = preclosed_unexpected_resources
+        || process_owner
+            .wait_for_graceful_exit(shutdown_deadline)
+            .expect("wait for server-owned process-group EOF");
+    // The shell leader and /bin/cat child hold the same non-CLOEXEC FIFO
+    // writer. EOF is the kernel-owned proof that the complete fixture process
+    // group exited, including a child left behind by its leader. Unexpected
+    // durable hosts are closed through the live production server path above
+    // and still fail the ownership assertion below.
 
     assert!(server_stopped, "SIGINT did not complete graceful server shutdown");
     assert!(

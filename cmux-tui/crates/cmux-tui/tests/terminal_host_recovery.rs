@@ -265,19 +265,26 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
     assert!(created["terminal_revision"].as_u64().is_some());
 
     let terminal_id = created["terminal_id"].as_str().expect("run omitted terminal id").to_string();
+    let terminal_resource_id =
+        only_terminal_resource_id(&harness.socket, "short-lived-terminal-snapshot");
     assert!(created["terminal_incarnation"].as_str().is_some());
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let resolved = loop {
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        if resolved["lifecycle"] == "exited" {
-            break resolved;
-        }
-        assert!(Instant::now() < deadline, "short-lived terminal did not exit: {resolved}");
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let waited = resource_request(
+        &harness.socket,
+        "short-lived-terminal-wait-exit",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal_resource_id,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(waited["state"], "exited", "short-lived terminal did not exit: {waited}");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
     assert_eq!(resolved["surface"], serde_json::Value::Null);
     assert_eq!(resolved["lifecycle"], "exited");
     assert_eq!(resolved["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
@@ -2871,6 +2878,8 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
     );
     let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let terminal_resource_id =
+        only_terminal_resource_id(&harness.socket, "ctrl-d-terminal-snapshot");
     let workspace_id = created["workspace"].as_u64().unwrap();
 
     request(
@@ -2878,19 +2887,24 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
         serde_json::json!({"id":2,"cmd":"send-key","surface":surface,"keys":["ctrl+d"]}),
     );
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        if resolved["lifecycle"] == "exited" {
-            assert_eq!(resolved["surface"], serde_json::Value::Null);
-            break;
-        }
-        assert!(Instant::now() < deadline, "Ctrl-D never exited the shell");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let waited = resource_request(
+        &harness.socket,
+        "ctrl-d-terminal-wait-exit",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal_resource_id,
+            "timeout_ms":"10000",
+        }),
+        None,
+    );
+    assert_eq!(waited["state"], "exited", "Ctrl-D never exited the shell: {waited}");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_eq!(resolved["surface"], serde_json::Value::Null);
 
     let tree = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
     let workspace = tree["workspaces"]
@@ -3150,6 +3164,19 @@ fn resource_request(
     assert_eq!(response["id"], id, "request failed: {response}");
     assert_eq!(response["ok"], true, "request failed: {response}");
     response["result"].clone()
+}
+
+fn only_terminal_resource_id(path: &Path, id: &str) -> String {
+    let snapshot = resource_request(
+        path,
+        id,
+        "session.snapshot",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let terminals = snapshot["terminals"].as_array().expect("snapshot terminals");
+    assert_eq!(terminals.len(), 1, "fixture must publish one terminal: {snapshot}");
+    terminals[0]["id"].as_str().expect("terminal resource id").to_string()
 }
 
 fn wait_for_socket(path: &Path) {

@@ -53,3 +53,4 @@ async-trait.workspace = true
 cmux-pty.workspace = true
 tempfile = "3"
 rusqlite.workspace = true
+wait-timeout.workspace = true

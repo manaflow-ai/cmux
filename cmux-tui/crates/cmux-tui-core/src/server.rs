@@ -1401,6 +1401,8 @@ struct ResourceWorkerAdmission {
     per_client_capacity: usize,
     server_capacity: usize,
     state: Mutex<ResourceWorkerAdmissionState>,
+    #[cfg(test)]
+    changed: Condvar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1430,6 +1432,11 @@ impl Drop for ResourceWorkerPermitLease {
         if remove_client {
             state.active_by_client.remove(&self.client);
         }
+        #[cfg(test)]
+        {
+            drop(state);
+            self.admission.changed.notify_all();
+        }
     }
 }
 
@@ -1439,6 +1446,8 @@ impl ResourceWorkerAdmission {
             per_client_capacity,
             server_capacity,
             state: Mutex::new(ResourceWorkerAdmissionState::default()),
+            #[cfg(test)]
+            changed: Condvar::new(),
         })
     }
 
@@ -1457,6 +1466,11 @@ impl ResourceWorkerAdmission {
         }
         state.active += 1;
         *state.active_by_client.entry(client).or_default() += 1;
+        #[cfg(test)]
+        {
+            drop(state);
+            self.changed.notify_all();
+        }
         Ok(ResourceWorkerPermit {
             _lease: Arc::new(ResourceWorkerPermitLease { admission: self.clone(), client }),
         })
@@ -1465,6 +1479,23 @@ impl ResourceWorkerAdmission {
     #[cfg(test)]
     fn active(&self) -> usize {
         self.state.lock().unwrap().active
+    }
+
+    #[cfg(test)]
+    fn wait_for_active(&self, expected: usize, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        while state.active != expected {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.active != expected {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -2965,6 +2996,27 @@ impl BoundedOutbound {
             self.changed.notify_all();
         }
         text
+    }
+
+    #[cfg(test)]
+    fn pop_until(&self, deadline: Instant) -> Option<String> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(text) = Self::pop_locked(&mut state) {
+                drop(state);
+                self.changed.notify_all();
+                return Some(text.to_string());
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() {
+                return None;
+            }
+        }
     }
 
     fn recv(&self) -> Option<Arc<BudgetedText>> {
@@ -13051,13 +13103,8 @@ mod tests {
 
     fn pop_json(outbound: &BoundedOutbound) -> Value {
         let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            if let Some(message) = outbound.try_pop() {
-                return serde_json::from_str(&message).expect("outbound JSON");
-            }
-            assert!(Instant::now() < deadline, "timed out waiting for outbound JSON");
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        let message = outbound.pop_until(deadline).expect("timed out waiting for outbound JSON");
+        serde_json::from_str(&message).expect("outbound JSON")
     }
 
     fn resource_request(
@@ -13651,15 +13698,15 @@ mod tests {
         let waiting_deadline = Instant::now() + Duration::from_secs(1);
         while surface.terminal_stream_waiter_count_for_test() != Some(1)
             || surface.terminal_stream_subscription_count_for_test() != Some(1)
+            || surface.terminal_stream_indefinite_waiter_count_for_test() != Some(1)
         {
             assert!(Instant::now() < waiting_deadline, "terminal wait did not become idle");
             std::thread::yield_now();
         }
-        std::thread::sleep(Duration::from_millis(350));
         assert_eq!(
             surface.terminal_stream_subscription_count_for_test(),
             Some(1),
-            "idle terminal.wait worker polled"
+            "idle terminal.wait worker resubscribed"
         );
 
         let cancel = resource_request(
@@ -13708,6 +13755,10 @@ mod tests {
         let terminal_id =
             TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
                 .unwrap();
+        let terminal_surface = first
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| first.surface(surface))
+            .expect("created terminal surface");
         let exit = crate::terminal_host_protocol::TerminalExit {
             outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
             exited_at_ms: 4_567_890,
@@ -13717,12 +13768,18 @@ mod tests {
         assert!(disconnect_client(&first, client, false));
         drop(scheduler);
         drop(writer);
+        terminal_surface.shutdown_for_daemon();
+        assert_eq!(
+            terminal_surface.wait_for_terminal_runtime_owners_for_test(
+                Instant::now() + Duration::from_secs(10)
+            ),
+            Some(true),
+            "terminal runtime owners did not release the first mux"
+        );
+        first.flush_terminal_journal().unwrap();
         first.shutdown();
-        let shutdown_deadline = Instant::now() + Duration::from_secs(10);
-        while Arc::strong_count(&first) > 1 && Instant::now() < shutdown_deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
         assert_eq!(Arc::strong_count(&first), 1, "terminal workers retained the first mux");
+        drop(terminal_surface);
         drop(first);
 
         let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
@@ -13799,11 +13856,12 @@ mod tests {
             != RESOURCE_WAITS_PER_CLIENT_CAPACITY
             || mux.terminal_exit_state_query_count_for_test()
                 != RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64
+            || mux.terminal_exit_indefinite_waiter_count_for_test(&terminal_id)
+                != RESOURCE_WAITS_PER_CLIENT_CAPACITY
         {
             assert!(Instant::now() < admission_deadline, "exit waits did not become idle");
             std::thread::yield_now();
         }
-        std::thread::sleep(Duration::from_millis(350));
         assert_eq!(
             mux.terminal_exit_state_query_count_for_test(),
             RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64,
@@ -13989,13 +14047,13 @@ mod tests {
             );
             assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
         }
-        let admission_deadline = Instant::now() + Duration::from_secs(2);
-        while mux.control_clients.resource_wait_admission.active()
-            != RESOURCE_WAITS_PER_CLIENT_CAPACITY
-        {
-            assert!(Instant::now() < admission_deadline, "wait workers did not start");
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        assert!(
+            mux.control_clients.resource_wait_admission.wait_for_active(
+                RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+                Instant::now() + Duration::from_secs(2),
+            ),
+            "wait workers did not start"
+        );
 
         let rejected = resource_request(
             "unbounded-wait-rejected",
@@ -14016,14 +14074,12 @@ mod tests {
         assert_eq!(rejection["error"]["details"]["extra"]["scope"], "client");
 
         assert!(disconnect_client(&mux, client, false));
-        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
-        while mux.control_clients.resource_wait_admission.active() != 0 {
-            assert!(
-                Instant::now() < cleanup_deadline,
-                "disconnected unbounded waits retained worker capacity"
-            );
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        assert!(
+            mux.control_clients
+                .resource_wait_admission
+                .wait_for_active(0, Instant::now() + Duration::from_secs(2)),
+            "disconnected unbounded waits retained worker capacity"
+        );
     }
 
     #[test]
@@ -14071,14 +14127,12 @@ mod tests {
             mux.control_clients.contains(client),
             "test must isolate writer failure from registry disconnect"
         );
-        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
-        while mux.control_clients.resource_wait_admission.active() != 0 {
-            assert!(
-                Instant::now() < cleanup_deadline,
-                "closed writer retained terminal wait worker capacity"
-            );
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        assert!(
+            mux.control_clients
+                .resource_wait_admission
+                .wait_for_active(0, Instant::now() + Duration::from_secs(2)),
+            "closed writer retained terminal wait worker capacity"
+        );
         assert!(mux.control_clients.contains(client));
         assert!(disconnect_client(&mux, client, false));
     }
@@ -14139,11 +14193,12 @@ mod tests {
         assert_eq!(response["ok"], true);
         assert_eq!(response["result"]["state"], "pending");
 
-        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
-        while mux.control_clients.resource_wait_admission.active() != 0 {
-            assert!(Instant::now() < cleanup_deadline, "zero-timeout wait retained capacity");
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        assert!(
+            mux.control_clients
+                .resource_wait_admission
+                .wait_for_active(0, Instant::now() + Duration::from_secs(2)),
+            "zero-timeout wait retained capacity"
+        );
         assert!(disconnect_client(&mux, client, false));
     }
 
@@ -14262,14 +14317,12 @@ mod tests {
             drop(worker_permit);
         }
         assert!(disconnect_client(&mux, client, false));
-        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
-        while mux.control_clients.resource_stream_admission.active() != 0 {
-            assert!(
-                Instant::now() < cleanup_deadline,
-                "ended streams retained server worker capacity"
-            );
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        assert!(
+            mux.control_clients
+                .resource_stream_admission
+                .wait_for_active(0, Instant::now() + Duration::from_secs(2)),
+            "ended streams retained server worker capacity"
+        );
     }
 
     #[test]
@@ -14412,7 +14465,12 @@ mod tests {
         assert_eq!(response["type"], "response");
         assert_eq!(response["id"], "events-cancel");
         assert_eq!(response["ok"], true);
-        std::thread::sleep(Duration::from_millis(10));
+        assert!(
+            mux.control_clients
+                .resource_stream_admission
+                .wait_for_active(0, Instant::now() + Duration::from_secs(2)),
+            "canceled event stream retained worker capacity"
+        );
         assert!(outbound.try_pop().is_none(), "an item followed stream_end");
         disconnect_client(&mux, client, false);
     }
