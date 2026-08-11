@@ -18404,6 +18404,54 @@ mod tests {
     }
 
     #[test]
+    fn terminal_close_preserves_unrelated_content_placement_order() {
+        let mux = test_mux();
+        let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let closing_host = mux.resource_terminal_host_identity(&closing).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(closing.id).unwrap());
+        let shared = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let shared_id = shared.terminal_public_id().cloned().unwrap();
+        let outside = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let outside_pane = mux.with_state(|state| state.pane_of(outside.id).unwrap());
+        mux.resource_project_terminal_selected(
+            crate::ResourceSelectors {
+                terminal: Some(shared_id.to_string()),
+                ..Mux::ordinary_resource_selectors()
+            },
+            mux.ordinary_pane_selectors(outside_pane).unwrap(),
+            usize::MAX,
+            None,
+            None,
+            &WorkspaceMutation::new("project-unrelated-terminal", "test").unwrap(),
+        )
+        .unwrap();
+        let before = mux.with_state(|state| {
+            state
+                .placements_of_content(&ContentPublicId::Terminal(shared_id.clone()))
+                .to_vec()
+        });
+        assert_eq!(before.first(), Some(&shared.id));
+        assert_eq!(before.len(), 2);
+
+        mux.close_terminal_with_mutation(
+            &closing_host.terminal_id,
+            Some(&closing_host.incarnation),
+            None,
+            None,
+            &WorkspaceMutation::new("close-neighbor-terminal", "test").unwrap(),
+        )
+        .unwrap();
+
+        let after = mux.with_state(|state| {
+            state
+                .placements_of_content(&ContentPublicId::Terminal(shared_id))
+                .to_vec()
+        });
+        assert_eq!(after, before);
+        mux.shutdown();
+    }
+
+    #[test]
     fn persistent_mux_restart_restores_auxiliary_resources_and_exact_replay() {
         let root = std::env::temp_dir().join(format!(
             "cmux-resource-auxiliary-restart-{}",
