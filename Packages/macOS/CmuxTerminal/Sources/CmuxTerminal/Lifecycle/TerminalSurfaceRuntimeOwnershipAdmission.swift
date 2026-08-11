@@ -306,7 +306,8 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     }
 
     func clearAllStalledCloseTeardowns() {
-        let grant = state.withLock { state in
+        let grant: TerminalSurfaceRuntimeOwnershipRecoveryGrant?
+        grant = state.withLock { state in
             guard state.closeTeardownAllStalled else {
                 return nil
             }
