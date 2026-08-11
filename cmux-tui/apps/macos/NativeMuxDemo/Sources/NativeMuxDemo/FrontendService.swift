@@ -120,7 +120,7 @@ final class SerialFFIExecutor: @unchecked Sendable {
           waiter.complete(result)
         }
         if let timeoutNanoseconds {
-          Task.detached {
+          let timeoutTask = Task.detached {
             do {
               try await Task.sleep(nanoseconds: timeoutNanoseconds)
             } catch {
@@ -128,6 +128,7 @@ final class SerialFFIExecutor: @unchecked Sendable {
             }
             if cancellation.cancel() { waiter.complete(nil) }
           }
+          waiter.installTimeoutTask(timeoutTask)
         }
         onEnqueued?()
       }
@@ -142,6 +143,7 @@ private final class FFIResultWaiter<T: Sendable>: @unchecked Sendable {
   private var continuation: CheckedContinuation<T?, Never>?
   private var completed = false
   private var result: T?
+  private var timeoutTask: Task<Void, Never>?
 
   func install(_ continuation: CheckedContinuation<T?, Never>) {
     lock.lock()
@@ -151,6 +153,17 @@ private final class FFIResultWaiter<T: Sendable>: @unchecked Sendable {
       continuation.resume(returning: completedResult)
     } else {
       self.continuation = continuation
+      lock.unlock()
+    }
+  }
+
+  func installTimeoutTask(_ task: Task<Void, Never>) {
+    lock.lock()
+    if completed {
+      lock.unlock()
+      task.cancel()
+    } else {
+      timeoutTask = task
       lock.unlock()
     }
   }
@@ -165,7 +178,10 @@ private final class FFIResultWaiter<T: Sendable>: @unchecked Sendable {
     self.result = result
     let continuation = continuation
     self.continuation = nil
+    let timeoutTask = timeoutTask
+    self.timeoutTask = nil
     lock.unlock()
+    timeoutTask?.cancel()
     continuation?.resume(returning: result)
   }
 }
