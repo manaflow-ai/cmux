@@ -284,6 +284,19 @@ struct DisconnectedWorkspaceShellView: View {
     /// Saved Macs restored/known on this device (macOS fallback shell).
     private var savedMacs: [MobilePairedMac] { store?.pairedMacs ?? [] }
 
+    private var savedMacDescription: String {
+        guard showAddDevice != nil else {
+            return L10n.string(
+                "mobile.devices.savedDescription.reconnectOnly",
+                defaultValue: "Tap a saved computer to reconnect."
+            )
+        }
+        return L10n.string(
+            "mobile.devices.savedDescription",
+            defaultValue: "Tap a saved computer to reconnect, or add another."
+        )
+    }
+
     private var content: some View {
         ContentUnavailableView {
             Label(
@@ -299,7 +312,7 @@ struct DisconnectedWorkspaceShellView: View {
                         "mobile.devices.emptyDescription",
                         defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
                     )
-                    : L10n.string("mobile.devices.savedDescription", defaultValue: "Tap a saved computer to reconnect, or add another.")
+                    : savedMacDescription
             )
         } actions: {
             if let store, !savedMacs.isEmpty {

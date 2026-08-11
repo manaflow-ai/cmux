@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Root sheet presentation state")
 struct MobileRootPresentationStateTests {
+    @Test func versionApprovalIsNotAManualPairingSurface() {
+        let approval = PairingPresentation.versionApproval
+
+        #expect(!approval.showsManualPairingControls)
+        #expect(!approval.showsScanner)
+        #expect(approval.analyticsEntry == "version_approval")
+    }
+
     @Test func introductionRoutesThroughSettingsAndPairingWithoutDismissal() {
         var state = MobileRootPresentationState()
 

@@ -3316,6 +3316,23 @@
         }
       }
     },
+    "mobile.devices.savedDescription.reconnectOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a saved computer to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したコンピュータをタップして再接続します。"
+          }
+        }
+      }
+    },
     "mobile.devices.savedTitle": {
       "extractionState": "manual",
       "localizations": {

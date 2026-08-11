@@ -881,15 +881,24 @@ struct CMUXMobileRootView: View {
     }
 
     private func showAddDevice() {
-        presentAddDevice(.manual)
+        guard allowsManualPairing else { return }
+        presentPairing(.manual)
     }
 
     private func showPairingScanner() {
-        presentAddDevice(.scanner(entry: .settingsReplay))
+        guard allowsManualPairing else { return }
+        presentPairing(.scanner(entry: .settingsReplay))
     }
 
     private func showOnboardingPairingScanner() {
-        presentAddDevice(.scanner(entry: .onboardingFallback))
+        guard allowsManualPairing else { return }
+        presentPairing(.scanner(entry: .onboardingFallback))
+    }
+
+    /// An external attach ticket can require compatibility approval under any
+    /// connection method. Its presentation contains no manual pairing controls.
+    private func showAttachVersionApproval() {
+        presentPairing(.versionApproval)
     }
 
     /// Manual host and pairing-code authorization create Tailscale routes, so
@@ -913,9 +922,8 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    /// Routes every add-device entrypoint through the platform's root presenter.
-    private func presentAddDevice(_ presentation: PairingPresentation) {
-        guard allowsManualPairing else { return }
+    /// Routes pairing and attach approval through the platform's root presenter.
+    private func presentPairing(_ presentation: PairingPresentation) {
         #if os(iOS)
         addDeviceSheetDetent = .large
         handleRootPresentation(.presentPairing(presentation))
@@ -940,7 +948,7 @@ struct CMUXMobileRootView: View {
         Task {
             let result = await store.connectPairingURLResult(rawURL)
             if result == .needsUserApproval {
-                showAddDevice()
+                showAttachVersionApproval()
             }
             clearAttachTicketAuthentication(after: result)
             if result == .failed, store.connectionState != .connected {
@@ -1080,7 +1088,7 @@ struct CMUXMobileRootView: View {
                 return
             }
             if completion.result == .needsUserApproval {
-                showAddDevice()
+                showAttachVersionApproval()
             }
             clearInjectedAttachTask(ifCurrent: startupAttempt)
             if completion.shouldReconnectStoredMac {
