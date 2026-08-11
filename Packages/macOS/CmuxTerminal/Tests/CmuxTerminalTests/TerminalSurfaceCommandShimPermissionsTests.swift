@@ -125,6 +125,66 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         #expect(!setupFileManager.fileExists(atPath: shimDirectory.path))
     }
 
+    @Test("Cancelled reinstall preserves the current per-surface shim directory")
+    func cancelledReinstallPreservesCurrentShimDirectory() async throws {
+        let setupFileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceCommandShimReinstallTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let temporaryDirectory = root.appending(path: "tmp", directoryHint: .isDirectory)
+        let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
+        let aliasDirectory = root.appending(path: "aliases", directoryHint: .isDirectory)
+        let surfaceID = UUID()
+        defer { try? setupFileManager.removeItem(at: root) }
+
+        for directory in [wrapperDirectory, aliasDirectory] {
+            try setupFileManager.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        }
+        for wrapperName in ["cmux-claude-wrapper", "cmux-codex-wrapper"] {
+            let wrapper = wrapperDirectory.appending(
+                path: wrapperName,
+                directoryHint: .notDirectory
+            )
+            try "#!/bin/sh\nexit 0\n".write(
+                to: wrapper,
+                atomically: true,
+                encoding: .utf8
+            )
+            try setupFileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: wrapper.path
+            )
+        }
+        let current = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: wrapperDirectory,
+                surfaceId: surfaceID,
+                temporaryDirectory: temporaryDirectory,
+                fileManager: setupFileManager
+            )
+        )
+
+        let replacement = await TerminalSurface.installAgentCommandShimsIfPossible(
+            wrapperDirectoryURL: wrapperDirectory,
+            surfaceId: surfaceID,
+            temporaryDirectory: temporaryDirectory,
+            hermesProfileAliasCatalog: HermesProfileAliasCatalog(
+                wrapperDirectoryURL: aliasDirectory
+            ),
+            fileManager: CancelAfterFirstShimFileManager()
+        )
+
+        #expect(replacement == nil)
+        #expect(setupFileManager.fileExists(atPath: current.directoryPath))
+        for shim in current.shims {
+            #expect(setupFileManager.isExecutableFile(atPath: shim.executablePath))
+        }
+    }
+
     @Test("Install hardens group-writable managed directories")
     func installHardensGroupWritableManagedDirectories() throws {
         let fileManager = FileManager.default
