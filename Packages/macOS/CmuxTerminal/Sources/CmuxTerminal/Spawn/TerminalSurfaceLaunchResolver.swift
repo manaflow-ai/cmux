@@ -408,7 +408,10 @@ private final class TerminalSurfaceCommandShimInstallAttempt: @unchecked Sendabl
             )
             guard self?.resolve(shims) == true else {
                 if let shims {
-                    await filesystem.cleanupUnownedAgentCommandShims(shims)
+                    await filesystem.cleanupUnownedAgentCommandShims(
+                        shims,
+                        retryClock: clock
+                    )
                 }
                 return
             }

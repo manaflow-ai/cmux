@@ -361,6 +361,8 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// Shared ownership gate for installs that can outlive a launch deadline.
     public let agentCommandShimInstallGate: TerminalSurfaceCommandShimInstallGate
 
+    private let agentCommandShimCleanupOwner: TerminalSurfaceAgentCommandShimCleanupOwner
+
     /// Creates the runtime filesystem seam.
     public init(
         agentCommandShimTemporaryDirectory: URL,
@@ -376,10 +378,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         agentCommandShimInstallGate: TerminalSurfaceCommandShimInstallGate = .init()
     ) {
         precondition(agentCommandShimRemovalAttemptLimit > 0)
-        self.agentCommandShimTemporaryDirectory = agentCommandShimTemporaryDirectory
-        self.installAgentCommandShims = installAgentCommandShims
-        self.removeAgentCommandShims = removeAgentCommandShims
-        self.reportAgentCommandShimRemovalFailure =
+        let removalFailureReporter =
             reportAgentCommandShimRemovalFailure ?? { shims, errorDescription in
                 Logger(
                     subsystem: "com.cmuxterm.app",
@@ -388,21 +387,25 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                     "Failed to remove command shims at \(shims.directoryPath, privacy: .public): \(errorDescription, privacy: .public)"
                 )
             }
+        self.agentCommandShimTemporaryDirectory = agentCommandShimTemporaryDirectory
+        self.installAgentCommandShims = installAgentCommandShims
+        self.removeAgentCommandShims = removeAgentCommandShims
+        self.reportAgentCommandShimRemovalFailure = removalFailureReporter
         self.agentCommandShimRemovalAttemptLimit = agentCommandShimRemovalAttemptLimit
+        self.agentCommandShimCleanupOwner = TerminalSurfaceAgentCommandShimCleanupOwner(
+            removalAttemptLimit: agentCommandShimRemovalAttemptLimit,
+            remove: removeAgentCommandShims,
+            reportRemovalFailure: removalFailureReporter
+        )
         self.isExecutableFile = isExecutableFile
         self.directoryExists = directoryExists
         self.agentCommandShimInstallGate = agentCommandShimInstallGate
     }
 
     func cleanupUnownedAgentCommandShims(
-        _ shims: TerminalSurfaceAgentCommandShimSet
+        _ shims: TerminalSurfaceAgentCommandShimSet,
+        retryClock: any Clock<Duration>
     ) async {
-        let lease = TerminalSurfaceAgentCommandShimLease(
-            shims: shims,
-            removalAttemptLimit: agentCommandShimRemovalAttemptLimit,
-            remove: removeAgentCommandShims,
-            reportRemovalFailure: reportAgentCommandShimRemovalFailure
-        )
-        await lease.release()
+        await agentCommandShimCleanupOwner.cleanup(shims, retryClock: retryClock)
     }
 }

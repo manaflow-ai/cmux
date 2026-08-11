@@ -561,7 +561,6 @@ struct TerminalSurfaceLaunchResolverTests {
         let owner = TerminalSurfaceAgentCommandShimCleanupOwner(
             removalAttemptLimit: 1,
             retryDelays: [.seconds(5)],
-            retryClock: clock,
             remove: { shims in
                 try recorder.remove(shims)
             },
@@ -570,7 +569,7 @@ struct TerminalSurfaceLaunchResolverTests {
             }
         )
 
-        await owner.cleanup(shims)
+        await owner.cleanup(shims, retryClock: clock)
 
         #expect(recorder.attemptCount == 1)
         #expect(await owner.retainedLeaseCount == 1)

@@ -24,6 +24,7 @@ extension TerminalSurface {
         if agentCommandShimInstallTask == nil {
             let runtimeFilesystem = embeddedRuntime.runtimeFilesystem
             let launchResourceProvider = embeddedRuntime.launchResourceProvider
+            let cleanupRetryClock = embeddedRuntime.agentCommandShimInstallDeadlineClock
             let surfaceId = id
             // Explicit captures and arguments: the region-based isolation
             // checker cannot analyze the legacy closure's implicit captures
@@ -42,6 +43,7 @@ extension TerminalSurface {
                     temporaryDirectory,
                     runtimeFilesystem,
                     launchResourceProvider,
+                    cleanupRetryClock,
                     installLease,
                     installResultGate
                 ] in
@@ -64,7 +66,10 @@ extension TerminalSurface {
                 )
                 guard installResultGate.acceptResult() else {
                     if let shims {
-                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(shims)
+                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(
+                            shims,
+                            retryClock: cleanupRetryClock
+                        )
                     }
                     return nil
                 }
@@ -77,6 +82,7 @@ extension TerminalSurface {
                     temporaryDirectory,
                     runtimeFilesystem,
                     launchResourceProvider,
+                    cleanupRetryClock,
                     installLease,
                     installResultGate
                 ] in
@@ -99,7 +105,10 @@ extension TerminalSurface {
                 )
                 guard installResultGate.acceptResult() else {
                     if let shims {
-                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(shims)
+                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(
+                            shims,
+                            retryClock: cleanupRetryClock
+                        )
                     }
                     return nil
                 }
@@ -108,18 +117,30 @@ extension TerminalSurface {
             #endif
             let installTask = Task.detached(priority: .utility, operation: installOperation)
             agentCommandShimInstallTask = installTask
-            agentCommandShimCompletionTask = Task { @MainActor [weak self, weak view, runtimeFilesystem, launchResourceProvider] in
+            agentCommandShimCompletionTask = Task { @MainActor [
+                weak self,
+                weak view,
+                runtimeFilesystem,
+                launchResourceProvider,
+                cleanupRetryClock,
+            ] in
                 let launchResourceSnapshot = await launchResourceProvider.snapshot()
                 let shims = await installTask.value
                 guard !Task.isCancelled else {
                     if let shims {
-                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(shims)
+                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(
+                            shims,
+                            retryClock: cleanupRetryClock
+                        )
                     }
                     return
                 }
                 guard let self else {
                     if let shims {
-                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(shims)
+                        await runtimeFilesystem.cleanupUnownedAgentCommandShims(
+                            shims,
+                            retryClock: cleanupRetryClock
+                        )
                     }
                     return
                 }
