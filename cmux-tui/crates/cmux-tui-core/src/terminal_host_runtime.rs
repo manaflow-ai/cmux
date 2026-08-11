@@ -2948,6 +2948,22 @@ mod unix {
                 .unwrap_or(TerminalHostLiveness::Indeterminate)
             {
                 TerminalHostLiveness::Dead => {
+                    let exit = match terminal_host_exit_record(record_path) {
+                        Ok(exit) => exit,
+                        Err(_) => return false,
+                    };
+                    if let Some((exit_path, exit)) = exit {
+                        if exit.terminal_id != record.terminal_id
+                            || exit.incarnation != record.incarnation
+                        {
+                            return false;
+                        }
+                        match acknowledge_terminal_host_exit_record(&exit_path, &exit) {
+                            Ok(true) => {}
+                            Ok(false) if !exit_path.exists() => {}
+                            Ok(false) | Err(_) => return false,
+                        }
+                    }
                     return match remove_stale_terminal_host_record(record_path, record) {
                         Ok(removed) => removed,
                         Err(_) if !record_path.exists() => true,
