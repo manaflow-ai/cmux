@@ -1137,6 +1137,7 @@ fn reset_state_root_swap_after_guard_keeps_live_terminal_host_state() {
 fn reset_session_dir_swap_and_restore_after_writer_lock_keeps_original_state() {
     use std::os::unix::fs::PermissionsExt;
 
+    let hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
     let root = temp_root("reset-session-swap-restore-after-writer-lock");
     let session = "reset-session-swap-restore-after-writer-lock";
     let resetter = PersistentSessionStateResetter::new(root.clone());
@@ -1157,8 +1158,10 @@ fn reset_session_dir_swap_and_restore_after_writer_lock_keeps_original_state() {
             locked_replacement: locked_replacement.clone(),
         });
 
-    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    let reset_result = resetter.reset(session, Some(&preview.confirm_reset));
     *RESET_SWAP_RESTORE_SESSION_DIR_AFTER_WRITER_LOCK.lock().unwrap() = None;
+    drop(hook_guard);
+    let error = reset_result.unwrap_err();
 
     assert!(format!("{error:#}").contains("reset directory changed while opening"), "{error:#}");
     assert_eq!(fs::read(session_dir.join(WORKSPACE_REGISTRY_FILE)).unwrap(), b"db");
@@ -1177,6 +1180,7 @@ fn reset_terminal_host_root_swap_and_restore_after_lock_keeps_live_state() {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
+    let hook_guard = RESET_AFTER_GUARD_TEST_LOCK.lock().unwrap();
     let root = temp_root("reset-terminal-host-swap-restore-after-lock");
     let session = "reset-terminal-host-swap-restore-after-lock";
     let resetter = PersistentSessionStateResetter::new(root.clone());
@@ -1227,8 +1231,10 @@ fn reset_terminal_host_root_swap_and_restore_after_lock_keeps_live_state() {
             locked_replacement: locked_replacement.clone(),
         });
 
-    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+    let reset_result = resetter.reset(session, Some(&preview.confirm_reset));
     *RESET_SWAP_RESTORE_TERMINAL_HOST_ROOT_AFTER_LOCK.lock().unwrap() = None;
+    drop(hook_guard);
+    let error = reset_result.unwrap_err();
 
     assert!(format!("{error:#}").contains("reset directory changed while opening"), "{error:#}");
     assert!(host_root.join(record_path.file_name().unwrap()).exists());
