@@ -7454,6 +7454,55 @@ fn journal_agent_new_turn_identity_reopens_final_reused_session() {
 }
 
 #[test]
+fn journal_agent_late_completion_from_older_turn_keeps_new_active_turn() {
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-late-older-turn-completion").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-late-older-turn-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, event, turn_id) in [
+        (0, "SessionStart", "turn-one"),
+        (1, "TurnStart", "turn-two"),
+        (2, "TurnEnd", "turn-one"),
+    ] {
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            event,
+            Some(terminal_id.as_str()),
+            json!({"session_id":"shared-session","turn_id":turn_id}),
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_late_older_turn_completion",
+                &format!("journal_agent_late_older_turn_completion_{index}"),
+            )
+            .unwrap();
+    }
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source_session.as_deref(), Some("shared-session"));
+    let stored_turn_id = registry
+        .connection
+        .query_row(
+            "SELECT json_extract(result_json, '$.extra.turn_id')
+             FROM resource_agent_projections
+             WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(stored_turn_id, "turn-two");
+}
+
+#[test]
 fn journal_agent_same_turn_identity_does_not_reopen_final_session() {
     let mut registry = WorkspaceRegistry::in_memory("journal-agent-same-turn-after-final").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-same-turn-after-final-topology");
