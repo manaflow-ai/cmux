@@ -408,6 +408,49 @@ import CmuxTerminalCore
         )
     }
 
+    @Test func overflowRecoveryWaitsForEveryOlderPrimaryRequest() async throws {
+        let ownerCount = 4
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: ownerCount
+        )
+        let owners = try (0..<ownerCount).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        defer {
+            for owner in owners {
+                coordinator.cancelRuntimeSurfaceOwnership(owner)
+            }
+        }
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let fixtures = (0...ownerCount).map { _ in
+            makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+        }
+
+        for (index, fixture) in fixtures.enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+            try #require(
+                fixture.surface.runtimeSurfaceAdmissionDeferredCreationSource
+                    == .scheduledRestore
+            )
+        }
+
+        for owner in owners {
+            coordinator.cancelRuntimeSurfaceOwnership(owner)
+        }
+        await scheduler.waitForScheduledCount(fixtures.count * 2)
+
+        #expect(
+            Array(scheduler.scheduledSurfaceIds.suffix(fixtures.count))
+                == fixtures.map { $0.surface.id }
+        )
+    }
+
     @Test func overflowRecoveryContinuesInFixedMainActorBatches() async throws {
         let batchCount = 32
         let overflowCount = batchCount + 1
