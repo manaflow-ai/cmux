@@ -126,9 +126,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             #expect(reconciliationRequests.count == 1, Comment(rawValue: scenario.name))
             for request in reconciliationRequests {
-                let params = request["params"] as? [String: Any]
-                #expect(params?["acknowledge_lifecycle"] as? Bool != true)
-                #expect(params?["acknowledge_lifecycle_if_session_absent"] as? Bool != true)
+                guard let params = request["params"] as? [String: Any] else {
+                    #expect(Bool(false), Comment(rawValue: scenario.name))
+                    continue
+                }
+                #expect(
+                    params["acknowledge_lifecycle"] as? Bool != true,
+                    Comment(rawValue: scenario.name)
+                )
+                #expect(
+                    params["acknowledge_lifecycle_if_session_absent"] as? Bool != true,
+                    Comment(rawValue: scenario.name)
+                )
             }
             let methods = requests.compactMap { $0["method"] as? String }
             #expect(!methods.contains("workspace.remote.pty_attach_end"))
@@ -229,13 +238,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             #expect(reconciliationRequests.count == 1, Comment(rawValue: malformedCase))
             for request in reconciliationRequests {
-                let params = request["params"] as? [String: Any]
+                guard let params = request["params"] as? [String: Any] else {
+                    #expect(Bool(false), Comment(rawValue: malformedCase))
+                    continue
+                }
                 #expect(
-                    params?["acknowledge_lifecycle"] as? Bool != true,
+                    params["acknowledge_lifecycle"] as? Bool != true,
                     Comment(rawValue: malformedCase)
                 )
                 #expect(
-                    params?["acknowledge_lifecycle_if_session_absent"] as? Bool != true,
+                    params["acknowledge_lifecycle_if_session_absent"] as? Bool != true,
                     Comment(rawValue: malformedCase)
                 )
             }
@@ -419,12 +431,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         #expect(result.stderr.isEmpty)
         let forwardedBridgeInput = bridgeInput.snapshot()
         #expect(String(data: forwardedBridgeInput, encoding: .utf8) == queuedProbeReplies + forwardedInput)
-        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        let requests = state.snapshot().compactMap { self.jsonObject($0) }
+        let methods = requests.compactMap { $0["method"] as? String }
         #expect(methods == [
             "workspace.remote.pty_bridge",
             "workspace.remote.pty_sessions",
             "workspace.remote.pty_sessions",
             "workspace.remote.pty_attach_end",
         ])
+        let reconciliationParams: [[String: Any]] = requests.compactMap { request in
+            guard request["method"] as? String == "workspace.remote.pty_sessions" else { return nil }
+            return request["params"] as? [String: Any]
+        }
+        #expect(reconciliationParams.count == 2)
+        guard reconciliationParams.count == 2 else { return }
+        #expect(reconciliationParams[0]["acknowledge_lifecycle_if_session_absent"] as? Bool != true)
+        #expect(reconciliationParams[1]["acknowledge_lifecycle_if_session_absent"] as? Bool == true)
     }
 }
