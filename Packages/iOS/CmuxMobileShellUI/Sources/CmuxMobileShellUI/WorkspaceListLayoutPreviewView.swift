@@ -176,10 +176,9 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     @State private var fixtureRoute: FixtureWorkspaceRoute?
-    // Mirrors the shell: search results push onto the search tab's own stack,
-    // and the search session is re-presented after the pop completes.
-    @State private var searchFixturePath: [MobileWorkspacePreview.ID] = []
-    @State private var restoreSearchOnPop = false
+    // Mirrors the shell: search results present full screen OVER the live
+    // search session (the Photos search pattern).
+    @State private var searchPresentedFixtureRoute: FixtureWorkspaceRoute?
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -572,16 +571,14 @@ public struct WorkspaceListLayoutPreviewView: View {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)
                     } workspaceSearch: {
-                        NavigationStack(path: $searchFixturePath) {
+                        NavigationStack {
                             MobilePrimaryWorkspaceSearchContentHost(
                                 searchCoordinator: primarySearchCoordinator
                             ) { searchText in
                                 workspaceListFixture(searchText: searchText)
                             }
-                            // Mirrors the shell: the field is rooted inside the
-                            // stack so the platform minimizes it across a push
-                            // and restores it (bottom placement, query intact)
-                            // when the detail pops.
+                            // Rooted inside the stack so the search-role tab
+                            // presents the field at its bottom control.
                             .modifier(MobilePrimarySearchFieldModifier(
                                 searchCoordinator: primarySearchCoordinator,
                                 scope: .workspaces,
@@ -589,24 +586,20 @@ public struct WorkspaceListLayoutPreviewView: View {
                                     selectedPrimaryTab = primarySearchCoordinator.commitSubmit()
                                 }
                             ))
-                            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                                fixtureWorkspaceDetail(for: workspaceID)
-                                    // Mirrors the shell: re-present the search
-                                    // once the pop has completed.
-                                    .onDisappear {
-                                        guard restoreSearchOnPop else { return }
-                                        restoreSearchOnPop = false
-                                        guard selectedPrimaryTab == .search,
-                                              searchFixturePath.isEmpty else { return }
-                                        primarySearchCoordinator.setPresentation(true)
+                        }
+                        // Mirrors the shell: full screen over the live search.
+                        .fullScreenCover(item: $searchPresentedFixtureRoute) { route in
+                            NavigationStack {
+                                fixtureWorkspaceDetail(for: route.id)
+                                    .navigationBarBackButtonHidden(true)
+                                    .toolbar {
+                                        ToolbarItem(placement: .topBarLeading) {
+                                            WorkspaceBackButton(unreadCount: 0) {
+                                                searchPresentedFixtureRoute = nil
+                                            }
+                                        }
                                     }
                             }
-                            // Mirrors the shell: path-state-driven hide so the
-                            // bar is already back when onDisappear fires.
-                            .toolbarVisibility(
-                                searchFixturePath.isEmpty ? .automatic : .hidden,
-                                for: .tabBar
-                            )
                         }
                     } notificationSearch: {
                         Text("Notification feed fixture")
@@ -619,8 +612,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         .onChange(of: selectedPrimaryTab) { oldValue, newValue in
             if oldValue == .search, newValue != .search {
-                searchFixturePath = []
-                restoreSearchOnPop = false
+                searchPresentedFixtureRoute = nil
             }
         }
         .overlay(alignment: .topLeading) {
@@ -660,11 +652,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         selectedWorkspaceID = id
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
-            primarySearchCoordinator.deactivateCurrentSearch()
-            restoreSearchOnPop = true
-            if searchFixturePath.last != id {
-                searchFixturePath = [id]
-            }
+            searchPresentedFixtureRoute = FixtureWorkspaceRoute(id: id)
         } else {
             fixtureRoute = FixtureWorkspaceRoute(id: id)
         }
