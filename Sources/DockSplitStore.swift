@@ -4,6 +4,7 @@ import Combine
 import CmuxAppKitSupportUI
 import CmuxCore
 import CmuxFoundation
+import CmuxNotifications
 import CmuxSettings
 import CmuxTerminal
 import CmuxTerminalCore
@@ -14,7 +15,12 @@ import WebKit
 
 @MainActor
 @Observable
-final class DockSplitStore: BonsplitDelegate {
+final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
+    private struct PanelSurfaceMapping {
+        var primarySurfaceId: TabID
+        var surfaceIds: Set<TabID>
+    }
+
     private struct PendingTerminalTitleUpdate {
         let title: String
         weak var sourceSurface: TerminalSurface?
@@ -23,6 +29,8 @@ final class DockSplitStore: BonsplitDelegate {
 
     let workspaceId: UUID
     let bonsplitController: BonsplitController
+    /// Pane ownership updated synchronously from Bonsplit lifecycle callbacks.
+    @ObservationIgnored var ownedPaneIds: Set<UUID> = []
 
     /// Which Dock this store backs: `.workspace` (per-workspace, seeded from the
     /// project `.cmux/dock.json`) or `.global` (a per-window Dock seeded from
@@ -45,8 +53,11 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    @ObservationIgnored weak var notificationStore: TerminalNotificationStore?
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
+    /// Reverse index for O(1) panel-owned tab lookups and alias promotion.
+    @ObservationIgnored private var panelSurfaceMappings: [UUID: PanelSurfaceMapping] = [:]
     private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?
     weak var terminalFontSizeChangeCoordinator:
         WorkspaceTerminalFontSizeCoordinator?
@@ -61,6 +72,8 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored private let terminalTitleUpdateCoalescer:
         NotificationBurstCoalescer
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+    /// Focused presentation of Dock panels whose agent lifecycle needs input.
+    @ObservationIgnored let agentNeedsInputAttention = SurfaceAttentionModel()
     @ObservationIgnored var restoredPanelTitleBoundariesByPanelId:
         [UUID: RestoredPanelTitleBoundary] = [:]
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
@@ -75,7 +88,10 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var managedAgentResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     @ObservationIgnored var invalidatedCachedTransferAgentSessionPanelIds: Set<UUID> = []
     @ObservationIgnored var replacedCachedTransferAgentSessionPanelIds: Set<UUID> = []
-    @ObservationIgnored var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] {
+        get { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId }
+        set { restoredAgentLifecycle.resumeWorkingDirectoriesByPanelId = newValue }
+    }
     var hasLoadedConfiguration = false
     var configurationLoadTask: Task<Void, Never>?
     var configurationIdentityTask: Task<Void, Never>?
@@ -325,6 +341,7 @@ final class DockSplitStore: BonsplitDelegate {
         for tabId in bonsplitController.allTabIds {
             _ = bonsplitController.closeTab(tabId)
         }
+        ownedPaneIds = Set(bonsplitController.allPaneIds.map(\.id))
         focusHistoryNavigation.attach(host: self)
         Self.liveStoresTable.add(self)
     }
@@ -351,17 +368,65 @@ final class DockSplitStore: BonsplitDelegate {
         panels[panelId] as? BrowserPanel
     }
 
+    /// Binds a Dock tab to its panel and makes that tab the authoritative reverse lookup.
+    func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
+        if let previousPanelId = surfaceIdToPanelId[surfaceId],
+           previousPanelId != panelId {
+            removeSurfaceMapping(forSurfaceId: surfaceId)
+        }
+        surfaceIdToPanelId[surfaceId] = panelId
+        if var mapping = panelSurfaceMappings[panelId] {
+            mapping.primarySurfaceId = surfaceId
+            mapping.surfaceIds.insert(surfaceId)
+            panelSurfaceMappings[panelId] = mapping
+        } else {
+            panelSurfaceMappings[panelId] = PanelSurfaceMapping(
+                primarySurfaceId: surfaceId,
+                surfaceIds: [surfaceId]
+            )
+        }
+    }
+
+    /// Removes one Dock tab mapping, promoting a remaining alias when necessary.
+    func removeSurfaceMapping(forSurfaceId surfaceId: TabID) {
+        guard let panelId = surfaceIdToPanelId.removeValue(forKey: surfaceId),
+              var mapping = panelSurfaceMappings[panelId] else {
+            return
+        }
+        mapping.surfaceIds.remove(surfaceId)
+        guard let replacementSurfaceId = mapping.surfaceIds.first else {
+            panelSurfaceMappings.removeValue(forKey: panelId)
+            return
+        }
+        if mapping.primarySurfaceId == surfaceId {
+            mapping.primarySurfaceId = replacementSurfaceId
+        }
+        panelSurfaceMappings[panelId] = mapping
+    }
+
+    /// Removes every Dock tab mapping for a panel.
+    func removeSurfaceMappings(forPanelId panelId: UUID) {
+        guard let mapping = panelSurfaceMappings.removeValue(forKey: panelId) else {
+            return
+        }
+        for surfaceId in mapping.surfaceIds {
+            surfaceIdToPanelId.removeValue(forKey: surfaceId)
+        }
+    }
+
+    /// Clears both directions of the Dock tab-to-panel registry.
+    func removeAllSurfaceMappings() {
+        surfaceIdToPanelId.removeAll()
+        panelSurfaceMappings.removeAll()
+    }
+
     func surfaceId(forPanelId panelId: UUID) -> TabID? {
-        surfaceIdToPanelId.first { $0.value == panelId }?.key
+        panelSurfaceMappings[panelId]?.primarySurfaceId
     }
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
         guard let tabId = surfaceId(forPanelId: panelId) else { return nil }
-        for paneId in bonsplitController.allPaneIds
-        where bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId }) {
-            return paneId
-        }
-        return nil
+        return bonsplitController.paneId(containing: tabId)
     }
 
     // MARK: - Lifecycle
@@ -567,7 +632,7 @@ final class DockSplitStore: BonsplitDelegate {
             isDirty: panel.isDirty,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = panel.id
+        bindSurface(newTab.id, toPanelId: panel.id)
         let splitResult = withProgrammaticDockSplit {
             bonsplitController.splitPane(
                 sourcePaneId,
@@ -898,7 +963,7 @@ final class DockSplitStore: BonsplitDelegate {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        surfaceIdToPanelId[tabId] = panel.id
+        bindSurface(tabId, toPanelId: panel.id)
         installSubscription(for: panel)
         applyVisibility(to: panel)
         return tabId
@@ -910,7 +975,7 @@ final class DockSplitStore: BonsplitDelegate {
         if let terminal = panel as? TerminalPanel {
             configureAgentHibernationResume(for: terminal)
         }
-        installAttentionFlashRouting(for: panel)
+        installAttentionRouting(for: panel)
         if let browser = panel as? BrowserPanel {
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
@@ -947,9 +1012,26 @@ final class DockSplitStore: BonsplitDelegate {
                 )
             }
             panelCancellables[panel.id] = cancellable
+        } else if let filePreview = panel as? FilePreviewPanel {
+            panelCancellables.removeValue(forKey: panel.id)
+            filePreview.bindTabMetadata(to: self)
         } else {
             panelCancellables.removeValue(forKey: panel.id)
         }
+    }
+
+    /// Resolves the Dock tab currently owned by a file-preview panel.
+    func filePreviewTabId(forPanelId panelId: UUID) -> TabID? {
+        surfaceId(forPanelId: panelId)
+    }
+
+    /// Preserves a Dock custom title while accepting panel-owned metadata.
+    func filePreviewTabTitlePresentation(
+        for metadata: FilePreviewTabMetadata,
+        panelId _: UUID,
+        existingTab: Bonsplit.Tab
+    ) -> (title: String?, hasCustomTitle: Bool?) {
+        (existingTab.hasCustomTitle ? nil : metadata.title, nil)
     }
 
     /// Keeps the live terminal model and its non-custom Bonsplit tab on one
@@ -1068,7 +1150,9 @@ final class DockSplitStore: BonsplitDelegate {
         let live = Set(bonsplitController.allTabIds)
         let staleTabIds = surfaceIdToPanelId.keys.filter { !live.contains($0) }
         let stalePanelIds = Set(staleTabIds.compactMap { surfaceIdToPanelId[$0] })
-        surfaceIdToPanelId = surfaceIdToPanelId.filter { live.contains($0.key) }
+        for tabId in staleTabIds {
+            removeSurfaceMapping(forSurfaceId: tabId)
+        }
         let livePanelIds = Set(surfaceIdToPanelId.values)
         for panelId in stalePanelIds.subtracting(livePanelIds) {
             discardPanelStateAndClose(panelId: panelId)
@@ -1244,7 +1328,7 @@ final class DockSplitStore: BonsplitDelegate {
                     isDirty: panel.isDirty,
                     isPinned: false
                 )
-                surfaceIdToPanelId[newTab.id] = panel.id
+                bindSurface(newTab.id, toPanelId: panel.id)
                 let seedSplitResult = withProgrammaticDockSplit {
                     bonsplitController.splitPane(
                         sourcePaneId,

@@ -144,6 +144,12 @@ extension DockSplitStore {
                 inPane: paneId,
                 excludingStableIdentities: excludingStableIdentities
             )
+        case .filePreview:
+            return restoreSessionFilePreview(
+                from: snapshot,
+                inPane: paneId,
+                excludingStableIdentities: excludingStableIdentities
+            )
         default:
             return nil
         }
@@ -328,12 +334,14 @@ extension DockSplitStore {
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
             (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
-        seedSessionRestoredAgentState(
+        restoredAgentLifecycle.seedSessionRestore(
             panelId: terminal.id,
-            restorableAgent: restorableAgent,
-            resumeBinding: managedResumeBinding ?? resumeBinding,
+            snapshot: restorableAgent,
+            manualResumeAvailable: restorableAgent != nil ||
+                (managedResumeBinding ?? resumeBinding)?.isAgentHookBinding == true,
             willRunStartupCommand: willRunAgentCommand,
-            willRunStartupInput: willRunAgentInput
+            willRunStartupInput: willRunAgentInput,
+            resumeWorkingDirectory: resumeSessionWorkingDirectory
         )
         if let hibernation, let restorableAgent, restorableAgent.resumeCommand != nil {
             terminal.enterAgentHibernation(
@@ -341,10 +349,6 @@ extension DockSplitStore {
                 lastActivityAt: Date(timeIntervalSince1970: hibernation.lastActivityAt),
                 hibernatedAt: Date(timeIntervalSince1970: hibernation.hibernatedAt)
             )
-        }
-        if willRunAgentCommand || willRunAgentInput,
-           let resumeSessionWorkingDirectory {
-            restoredResumeSessionWorkingDirectoriesByPanelId[terminal.id] = resumeSessionWorkingDirectory
         }
         recordSessionResumeIntent(
             panelId: terminal.id,
@@ -388,6 +392,28 @@ extension DockSplitStore {
         return browser.id
     }
 
+    /// Recreates one persisted file-preview panel in its restored Dock pane.
+    private func restoreSessionFilePreview(
+        from snapshot: SessionPanelSnapshot,
+        inPane paneId: PaneID,
+        excludingStableIdentities: Set<UUID>
+    ) -> UUID? {
+        guard let filePath = snapshot.filePreview?.filePath else { return nil }
+        let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
+        guard attachSessionRestoredPanel(
+            panel,
+            snapshot: snapshot,
+            inPane: paneId
+        ) != nil else {
+            return nil
+        }
+        if let stableSurfaceId = snapshot.stableSurfaceId,
+           !excludingStableIdentities.contains(stableSurfaceId) {
+            panel.adoptStableSurfaceId(stableSurfaceId)
+        }
+        return panel.id
+    }
+
     @discardableResult
     private func attachSessionRestoredPanel(
         _ panel: any Panel,
@@ -400,7 +426,7 @@ extension DockSplitStore {
             title: title,
             hasCustomTitle: snapshot.customTitle != nil,
             icon: panel.displayIcon,
-            kind: panel.panelType == .browser ? "browser" : "terminal",
+            kind: Self.surfaceKind(for: panel),
             isDirty: panel.isDirty,
             isLoading: (panel as? BrowserPanel)?.isLoading ?? false,
             isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
@@ -410,8 +436,12 @@ extension DockSplitStore {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        surfaceIdToPanelId[tabId] = panel.id
+        bindSurface(tabId, toPanelId: panel.id)
         installSubscription(for: panel)
+        applyWindowDockUnreadState(
+            snapshot.isManuallyUnread,
+            panelId: panel.id
+        )
         applyVisibility(to: panel)
         return tabId
     }
@@ -421,25 +451,6 @@ extension DockSplitStore {
               let tabId = surfaceId(forPanelId: panelId) else { return }
         bonsplitController.focusPane(paneId)
         bonsplitController.selectTab(tabId)
-    }
-
-    private func seedSessionRestoredAgentState(
-        panelId: UUID,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        resumeBinding: SurfaceResumeBindingSnapshot?,
-        willRunStartupCommand: Bool,
-        willRunStartupInput: Bool
-    ) {
-        restoredAgentLifecycle.snapshotsByPanelId[panelId] = restorableAgent
-        if willRunStartupCommand {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-        } else if willRunStartupInput {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
-        } else if restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
-            restoredAgentLifecycle.resumeStatesByPanelId[panelId] = .manualResumeAvailable
-        } else {
-            restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
-        }
     }
 
     private func sessionAgentAlreadyActive(

@@ -33,10 +33,6 @@ extension WorkspaceListView {
         filteredWorkspaces.map { WorkspaceListStableOrderKey(workspace: $0) }
     }
 
-    var groupedWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
-        groupedListItems.map { WorkspaceListStableOrderKey(item: $0) }
-    }
-
     var canCreateWorkspaceInGroups: Bool {
         createWorkspaceInGroup != nil
             && canCreateWorkspaceForMacSelection
