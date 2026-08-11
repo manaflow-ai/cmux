@@ -911,9 +911,9 @@ mod platform {
         SE_GROUP_INTEGRITY,
     };
     use windows_sys::Win32::System::Threading::{
-        CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithTokenW, GetCurrentProcess,
-        GetExitCodeProcess, INFINITE, OpenProcessToken, PROCESS_INFORMATION, ResumeThread,
-        STARTUPINFOW, TerminateProcess, WaitForSingleObject,
+        CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithTokenW,
+        GetCurrentProcess, GetExitCodeProcess, INFINITE, OpenProcessToken, PROCESS_INFORMATION,
+        ResumeThread, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
     };
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
@@ -1283,7 +1283,8 @@ mod platform {
             startup.cb = u32::try_from(size_of::<STARTUPINFOW>())?;
             // SAFETY: zero is a valid initial state for PROCESS_INFORMATION.
             let mut process: PROCESS_INFORMATION = unsafe { zeroed() };
-            let mut environment = product_environment_block();
+            let mut environment =
+                bootstrap_environment_block(&entry_checkpoint_path, &launch.nonce);
             // SAFETY: all strings are NUL-terminated and output storage remains live.
             check(
                 unsafe {
@@ -1292,7 +1293,7 @@ mod platform {
                         0,
                         application.as_ptr(),
                         command_line.as_mut_ptr(),
-                        CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+                        CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
                         environment.as_mut_ptr().cast::<c_void>(),
                         current_directory.as_ptr(),
                         &startup,
@@ -2490,8 +2491,20 @@ mod platform {
             .join(" ")
     }
 
-    fn product_environment_block() -> Vec<u16> {
-        let mut values = env::vars_os()
+    const ENTRY_CHECKPOINT_PATH_ENV: &str = "CMUX_BENCH_BOOTSTRAP_ENTRY_CHECKPOINT";
+    const ENTRY_NONCE_ENV: &str = "CMUX_BENCH_BOOTSTRAP_ENTRY_NONCE";
+
+    fn bootstrap_environment_block(entry_checkpoint_path: &Path, nonce: &str) -> Vec<u16> {
+        bootstrap_environment_block_from(env::vars_os(), entry_checkpoint_path, nonce)
+    }
+
+    fn bootstrap_environment_block_from(
+        environment: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+        entry_checkpoint_path: &Path,
+        nonce: &str,
+    ) -> Vec<u16> {
+        let mut values = environment
+            .into_iter()
             .filter_map(|(key, value)| {
                 let key = key.to_string_lossy();
                 if key.eq_ignore_ascii_case("CMUX_BENCH_WINDOWS_USER")
@@ -2503,6 +2516,11 @@ mod platform {
                 Some(format!("{key}={}", value.to_string_lossy()))
             })
             .collect::<Vec<_>>();
+        values.push(format!(
+            "{ENTRY_CHECKPOINT_PATH_ENV}={}",
+            entry_checkpoint_path.to_string_lossy()
+        ));
+        values.push(format!("{ENTRY_NONCE_ENV}={nonce}"));
         values.sort_by_key(|value| value.to_ascii_uppercase());
         let mut block = Vec::new();
         for value in values {
@@ -2511,6 +2529,42 @@ mod platform {
         }
         block.push(0);
         block
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn bootstrap_environment_binds_only_the_trusted_entry_identity() {
+            let nonce = "ab".repeat(32);
+            let block = bootstrap_environment_block_from(
+                [
+                    ("PATH".into(), "trusted-path".into()),
+                    ("CMUX_BENCH_EXISTING".into(), "forbidden".into()),
+                    ("CMUX_BENCH_WINDOWS_PASSWORD".into(), "secret".into()),
+                ],
+                Path::new(r"C:\fixture\bootstrap-entry-ab.bin"),
+                &nonce,
+            );
+            let values = block
+                .split(|value| *value == 0)
+                .take_while(|value| !value.is_empty())
+                .map(|value| String::from_utf16(value).unwrap())
+                .collect::<Vec<_>>();
+
+            assert!(values.iter().any(|value| value == "PATH=trusted-path"));
+            assert!(values.iter().any(|value| {
+                value == "CMUX_BENCH_BOOTSTRAP_ENTRY_CHECKPOINT=C:\\fixture\\bootstrap-entry-ab.bin"
+            }));
+            assert!(
+                values
+                    .iter()
+                    .any(|value| value == &format!("CMUX_BENCH_BOOTSTRAP_ENTRY_NONCE={nonce}"))
+            );
+            assert!(values.iter().all(|value| !value.contains("forbidden")));
+            assert!(values.iter().all(|value| !value.contains("secret")));
+        }
     }
 
     fn quote_windows_argument(argument: &str) -> String {

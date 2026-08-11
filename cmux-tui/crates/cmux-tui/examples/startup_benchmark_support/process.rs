@@ -32,6 +32,8 @@ use crate::startup_benchmark_protocol::{
 const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_CAPTURE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_STATE_SCAN_DEPTH: usize = 8;
+const MAX_STATE_SCAN_ENTRIES: usize = 4_096;
 const INCOMPATIBLE_SCHEMA: i64 = 2_147_483_647;
 static LAUNCH_SEQUENCE: AtomicUsize = AtomicUsize::new(1);
 
@@ -257,10 +259,10 @@ impl Fixture {
                     &["workspace", "create", "--name", "bench-restored"],
                     deadline,
                 )?;
-                let terminal_id = find_key_string(&created, "terminal_id")
+                let terminal_id = find_key_string(&created.value, "terminal_id")
                     .context("workspace create did not return a terminal_id")?;
                 let topology = json_cli(&common, &socket, &["terminal", "list"], deadline)?;
-                if !terminal_list_contains_id(&topology, &terminal_id) {
+                if !terminal_list_contains_id(&topology.value, &terminal_id) {
                     bail!("restored fixture terminal list omitted {terminal_id}");
                 }
                 server.shutdown_and_wait(&common, deadline)?;
@@ -279,7 +281,7 @@ impl Fixture {
                 server.wait_ready(deadline)?;
                 assert_ping(&common, &socket, deadline)?;
                 server.shutdown_and_wait(&common, deadline)?;
-                let database = find_named_file(&state, "workspace-registry.sqlite3")?
+                let database = find_named_regular_file(&state, "workspace-registry.sqlite3")?
                     .context("valid state did not create workspace-registry.sqlite3")?;
                 let connection = Connection::open(&database)?;
                 let valid_schema: String = connection.query_row(
@@ -338,7 +340,7 @@ impl Fixture {
                 server.wait_ready(deadline)?;
                 let topology = json_cli(common, &socket, &["terminal", "list"], deadline)?;
                 evidence.socket_rpcs += 1;
-                match restored_cleanup_plan(&topology, terminal_id)? {
+                match restored_cleanup_plan(&topology.value, terminal_id)? {
                     RestoredCleanupPlan::AlreadyQuiescent => {}
                 }
                 server.shutdown_and_wait(common, deadline)?;
@@ -1230,9 +1232,9 @@ fn run_headless(common: &mut Common, deadline: SuiteDeadline) -> Result<RunResul
     let args = headless_args(&session, &socket, None);
     let mut server =
         RunningHeadless::start(common, args, &socket, common.wrap_measured_process, deadline)?;
-    let observed_at = server.wait_ready(deadline)?;
+    server.wait_ready(deadline)?;
     let validation_started = Instant::now();
-    assert_ping(common, &socket, deadline)?;
+    let observed_at = assert_ping(common, &socket, deadline)?;
     let validation = validation_started.elapsed();
     let duration = server.measured_duration(observed_at)?;
     let completion = server.shutdown_and_wait(common, deadline)?;
@@ -1269,12 +1271,10 @@ fn run_restored(
     let args = headless_args(&session, &socket, Some(state));
     let mut server =
         RunningHeadless::start(common, args, &socket, common.wrap_measured_process, deadline)?;
-    let observed_at = server.wait_ready(deadline)?;
+    server.wait_ready(deadline)?;
     let validation_started = Instant::now();
     let topology = json_cli(common, &socket, &["terminal", "list"], deadline)?;
-    if !terminal_list_contains_id(&topology, terminal_id) {
-        bail!("restored terminal list omitted saved terminal {terminal_id}");
-    }
+    let observed_at = restored_topology_endpoint(&topology, terminal_id)?;
     let validation = validation_started.elapsed();
     let duration = server.measured_duration(observed_at)?;
     let completion = server.shutdown_and_wait(common, deadline)?;
@@ -2264,6 +2264,7 @@ struct Captured {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     duration: Duration,
+    completed_at_ns: u64,
 }
 
 fn run_captured(prepared: PreparedStdCommand, deadline: SuiteDeadline) -> Result<Captured> {
@@ -2517,7 +2518,7 @@ fn run_captured_process(
     let status = status.context("captured process returned no exit status")?;
     let stdout = stdout_result.context("stdout reader returned no result")??;
     let stderr = stderr_result.context("stderr reader returned no result")??;
-    Ok(Captured { status, stdout, stderr, duration })
+    Ok(Captured { status, stdout, stderr, duration, completed_at_ns: event_ns })
 }
 
 fn record_lifecycle_error(current: &mut Option<anyhow::Error>, error: anyhow::Error) {
@@ -2684,12 +2685,23 @@ fn terminate_captured_process_tree(child_id: u32) -> io::Result<()> {
     terminate_windows_process_tree(child_id)
 }
 
-fn assert_ping(common: &Common, socket: &Path, deadline: SuiteDeadline) -> Result<()> {
-    let value = json_cli(common, socket, &["session", "current", "ping"], deadline)?;
-    if value.get("alive").and_then(Value::as_bool) != Some(true) {
-        bail!("session ping did not return alive=true: {value}");
+fn assert_ping(common: &Common, socket: &Path, deadline: SuiteDeadline) -> Result<u64> {
+    let response = json_cli(common, socket, &["session", "current", "ping"], deadline)?;
+    ping_endpoint(&response)
+}
+
+fn ping_endpoint(response: &JsonCliResponse) -> Result<u64> {
+    if response.value.get("alive").and_then(Value::as_bool) != Some(true) {
+        bail!("session ping did not return alive=true: {}", response.value);
     }
-    Ok(())
+    Ok(response.completed_at_ns)
+}
+
+fn restored_topology_endpoint(response: &JsonCliResponse, terminal_id: &str) -> Result<u64> {
+    if !terminal_list_contains_id(&response.value, terminal_id) {
+        bail!("restored terminal list omitted saved terminal {terminal_id}");
+    }
+    Ok(response.completed_at_ns)
 }
 
 fn git_sha(path: &Path) -> Result<String> {
@@ -2808,12 +2820,17 @@ fn source_rust_toolchain(source: &Path) -> Result<String> {
         .with_context(|| format!("rustup returned no active toolchain in {}", cmux_tui.display()))
 }
 
+struct JsonCliResponse {
+    value: Value,
+    completed_at_ns: u64,
+}
+
 fn json_cli(
     common: &Common,
     socket: &Path,
     args: &[&str],
     deadline: SuiteDeadline,
-) -> Result<Value> {
+) -> Result<JsonCliResponse> {
     // These noun-first requests use cmux_tui_core::platform::transport. Windows provides the
     // local transport through uds_windows; the Unix-only remote-daemon command family is separate.
     let mut product_args =
@@ -2829,7 +2846,7 @@ fn json_cli(
                 String::from_utf8_lossy(&captured.stdout)
             )
         })?;
-        return Ok(value);
+        return Ok(JsonCliResponse { value, completed_at_ns: captured.completed_at_ns });
     }
     let error: Value = serde_json::from_slice(&captured.stderr).with_context(|| {
         format!(
@@ -2880,18 +2897,79 @@ fn restored_cleanup_plan(value: &Value, owned_terminal_id: &str) -> Result<Resto
     }
 }
 
-fn find_named_file(root: &Path, name: &str) -> Result<Option<PathBuf>> {
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(found) = find_named_file(&path, name)? {
-                return Ok(Some(found));
+fn find_named_regular_file(root: &Path, name: &str) -> Result<Option<PathBuf>> {
+    find_named_regular_file_bounded(root, name, MAX_STATE_SCAN_DEPTH, MAX_STATE_SCAN_ENTRIES)
+}
+
+fn find_named_regular_file_bounded(
+    root: &Path,
+    name: &str,
+    max_depth: usize,
+    max_entries: usize,
+) -> Result<Option<PathBuf>> {
+    let root_metadata = fs::symlink_metadata(root)
+        .with_context(|| format!("inspect state root {}", root.display()))?;
+    if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+        bail!("state root is not a link-free directory: {}", root.display());
+    }
+    let canonical_root = fs::canonicalize(root)
+        .with_context(|| format!("canonicalize state root {}", root.display()))?;
+    let mut directories = VecDeque::from([(root.to_path_buf(), 0_usize)]);
+    let mut entries_seen = 0_usize;
+
+    while let Some((directory, depth)) = directories.pop_front() {
+        let entries = fs::read_dir(&directory)
+            .with_context(|| format!("read state directory {}", directory.display()))?;
+        for entry in entries {
+            let entry = entry.with_context(|| {
+                format!("read entry in state directory {}", directory.display())
+            })?;
+            entries_seen =
+                entries_seen.checked_add(1).context("state scan entry count overflow")?;
+            if entries_seen > max_entries {
+                bail!("state scan exceeded {max_entries} entries under {}", root.display());
             }
-        } else if path.file_name().and_then(|value| value.to_str()) == Some(name) {
-            return Ok(Some(path));
+
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .with_context(|| format!("inspect state entry {}", path.display()))?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                let child_depth = depth.checked_add(1).context("state scan depth overflow")?;
+                if child_depth > max_depth {
+                    bail!("state scan exceeded depth {max_depth} at {}", path.display());
+                }
+                directories.push_back((path, child_depth));
+                continue;
+            }
+            if !file_type.is_file()
+                || path.file_name().and_then(|value| value.to_str()) != Some(name)
+            {
+                continue;
+            }
+
+            let canonical_path = fs::canonicalize(&path)
+                .with_context(|| format!("canonicalize state file {}", path.display()))?;
+            if !canonical_path.starts_with(&canonical_root) {
+                bail!(
+                    "state file escaped canonical root {}: {}",
+                    canonical_root.display(),
+                    canonical_path.display()
+                );
+            }
+            let metadata = fs::metadata(&canonical_path).with_context(|| {
+                format!("inspect canonical state file {}", canonical_path.display())
+            })?;
+            if !metadata.is_file() {
+                bail!("state path is not a regular file: {}", canonical_path.display());
+            }
+            return Ok(Some(canonical_path));
         }
     }
+
     Ok(None)
 }
 
@@ -3062,6 +3140,100 @@ mod tests {
             &serde_json::json!([{"id": "term:other", "terminal_id": "term:exact"}]),
             "term:exact"
         ));
+    }
+
+    #[test]
+    fn successful_rpc_endpoints_use_the_captured_completion_time() {
+        let ping =
+            JsonCliResponse { value: serde_json::json!({"alive": true}), completed_at_ns: 41 };
+        let topology = JsonCliResponse {
+            value: serde_json::json!([{"id": "term:owned"}]),
+            completed_at_ns: 73,
+        };
+
+        assert_eq!(ping_endpoint(&ping).unwrap(), 41);
+        assert_eq!(restored_topology_endpoint(&topology, "term:owned").unwrap(), 73);
+        assert!(
+            ping_endpoint(&JsonCliResponse {
+                value: serde_json::json!({"alive": false}),
+                completed_at_ns: 89,
+            })
+            .is_err()
+        );
+        assert!(restored_topology_endpoint(&topology, "term:other").is_err());
+    }
+
+    #[test]
+    fn state_file_scan_returns_only_a_contained_regular_file() {
+        let root = tempfile::tempdir().unwrap();
+        let session = root.path().join("session");
+        fs::create_dir(&session).unwrap();
+        let database = session.join("workspace-registry.sqlite3");
+        fs::write(&database, b"registry").unwrap();
+
+        let found =
+            find_named_regular_file_bounded(root.path(), "workspace-registry.sqlite3", 2, 8)
+                .unwrap()
+                .unwrap();
+
+        assert_eq!(found, fs::canonicalize(database).unwrap());
+        assert!(found.starts_with(fs::canonicalize(root.path()).unwrap()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn state_file_scan_does_not_follow_a_symlink_cycle() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        symlink(root.path(), root.path().join("cycle")).unwrap();
+
+        assert!(
+            find_named_regular_file_bounded(root.path(), "workspace-registry.sqlite3", 2, 8,)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn state_file_scan_rejects_an_outside_symlink_target() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_database = outside.path().join("workspace-registry.sqlite3");
+        fs::write(&outside_database, b"outside").unwrap();
+        symlink(&outside_database, root.path().join("workspace-registry.sqlite3")).unwrap();
+
+        assert!(
+            find_named_regular_file_bounded(root.path(), "workspace-registry.sqlite3", 2, 8,)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(fs::read(outside_database).unwrap(), b"outside");
+    }
+
+    #[test]
+    fn state_file_scan_enforces_depth_and_entry_bounds() {
+        let depth_root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(depth_root.path().join("one/two")).unwrap();
+        assert!(
+            find_named_regular_file_bounded(depth_root.path(), "workspace-registry.sqlite3", 1, 8,)
+                .unwrap_err()
+                .to_string()
+                .contains("exceeded depth 1")
+        );
+
+        let entry_root = tempfile::tempdir().unwrap();
+        fs::write(entry_root.path().join("one"), b"one").unwrap();
+        fs::write(entry_root.path().join("two"), b"two").unwrap();
+        assert!(
+            find_named_regular_file_bounded(entry_root.path(), "workspace-registry.sqlite3", 1, 1,)
+                .unwrap_err()
+                .to_string()
+                .contains("exceeded 1 entries")
+        );
     }
 
     #[test]

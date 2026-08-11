@@ -46,6 +46,9 @@ static const unsigned char ARM_MAGIC[8] = {'C','M','U','X','A','0','0','1'};
 static const unsigned char EVENT_MAGIC[8] = {'C','M','U','X','E','0','0','1'};
 static const unsigned char ENTRY_MAGIC[8] = {'C','M','U','X','N','0','0','1'};
 static const unsigned char TIMING_MAGIC[8] = {'C','M','U','X','T','0','0','1'};
+static const WCHAR ENTRY_CHECKPOINT_PATH_ENV[] =
+    L"CMUX_BENCH_BOOTSTRAP_ENTRY_CHECKPOINT";
+static const WCHAR ENTRY_NONCE_ENV[] = L"CMUX_BENCH_BOOTSTRAP_ENTRY_NONCE";
 
 void __cdecl __security_init_cookie(void);
 
@@ -84,6 +87,11 @@ typedef struct EntryArguments {
     WCHAR *nonce_text;
     unsigned char nonce[32];
 } EntryArguments;
+
+typedef struct EntryCheckpointIdentity {
+    WCHAR *checkpoint_path;
+    unsigned char nonce[32];
+} EntryCheckpointIdentity;
 
 static void memory_zero(void *target, SIZE_T length) {
     volatile unsigned char *output = (volatile unsigned char *)target;
@@ -931,6 +939,40 @@ static int decode_nonce(const WCHAR *text, unsigned char nonce[32]) {
     return 1;
 }
 
+static void free_entry_checkpoint_identity(EntryCheckpointIdentity *identity) {
+    heap_release(identity->checkpoint_path);
+    memory_zero(identity, sizeof(*identity));
+}
+
+static int consume_entry_checkpoint_environment(EntryCheckpointIdentity *identity) {
+    DWORD checkpoint_chars;
+    DWORD checkpoint_read;
+    WCHAR nonce_text[65];
+    DWORD nonce_chars;
+    int result = 0;
+    memory_zero(identity, sizeof(*identity));
+    memory_zero(nonce_text, sizeof(nonce_text));
+    checkpoint_chars = GetEnvironmentVariableW(ENTRY_CHECKPOINT_PATH_ENV, NULL, 0);
+    if (checkpoint_chars == 0 || checkpoint_chars > MAX_WIDE_CHARS + 1u) goto cleanup;
+    identity->checkpoint_path =
+        (WCHAR *)heap_array((SIZE_T)checkpoint_chars, sizeof(WCHAR), 1);
+    if (identity->checkpoint_path == NULL) goto cleanup;
+    checkpoint_read = GetEnvironmentVariableW(
+        ENTRY_CHECKPOINT_PATH_ENV, identity->checkpoint_path, checkpoint_chars);
+    nonce_chars = GetEnvironmentVariableW(ENTRY_NONCE_ENV, nonce_text, 65u);
+    if (checkpoint_read != checkpoint_chars - 1u || nonce_chars != 64u
+        || !decode_nonce(nonce_text, identity->nonce)) goto cleanup;
+    if (!SetEnvironmentVariableW(ENTRY_CHECKPOINT_PATH_ENV, NULL)
+        || !SetEnvironmentVariableW(ENTRY_NONCE_ENV, NULL)) goto cleanup;
+    if (!write_entry_checkpoint(identity->checkpoint_path, identity->nonce,
+        ENTRY_STAGE_REACHED, CREATE_NEW)) goto cleanup;
+    result = 1;
+cleanup:
+    memory_zero(nonce_text, sizeof(nonce_text));
+    if (!result) free_entry_checkpoint_identity(identity);
+    return result;
+}
+
 static const WCHAR *skip_spaces(const WCHAR *cursor) {
     while (*cursor == L' ' || *cursor == L'\t') ++cursor;
     return cursor;
@@ -1008,8 +1050,6 @@ static int bootstrap_run(const EntryArguments *entry) {
     int result = 0;
     memory_zero(&config, sizeof(config));
     memory_zero(&timing, sizeof(timing));
-    if (!write_entry_checkpoint(entry->checkpoint_path, entry->nonce, ENTRY_STAGE_REACHED,
-        CREATE_NEW)) return 125;
     if (!write_entry_checkpoint(entry->checkpoint_path, entry->nonce,
         ENTRY_STAGE_CONFIG_READ_STARTED, OPEN_EXISTING)) return 125;
     bytes = read_config_file(entry->config_path, &length);
@@ -1089,11 +1129,23 @@ cleanup:
 }
 
 static int bootstrap_entry_inner(void) {
+    EntryCheckpointIdentity identity;
     EntryArguments arguments;
     int result;
-    if (!parse_entry_arguments(&arguments)) return 125;
-    result = bootstrap_run(&arguments);
+    if (!consume_entry_checkpoint_environment(&identity)) return 125;
+    if (!parse_entry_arguments(&arguments)) {
+        free_entry_checkpoint_identity(&identity);
+        return 125;
+    }
+    if (!wide_equal_ignore_case(identity.checkpoint_path, arguments.checkpoint_path)
+        || !bytes_equal(identity.nonce, arguments.nonce, sizeof(identity.nonce))) {
+        SetLastError(ERROR_ACCESS_DENIED);
+        result = 125;
+    } else {
+        result = bootstrap_run(&arguments);
+    }
     free_entry_arguments(&arguments);
+    free_entry_checkpoint_identity(&identity);
     return result;
 }
 
