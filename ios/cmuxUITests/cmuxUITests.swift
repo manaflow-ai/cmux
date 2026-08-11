@@ -1308,15 +1308,17 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceMacPickerUsesComputerCopy() throws {
+    func testWorkspaceMacPickerUsesComputerCopyAndAnnouncesConnectionStatus() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "reconnecting",
         ])
         defer { app.terminate() }
 
         let picker = app.buttons["MobileWorkspaceMacPicker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 8))
         XCTAssertEqual(picker.label, "All Computers")
+        XCTAssertEqual(picker.value as? String, "Reconnecting…")
 
         picker.tap()
 

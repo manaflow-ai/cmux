@@ -545,6 +545,19 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS"] == "1"
     }
 
+    private var fixtureConnectionStatus: MobileMacConnectionStatus {
+        switch ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS"
+        ] {
+        case "reconnecting":
+            return .reconnecting
+        case "unavailable":
+            return .unavailable
+        default:
+            return .connected
+        }
+    }
+
     private func performPreviewRefresh() {
         model.rotateForRefresh()
         refreshGeneration += 1
@@ -579,7 +592,7 @@ public struct WorkspaceListLayoutPreviewView: View {
             groups: model.groups,
             selectedWorkspaceID: selectedWorkspaceID,
             host: "Visual Mock Mac",
-            connectionStatus: .connected,
+            connectionStatus: fixtureConnectionStatus,
             navigationStyle: usesSidebarSelectionFixture ? .sidebar : .push,
             wrapWorkspaceTitles: false,
             previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
