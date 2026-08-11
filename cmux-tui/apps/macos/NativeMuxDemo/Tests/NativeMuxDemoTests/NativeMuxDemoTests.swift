@@ -1303,6 +1303,19 @@ func ghosttyApplicationFocusFollowsActivationNotifications() {
 }
 
 @Test @MainActor
+func ghosttyConfigurationLoaderLeavesTheMainThread() async {
+    let events = EventLog()
+
+    let value = await loadNativeGhosttyConfiguration {
+        events.append(Thread.isMainThread ? "main" : "worker")
+        return 42
+    }
+
+    #expect(value == 42)
+    #expect(events.snapshot == ["worker"])
+}
+
+@Test @MainActor
 func windowPlacementUsesItsOwnedWindowAndInjectedWriter() throws {
     let visibleFrame = CGRect(x: 1440, y: 25, width: 1728, height: 971)
     let target = TestDemoWindowPlacementWindow(visibleFrame: visibleFrame)

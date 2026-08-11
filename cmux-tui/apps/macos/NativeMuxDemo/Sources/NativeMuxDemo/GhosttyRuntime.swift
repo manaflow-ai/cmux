@@ -9,6 +9,44 @@ private let nativeGhosttyReadClipboardCallback:
     UnsafeMutableRawPointer?
   ) -> Bool = { _, _, _ in false }
 
+private final class NativeGhosttyLoadedConfiguration: @unchecked Sendable {
+  private var config: ghostty_config_t?
+
+  init(_ config: ghostty_config_t) {
+    self.config = config
+  }
+
+  func take() -> ghostty_config_t? {
+    defer { config = nil }
+    return config
+  }
+
+  deinit {
+    if let config {
+      ghostty_config_free(config)
+    }
+  }
+}
+
+private func loadNativeGhosttyConfigurationFromDisk() -> NativeGhosttyLoadedConfiguration? {
+  guard let config = ghostty_config_new() else { return nil }
+  ghostty_config_load_default_files(config)
+  ghostty_config_load_recursive_files(config)
+  ghostty_config_finalize(config)
+  return NativeGhosttyLoadedConfiguration(config)
+}
+
+func loadNativeGhosttyConfiguration<Result: Sendable>(
+  using loader: @escaping @Sendable () -> Result
+) async -> Result {
+  let task = Task.detached(priority: .userInitiated, operation: loader)
+  return await withTaskCancellationHandler {
+    await task.value
+  } onCancel: {
+    task.cancel()
+  }
+}
+
 /// One process-wide embedded libghostty runtime shared by every remote PTY
 /// surface in the demo. GhosttyKit is a C ABI module imported directly by
 /// Swift; AppKit remains the owner of windows, views, focus, and lifecycle.
@@ -18,7 +56,7 @@ final class NativeGhosttyRuntime {
   private let lifetime: NativeGhosttyRuntimeLifetime
   private let focusObserver: NativeGhosttyApplicationFocusObserver
 
-  init?() {
+  static func load() async -> NativeGhosttyRuntime? {
     // Remote PTY bytes already contain their color intent. Remove the local
     // preference before Ghostty starts; this changes the demo process only.
     if getenv("NO_COLOR") != nil {
@@ -27,7 +65,16 @@ final class NativeGhosttyRuntime {
     guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SUCCESS else {
       return nil
     }
-    guard let primaryConfig = Self.loadConfiguration() else { return nil }
+    let loadedConfiguration = await loadNativeGhosttyConfiguration(
+      using: loadNativeGhosttyConfigurationFromDisk
+    )
+    guard !Task.isCancelled,
+          let primaryConfig = loadedConfiguration?.take()
+    else { return nil }
+    return NativeGhosttyRuntime(primaryConfig: primaryConfig)
+  }
+
+  private init?(primaryConfig: ghostty_config_t) {
     let ticker = NativeGhosttyTicker()
 
     var runtimeConfig = ghostty_runtime_config_s()
@@ -75,14 +122,6 @@ final class NativeGhosttyRuntime {
       initiallyActive: NSApp.isActive,
       setFocus: { focused in ghostty_app_set_focus(app, focused) }
     )
-  }
-
-  private static func loadConfiguration() -> ghostty_config_t? {
-    guard let config = ghostty_config_new() else { return nil }
-    ghostty_config_load_default_files(config)
-    ghostty_config_load_recursive_files(config)
-    ghostty_config_finalize(config)
-    return config
   }
 
   private static func loadFallbackConfiguration() -> ghostty_config_t? {

@@ -234,7 +234,9 @@ final class FrontendModel {
     @ObservationIgnored private var terminalRetirementTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var mutationTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var replaceableMutationIDs: [String: UUID] = [:]
-    @ObservationIgnored private lazy var ghosttyRuntime = NativeGhosttyRuntime()
+    @ObservationIgnored private var ghosttyRuntime: NativeGhosttyRuntime?
+    @ObservationIgnored private var ghosttyRuntimeTask: Task<Void, Never>?
+    @ObservationIgnored private var didFinishGhosttyRuntimeLoad = false
     @ObservationIgnored private let shouldAutoConnect: Bool
     @ObservationIgnored private var didAutoConnect = false
     @ObservationIgnored private var isShuttingDown = false
@@ -729,6 +731,13 @@ final class FrontendModel {
             retireTerminalController(controller)
         }
         guard let service else { return }
+        guard placements.contains(where: { paneID, terminalID in
+            terminalControllers[paneID]?.terminalID != terminalID
+        }) else { return }
+        guard didFinishGhosttyRuntimeLoad else {
+            beginGhosttyRuntimeLoad()
+            return
+        }
         for (paneID, terminalID) in placements {
             guard terminalControllers[paneID] == nil else { continue }
             let controller = NativeTerminalModel(
@@ -739,6 +748,24 @@ final class FrontendModel {
             )
             terminalControllers[paneID] = controller
             controller.attach()
+        }
+    }
+
+    private func beginGhosttyRuntimeLoad() {
+        guard ghosttyRuntimeTask == nil,
+              !didFinishGhosttyRuntimeLoad,
+              !isShuttingDown else { return }
+        ghosttyRuntimeTask = Task { [weak self] in
+            let runtime = await NativeGhosttyRuntime.load()
+            guard let self,
+                  !Task.isCancelled,
+                  !self.isShuttingDown else { return }
+            self.ghosttyRuntime = runtime
+            self.didFinishGhosttyRuntimeLoad = true
+            self.ghosttyRuntimeTask = nil
+            if let snapshot = self.snapshot {
+                self.reconcileTerminalControllers(snapshot)
+            }
         }
     }
 
@@ -1175,10 +1202,14 @@ final class FrontendModel {
         let connection = connectTask
         connectTask = nil
         connection?.cancel()
+        let runtimeLoad = ghosttyRuntimeTask
+        ghosttyRuntimeTask = nil
+        runtimeLoad?.cancel()
         updatesTask?.cancel()
         refreshTask?.cancel()
         focusMutations = FocusMutationTracker()
         await connection?.value
+        await runtimeLoad?.value
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)
