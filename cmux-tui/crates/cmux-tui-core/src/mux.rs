@@ -21561,7 +21561,7 @@ mod tests {
         assert!(retry.already_closed);
         assert_eq!(retry.terminal_revision, host_close.revision);
         assert_eq!(resource_close.revision, resource_revision + 1);
-        assert_eq!(mux.with_state(|state| state.resource_revision), resource_revision);
+        assert_eq!(mux.with_state(|state| state.resource_revision), resource_close.revision);
         assert!(mux.surface(surface.id).is_some());
         assert_eq!(
             mux.workspace_registry.lock().unwrap().terminal_resource_id(&host.terminal_id).unwrap(),

@@ -357,10 +357,12 @@ pub struct TerminalRegistryCommit {
     pub replayed: bool,
 }
 
-/// A host mutation replay cannot acquire a public-resource side effect that
-/// was not part of its original transaction.
+/// A replay cannot acquire a cross-domain side effect that was not part of
+/// its original transaction. Keep the receipt source explicit so the mux can
+/// reconcile only the revision owned by that receipt.
 pub(crate) enum TerminalResourceCloseCommit {
-    Replay(TerminalRegistryCommit),
+    TerminalReplay(TerminalRegistryCommit),
+    ResourceReplay { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
     Committed { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
 }
 
@@ -2986,9 +2988,10 @@ impl WorkspaceRegistry {
         let tx = self.connection.transaction()?;
         if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
             tx.commit()?;
-            return Ok(TerminalResourceCloseCommit::Replay(terminal));
+            return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
         }
-        if resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?.is_some()
+        if let Some(resource) =
+            resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?
         {
             let terminal =
                 read_terminal(&tx, terminal_id)?.context("terminal close state is unavailable")?;
@@ -3004,11 +3007,10 @@ impl WorkspaceRegistry {
                 "already_closed": true,
             });
             tx.commit()?;
-            return Ok(TerminalResourceCloseCommit::Replay(TerminalRegistryCommit {
-                revision,
-                result,
-                replayed: true,
-            }));
+            return Ok(TerminalResourceCloseCommit::ResourceReplay {
+                terminal: TerminalRegistryCommit { revision, result, replayed: true },
+                resource,
+            });
         }
         let terminal = close_terminal_in_transaction(
             &tx,
