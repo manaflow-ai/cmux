@@ -445,12 +445,11 @@ public final class ChatConversationStore {
             )
         } catch {
             guard generation == sourceGeneration else { return }
-            // Only flag failure while the initial load is still pending: a
-            // racing duplicate fetch (retry button vs reconnect) that fails
-            // AFTER another succeeded must not strand a dead error UI.
-            if !hasLoadedInitialHistory {
-                initialLoadFailed = true
-            }
+            // A racing duplicate fetch (retry button vs reconnect) can fail
+            // after another request already established the transcript. That
+            // stale outcome owns neither UI error state nor diagnostics.
+            guard !hasLoadedInitialHistory else { return }
+            initialLoadFailed = true
             lastErrorDescription = error.localizedDescription
             diagnosticObserver?(.historyLoadFailed(error))
         }

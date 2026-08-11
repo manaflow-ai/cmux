@@ -375,7 +375,8 @@ public struct ChatComposerView: View {
 
     private func performPaste() {
         let pasteboard = UIPasteboard.general
-        if attachments.count < 4,
+        if attachmentStaging.canAcceptExternalAttachment,
+           attachments.count < 4,
            let attachment = pasteboard.chatComposerAttachment(
                maxDimension: Self.maxAttachmentDimension,
                jpegQuality: Self.jpegQuality
@@ -581,6 +582,12 @@ final class ChatAttachmentStagingTaskOwner {
     private(set) var generation = UUID()
     private(set) var isBusy = false
     @ObservationIgnored private(set) var task: Task<Void, Never>?
+
+    /// Photo staging reserves the remaining bounded attachment capacity until
+    /// its selected items settle, so a concurrent paste cannot evict a pick.
+    var canAcceptExternalAttachment: Bool {
+        !isBusy
+    }
 
     /// Replaces the current operation and binds its busy state to one generation.
     func start(
