@@ -178,7 +178,9 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         _ expectedCount: Int,
         timeout: Duration = .seconds(30)
     ) async -> Bool {
-        let updates = requestCountUpdates()
+        let id = UUID()
+        let updates = requestCountUpdates(id: id)
+        defer { removeRequestCountContinuation(id) }
         return await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 for await count in updates {
@@ -204,10 +206,16 @@ final class PushRegistrationURLScript: @unchecked Sendable {
     func reset(
         _ nextStubs: [PushRegistrationURLProtocol.Stub]
     ) async {
-        lock.withLock {
+        let continuations = lock.withLock {
             stubs = nextStubs
             capturedRequests = []
             capturedBodies = []
+            let continuations = Array(requestCountContinuations.values)
+            requestCountContinuations.removeAll()
+            return continuations
+        }
+        for continuation in continuations {
+            continuation.finish()
         }
     }
 
@@ -237,7 +245,10 @@ final class PushRegistrationURLScript: @unchecked Sendable {
     }
 
     func requestCountUpdates() -> AsyncStream<Int> {
-        let id = UUID()
+        requestCountUpdates(id: UUID())
+    }
+
+    private func requestCountUpdates(id: UUID) -> AsyncStream<Int> {
         return AsyncStream { continuation in
             continuation.onTermination = { [weak self] _ in
                 self?.removeRequestCountContinuation(id)

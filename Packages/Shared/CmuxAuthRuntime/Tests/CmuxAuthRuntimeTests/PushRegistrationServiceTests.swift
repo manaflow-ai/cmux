@@ -260,6 +260,7 @@ actor RetryDelayRecorder {
         _ = PushRegistrationURLProtocol.script.take(request, body: nil)
 
         #expect(await PushRegistrationURLProtocol.script.waitForRequestCount(1))
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
     }
 
     @Test func stateWaitHasABoundedFailureDeadline() async {
@@ -296,6 +297,18 @@ actor RetryDelayRecorder {
         await observation.value
 
         #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
+    }
+
+    @Test func resetFinishesRequestCountObservations() async {
+        await PushRegistrationURLProtocol.script.reset([])
+        let updates = PushRegistrationURLProtocol.script.requestCountUpdates()
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 1)
+
+        await PushRegistrationURLProtocol.script.reset([])
+
+        #expect(PushRegistrationURLProtocol.script.requestCountObserverCount == 0)
+        var iterator = updates.makeAsyncIterator()
+        #expect(await iterator.next() == nil)
     }
 
     @Test func disabledByDefault() async {
