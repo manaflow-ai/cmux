@@ -15107,8 +15107,8 @@ mod tests {
                     "session_id":"subject-head-root",
                     "root_session_id":"subject-head-root",
                     "parent_session_id":"subject-head-root",
-                    "child_agent_id":marker,
-                    "message":"sensitive child output",
+                    "child_agent_id":marker.clone(),
+                    "message":"complete",
                 }),
             )
             .unwrap();
