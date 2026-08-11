@@ -2389,8 +2389,19 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let agents = json_output(&agents);
     assert_eq!(agents[0]["state"].as_str(), Some("idle"));
 
-    let send_key = cli(&server, &["--quiet", "terminal", &terminal, "keys", "enter"]);
-    assert_success(&send_key);
+    let send_key_idempotency_key = "matrix-terminal-keys-enter";
+    let send_key = json_cli(
+        &server,
+        &["terminal", &terminal, "keys", "enter", "--idempotency-key", send_key_idempotency_key],
+    );
+    if !send_key.status.success() {
+        assert_eq!(send_key.status.code(), Some(1));
+        let error = json_error(&send_key);
+        assert_eq!(error["code"], "mutation.indeterminate");
+        assert_eq!(error["details"]["idempotency_key"], send_key_idempotency_key);
+        assert_eq!(error["details"]["operation"], "terminal.input.keys");
+        assert_eq!(error["details"]["recovery"], "inspect_state_then_retry_with_new_key");
+    }
 
     let select_bare = cli(&server, &["tab"]);
     assert_eq!(select_bare.status.code(), Some(2));
