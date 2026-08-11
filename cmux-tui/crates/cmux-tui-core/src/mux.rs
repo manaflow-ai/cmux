@@ -23681,13 +23681,12 @@ mod tests {
 
         mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
         assert!(mux.list_agents(None, None).is_empty());
-        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
-        assert_eq!(
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
+        assert!(
             crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
                 .as_array()
                 .unwrap()
-                .len(),
-            1
+                .is_empty()
         );
         assert!(mux.surface_notification(first.id).is_none());
         assert!(mux.surface(first.id).is_none());
