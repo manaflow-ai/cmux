@@ -1358,6 +1358,80 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    @MainActor
+    func testRecentActivityKeepsAllComputersWorkspaceGroupsAtomic() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "9",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "recentActivity",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_RECENCY_BLOCKS": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.staticTexts["All Computers"].waitForExistence(timeout: 8))
+        let group0 = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-0"
+        ]
+        let group1 = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-1"
+        ]
+        let anchor0 = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-0"
+        ]
+        let member1 = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-1"
+        ]
+        let member2 = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-2"
+        ]
+        let newestMember = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-3"
+        ]
+        let recentUngrouped = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-8"
+        ]
+
+        for element in [group0, group1, member1, member2, newestMember, recentUngrouped] {
+            XCTAssertTrue(element.waitForExistence(timeout: 4))
+        }
+        XCTAssertFalse(
+            anchor0.exists,
+            "The group header must represent the anchor without a duplicate workspace row."
+        )
+
+        let group0Frame = try XCTUnwrap(waitForUsableFrame(of: group0, timeout: 3))
+        let member1Frame = try XCTUnwrap(waitForUsableFrame(of: member1, timeout: 3))
+        let member2Frame = try XCTUnwrap(waitForUsableFrame(of: member2, timeout: 3))
+        let newestMemberFrame = try XCTUnwrap(
+            waitForUsableFrame(of: newestMember, timeout: 3)
+        )
+        let recentUngroupedFrame = try XCTUnwrap(
+            waitForUsableFrame(of: recentUngrouped, timeout: 3)
+        )
+        let group1Frame = try XCTUnwrap(waitForUsableFrame(of: group1, timeout: 3))
+
+        XCTAssertLessThan(group0Frame.minY, member1Frame.minY)
+        XCTAssertLessThan(member1Frame.minY, member2Frame.minY)
+        XCTAssertLessThan(member2Frame.minY, newestMemberFrame.minY)
+        XCTAssertLessThan(
+            newestMemberFrame.minY,
+            recentUngroupedFrame.minY,
+            "A recent ungrouped row must follow the whole group block, not split its members."
+        )
+        XCTAssertLessThan(recentUngroupedFrame.minY, group1Frame.minY)
+        XCTAssertGreaterThanOrEqual(
+            member1Frame.minX,
+            recentUngroupedFrame.minX + 15,
+            "Grouped members must retain their visible nested indentation."
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-groups-recent-activity-atomic"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Regression: the iOS 26 workspace table must underlap the navigation
     /// and tab bars so their native soft effects have content to process,
     /// while UIKit keeps the first and last rows outside the bars' hit areas.
