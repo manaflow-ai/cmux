@@ -4860,11 +4860,74 @@ pub fn serve_owned(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Publi
 }
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
+#[derive(Default)]
+struct WebSocketConnectionRegistry {
+    state: Mutex<WebSocketConnectionState>,
+    idle: Condvar,
+}
+
+#[derive(Default)]
+struct WebSocketConnectionState {
+    shutting_down: bool,
+    streams: HashMap<u64, TcpStream>,
+}
+
+impl WebSocketConnectionRegistry {
+    fn register(&self, id: u64, stream: TcpStream) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.shutting_down {
+            let _ = stream.shutdown(Shutdown::Both);
+            return false;
+        }
+        state.streams.insert(id, stream);
+        true
+    }
+
+    fn remove(&self, id: u64) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.streams.remove(&id);
+        if state.streams.is_empty() {
+            self.idle.notify_all();
+        }
+    }
+
+    fn shutdown_until(&self, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.shutting_down = true;
+        for stream in state.streams.values() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+        while !state.streams.is_empty() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self
+                .idle
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            state = next;
+            if timeout.timed_out() && !state.streams.is_empty() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn start_shutdown(&self) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.shutting_down = true;
+        for stream in state.streams.values() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+    }
+}
+
 pub struct WebSocketServer {
     local_addr: SocketAddr,
     shutdown: Arc<AtomicBool>,
-    connections: Arc<Mutex<HashMap<u64, TcpStream>>>,
+    connections: Arc<WebSocketConnectionRegistry>,
     thread: Option<JoinHandle<()>>,
+    thread_finished: std::sync::mpsc::Receiver<()>,
     #[cfg(test)]
     accept_attempts: Arc<AtomicU64>,
     #[cfg(test)]
@@ -4883,42 +4946,28 @@ impl WebSocketServer {
     /// Returns `Ok(false)` while the caller must retain this owner and retry.
     pub fn shutdown_until(&mut self, deadline: Instant) -> anyhow::Result<bool> {
         self.shutdown.store(true, Ordering::Release);
-        while !self.try_close_connections() {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return Ok(false);
-            };
-            std::thread::sleep(remaining.min(Duration::from_millis(1)));
+        if !self.connections.shutdown_until(deadline) {
+            return Ok(false);
         }
 
         let Some(thread) = self.thread.as_ref() else { return Ok(true) };
-        while !thread.is_finished() {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return Ok(false);
-            };
-            std::thread::sleep(remaining.min(Duration::from_millis(1)));
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return Ok(false);
+        };
+        match self.thread_finished.recv_timeout(remaining) {
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return Ok(false),
         }
         let thread = self.thread.take().expect("finished WebSocket listener retained its owner");
         thread.join().map_err(|_| anyhow::anyhow!("WebSocket listener thread panicked"))?;
         Ok(true)
-    }
-
-    fn try_close_connections(&self) -> bool {
-        let connections = match self.connections.try_lock() {
-            Ok(connections) => connections,
-            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return false,
-        };
-        for stream in connections.values() {
-            let _ = stream.shutdown(Shutdown::Both);
-        }
-        true
     }
 }
 
 impl Drop for WebSocketServer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
-        let _ = self.try_close_connections();
+        self.connections.start_shutdown();
         if let Some(thread) = self.thread.take()
             && thread.is_finished()
         {
@@ -4971,7 +5020,7 @@ fn serve_websocket_with_tracking_cloner(
     listener.set_nonblocking(true)?;
     let local_addr = listener.local_addr()?;
     let shutdown = Arc::new(AtomicBool::new(false));
-    let connections = Arc::new(Mutex::new(HashMap::new()));
+    let connections = Arc::new(WebSocketConnectionRegistry::default());
     let next_connection = Arc::new(AtomicU64::new(1));
     let active_connections = Arc::new(AtomicU64::new(0));
     #[cfg(test)]
@@ -4980,6 +5029,7 @@ fn serve_websocket_with_tracking_cloner(
     let accepted_stream_mode = Arc::new(AtomicU64::new(0));
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
+    let (thread_finished_sender, thread_finished) = std::sync::mpsc::channel();
     #[cfg(test)]
     let observed_active_connections = active_connections.clone();
     #[cfg(test)]
@@ -5023,7 +5073,9 @@ fn serve_websocket_with_tracking_cloner(
                 Ok(tracked) => tracked,
                 Err(_) => continue,
             };
-            thread_connections.lock().unwrap().insert(id, tracked);
+            if !thread_connections.register(id, tracked) {
+                continue;
+            }
             let mux = mux.clone();
             let token = token.clone();
             let render_service = render_service.clone();
@@ -5040,24 +5092,22 @@ fn serve_websocket_with_tracking_cloner(
                         render_service,
                         Some(permit),
                     );
-                    connections.lock().unwrap().remove(&id);
+                    connections.remove(id);
                 })
                 .is_err()
             {
-                cleanup_connections.lock().unwrap().remove(&id);
+                cleanup_connections.remove(id);
             }
         }
-        let connections =
-            thread_connections.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        for stream in connections.values() {
-            let _ = stream.shutdown(Shutdown::Both);
-        }
+        thread_connections.start_shutdown();
+        let _ = thread_finished_sender.send(());
     })?;
     Ok(WebSocketServer {
         local_addr,
         shutdown,
         connections,
         thread: Some(thread),
+        thread_finished,
         #[cfg(test)]
         accept_attempts,
         #[cfg(test)]
@@ -13148,15 +13198,18 @@ mod tests {
     fn websocket_drop_does_not_join_an_unfinished_listener() {
         let (release, blocked) = std::sync::mpsc::channel();
         let (worker_finished, observed_worker) = std::sync::mpsc::channel();
+        let (thread_finished_sender, thread_finished) = std::sync::mpsc::channel();
         let listener_thread = std::thread::spawn(move || {
             let _ = blocked.recv();
             let _ = worker_finished.send(());
+            let _ = thread_finished_sender.send(());
         });
         let server = WebSocketServer {
             local_addr: "127.0.0.1:0".parse().unwrap(),
             shutdown: Arc::new(AtomicBool::new(false)),
-            connections: Arc::new(Mutex::new(HashMap::new())),
+            connections: Arc::new(WebSocketConnectionRegistry::default()),
             thread: Some(listener_thread),
+            thread_finished,
             accept_attempts: Arc::new(AtomicU64::new(0)),
             active_connections: Arc::new(AtomicU64::new(0)),
             #[cfg(target_os = "macos")]
@@ -13181,14 +13234,17 @@ mod tests {
     #[test]
     fn websocket_shutdown_retains_an_unfinished_listener_for_retry() {
         let (release, blocked) = std::sync::mpsc::channel();
+        let (thread_finished_sender, thread_finished) = std::sync::mpsc::channel();
         let listener_thread = std::thread::spawn(move || {
             let _ = blocked.recv();
+            let _ = thread_finished_sender.send(());
         });
         let mut server = WebSocketServer {
             local_addr: "127.0.0.1:0".parse().unwrap(),
             shutdown: Arc::new(AtomicBool::new(false)),
-            connections: Arc::new(Mutex::new(HashMap::new())),
+            connections: Arc::new(WebSocketConnectionRegistry::default()),
             thread: Some(listener_thread),
+            thread_finished,
             accept_attempts: Arc::new(AtomicU64::new(0)),
             active_connections: Arc::new(AtomicU64::new(0)),
             #[cfg(target_os = "macos")]
@@ -13211,10 +13267,13 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (tracked, _) = listener.accept().unwrap();
-        let connections = Arc::new(Mutex::new(HashMap::from([(1, tracked)])));
+        let connections = Arc::new(WebSocketConnectionRegistry::default());
+        assert!(connections.register(1, tracked));
         let (listener_finished, observed_listener_finished) = std::sync::mpsc::channel();
+        let (thread_finished_sender, thread_finished) = std::sync::mpsc::channel();
         let listener_thread = std::thread::spawn(move || {
             listener_finished.send(()).unwrap();
+            thread_finished_sender.send(()).unwrap();
         });
         observed_listener_finished
             .recv_timeout(Duration::from_secs(1))
@@ -13224,6 +13283,7 @@ mod tests {
             shutdown: Arc::new(AtomicBool::new(false)),
             connections: connections.clone(),
             thread: Some(listener_thread),
+            thread_finished,
             accept_attempts: Arc::new(AtomicU64::new(0)),
             active_connections: Arc::new(AtomicU64::new(0)),
             #[cfg(target_os = "macos")]
@@ -13231,8 +13291,8 @@ mod tests {
         };
 
         let first = server.shutdown_until(Instant::now() + Duration::from_millis(25)).unwrap();
-        let retained = connections.lock().unwrap().contains_key(&1);
-        connections.lock().unwrap().remove(&1);
+        let retained = connections.state.lock().unwrap().streams.contains_key(&1);
+        connections.remove(1);
         let second = server.shutdown_until(Instant::now() + Duration::from_secs(1)).unwrap();
         drop(client);
 
