@@ -5,6 +5,7 @@ internal import CMUXAgentLaunch
 /// Resolves one authoritative terminal launch for either process ownership model.
 @MainActor
 public final class TerminalSurfaceLaunchResolver {
+    /// Resolves the current user's login-shell arguments.
     public typealias DefaultShellArguments = @Sendable () -> [String]
 
     private let userGhosttyShellIntegrationMode: @MainActor () -> String
@@ -24,6 +25,7 @@ public final class TerminalSurfaceLaunchResolver {
     private let agentCommandShimInstallDeadline: Duration
     private let agentCommandShimInstallDeadlineClock: any Clock<Duration>
 
+    /// Creates a resolver from the shared launch dependencies.
     public convenience init(
         dependencies: TerminalSurfaceLaunchDependencies,
         resourceURL: URL? = Bundle.main.resourceURL,
@@ -50,6 +52,7 @@ public final class TerminalSurfaceLaunchResolver {
         )
     }
 
+    /// Creates a resolver with explicit environment and timing seams.
     public init(
         userGhosttyShellIntegrationMode: @escaping @MainActor () -> String,
         resolvedUserShell: @escaping @MainActor () -> String? = { nil },

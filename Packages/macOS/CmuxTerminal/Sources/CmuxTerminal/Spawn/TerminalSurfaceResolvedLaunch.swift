@@ -5,12 +5,7 @@ public import Foundation
 /// Construction is failable so callers cannot express both forms or an empty
 /// argument vector.
 public struct TerminalSurfaceLaunchForm: Equatable, Sendable {
-    private enum Storage: Equatable, Sendable {
-        case command(String)
-        case arguments([String])
-    }
-
-    private let storage: Storage
+    private let storage: TerminalSurfaceLaunchFormStorage
 
     /// Creates a shell command launch form.
     ///
@@ -37,7 +32,7 @@ public struct TerminalSurfaceLaunchForm: Equatable, Sendable {
         switch (command, arguments) {
         case (.some(let command), nil):
             self.init(command: command)
-        case (nil, .some(let arguments)):
+        case (nil, let .some(arguments)):
             self.init(arguments: arguments)
         default:
             return nil
@@ -46,13 +41,13 @@ public struct TerminalSurfaceLaunchForm: Equatable, Sendable {
 
     /// The shell command, or `nil` for a direct executable launch.
     public var command: String? {
-        guard case .command(let command) = storage else { return nil }
+        guard case let .command(command) = storage else { return nil }
         return command
     }
 
     /// The direct executable arguments, or `nil` for a shell command launch.
     public var arguments: [String]? {
-        guard case .arguments(let arguments) = storage else { return nil }
+        guard case let .arguments(arguments) = storage else { return nil }
         return arguments
     }
 
@@ -61,7 +56,7 @@ public struct TerminalSurfaceLaunchForm: Equatable, Sendable {
         storage: .arguments(["/bin/zsh", "-l"])
     )
 
-    private init(storage: Storage) {
+    private init(storage: TerminalSurfaceLaunchFormStorage) {
         self.storage = storage
     }
 }
@@ -73,9 +68,15 @@ public struct TerminalSurfaceResolvedLaunch: Equatable, Sendable {
     /// The single validated command or direct executable form.
     public let launchForm: TerminalSurfaceLaunchForm
     /// The shell command, or `nil` for a direct executable launch.
-    public var command: String? { launchForm.command }
+    public var command: String? {
+        launchForm.command
+    }
+
     /// The executable path and literal arguments, or `nil` for a shell command launch.
-    public var arguments: [String]? { launchForm.arguments }
+    public var arguments: [String]? {
+        launchForm.arguments
+    }
+
     /// The complete process environment.
     public let environment: [String: String]
     /// Input sent after the process starts.

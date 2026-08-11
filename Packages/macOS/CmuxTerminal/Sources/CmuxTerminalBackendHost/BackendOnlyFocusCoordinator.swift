@@ -1,68 +1,6 @@
 internal import CmuxTerminalBackend
 internal import Foundation
 
-/// Visible pane materialization relevant to terminal first-responder policy.
-nonisolated enum BackendOnlyFocusSlotContent: Equatable, Sendable {
-    case terminal(selectedSurfaceID: SurfaceID)
-    case browserPlaceholder(selectedSurfaceID: SurfaceID)
-    case unsupportedPlaceholder(selectedSurfaceID: SurfaceID)
-
-    var selectedSurfaceID: SurfaceID {
-        switch self {
-        case .terminal(let selectedSurfaceID),
-             .browserPlaceholder(let selectedSurfaceID),
-             .unsupportedPlaceholder(let selectedSurfaceID):
-            selectedSurfaceID
-        }
-    }
-
-    var isTerminal: Bool {
-        if case .terminal = self { true } else { false }
-    }
-
-    func selecting(_ surfaceID: SurfaceID) -> BackendOnlyFocusSlotContent {
-        switch self {
-        case .terminal:
-            .terminal(selectedSurfaceID: surfaceID)
-        case .browserPlaceholder:
-            .browserPlaceholder(selectedSurfaceID: surfaceID)
-        case .unsupportedPlaceholder:
-            .unsupportedPlaceholder(selectedSurfaceID: surfaceID)
-        }
-    }
-}
-
-/// One pointer gesture expressed as a single ordered daemon action.
-nonisolated struct BackendOnlyFocusAction: Equatable, Sendable {
-    let actionID: UInt64
-    let targetSlotID: BackendOnlyProjectionSlotID
-    let desiredSurfaceID: SurfaceID
-    let intents: [BackendOnlyProjectionAbsoluteIntent]
-}
-
-nonisolated enum BackendOnlyFocusActionReceiptOutcome: Equatable, Sendable {
-    case applied
-    case rejected
-}
-
-/// Authoritative daemon result for one exact focus action.
-nonisolated struct BackendOnlyFocusActionReceipt: Equatable, Sendable {
-    let actionID: UInt64
-    let fence: BackendOnlyProjectionRuntimeFence
-    let outcome: BackendOnlyFocusActionReceiptOutcome
-    let activeSlotID: BackendOnlyProjectionSlotID
-    let selectedSurfaceID: SurfaceID
-}
-
-nonisolated enum BackendOnlyFocusPointerResult: Equatable, Sendable {
-    case unregistered
-    case noChange
-    case applied
-    case rejected
-    case ignoredStaleReceipt
-    case actionSequenceExhausted
-}
-
 typealias BackendOnlyFocusActionSubmitter = @MainActor @Sendable (
     BackendOnlyFocusAction
 ) async -> BackendOnlyFocusActionReceipt
@@ -76,10 +14,8 @@ typealias BackendOnlyFocusActionSubmitter = @MainActor @Sendable (
 final class BackendOnlyFocusCoordinator {
     static let maximumRegisteredSlotCount = 256
 
-    private struct Registration {
-        var content: BackendOnlyFocusSlotContent
-        let requestFirstResponder: @MainActor () -> Bool
-    }
+    private typealias Registration = BackendOnlyFocusRegistration
+    private typealias AuthorityFenceOrder = BackendOnlyFocusAuthorityFenceOrder
 
     private var registrations: [BackendOnlyProjectionSlotID: Registration] = [:]
     private let submitAction: BackendOnlyFocusActionSubmitter
@@ -91,7 +27,9 @@ final class BackendOnlyFocusCoordinator {
     private(set) var firstResponderOwnedSlotID: BackendOnlyProjectionSlotID?
     private(set) var isWindowKey = false
 
-    var registeredSlotCount: Int { registrations.count }
+    var registeredSlotCount: Int {
+        registrations.count
+    }
 
     init(submitAction: @escaping BackendOnlyFocusActionSubmitter) {
         self.submitAction = submitAction
@@ -106,7 +44,8 @@ final class BackendOnlyFocusCoordinator {
         requestFirstResponder: @escaping @MainActor () -> Bool
     ) -> Bool {
         guard registrations[slotID] != nil
-                || registrations.count < Self.maximumRegisteredSlotCount else {
+            || registrations.count < Self.maximumRegisteredSlotCount
+        else {
             return false
         }
         registrations[slotID] = Registration(
@@ -229,7 +168,8 @@ final class BackendOnlyFocusCoordinator {
         for action: BackendOnlyFocusAction
     ) -> BackendOnlyFocusPointerResult {
         guard action.actionID == newestRequestedActionID,
-              receipt.actionID == action.actionID else {
+              receipt.actionID == action.actionID
+        else {
             return .ignoredStaleReceipt
         }
         guard receipt.outcome == .applied else {
@@ -238,8 +178,9 @@ final class BackendOnlyFocusCoordinator {
         }
         guard receipt.activeSlotID == action.targetSlotID,
               receipt.activeSlotID.logicalPresentationID
-                == receipt.fence.logicalPresentationID,
-              receipt.selectedSurfaceID == action.desiredSurfaceID else {
+              == receipt.fence.logicalPresentationID,
+              receipt.selectedSurfaceID == action.desiredSurfaceID
+        else {
             return .ignoredStaleReceipt
         }
 
@@ -272,17 +213,11 @@ final class BackendOnlyFocusCoordinator {
         return .applied
     }
 
-    private enum AuthorityFenceOrder: Equatable {
-        case older
-        case same
-        case newer
-    }
-
     private func compare(
         _ incoming: BackendOnlyProjectionRuntimeFence,
         with current: BackendOnlyProjectionRuntimeFence
     ) -> AuthorityFenceOrder? {
-        guard Self.isValid(incoming) else { return nil }
+        guard backendOnlyFocusFenceIsValid(incoming) else { return nil }
         if incoming.connectionGeneration < current.connectionGeneration {
             return .older
         }
@@ -290,41 +225,29 @@ final class BackendOnlyFocusCoordinator {
             return .newer
         }
         guard incoming.authority == current.authority,
-              incoming.logicalPresentationID == current.logicalPresentationID else {
+              incoming.logicalPresentationID == current.logicalPresentationID
+        else {
             return nil
         }
         guard incoming.topologyRevision >= current.topologyRevision,
-              incoming.projectionGeneration >= current.projectionGeneration else {
+              incoming.projectionGeneration >= current.projectionGeneration
+        else {
             return .older
         }
         if incoming.topologyRevision == current.topologyRevision,
-           incoming.projectionGeneration == current.projectionGeneration {
+           incoming.projectionGeneration == current.projectionGeneration
+        {
             return .same
         }
         return .newer
-    }
-
-    private static func isValid(_ fence: BackendOnlyProjectionRuntimeFence) -> Bool {
-        fence.connectionGeneration > 0
-            && fence.topologyRevision > 0
-            && fence.projectionGeneration > 0
-            && !isNil(fence.logicalPresentationID)
-            && !isNil(fence.authority.daemonInstanceID.rawValue)
-            && !isNil(fence.authority.sessionID.rawValue)
-    }
-
-    private static func isNil(_ identifier: UUID) -> Bool {
-        identifier == UUID(uuid: (
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0
-        ))
     }
 
     private func reconcileProgrammaticFocus() {
         guard isWindowKey,
               let activeSlotID = authoritativeActiveSlotID,
               let registration = registrations[activeSlotID],
-              registration.content.isTerminal else {
+              registration.content.isTerminal
+        else {
             firstResponderOwnedSlotID = nil
             return
         }
@@ -335,4 +258,22 @@ final class BackendOnlyFocusCoordinator {
             firstResponderOwnedSlotID = nil
         }
     }
+}
+
+private func backendOnlyFocusFenceIsValid(
+    _ fence: BackendOnlyProjectionRuntimeFence
+) -> Bool {
+    fence.connectionGeneration > 0
+        && fence.topologyRevision > 0
+        && fence.projectionGeneration > 0
+        && !backendOnlyFocusIdentifierIsNil(fence.logicalPresentationID)
+        && !backendOnlyFocusIdentifierIsNil(fence.authority.daemonInstanceID.rawValue)
+        && !backendOnlyFocusIdentifierIsNil(fence.authority.sessionID.rawValue)
+}
+
+private func backendOnlyFocusIdentifierIsNil(_ identifier: UUID) -> Bool {
+    identifier == UUID(uuid: (
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0
+    ))
 }

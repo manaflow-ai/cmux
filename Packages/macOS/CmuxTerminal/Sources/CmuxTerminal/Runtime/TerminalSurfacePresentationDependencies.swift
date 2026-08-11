@@ -1,3 +1,5 @@
+public import CmuxTerminalCore
+
 /// Capabilities shared by embedded and externally-owned terminal presentations.
 ///
 /// This bundle deliberately contains no Ghostty app/config handle, PTY output

@@ -1,3 +1,4 @@
+public import CmuxTerminalCore
 internal import Foundation
 
 /// Owns a best-effort shim install without making terminal launch wait for a

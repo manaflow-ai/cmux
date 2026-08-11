@@ -1,12 +1,7 @@
 public import CmuxTerminalBackend
 public import Foundation
 public import SwiftUI
-
-@MainActor
-protocol BackendOnlyHostRuntimeLifecycle: AnyObject {
-    var selection: BackendOnlyTerminalSelection { get }
-    func shutdown() async
-}
+internal import Observation
 
 extension BackendOnlyTerminalRuntime: BackendOnlyHostRuntimeLifecycle {}
 
@@ -15,47 +10,30 @@ typealias BackendOnlyHostRuntimeFactory = @MainActor (
     BackendOnlyTerminalSelection
 ) -> any BackendOnlyHostRuntimeLifecycle
 
+/// Observable state for the backend-only host application.
+@Observable
 @MainActor
-private struct BackendOnlyHostPublishedProjection {
-    let authority: BackendOnlyProjectionDriverPublication
-    let runtime: BackendOnlyProjectionRuntimeSnapshot?
-}
+public final class BackendOnlyHostModel {
+    /// The connection phase exposed under the original nested name.
+    public typealias Phase = BackendOnlyHostPhase
 
-@MainActor
-public final class BackendOnlyHostModel: ObservableObject {
-    public enum Phase: Equatable {
-        case connecting
-        case ready
-        case unavailable
-    }
+    /// The current backend connection phase.
+    public private(set) var phase: Phase = .connecting
+    private var publishedProjection: BackendOnlyHostPublishedProjection?
+    /// The latest projection failure, for host diagnostics.
+    public private(set) var lastProjectionFailureDescription: String?
 
-    private enum ProjectionIntentKey: Hashable {
-        case workspaceBinding(WorkspaceID)
-        case selectedWorkspace
-        case selectedScreen(WorkspaceID)
-        case activePane(WorkspaceID, ScreenID)
-        case zoomedPane(WorkspaceID, ScreenID)
-        case selectedSurface(WorkspaceID, ScreenID, PaneID)
-    }
-
-    private struct PendingIntent {
-        let intent: BackendOnlyProjectionAbsoluteIntent
-        let sequence: UInt64
-        let withinActionOrder: Int
-    }
-
-    @Published public private(set) var phase: Phase = .connecting
-    @Published private var publishedProjection: BackendOnlyHostPublishedProjection?
-    @Published private(set) var lastProjectionFailureDescription: String?
-
+    /// The latest canonical topology.
     public var topology: CanonicalTopology? {
         publishedProjection?.authority.topology
     }
 
+    /// The selected workspace identifier.
     public var selectedWorkspaceID: UUID? {
         publishedProjection?.authority.navigation.selectedWorkspaceID?.rawValue
     }
 
+    /// The runtime for the canonical active terminal slot.
     public var activeRuntime: BackendOnlyTerminalRuntime? {
         guard let runtime = publishedProjection?.runtime,
               let slot = runtime.slots.first(where: {
@@ -69,6 +47,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         publishedProjection?.runtime
     }
 
+    /// Workspaces assigned to this frontend presentation.
     public var workspaces: [CanonicalWorkspace] {
         guard let projection = publishedProjection else { return [] }
         let assigned = Set(
@@ -84,7 +63,7 @@ public final class BackendOnlyHostModel: ObservableObject {
     private static let selectedWorkspaceDefaultsKey =
         "backendOnly.selectedWorkspaceID"
     private static let defaultMaximumConnectionAttempts = 3
-    private static let maximumPendingIntentCount = 4_096
+    private static let maximumPendingIntentCount = 4096
 
     private let controller: (any BackendOnlyHostSessionControlling)?
     private let defaults: UserDefaults
@@ -106,11 +85,12 @@ public final class BackendOnlyHostModel: ObservableObject {
     private var projectionLaneID: UUID?
     private var pendingTopologySnapshot: TopologySnapshot?
     private var pendingRepublish = false
-    private var pendingIntents: [ProjectionIntentKey: PendingIntent] = [:]
+    private var pendingIntents: [BackendOnlyHostProjectionIntentKey: BackendOnlyHostPendingIntent] = [:]
     private var nextIntentSequence: UInt64 = 1
     private var workspaceMutationTask: Task<Void, Never>?
     private(set) var maximumPendingProjectionRefreshCountObserved = 0
 
+    /// Creates a host model from the current app bundle and user defaults.
     public convenience init(
         bundleURL: URL = Bundle.main.bundleURL,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
@@ -119,7 +99,8 @@ public final class BackendOnlyHostModel: ObservableObject {
         self.init(
             controller: BackendOnlySessionController(
                 bundleURL: bundleURL,
-                bundleIdentifier: bundleIdentifier
+                bundleIdentifier: bundleIdentifier,
+                homeDirectoryURL: backendOnlyCurrentHomeDirectoryURL()
             ),
             defaults: defaults,
             logicalPresentationID: nil,
@@ -181,6 +162,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         workspaceMutationTask?.cancel()
     }
 
+    /// Starts the backend connection cycle if it is idle.
     public func start() {
         scheduleConnectionCycle()
     }
@@ -196,6 +178,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         }
     }
 
+    /// Selects one assigned workspace.
     public func selectWorkspace(_ identifier: UUID?) {
         enqueueProjectionIntents([
             .selectWorkspace(
@@ -204,6 +187,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         ])
     }
 
+    /// Assigns or removes a workspace from this presentation.
     public func setWorkspaceAssigned(_ identifier: UUID, assigned: Bool) {
         enqueueProjectionIntents([
             .workspaceAssignment(
@@ -213,6 +197,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         ])
     }
 
+    /// Selects a screen in the given workspace.
     public func selectScreen(workspaceID: UUID, screenID: UUID) {
         enqueueProjectionIntents([
             .selectScreen(
@@ -222,6 +207,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         ])
     }
 
+    /// Activates a pane in the given screen.
     public func activatePane(
         workspaceID: UUID,
         screenID: UUID,
@@ -236,6 +222,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         ])
     }
 
+    /// Sets or clears the zoomed pane in the given screen.
     public func setZoomedPane(
         workspaceID: UUID,
         screenID: UUID,
@@ -260,6 +247,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         enqueueProjectionIntents(intents)
     }
 
+    /// Selects a surface in the given pane.
     public func selectSurface(
         workspaceID: UUID,
         screenID: UUID,
@@ -276,6 +264,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         ])
     }
 
+    /// Creates and selects a new canonical workspace.
     public func createWorkspace() {
         guard workspaceMutationTask == nil, let connection else { return }
         workspaceMutationTask = Task { @MainActor [weak self] in
@@ -405,7 +394,7 @@ public final class BackendOnlyHostModel: ObservableObject {
                     return
                 }
                 guard attempt < maximumConnectionAttempts,
-                      Self.shouldRetryConnection(after: error)
+                      backendOnlyHostShouldRetryConnection(after: error)
                 else {
                     phase = .unavailable
                     return
@@ -467,13 +456,6 @@ public final class BackendOnlyHostModel: ObservableObject {
         connectTask = nil
     }
 
-    private static func shouldRetryConnection(after error: any Error) -> Bool {
-        guard let connectionError = error as? BackendOnlyHostConnectionError else {
-            return true
-        }
-        return connectionError == .backendUnavailable
-    }
-
     private func startEventLoop(
         _ connection: BackendOnlyHostConnection,
         controller: any BackendOnlyHostSessionControlling
@@ -515,12 +497,14 @@ public final class BackendOnlyHostModel: ObservableObject {
         guard connection != nil else { return }
         if let pending = pendingTopologySnapshot,
            pending.authority == snapshot.authority,
-           pending.revision > snapshot.revision {
+           pending.revision > snapshot.revision
+        {
             return
         }
         if let published = publishedProjection?.authority,
            published.authority == snapshot.authority,
-           published.topologyRevision > snapshot.revision {
+           published.topologyRevision > snapshot.revision
+        {
             return
         }
         pendingTopologySnapshot = snapshot
@@ -544,7 +528,7 @@ public final class BackendOnlyHostModel: ObservableObject {
         let sequence = nextIntentSequence
         var candidate = pendingIntents
         for (order, intent) in intents.enumerated() {
-            candidate[Self.key(for: intent)] = PendingIntent(
+            candidate[backendOnlyHostProjectionIntentKey(for: intent)] = BackendOnlyHostPendingIntent(
                 intent: intent,
                 sequence: sequence,
                 withinActionOrder: order
@@ -655,7 +639,9 @@ public final class BackendOnlyHostModel: ObservableObject {
                 let driverPhase = await driver.phase
                 switch driverPhase {
                 case .waitingForTopology:
-                    if pendingTopologySnapshot != nil { continue }
+                    if pendingTopologySnapshot != nil {
+                        continue
+                    }
                     return
                 case .reconciliationRequired:
                     await connectionDidEnd(connection, controller: controller)
@@ -679,7 +665,9 @@ public final class BackendOnlyHostModel: ObservableObject {
         guard projectionLaneID == laneID else { return }
         projectionLaneID = nil
         projectionLaneTask = nil
-        if hasPendingProjectionWork { startProjectionLaneIfNeeded() }
+        if hasPendingProjectionWork {
+            startProjectionLaneIfNeeded()
+        }
     }
 
     private func materializeAndPublish(
@@ -695,7 +683,8 @@ public final class BackendOnlyHostModel: ObservableObject {
 
         let runtime: BackendOnlyProjectionRuntimeSnapshot?
         if publication.navigation.selectedWorkspaceID == nil,
-           publication.topology.workspaces.isEmpty {
+           publication.topology.workspaces.isEmpty
+        {
             runtime = nil
         } else {
             let plan = try projectionPlanner.plan(
@@ -856,23 +845,30 @@ public final class BackendOnlyHostModel: ObservableObject {
     private func recordFailure(_ error: any Error) {
         lastProjectionFailureDescription = String(reflecting: error)
     }
+}
 
-    private static func key(
-        for intent: BackendOnlyProjectionAbsoluteIntent
-    ) -> ProjectionIntentKey {
-        switch intent {
-        case .workspaceAssignment(let workspaceID, _):
-            .workspaceBinding(workspaceID)
-        case .selectWorkspace:
-            .selectedWorkspace
-        case .selectScreen(let workspaceID, _):
-            .selectedScreen(workspaceID)
-        case .activatePane(let workspaceID, let screenID, _):
-            .activePane(workspaceID, screenID)
-        case .setZoomedPane(let workspaceID, let screenID, _):
-            .zoomedPane(workspaceID, screenID)
-        case .selectSurface(let workspaceID, let screenID, let paneID, _):
-            .selectedSurface(workspaceID, screenID, paneID)
-        }
+private func backendOnlyHostShouldRetryConnection(after error: any Error) -> Bool {
+    guard let connectionError = error as? BackendOnlyHostConnectionError else {
+        return true
+    }
+    return connectionError == .backendUnavailable
+}
+
+private func backendOnlyHostProjectionIntentKey(
+    for intent: BackendOnlyProjectionAbsoluteIntent
+) -> BackendOnlyHostProjectionIntentKey {
+    switch intent {
+    case let .workspaceAssignment(workspaceID, _):
+        .workspaceBinding(workspaceID)
+    case .selectWorkspace:
+        .selectedWorkspace
+    case let .selectScreen(workspaceID, _):
+        .selectedScreen(workspaceID)
+    case let .activatePane(workspaceID, screenID, _):
+        .activePane(workspaceID, screenID)
+    case let .setZoomedPane(workspaceID, screenID, _):
+        .zoomedPane(workspaceID, screenID)
+    case let .selectSurface(workspaceID, screenID, paneID, _):
+        .selectedSurface(workspaceID, screenID, paneID)
     }
 }

@@ -1,60 +1,7 @@
 public import CmuxTerminalBackend
 public import CmuxTerminalBackendService
-internal import Darwin
 public import Foundation
-
-public enum BackendOnlyHostConnectionError: Error, Equatable, Sendable {
-    case invalidBundleIdentifier
-    case invalidClientIdentity
-    case disabled
-    case approvalRequired
-    case missingBundleItem
-    case serviceNotFound
-    case backendUnavailable
-    case readOnly
-}
-
-/// One readiness-fenced canonical connection used by the lightweight Swift host.
-public struct BackendOnlyHostConnection: Sendable {
-    public let session: BackendCanonicalSession
-    public let readiness: BackendServiceReadiness
-    public let initialSnapshot: TopologySnapshot
-    public let stableClientID: UUID
-    public let processInstanceID: UUID
-
-    public init(
-        session: BackendCanonicalSession,
-        readiness: BackendServiceReadiness,
-        initialSnapshot: TopologySnapshot,
-        stableClientID: UUID,
-        processInstanceID: UUID
-    ) {
-        self.session = session
-        self.readiness = readiness
-        self.initialSnapshot = initialSnapshot
-        self.stableClientID = stableClientID
-        self.processInstanceID = processInstanceID
-    }
-}
-
-/// Connection lifecycle seam used by the host model and its process-free tests.
-protocol BackendOnlyHostSessionControlling: Sendable {
-    func connect() async throws -> BackendOnlyHostConnection
-
-    func projectionRPC(
-        for connection: BackendOnlyHostConnection
-    ) async throws -> any BackendOnlyProjectionDriverRPC
-
-    func events(
-        for connection: BackendOnlyHostConnection
-    ) async -> AsyncStream<BackendCanonicalSessionEvent>
-
-    func currentSnapshot(
-        for connection: BackendOnlyHostConnection
-    ) async -> TopologySnapshot?
-
-    func invalidate(_ connection: BackendOnlyHostConnection) async
-}
+internal import Darwin
 
 /// Registers the bundled cmux-tui service and opens one credential-fenced session.
 ///
@@ -70,16 +17,15 @@ public actor BackendOnlySessionController: BackendOnlyHostSessionControlling {
     private var connectionTask: Task<BackendOnlyHostConnection, any Error>?
     private var connectionAttemptID: UUID?
 
+    /// Creates a controller for one explicit user runtime directory.
     public init?(
         bundleURL: URL,
         bundleIdentifier: String?,
         userID: UInt32? = nil,
-        homeDirectoryURL: URL? = nil,
+        homeDirectoryURL: URL,
         processInstanceUUID: UUID? = nil
     ) {
         let userID = userID ?? UInt32(Darwin.geteuid())
-        let homeDirectoryURL = homeDirectoryURL
-            ?? FileManager.default.homeDirectoryForCurrentUser
         let processInstanceUUID = processInstanceUUID ?? UUID()
         guard let bundleIdentifier,
               let descriptor = BackendServiceDescriptor(bundleIdentifier: bundleIdentifier)
@@ -123,6 +69,7 @@ public actor BackendOnlySessionController: BackendOnlyHostSessionControlling {
         )
     }
 
+    /// Connects to one readiness-fenced canonical backend session.
     public func connect() async throws -> BackendOnlyHostConnection {
         if let cached = connection {
             let snapshot = await cached.session.currentSnapshot()
@@ -174,6 +121,7 @@ public actor BackendOnlySessionController: BackendOnlyHostSessionControlling {
         await stale.session.close()
     }
 
+    /// Closes the current frontend connection without terminating backend PTYs.
     public func closeFrontendConnection() async {
         let task = connectionTask
         connectionTask = nil
@@ -200,7 +148,7 @@ public actor BackendOnlySessionController: BackendOnlyHostSessionControlling {
             try Task.checkCancellation()
             let readiness: BackendServiceReadiness
             switch result {
-            case .ready(let value):
+            case let .ready(value):
                 readiness = value
             case .disabled:
                 throw BackendOnlyHostConnectionError.disabled

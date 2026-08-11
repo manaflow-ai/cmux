@@ -1,14 +1,22 @@
 public import CmuxTerminalBackendService
-internal import Darwin
 public import Foundation
+internal import Darwin
 
 /// Runs exact terminal-backend maintenance commands before AppKit starts.
 ///
 /// Tagged-build cleanup uses this path to query or deliberately terminate the
 /// persistent daemon without constructing the SwiftUI host or a renderer.
 public struct BackendOnlyServiceMaintenanceRunner: Sendable {
-    public init() {}
+    private let userID: UInt32
+    private let homeDirectoryURL: URL
 
+    /// Creates a maintenance runner for one explicit user environment.
+    public init(userID: UInt32, homeDirectoryURL: URL) {
+        self.userID = userID
+        self.homeDirectoryURL = homeDirectoryURL
+    }
+
+    /// Runs a recognized maintenance command, or returns `nil` for app launch.
     public func run(
         arguments: [String] = CommandLine.arguments,
         bundleURL: URL = Bundle.main.bundleURL,
@@ -19,18 +27,17 @@ public struct BackendOnlyServiceMaintenanceRunner: Sendable {
         guard let bundleIdentifier,
               let descriptor = BackendServiceDescriptor(bundleIdentifier: bundleIdentifier)
         else {
-            writeError(BackendOnlyLocalization.string(
+            writeError(backendOnlyLocalizedString(
                 "backendOnly.maintenance.invalidBundle",
                 defaultValue: "Unable to identify this app's terminal backend service."
             ))
             return 64
         }
 
-        let userID = UInt32(Darwin.geteuid())
         let runtimePaths = BackendServiceRuntimePaths(
             descriptor: descriptor,
             userID: userID,
-            homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+            homeDirectoryURL: homeDirectoryURL
         )
         let inspection = BackendServiceBundleInspection(
             bundleURL: bundleURL,
@@ -58,7 +65,7 @@ public struct BackendOnlyServiceMaintenanceRunner: Sendable {
                 return 70
             }
         case .unregister:
-            writeError(BackendOnlyLocalization.string(
+            writeError(backendOnlyLocalizedString(
                 "backendOnly.maintenance.ptyWarning",
                 defaultValue: "Warning: unregistering the terminal backend terminates every PTY it owns."
             ))
@@ -77,14 +84,14 @@ public struct BackendOnlyServiceMaintenanceRunner: Sendable {
                 case .unregistered, .alreadyUnregistered:
                     return 0
                 case .serviceNotFound:
-                    writeError(BackendOnlyLocalization.string(
+                    writeError(backendOnlyLocalizedString(
                         "backendOnly.maintenance.serviceNotFound",
                         defaultValue: "The bundled terminal backend service could not be found, so the app was preserved."
                     ))
                     return 69
                 }
             } catch {
-                writeError(BackendOnlyLocalization.string(
+                writeError(backendOnlyLocalizedString(
                     "backendOnly.maintenance.failed",
                     defaultValue: "The terminal backend could not be unregistered, so the app was preserved."
                 ))

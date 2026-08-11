@@ -7,38 +7,9 @@ internal import Foundation
 /// operations. Failed acquire operations remain pending so an ambiguous retry
 /// reuses the exact request identity and generation expectation.
 struct BackendOnlyAccessibilityDemandState: Sendable {
-    enum Operation: Equatable, Sendable {
-        case acquire(
-            requestID: UUID,
-            presentationID: PresentationID,
-            expectedGeneration: UInt64,
-            expectedDemandGeneration: UInt64?
-        )
-        case release(
-            presentationID: PresentationID,
-            expectedGeneration: UInt64,
-            demandGeneration: UInt64
-        )
-    }
-
-    private struct Presentation: Equatable, Sendable {
-        let id: PresentationID
-        let generation: UInt64
-    }
-
-    private struct Admission: Equatable, Sendable {
-        let requestID: UUID
-        let presentation: Presentation
-        let demandGeneration: UInt64
-
-        var releaseOperation: Operation {
-            .release(
-                presentationID: presentation.id,
-                expectedGeneration: presentation.generation,
-                demandGeneration: demandGeneration
-            )
-        }
-    }
+    typealias Operation = BackendOnlyAccessibilityDemandOperation
+    private typealias Presentation = BackendOnlyAccessibilityDemandPresentation
+    private typealias Admission = BackendOnlyAccessibilityDemandAdmission
 
     private(set) var explicitObserverCount = 0
     private var streamObservers: Set<UUID> = []
@@ -142,8 +113,8 @@ struct BackendOnlyAccessibilityDemandState: Sendable {
             expectedGeneration,
             expectedDemandGeneration
         ) = operation,
-        demandGeneration > 0,
-        expectedDemandGeneration.map({ demandGeneration > $0 }) ?? true else { return }
+            demandGeneration > 0,
+            expectedDemandGeneration.map({ demandGeneration > $0 }) ?? true else { return }
         if operationInFlight == operation {
             operationInFlight = nil
         }
@@ -188,7 +159,8 @@ struct BackendOnlyAccessibilityDemandState: Sendable {
             generation: expectedGeneration
         )
         if admission?.presentation == releasedPresentation,
-           admission?.demandGeneration == demandGeneration {
+           admission?.demandGeneration == demandGeneration
+        {
             // A false result means this generation is already absent or was
             // replaced remotely. Either way it cannot remain an admitted fence.
             admission = nil

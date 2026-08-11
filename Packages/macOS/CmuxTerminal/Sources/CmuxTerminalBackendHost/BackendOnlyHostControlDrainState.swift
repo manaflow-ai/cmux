@@ -1,13 +1,6 @@
 struct BackendOnlyHostControlDrainState: Sendable {
-    struct Values: Equatable, Sendable {
-        var visible = false
-        var focused = false
-    }
-
-    struct Target: Equatable, Sendable {
-        let revision: UInt64
-        let values: Values
-    }
+    typealias Values = BackendOnlyHostControlValues
+    typealias Target = BackendOnlyHostControlTarget
 
     private(set) var desired = Values()
     private var revision: UInt64 = 0
