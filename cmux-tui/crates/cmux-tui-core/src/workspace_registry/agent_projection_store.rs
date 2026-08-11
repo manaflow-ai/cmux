@@ -189,7 +189,7 @@ fn validate_deferred_agent_session_generation(
     let journal_identity =
         ensure_agent_session_journal_identity(transaction, next, provider, source_session)?;
     anyhow::ensure!(
-        !agent_session_identity_precedes_record(
+        !agent_session_identity_precedes_deferred_live_boundary(
             transaction,
             &journal_identity,
             next.committed_sequence,
@@ -199,6 +199,19 @@ fn validate_deferred_agent_session_generation(
         next.source_session,
     );
     Ok(())
+}
+
+fn agent_session_identity_precedes_deferred_live_boundary(
+    transaction: &Transaction<'_>,
+    journal_identity: &str,
+    committed_sequence: u64,
+) -> anyhow::Result<bool> {
+    // The first event accepted after the fixed replay prefix records this
+    // boundary. Later events for that same live session are valid, while an
+    // identity that existed before the boundary belongs to older history.
+    let boundary =
+        agent_projection_journal_live_sequence(transaction)?.unwrap_or(committed_sequence);
+    agent_session_identity_precedes_record(transaction, journal_identity, boundary)
 }
 
 /// Keep accepted structured sessions in the same transaction as their journal
