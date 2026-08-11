@@ -411,7 +411,7 @@ fn record_superseded_agent_session_generation(
 pub(super) fn rebuild_agent_projections_from_journal(
     connection: &Connection,
     allow_archived_kind_backfill: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let tx = connection.unchecked_transaction()?;
     let mut sequence = agent_projection_journal_cursor(&tx)?;
     if sequence.is_none() && prejournal_projection_migration_cursor(&tx)?.is_none() {
@@ -420,7 +420,7 @@ pub(super) fn rebuild_agent_projections_from_journal(
     if prejournal_projection_migration_cursor(&tx)?.is_some() {
         if !migrate_prejournal_projections_page(&tx)? {
             tx.commit()?;
-            return Ok(());
+            return Ok(false);
         }
         store_agent_projection_journal_cursor(&tx, 0)?;
         sequence = Some(0);
@@ -443,9 +443,10 @@ pub(super) fn rebuild_agent_projections_from_journal(
         candidate <= head_sequence,
         "agent projection journal candidate {candidate} is ahead of journal head {head_sequence}"
     );
-    if candidate <= sequence {
+    let checkpoint_ready = if candidate <= sequence {
         store_agent_projection_journal_cursor(&tx, head_sequence)?;
         clear_agent_projection_journal_rebuild_target(&tx)?;
+        true
     } else {
         let target = match agent_projection_journal_rebuild_target(&tx)? {
             Some(target) => target,
@@ -458,13 +459,13 @@ pub(super) fn rebuild_agent_projections_from_journal(
             sequence < target && target <= head_sequence,
             "agent projection journal rebuild range {sequence}..={target} is invalid for head {head_sequence}"
         );
-        replay_agent_projection_journal_page(&tx, sequence, target, allow_archived_kind_backfill)?;
-    }
+        replay_agent_projection_journal_page(&tx, sequence, target, allow_archived_kind_backfill)?
+    };
     if !agent_projection_rebuild_active(&tx)? {
         compact_agent_session_generations(&tx, None)?;
     }
     tx.commit()?;
-    Ok(())
+    Ok(checkpoint_ready)
 }
 
 impl WorkspaceRegistry {
@@ -473,8 +474,15 @@ impl WorkspaceRegistry {
     }
 
     pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
-        rebuild_agent_projections_from_journal(&self.connection, true)?;
-        Ok(!self.agent_projection_rebuild_pending()?)
+        let (_, pending) = self.continue_agent_projection_rebuild_page()?;
+        Ok(!pending)
+    }
+
+    pub(crate) fn continue_agent_projection_rebuild_page(
+        &self,
+    ) -> anyhow::Result<(bool, bool)> {
+        let checkpoint_ready = rebuild_agent_projections_from_journal(&self.connection, true)?;
+        Ok((checkpoint_ready, self.agent_projection_rebuild_pending()?))
     }
 
     #[cfg(test)]
@@ -578,13 +586,13 @@ fn replay_agent_projection_journal_page(
     sequence: u64,
     target_sequence: u64,
     allow_archived_kind_backfill: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     if !session_journal::backfill_journal_event_index_kinds_page(
         transaction,
         AGENT_PROJECTION_JOURNAL_REBUILD_PAGE_SIZE,
         allow_archived_kind_backfill,
     )? {
-        return Ok(());
+        return Ok(false);
     }
     let projection_sequences = {
         let mut statement = transaction.prepare(
@@ -628,9 +636,10 @@ fn replay_agent_projection_journal_page(
             true,
         )?;
     }
-    match last_sequence {
+    let checkpoint_ready = match last_sequence {
         Some(last_sequence) if page_is_full && last_sequence < target_sequence => {
             store_agent_projection_journal_cursor(transaction, last_sequence)?;
+            false
         }
         _ => {
             store_agent_projection_journal_cursor(transaction, target_sequence)?;
@@ -643,9 +652,10 @@ fn replay_agent_projection_journal_page(
             } else {
                 clear_agent_projection_journal_rebuild_target(transaction)?;
             }
+            true
         }
-    }
-    Ok(())
+    };
+    Ok(checkpoint_ready)
 }
 
 fn agent_projection_journal_cursor(connection: &Connection) -> anyhow::Result<Option<u64>> {

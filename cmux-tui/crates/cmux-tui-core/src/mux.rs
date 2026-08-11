@@ -5012,20 +5012,31 @@ impl Mux {
             mux.agent_projection_rebuild_running.store(false, Ordering::Release);
             return;
         }
-        let result = (|| -> anyhow::Result<bool> {
+        let result = (|| -> anyhow::Result<(bool, bool)> {
             let registry = mux.workspace_registry.lock().unwrap();
-            if !registry.continue_agent_projection_rebuild()? {
-                return Ok(false);
+            let (checkpoint_ready, pending) =
+                registry.continue_agent_projection_rebuild_page()?;
+            if !checkpoint_ready {
+                return Ok((false, pending));
             }
             let projections = registry.public_agent_projections(None, None)?;
             let restored = public_projections::restore_agent_projections(projections)?;
             *mux.agent_records.lock().unwrap() = restored;
-            Ok(true)
+            Ok((true, pending))
         })();
         match result {
-            Ok(false) => {
+            Ok((checkpoint_ready, pending)) => {
+                if !pending {
+                    mux.agent_projection_rebuild_running.store(false, Ordering::Release);
+                }
+                if checkpoint_ready {
+                    mux.publish_journal_event();
+                }
                 #[cfg(test)]
                 mux.notify_agent_projection_rebuild_step_for_test();
+                if !pending {
+                    return;
+                }
                 let continuation = Arc::downgrade(&mux);
                 if mux.deadline_fanout_pool.resubmit_current(Box::new(move || {
                     Self::run_agent_projection_rebuild_worker(continuation);
@@ -5037,12 +5048,6 @@ impl Mux {
                     eprintln!("cmux-tui: could not reschedule agent projection rebuild");
                     mux.request_daemon_shutdown();
                 }
-            }
-            Ok(true) => {
-                mux.agent_projection_rebuild_running.store(false, Ordering::Release);
-                mux.publish_journal_event();
-                #[cfg(test)]
-                mux.notify_agent_projection_rebuild_step_for_test();
             }
             Err(error) => {
                 mux.agent_projection_rebuild_running.store(false, Ordering::Release);
