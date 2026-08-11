@@ -145,6 +145,8 @@ public protocol ControlSystemContext: AnyObject {
     #endif
 }
 
+/// Default terminal-backend mutation lookup for control contexts without a
+/// persistent backend.
 public extension ControlSystemContext {
     /// Returns the mutation status for contexts that do not use the persistent
     /// terminal backend.
