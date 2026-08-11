@@ -278,9 +278,36 @@ struct FileExplorerStoreTests {
             argumentsByPID: [43: ["et", "dev@example.internal"]],
             transports: [.ssh]
         )
+        let mixedSession = TerminalSSHSessionDetector.detect(
+            ttyName: "/dev/ttys001",
+            processes: [eternalTerminalProcess, sshProcess],
+            argumentsByPID: [
+                42: ["ssh", "dev@example.internal"],
+                43: ["et", "other@example.internal"],
+            ],
+            transports: [.ssh]
+        )
+        let newerSSHProcess = TerminalSSHSessionDetector.ProcessSnapshot(
+            pid: 44,
+            pgid: 44,
+            tpgid: 44,
+            tty: "ttys001",
+            executableName: "ssh"
+        )
+        let preferredSSHSession = TerminalSSHSessionDetector.detect(
+            ttyName: "/dev/ttys001",
+            processes: [sshProcess, newerSSHProcess],
+            argumentsByPID: [
+                42: ["ssh", "older@example.internal"],
+                44: ["ssh", "newer@example.internal"],
+            ],
+            transports: [.ssh]
+        )
 
         #expect(sshSession?.destination == "dev@example.internal")
         #expect(eternalTerminalSession == nil)
+        #expect(mixedSession?.destination == "dev@example.internal")
+        #expect(preferredSSHSession?.destination == "newer@example.internal")
     }
 
     @Test

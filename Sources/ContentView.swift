@@ -2778,7 +2778,11 @@ struct ContentView: View {
         })
         view = AnyView(view.onReceive(
             NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)
-        ) { _ in
+        ) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  tabId == tabManager.selectedTabId else {
+                return
+            }
             syncFileExplorerDirectory()
         })
 
