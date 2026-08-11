@@ -824,10 +824,8 @@ fn append_resource_journal_record_at(
     collect_subjects(changes, &mut subjects);
     if operation == "agent.report"
         && let Some(terminal_id) = result.get("terminal_id").and_then(Value::as_str)
-        && let Some(source_session) = result
-            .get("source_session")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
+        && let Some(source_session) =
+            result.get("source_session").and_then(Value::as_str).filter(|value| !value.is_empty())
     {
         let provider = result
             .get("extra")

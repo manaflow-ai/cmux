@@ -54,8 +54,10 @@ pub fn agent_hook_journal_ingress(
     }
     if let Some(terminal_id) = terminal_id.as_ref()
         && !normalized_agent_is_nested(&normalized)
-        && let Some(source_session) =
-        normalized.get("agent_session_id").and_then(Value::as_str).filter(|value| !value.is_empty())
+        && let Some(source_session) = normalized
+            .get("agent_session_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
     {
         subjects.push(agent_session_subject(terminal_id.as_str(), source, source_session));
     }
@@ -1461,11 +1463,11 @@ mod tests {
         );
         assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_tree"));
         assert!(ingress.subjects.iter().any(|subject| subject.kind == "agent_node"));
-        assert!(
-            ingress
-                .subjects
-                .contains(&agent_session_subject(terminal, "future-agent", "future-session"))
-        );
+        assert!(ingress.subjects.contains(&agent_session_subject(
+            terminal,
+            "future-agent",
+            "future-session"
+        )));
     }
 
     #[test]

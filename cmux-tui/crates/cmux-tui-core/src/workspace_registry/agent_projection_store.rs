@@ -147,12 +147,8 @@ fn record_agent_session_generation(
         return Ok(());
     };
     let provider = agent_generation_provider(next.provider.as_deref());
-    let journal_identity = ensure_agent_session_journal_identity(
-        transaction,
-        next,
-        provider,
-        source_session,
-    )?;
+    let journal_identity =
+        ensure_agent_session_journal_identity(transaction, next, provider, source_session)?;
     let existing = transaction
         .query_row(
             "SELECT generation, superseded
@@ -262,13 +258,7 @@ fn record_agent_session_generation(
         "INSERT INTO resource_agent_session_generations(
            terminal_id, provider, source_session, generation, superseded, journal_identity
          ) VALUES(?1, ?2, ?3, ?4, 0, ?5)",
-        params![
-            next.terminal_id.as_str(),
-            provider,
-            source_session,
-            generation,
-            journal_identity,
-        ],
+        params![next.terminal_id.as_str(), provider, source_session, generation, journal_identity,],
     )?;
     if !rebuilding_generation_history {
         compact_agent_session_generations(transaction, Some(&next.terminal_id))?;
@@ -386,12 +376,8 @@ fn record_superseded_agent_session_generation(
         return Ok(());
     };
     let provider = agent_generation_provider(next.provider.as_deref());
-    let journal_identity = ensure_agent_session_journal_identity(
-        transaction,
-        next,
-        provider,
-        source_session,
-    )?;
+    let journal_identity =
+        ensure_agent_session_journal_identity(transaction, next, provider, source_session)?;
     let exists = transaction.query_row(
         "SELECT EXISTS(
            SELECT 1 FROM resource_agent_session_generations
@@ -414,13 +400,7 @@ fn record_superseded_agent_session_generation(
         "INSERT INTO resource_agent_session_generations(
            terminal_id, provider, source_session, generation, superseded, journal_identity
          ) VALUES(?1, ?2, ?3, ?4, 1, ?5)",
-        params![
-            next.terminal_id.as_str(),
-            provider,
-            source_session,
-            generation,
-            journal_identity,
-        ],
+        params![next.terminal_id.as_str(), provider, source_session, generation, journal_identity,],
     )?;
     Ok(())
 }
