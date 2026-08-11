@@ -46,6 +46,7 @@ IDENTIFIER_KINDS = {"escaped_identifier", "identifier"}
 SWIFTUI_STATE_AUDITED_HANDLE_TYPES = ("Task", "DispatchSourceTimer", "Timer")
 MACOS_SWIFTUI_SOURCE_PREFIXES = (
     "Sources/",
+    "Packages/Shared/",
     "Packages/macOS/",
     "vendor/bonsplit/Sources/",
 )
@@ -476,6 +477,35 @@ def _annotated_type_text(
     return None
 
 
+def _is_direct_collection_initializer(
+    initializer: list[str],
+    audited_type: str,
+) -> bool:
+    if initializer[0] == "[":
+        return audited_type in initializer
+    if len(initializer) < 4 or initializer[0] not in {"Array", "Dictionary"}:
+        return False
+    if initializer[1] != "<":
+        return False
+
+    angle_depth = 0
+    generic_end: int | None = None
+    for index, value in enumerate(initializer[1:], start=1):
+        if value == "<":
+            angle_depth += 1
+        elif value == ">":
+            angle_depth -= 1
+            if angle_depth == 0:
+                generic_end = index
+                break
+    if generic_end is None or generic_end + 1 >= len(initializer):
+        return False
+    return (
+        initializer[generic_end + 1] == "("
+        and audited_type in initializer[2:generic_end]
+    )
+
+
 def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
     values = [token.value for token in declaration_tokens if token.kind != "newline"]
     if "DispatchWorkItem" not in values:
@@ -511,7 +541,7 @@ def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
         return None
     if initializer[0] == "DispatchWorkItem":
         return "<inferred:DispatchWorkItem>"
-    if initializer[0] == "[" and "DispatchWorkItem" in initializer:
+    if _is_direct_collection_initializer(initializer, "DispatchWorkItem"):
         return "<inferred:[DispatchWorkItem]>"
     return None
 
@@ -552,10 +582,16 @@ def _swiftui_state_handle_type_text(
         return None
     if initializer[0] == "Task":
         return "<inferred:Task>"
+    if _is_direct_collection_initializer(initializer, "Task"):
+        return "<inferred:[Task]>"
     if initializer[:3] == ["DispatchSource", ".", "makeTimerSource"]:
         return "<inferred:DispatchSourceTimer>"
+    if _is_direct_collection_initializer(initializer, "DispatchSourceTimer"):
+        return "<inferred:[DispatchSourceTimer]>"
     if initializer[:3] == ["Timer", ".", "scheduledTimer"]:
         return "<inferred:Timer>"
+    if _is_direct_collection_initializer(initializer, "Timer"):
+        return "<inferred:[Timer]>"
     return None
 
 
