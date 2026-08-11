@@ -34,7 +34,7 @@ fn integerField(value: Value, name: []const u8) !i64 {
 }
 
 test "integer fields accept numbers preserved by the lossless parser" {
-    var object = Object.init(std.testing.allocator);
+    var object = try Object.init(std.testing.allocator, &.{}, &.{});
     defer object.deinit();
     try object.put("value", .{ .number_string = "17" });
 
@@ -101,7 +101,7 @@ fn cloneValue(allocator: Allocator, value: Value) !Value {
             break :blk .{ .array = result };
         },
         .object => |source| blk: {
-            var result = Object.init(allocator);
+            var result = try Object.init(allocator, &.{}, &.{});
             var iterator = source.iterator();
             while (iterator.next()) |entry| {
                 try result.put(
@@ -163,7 +163,7 @@ fn ping(
 ) !Value {
     var result = try scoped_session.ping();
     defer result.deinit();
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try output.put("alive", .{ .bool = result.value.alive });
     try output.put(
         "cursor",
@@ -176,7 +176,7 @@ fn mutationValue(
     allocator: Allocator,
     result: *const cmux.WorkspaceMutationResult,
 ) !Value {
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try putString(
         &output,
         allocator,
@@ -204,7 +204,7 @@ fn resourceErrorDetailsValue(
     allocator: Allocator,
     details: cmux.ResourceErrorDetails,
 ) !Value {
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     switch (details) {
         .mutation_indeterminate => |value| {
             try putString(
@@ -315,7 +315,7 @@ fn mutationReplay(
     defer first.deinit();
     var second = try scoped_workspace.rename(name, options);
     defer second.deinit();
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try output.put("first", try mutationValue(allocator, &first));
     try output.put("second", try mutationValue(allocator, &second));
     return .{ .object = output };
@@ -335,7 +335,7 @@ fn mutationError(
         if (failure != error.RemoteError) return failure;
         const remote = client.lastResourceError() orelse
             return error.MissingResourceError;
-        var output = Object.init(allocator);
+        var output = try Object.init(allocator, &.{}, &.{});
         try putString(&output, allocator, "code", remote.code);
         try putString(&output, allocator, "message", remote.message);
         try output.put(
@@ -353,7 +353,7 @@ fn resourceErrorValue(
     allocator: Allocator,
     remote: *const cmux.ResourceError,
 ) !Value {
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try putString(&output, allocator, "code", remote.code);
     try putString(&output, allocator, "message", remote.message);
     try output.put(
@@ -369,7 +369,7 @@ fn cursorValue(
     cursor: ?cmux.Cursor,
 ) !Value {
     const value = cursor orelse return .null;
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try putString(&output, allocator, "generation", value.generation);
     try output.put("revision", try decimal(allocator, value.revision));
     return .{ .object = output };
@@ -416,7 +416,7 @@ fn createdTerminalPathValue(
     allocator: Allocator,
     path: cmux.CreatedTerminalPath,
 ) !Value {
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try putString(&output, allocator, "kind", "terminal");
     try putTerminalPathFields(&output, allocator, path);
     return .{ .object = output };
@@ -426,7 +426,7 @@ fn createdPathValue(
     allocator: Allocator,
     path: cmux.CreatedPath,
 ) !Value {
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     switch (path) {
         .workspace => |value| {
             try putString(&output, allocator, "kind", "workspace");
@@ -482,7 +482,7 @@ fn creationResolutionValue(
     allocator: Allocator,
     resolution: *const cmux.CreationResolution,
 ) !Value {
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try putString(
         &output,
         allocator,
@@ -531,7 +531,7 @@ fn exitOutcomeValue(
     allocator: Allocator,
     outcome: cmux.TerminalExitOutcome,
 ) !Value {
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     switch (outcome) {
         .exit => |code| {
             try putString(&output, allocator, "kind", "exit");
@@ -560,7 +560,7 @@ fn terminalWaitExitValue(
     allocator: Allocator,
     result: cmux.TerminalWaitExitResult,
 ) !Value {
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     switch (result) {
         .pending => |value| {
             try putString(&output, allocator, "state", "pending");
@@ -688,7 +688,7 @@ fn streamUnknown(
     };
     if ((try stream.next()) != null) return error.UnexpectedSecondItem;
     const terminal = stream.end() orelse return error.MissingStreamEnd;
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try output.put("sequence", try decimal(allocator, item.sequence));
     try output.put("cursor", try cursorValue(allocator, item.cursor));
     try putString(
@@ -725,7 +725,7 @@ fn streamCancel(
         items_after_cancel += 1;
     }
     const terminal = stream.end() orelse return error.MissingStreamEnd;
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try putString(
         &output,
         allocator,
@@ -770,7 +770,7 @@ fn streamOverflow(
 
     const control = try ping(allocator, scoped_session);
     const control_object = try asObject(control);
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try putString(&output, allocator, "first_end", first_end);
     try putString(&output, allocator, "second_kind", second_kind);
     try output.put(
@@ -808,7 +808,7 @@ fn redaction(allocator: Allocator) !Value {
         "{f}",
         .{grant},
     );
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try output.put("specifier_redacted", .{
         .bool = std.mem.indexOf(
             u8,
@@ -1037,7 +1037,7 @@ fn liveFlow(
         workspace_id,
     );
 
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try output.put("pinged", .{ .bool = pinged });
     try output.put("created", .{ .bool = true });
     try output.put("renamed", .{ .bool = renamed_ok });
@@ -1161,7 +1161,7 @@ fn liveCreationExit(
         return error.UnexpectedExitCode;
     }
 
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try putString(
         &output,
         allocator,
@@ -1301,7 +1301,7 @@ fn liveExitRestart(
         return error.DurableExitRevisionMismatch;
     }
 
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try putString(
         &output,
         allocator,
@@ -1472,7 +1472,7 @@ fn liveSetup(
                 duplicate_name,
             );
 
-        var output = Object.init(allocator);
+        var output = try Object.init(allocator, &.{}, &.{});
         try output.put("pinged", .{ .bool = pinged });
         try putString(
             &output,
@@ -1607,7 +1607,7 @@ fn liveRestart(
         !containsWorkspace(remaining.items, duplicate_ids[0]) and
         !containsWorkspace(remaining.items, duplicate_ids[1]);
 
-    var output = Object.init(allocator);
+    var output = try Object.init(allocator, &.{}, &.{});
     try output.put("same_ids", .{ .bool = same_ids });
     try output.put(
         "stable_name_preserved",
@@ -1737,7 +1737,7 @@ pub fn main(init: std.process.Init) !void {
     var output_arena = std.heap.ArenaAllocator.init(allocator);
     defer output_arena.deinit();
     const output = output_arena.allocator();
-    var response = Object.init(output);
+    var response = try Object.init(output, &.{}, &.{});
     try response.put("contract_version", .{ .integer = 2 });
     const request_object = try asObject(parsed.value);
     try response.put(
@@ -1749,7 +1749,7 @@ pub fn main(init: std.process.Init) !void {
     );
     const value = dispatch(output, parsed.value) catch |failure| {
         try response.put("ok", .{ .bool = false });
-        var encoded_error = Object.init(output);
+        var encoded_error = try Object.init(output, &.{}, &.{});
         try putString(&encoded_error, output, "kind", "adapter");
         try putString(
             &encoded_error,
