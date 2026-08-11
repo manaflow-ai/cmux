@@ -1257,6 +1257,68 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Close other tabs shortcut prompts for clean Dock tabs")
+    @MainActor
+    func closeOtherTabsShortcutPromptsForCleanDockTabs() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let warningStore = CloseTabWarningStore(
+                    defaults: harness.tabManager.closeTabWarningDefaults
+                )
+                let previousWarning = warningStore.warnsBeforeClosingTab
+                warningStore.setWarnsBeforeClosingTab(true)
+                defer {
+                    warningStore.setWarnsBeforeClosingTab(previousWarning)
+                }
+
+                let leftPanel = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let retainedPanel = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let rightPanel = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                for panelId in [leftPanel, rightPanel] {
+                    let panel = try #require(
+                        harness.dock.panels[panelId]
+                    )
+                    #expect(!harness.dock.dockPanelNeedsConfirmClose(panel))
+                }
+                harness.dock.focusPanel(retainedPanel)
+                let originalPanelIds = Set(harness.dock.panels.keys)
+
+                var promptCount = 0
+                harness.tabManager.confirmCloseHandler = { _, _, _ in
+                    promptCount += 1
+                    return false
+                }
+
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .closeOtherTabsInPane
+                )
+                #expect(Self.dispatch(shortcut, in: harness))
+                #expect(promptCount == 1)
+                #expect(Set(harness.dock.panels.keys) == originalPanelIds)
+            }
+        }
+    }
+
     @Test("Terminal and find shortcuts target the focused Dock terminal")
     @MainActor
     func terminalAndFindShortcutsTargetFocusedDock() async throws {
