@@ -130,6 +130,72 @@ struct TerminalPasteboardTransactionLaneTests {
         #expect(fixture.standard.string(forType: .string) == "latest")
     }
 
+    @Test("rejected coalescing never publishes a superseded write")
+    func rejectedCoalescingDropsSupersededWrite() async throws {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-transaction-coalescing-\(UUID().uuidString)")
+        )
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        pasteboard.clearContents()
+        #expect(pasteboard.setString("original", forType: .string))
+
+        let retainedItem = NSPasteboardItem()
+        #expect(retainedItem.setString("retained", forType: .string))
+        let supersededItem = NSPasteboardItem()
+        #expect(supersededItem.setString("a", forType: .string))
+        let latestItem = NSPasteboardItem()
+        #expect(latestItem.setString("latest", forType: .string))
+        let retainedContents = TerminalPasteboardItemSnapshot.snapshots(
+            from: [retainedItem]
+        )
+        let supersededContents = TerminalPasteboardItemSnapshot.snapshots(
+            from: [supersededItem]
+        )
+        let latestContents = TerminalPasteboardItemSnapshot.snapshots(
+            from: [latestItem]
+        )
+        let maximumQueuedWriteBytes =
+            TerminalPasteboardItemSnapshot.retainedByteCount(
+                of: retainedContents + supersededContents
+            )
+        #expect(
+            TerminalPasteboardItemSnapshot.retainedByteCount(
+                of: retainedContents + latestContents
+            ) > maximumQueuedWriteBytes
+        )
+
+        let lane = TerminalPasteboardTransactionLane(
+            pasteboard: pasteboard,
+            maximumQueuedWriteBytes: maximumQueuedWriteBytes,
+            previousContentsCapture: { _ in nil }
+        )
+        let read = try #require(lane.reserveRead())
+        #expect(await read.waitUntilReady())
+        let retainedLease = try #require(lane.reserveMutation(.init(
+            contents: retainedContents,
+            condition: nil,
+            capturesPreviousContents: false
+        )))
+        #expect(lane.enqueueMutation(.init(
+            contents: supersededContents,
+            condition: nil,
+            capturesPreviousContents: false
+        )))
+        #expect(!lane.enqueueMutation(.init(
+            contents: latestContents,
+            condition: nil,
+            capturesPreviousContents: false
+        )))
+
+        read.finish()
+        #expect(await retainedLease.waitUntilApplied()?.status == .written)
+        retainedLease.finish()
+        #expect(pasteboard.string(forType: .string) == "retained")
+    }
+
     @Test("generic image and file URL writes stay ordered between reads")
     func genericMutationBetweenReadsPreservesAdmissionOrder() async throws {
         let fixture = makeFixture()
