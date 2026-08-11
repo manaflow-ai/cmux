@@ -4134,6 +4134,12 @@ impl Mux {
                 if complete || mux.shutting_down.load(Ordering::Acquire) {
                     mux.terminal_adoptions.lock().unwrap().remove(&task.record.terminal_id);
                 } else {
+                    #[cfg(debug_assertions)]
+                    if let Some(signal) =
+                        std::env::var_os("CMUX_TUI_TEST_TERMINAL_ADOPTION_RETRY_SIGNAL")
+                    {
+                        let _ = std::fs::write(signal, b"1");
+                    }
                     task.delay = (task.delay * 2).min(Duration::from_secs(5));
                     task.next_attempt = Instant::now() + task.delay;
                     state.requeue_retry(task);
