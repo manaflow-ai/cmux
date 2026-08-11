@@ -2062,7 +2062,7 @@ mod unix {
                 libc::openat(
                     root.as_raw_fd(),
                     name.as_ptr(),
-                    flags | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+                    flags | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
                 )
             };
             if descriptor >= 0 {
