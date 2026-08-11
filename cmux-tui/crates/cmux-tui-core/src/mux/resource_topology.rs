@@ -182,7 +182,7 @@ impl TerminalIndexProjection {
         state.terminal_placements_by_host = self.placements_by_host.clone();
     }
 
-    fn install(self, live: &mut State, projected: &mut State) {
+    fn install_scoped(self, live: &mut State, projected: &mut State) {
         for runtime_id in self.catalog_by_runtime.keys() {
             live.terminal_catalog_by_runtime.remove(runtime_id);
         }
@@ -201,7 +201,10 @@ impl TerminalIndexProjection {
         live.terminal_placements_by_runtime
             .extend(projected.terminal_placements_by_runtime.drain());
         live.terminal_placements_by_host.extend(projected.terminal_placements_by_host.drain());
+    }
 
+    fn install_full(self, live: &mut State, projected: &mut State) {
+        self.install_scoped(live, projected);
         projected.terminal_catalog_by_runtime =
             std::mem::take(&mut live.terminal_catalog_by_runtime);
         projected.terminal_catalog_by_host = std::mem::take(&mut live.terminal_catalog_by_host);
@@ -324,7 +327,14 @@ impl ResourceClosePlan {
             .workspaces
             .is_empty()
             .then_some(self.state.state().workspace_revision);
-        self.terminal_indexes.install(state, self.state.state_mut());
+        match &mut self.state {
+            ResourceCloseState::Full(projected) => {
+                self.terminal_indexes.install_full(state, projected);
+            }
+            ResourceCloseState::Terminal { state: projected, .. } => {
+                self.terminal_indexes.install_scoped(state, projected);
+            }
+        }
         self.state.install(state);
         ResourceCloseEffects {
             removed: self.removed,
@@ -384,7 +394,7 @@ impl TerminalExitDetachProjection {
         self.state.resource_revision = resource_revision;
         let empty_revision =
             self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
-        self.terminal_indexes.install(state, &mut self.state);
+        self.terminal_indexes.install_scoped(state, &mut self.state);
         state.install_terminal_scope(self.state, &self.workspace_ids, &self.catalog_public_ids);
         TerminalExitDetachEffects {
             runtime: self.runtime,
