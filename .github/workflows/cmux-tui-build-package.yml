@@ -488,7 +488,7 @@ jobs:
         run: |
           $localAppData = [IO.Path]::GetFullPath($env:LOCALAPPDATA).TrimEnd([IO.Path]::DirectorySeparatorChar)
           # Keep the owned root short enough for Windows AF_UNIX test sockets.
-          $testTempName = "ct-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+          $testTempName = "c$([guid]::NewGuid().ToString('N').Substring(0, 7))"
           $testTemp = [IO.Path]::GetFullPath((Join-Path $localAppData $testTempName))
           if (-not $testTemp.StartsWith("$localAppData$([IO.Path]::DirectorySeparatorChar)", [StringComparison]::OrdinalIgnoreCase)) {
             throw "Native Windows test temp root escaped LOCALAPPDATA: $testTemp"
@@ -674,7 +674,7 @@ jobs:
           if (-not $parent.Equals($localAppData, [StringComparison]::OrdinalIgnoreCase)) {
             throw "Refusing to clean Windows temp root outside LOCALAPPDATA: $testTemp"
           }
-          if ($leaf -notmatch '^ct-[0-9]+-[0-9a-f]{8}$') {
+          if ($leaf -notmatch '^c[0-9a-f]{7}$') {
             throw "Refusing to clean an unowned Windows temp root: $testTemp"
           }
           if (Test-Path -LiteralPath $testTemp) {
