@@ -5711,11 +5711,13 @@ impl Mux {
             })
             && matches!(
                 terminal.lifecycle,
-                TerminalLifecycle::Launching | TerminalLifecycle::Adopting
+                TerminalLifecycle::Launching
+                    | TerminalLifecycle::Adopting
+                    | TerminalLifecycle::Running
             )
             && match terminal.lifecycle {
                 TerminalLifecycle::Launching => terminal.incarnation.is_none(),
-                TerminalLifecycle::Adopting => {
+                TerminalLifecycle::Adopting | TerminalLifecycle::Running => {
                     terminal.incarnation.as_deref() == Some(expected.incarnation.as_str())
                 }
                 _ => false,
@@ -25025,6 +25027,65 @@ mod tests {
             KittyGraphicsLimits::disabled(),
         ));
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_accepts_running_host_before_surface_publication() {
+        const TERMINAL: &str = "00000000000040008000000000000016";
+        const INCARNATION: &str = "10000000000040008000000000000016";
+        const PENDING_SURFACE: SurfaceId = 4246;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001116".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+        let _pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
+        mux.transition_terminal_lifecycle(
+            "terminal-ready",
+            "test-running-before-surface-publication",
+            TERMINAL,
+            TerminalLifecycle::Running,
+            Some(INCARNATION),
+            None,
+        )
+        .unwrap();
+
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
     }
 
     #[cfg(unix)]
