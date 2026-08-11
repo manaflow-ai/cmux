@@ -2475,7 +2475,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            entry.resumeCommand,
+            entry.copyResumeCommand,
             "cd /Users/tiffanysun/fun && /bin/sh -c "
                 + shellQuotedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume a22293b7-bcef-4707-8439-2f538c8517a4")
         )
@@ -2507,7 +2507,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        let command = try XCTUnwrap(entry.resumeCommand)
+        let command = try XCTUnwrap(entry.copyResumeCommand)
         XCTAssertTrue(
             command.utf8.allSatisfy { $0 < 0x80 },
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
