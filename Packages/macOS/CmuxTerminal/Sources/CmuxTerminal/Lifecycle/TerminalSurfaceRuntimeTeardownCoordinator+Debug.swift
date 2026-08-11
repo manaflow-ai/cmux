@@ -20,7 +20,7 @@ extension TerminalSurfaceRuntimeTeardownCoordinator {
     }
 
     /// Test support: both close workers exceeded their watchdog deadlines.
-    public var debugCloseTeardownAllStalled: Bool {
+    public nonisolated var debugCloseTeardownAllStalled: Bool {
         runtimeOwnershipAdmission.debugCloseTeardownAllStalled
     }
 

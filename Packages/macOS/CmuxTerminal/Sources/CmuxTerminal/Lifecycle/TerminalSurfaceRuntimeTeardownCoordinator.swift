@@ -33,6 +33,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private let closeTeardownTimeout: Duration
     private nonisolated let closeTeardownClock: any Clock<Duration>
     private let closeTeardownStalledObserver: @Sendable (Int) -> Void
+    private let closeTeardownRecoveredObserver: @Sendable (Int) -> Void
     private nonisolated let submissionDrain:
         TerminalSurfaceRuntimeTeardownSubmissionDrain
     private nonisolated let recoveryRescanScheduler:
@@ -73,6 +74,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         closeTeardownTimeout = .seconds(5)
         closeTeardownClock = ContinuousClock()
         closeTeardownStalledObserver = { _ in }
+        closeTeardownRecoveredObserver = { _ in }
         let recoveryRescanScheduler =
             TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler(
                 maximumEntryCount: Self.maximumRuntimeSurfaceOwnerCount
@@ -101,12 +103,14 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         maximumRuntimeSurfaceOwnerCount: Int,
         closeTeardownTimeout: Duration = .seconds(5),
         closeTeardownClock: any Clock<Duration> = ContinuousClock(),
-        closeTeardownStalledObserver: @escaping @Sendable (Int) -> Void = { _ in }
+        closeTeardownStalledObserver: @escaping @Sendable (Int) -> Void = { _ in },
+        closeTeardownRecoveredObserver: @escaping @Sendable (Int) -> Void = { _ in }
     ) {
         precondition(closeTeardownTimeout > .zero)
         self.closeTeardownTimeout = closeTeardownTimeout
         self.closeTeardownClock = closeTeardownClock
         self.closeTeardownStalledObserver = closeTeardownStalledObserver
+        self.closeTeardownRecoveredObserver = closeTeardownRecoveredObserver
         let recoveryRescanScheduler =
             TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler(
                 maximumEntryCount: maximumRuntimeSurfaceOwnerCount
@@ -569,12 +573,18 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         guard active?.ticketID == request.ticketID else { return }
         active?.watchdogTask?.cancel()
 
+        var recoveredStalledCloseSlot = false
         switch executionLane {
         case .boundedClose:
             activeCloseTeardownsBySlot.removeValue(forKey: executionSlot)
-            stalledCloseExecutionSlots.remove(executionSlot)
+            recoveredStalledCloseSlot = stalledCloseExecutionSlots.remove(executionSlot) != nil
         case .isolatedHibernation:
             activeHibernationTeardownsBySlot.removeValue(forKey: executionSlot)
+        }
+
+        if recoveredStalledCloseSlot {
+            updateCloseTeardownAdmission()
+            closeTeardownRecoveredObserver(executionSlot)
         }
 
         await finishFree(request)
