@@ -7037,6 +7037,37 @@ fn journal_agent_late_or_unidentified_event_keeps_active_session_identity() {
 }
 
 #[test]
+fn journal_agent_unidentified_completion_cannot_finish_active_run() {
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-unidentified-completion").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-unidentified-completion-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, event) in ["AgentStart", "AgentEnd"].into_iter().enumerate() {
+        let ingress =
+            crate::agent_hook_journal_ingress("codex", event, Some(terminal_id.as_str()), json!({}))
+                .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_unidentified_completion",
+                &format!("journal_agent_unidentified_completion_{index}"),
+            )
+            .unwrap();
+    }
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "working");
+    assert_eq!(agent.source, "hook");
+    assert!(agent.source_session.is_none());
+}
+
+#[test]
 fn journal_agent_plugin_report_cannot_write_projection() {
     let root = temp_root("journal-agent-untrusted-report");
     let session = "journal-agent-untrusted-report";

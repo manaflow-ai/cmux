@@ -354,6 +354,12 @@ impl WorkspaceRegistry {
         rebuild_agent_projections_from_journal(&self.connection, true)?;
         Ok(!self.agent_projection_rebuild_pending()?)
     }
+
+    #[cfg(test)]
+    pub(crate) fn hold_agent_projection_rebuild_for_test(&self) -> anyhow::Result<()> {
+        let head = session_journal::session_journal_head(&self.connection)?;
+        store_agent_projection_journal_rebuild_target(&self.connection, head)
+    }
 }
 
 fn agent_projection_rebuild_active(connection: &Connection) -> anyhow::Result<bool> {

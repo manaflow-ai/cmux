@@ -20708,6 +20708,80 @@ mod tests {
     }
 
     #[test]
+    fn journal_agent_pending_rebuild_does_not_publish_stale_cache() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-agent-pending-publish-{}",
+            WorkspacePublicId::random().unwrap()
+        ));
+        let session = "journal-agent-pending-publish";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let created = public_request(
+            &mux,
+            "journal-agent-pending-publish-create",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("journal-agent-pending-publish-create"),
+        );
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface_id = mux.resource_surface_for_terminal(&terminal_id).unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .hold_agent_projection_rebuild_for_test()
+            .unwrap();
+        let (observed_sender, observed_receiver) = std::sync::mpsc::sync_channel(1);
+        let observed_mux = Arc::downgrade(&mux);
+        mux.install_journal_before_publish_for_test(Arc::new(move || {
+            let Some(mux) = observed_mux.upgrade() else { return };
+            let state = mux.list_agents(Some(surface_id), None).first().map(|agent| agent.state);
+            let _ = observed_sender.try_send(state);
+        }));
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"context":{"session_id":"pending-publish-session"}}),
+        )
+        .unwrap();
+
+        let commit = mux
+            .append_journal_ingress(
+                &ingress,
+                "journal-agent-pending-publish",
+                "journal-agent-pending-publish-start",
+            )
+            .unwrap();
+
+        assert!(observed_receiver.try_recv().is_err());
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
+        assert_eq!(
+            mux.session_journal_after(commit.sequence.saturating_sub(1), 1)
+                .unwrap()
+                .records
+                .first()
+                .map(|record| record.event_id.as_str()),
+            Some(commit.event_id.as_str())
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn journal_agent_batch_cache_refresh_deduplicates_terminal_ids() {
         let terminal_id = restore_terminal_id(900);
         let first = crate::agent_hook_journal_ingress(
