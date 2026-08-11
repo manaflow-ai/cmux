@@ -1573,6 +1573,15 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn mac_process_scope_signals_the_current_unique_identity() {
+        let pid = std::process::id();
+        let identity = process_identity(pid).unwrap();
+
+        assert!(signal_process_with(identity, libc::SIGCONT));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn mac_process_scope_launcher_stops_before_the_requested_program() {
         let command = UnixProcessScope::suspended_command("/usr/bin/false");
         let arguments = command
