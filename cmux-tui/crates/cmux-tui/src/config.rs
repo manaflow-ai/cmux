@@ -3889,8 +3889,8 @@ fn desktop_theme_command_output_with_lifecycle_signals(
         Err(mpsc::RecvTimeoutError::Timeout) => {
             #[cfg(unix)]
             kill_ghostty_process_group(child_group);
-            let reap_timeout = ghostty_config_deadline_remaining(deadline_at)?
-                .min(GHOSTTY_HELPER_REAP_DEADLINE);
+            let reap_timeout =
+                ghostty_config_deadline_remaining(deadline_at)?.min(GHOSTTY_HELPER_REAP_DEADLINE);
             if !reap_timeout.is_zero()
                 && output_reader.recv_timeout(reap_timeout).is_ok()
                 && let Some(reaped_sender) = reaped_sender
@@ -5622,6 +5622,100 @@ mod tests {
             .expect("helper reaper did not publish completion");
     }
 
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    struct TestProcessExit {
+        descriptor: std::os::fd::OwnedFd,
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    impl TestProcessExit {
+        fn observe(pid: libc::pid_t) -> Self {
+            use std::os::fd::FromRawFd;
+
+            #[cfg(target_os = "linux")]
+            // SAFETY: pidfd_open observes the supplied live test child and
+            // returns a new descriptor without modifying process state.
+            let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+            #[cfg(target_vendor = "apple")]
+            // SAFETY: kqueue returns a new descriptor without external state.
+            let descriptor = unsafe { libc::kqueue() };
+            assert!(
+                descriptor >= 0,
+                "observe helper child {pid}: {}",
+                std::io::Error::last_os_error()
+            );
+            // SAFETY: pidfd_open and kqueue return a new owned descriptor.
+            let descriptor =
+                unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor as libc::c_int) };
+
+            #[cfg(target_vendor = "apple")]
+            {
+                use std::os::fd::AsRawFd;
+
+                let change = libc::kevent {
+                    ident: pid as libc::uintptr_t,
+                    filter: libc::EVFILT_PROC,
+                    flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_ONESHOT,
+                    fflags: libc::NOTE_EXIT,
+                    data: 0,
+                    udata: std::ptr::null_mut(),
+                };
+                let registered = unsafe {
+                    libc::kevent(
+                        descriptor.as_raw_fd(),
+                        &raw const change,
+                        1,
+                        std::ptr::null_mut(),
+                        0,
+                        std::ptr::null(),
+                    )
+                };
+                assert!(
+                    registered >= 0,
+                    "register helper child {pid} exit: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+
+            Self { descriptor }
+        }
+
+        fn wait(self, timeout: Duration) {
+            use std::os::fd::AsRawFd;
+
+            #[cfg(target_os = "linux")]
+            let ready = {
+                let mut descriptor = libc::pollfd {
+                    fd: self.descriptor.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                let timeout_ms = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+                unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) }
+            };
+            #[cfg(target_vendor = "apple")]
+            let ready = {
+                // SAFETY: kevent fully initializes the event before it is read.
+                let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
+                let timeout = libc::timespec {
+                    tv_sec: timeout.as_secs().try_into().unwrap_or(libc::time_t::MAX),
+                    tv_nsec: timeout.subsec_nanos().into(),
+                };
+                unsafe {
+                    libc::kevent(
+                        self.descriptor.as_raw_fd(),
+                        std::ptr::null(),
+                        0,
+                        &raw mut event,
+                        1,
+                        &raw const timeout,
+                    )
+                }
+            };
+            assert!(ready > 0, "helper child did not exit before the final deadline");
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn ghostty_config_helper_cleanup_reaps_killed_child() {
@@ -5701,7 +5795,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn ghostty_config_helper_cleanup_reaps_process_group_children() {
         const READY_MARKER: &str = "CMUX_HELPER_READY:";
@@ -5711,15 +5805,17 @@ mod tests {
         let mut child = command.spawn().unwrap();
         let parent_pid = child.id() as libc::pid_t;
         let child_pid = wait_for_helper_ready_pid(child.stdout.take().unwrap(), READY_MARKER);
+        let child_exit = TestProcessExit::observe(child_pid);
 
         let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
         wait_for_helper_reaped(reaped_receiver);
+        child_exit.wait(Duration::from_secs(2));
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
         assert!(!unix_process_is_live(child_pid), "helper child {child_pid} was not killed");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn ghostty_config_helper_cleanup_kills_descendant_process_groups() {
         const CHILD_MARKER: &str = "CMUX_TEST_GHOSTTY_HELPER_DESCENDANT_GROUP";
@@ -5748,9 +5844,11 @@ mod tests {
         let mut child = command.spawn().unwrap();
         let parent_pid = child.id() as libc::pid_t;
         let child_pid = wait_for_helper_ready_pid(child.stdout.take().unwrap(), READY_MARKER);
+        let child_exit = TestProcessExit::observe(child_pid);
 
         let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
         wait_for_helper_reaped(reaped_receiver);
+        child_exit.wait(Duration::from_secs(2));
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
         assert!(
