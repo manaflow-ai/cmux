@@ -3028,7 +3028,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(model.value as? String, "Backend Next 999")
 
         try typeText("Use the backend model", into: prompt, in: app)
-        tap(app.buttons["MobileTaskComposerSubmitButton"], in: app)
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        expectation(
+            for: NSPredicate(format: "enabled == true"),
+            evaluatedWith: submit
+        )
+        waitForExpectations(timeout: 3)
+        tap(submit, in: app)
 
         let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
         XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
