@@ -13207,6 +13207,41 @@ mod tests {
     }
 
     #[test]
+    fn websocket_shutdown_waits_for_registered_connection_owner() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (tracked, _) = listener.accept().unwrap();
+        let connections = Arc::new(Mutex::new(HashMap::from([(1, tracked)])));
+        let (listener_finished, observed_listener_finished) = std::sync::mpsc::channel();
+        let listener_thread = std::thread::spawn(move || {
+            listener_finished.send(()).unwrap();
+        });
+        observed_listener_finished
+            .recv_timeout(Duration::from_secs(1))
+            .expect("synthetic WebSocket listener did not finish");
+        let mut server = WebSocketServer {
+            local_addr: "127.0.0.1:0".parse().unwrap(),
+            shutdown: Arc::new(AtomicBool::new(false)),
+            connections: connections.clone(),
+            thread: Some(listener_thread),
+            accept_attempts: Arc::new(AtomicU64::new(0)),
+            active_connections: Arc::new(AtomicU64::new(0)),
+            #[cfg(target_os = "macos")]
+            accepted_stream_mode: Arc::new(AtomicU64::new(0)),
+        };
+
+        let first = server.shutdown_until(Instant::now() + Duration::from_millis(25)).unwrap();
+        let retained = connections.lock().unwrap().contains_key(&1);
+        connections.lock().unwrap().remove(&1);
+        let second = server.shutdown_until(Instant::now() + Duration::from_secs(1)).unwrap();
+        drop(client);
+
+        assert!(!first, "registered WebSocket connection owner reported complete");
+        assert!(retained, "shutdown discarded the registered connection owner");
+        assert!(second, "WebSocket shutdown did not finish after owner release");
+    }
+
+    #[test]
     fn websocket_worker_requires_a_registered_shutdown_owner() {
         let mux = Mux::new("websocket-tracking-clone-test", SurfaceOptions::default());
         let (clone_attempted, observed_clone_attempt) = std::sync::mpsc::channel();
