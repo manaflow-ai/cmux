@@ -2336,13 +2336,14 @@ mod tests {
     #[test]
     fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
         let (mux, surface, selectors) = terminal_fixture(None);
-        surface
-            .try_with_terminal(|terminal| {
-                for index in 0..20 {
-                    terminal.vt_write(format!("line-{index}\r\n").as_bytes());
-                }
-            })
-            .unwrap();
+        let output_epoch = mux.resource_event_epoch();
+        let output = (0..20).map(|index| format!("line-{index}\r\n")).collect::<String>();
+        surface.apply_stream_output_for_test(output.as_bytes()).unwrap();
+        assert_ne!(
+            mux.wait_for_resource_event(output_epoch, Duration::from_secs(2)),
+            output_epoch,
+            "terminal output owner did not publish its journal event"
+        );
         let bottom = surface.view_scrollbar().expect("fixture has scrollback");
         assert!(!bottom.scrolled_back());
 
