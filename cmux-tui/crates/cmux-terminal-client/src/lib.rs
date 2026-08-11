@@ -2556,12 +2556,7 @@ mod tests {
         state.prepare_handshake(test_terminal_id()).unwrap();
         assert!(state.native_render_events.as_ref().unwrap().is_empty());
         assert_eq!(state.native_render_event_bytes, 0);
-        assert!(state.push_native_render_event(
-            NativeRenderEventKind::Reset,
-            80,
-            24,
-            Vec::new()
-        ));
+        assert!(state.push_native_render_event(NativeRenderEventKind::Reset, 80, 24, Vec::new()));
         assert_eq!(state.native_render_events.as_ref().unwrap()[0].input_epoch, 2);
     }
 
