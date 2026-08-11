@@ -214,28 +214,6 @@ impl Fixture {
                 let topology = json_cli(common, &socket, &["terminal", "list"], deadline)?;
                 evidence.socket_rpcs += 1;
                 match restored_cleanup_plan(&topology, terminal_id)? {
-                    RestoredCleanupPlan::CloseOwnedTerminal => {
-                        let close = json_cli_outcome(
-                            common,
-                            &socket,
-                            &["terminal", terminal_id, "close"],
-                            deadline,
-                        )?;
-                        evidence.socket_rpcs += 1;
-                        if restored_close_outcome(&close, terminal_id)?
-                            == RestoredCloseOutcome::AlreadyQuiescent
-                        {
-                            let topology =
-                                json_cli(common, &socket, &["terminal", "list"], deadline)?;
-                            evidence.socket_rpcs += 1;
-                            match restored_cleanup_plan(&topology, terminal_id)? {
-                                RestoredCleanupPlan::AlreadyQuiescent => {}
-                                RestoredCleanupPlan::CloseOwnedTerminal => bail!(
-                                    "restored cleanup terminal remained after its exact selector.not_found response"
-                                ),
-                            }
-                        }
-                    }
                     RestoredCleanupPlan::AlreadyQuiescent => {}
                 }
                 server.shutdown_and_wait(common, deadline)?;
@@ -2069,20 +2047,6 @@ fn json_cli(
     args: &[&str],
     deadline: SuiteDeadline,
 ) -> Result<Value> {
-    match json_cli_outcome(common, socket, args, deadline)? {
-        JsonCliOutcome::Success(value) => Ok(value),
-        JsonCliOutcome::OperationError { exit_code, error } => {
-            bail!("socket RPC {args:?} failed with exit code {exit_code:?}: {error}")
-        }
-    }
-}
-
-fn json_cli_outcome(
-    common: &Common,
-    socket: &Path,
-    args: &[&str],
-    deadline: SuiteDeadline,
-) -> Result<JsonCliOutcome> {
     // These noun-first requests use cmux_tui_core::platform::transport. Windows provides the
     // local transport through uds_windows; the Unix-only remote-daemon command family is separate.
     let mut command = common.std_command(&[], false)?;
@@ -2098,7 +2062,7 @@ fn json_cli_outcome(
                 String::from_utf8_lossy(&captured.stdout)
             )
         })?;
-        return Ok(JsonCliOutcome::Success(value));
+        return Ok(value);
     }
     let error = serde_json::from_slice(&captured.stderr).with_context(|| {
         format!(
@@ -2108,7 +2072,7 @@ fn json_cli_outcome(
             String::from_utf8_lossy(&captured.stderr)
         )
     })?;
-    Ok(JsonCliOutcome::OperationError { exit_code: captured.status.code(), error })
+    bail!("socket RPC {args:?} failed with exit code {:?}: {error}", captured.status.code())
 }
 
 fn find_key_string(value: &Value, key: &str) -> Option<String> {
@@ -2133,20 +2097,7 @@ fn terminal_list_contains_id(value: &Value, expected: &str) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RestoredCleanupPlan {
-    CloseOwnedTerminal,
     AlreadyQuiescent,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RestoredCloseOutcome {
-    Closed,
-    AlreadyQuiescent,
-}
-
-#[derive(Debug, PartialEq)]
-enum JsonCliOutcome {
-    Success(Value),
-    OperationError { exit_code: Option<i32>, error: Value },
 }
 
 fn restored_cleanup_plan(value: &Value, owned_terminal_id: &str) -> Result<RestoredCleanupPlan> {
@@ -2154,31 +2105,11 @@ fn restored_cleanup_plan(value: &Value, owned_terminal_id: &str) -> Result<Resto
     match terminals.as_slice() {
         [] => Ok(RestoredCleanupPlan::AlreadyQuiescent),
         [terminal] if terminal.get("id").and_then(Value::as_str) == Some(owned_terminal_id) => {
-            Ok(RestoredCleanupPlan::CloseOwnedTerminal)
+            Ok(RestoredCleanupPlan::AlreadyQuiescent)
         }
         _ => bail!(
             "restored cleanup terminal list was neither empty nor the exact owned terminal {owned_terminal_id:?}: {value}"
         ),
-    }
-}
-
-fn restored_close_outcome(
-    outcome: &JsonCliOutcome,
-    owned_terminal_id: &str,
-) -> Result<RestoredCloseOutcome> {
-    match outcome {
-        JsonCliOutcome::Success(_) => Ok(RestoredCloseOutcome::Closed),
-        JsonCliOutcome::OperationError { error, .. }
-            if error.get("code").and_then(Value::as_str) == Some("selector.not_found")
-                && error.pointer("/details/scope").and_then(Value::as_str) == Some("terminal")
-                && error.pointer("/details/selector").and_then(Value::as_str)
-                    == Some(owned_terminal_id) =>
-        {
-            Ok(RestoredCloseOutcome::AlreadyQuiescent)
-        }
-        JsonCliOutcome::OperationError { exit_code, error } => {
-            bail!("restored cleanup terminal close failed with exit code {exit_code:?}: {error}")
-        }
     }
 }
 
@@ -2315,14 +2246,14 @@ mod tests {
     }
 
     #[test]
-    fn restored_cleanup_closes_the_exact_owned_terminal() {
+    fn restored_cleanup_accepts_the_exact_owned_terminal_as_quiescent() {
         let value = serde_json::json!([
             {"id": "term:owned", "workspace_ref": "workspace:one"}
         ]);
 
         assert_eq!(
             restored_cleanup_plan(&value, "term:owned").unwrap(),
-            RestoredCleanupPlan::CloseOwnedTerminal
+            RestoredCleanupPlan::AlreadyQuiescent
         );
     }
 
@@ -2379,69 +2310,6 @@ mod tests {
             .is_err()
         );
         assert!(restored_cleanup_plan(&serde_json::json!([{"id": 7}]), "term:owned").is_err());
-    }
-
-    #[test]
-    fn restored_close_accepts_a_successful_json_outcome() {
-        let outcome = JsonCliOutcome::Success(serde_json::json!({"closed": true}));
-
-        assert_eq!(
-            restored_close_outcome(&outcome, "term:owned").unwrap(),
-            RestoredCloseOutcome::Closed
-        );
-    }
-
-    #[test]
-    fn restored_close_accepts_only_the_exact_owned_terminal_not_found_error() {
-        let outcome = JsonCliOutcome::OperationError {
-            exit_code: Some(1),
-            error: serde_json::json!({
-                "code": "selector.not_found",
-                "message": "no terminal matches",
-                "details": {"scope": "terminal", "selector": "term:owned"}
-            }),
-        };
-
-        assert_eq!(
-            restored_close_outcome(&outcome, "term:owned").unwrap(),
-            RestoredCloseOutcome::AlreadyQuiescent
-        );
-    }
-
-    #[test]
-    fn restored_close_rejects_wrong_codes_scopes_and_selectors() {
-        for error in [
-            serde_json::json!({
-                "code": "selector.invalid",
-                "details": {"scope": "terminal", "selector": "term:owned"}
-            }),
-            serde_json::json!({
-                "code": "selector.not_found",
-                "details": {"scope": "workspace", "selector": "term:owned"}
-            }),
-            serde_json::json!({
-                "code": "selector.not_found",
-                "details": {"scope": "terminal", "selector": "term:other"}
-            }),
-        ] {
-            let outcome = JsonCliOutcome::OperationError { exit_code: Some(1), error };
-            assert!(restored_close_outcome(&outcome, "term:owned").is_err());
-        }
-    }
-
-    #[test]
-    fn restored_close_rejects_malformed_structured_errors() {
-        for error in [
-            serde_json::json!({"code": "selector.not_found"}),
-            serde_json::json!({
-                "code": "selector.not_found",
-                "details": {"scope": "terminal", "selector": 7}
-            }),
-            serde_json::json!("selector.not_found"),
-        ] {
-            let outcome = JsonCliOutcome::OperationError { exit_code: Some(1), error };
-            assert!(restored_close_outcome(&outcome, "term:owned").is_err());
-        }
     }
 
     #[test]
