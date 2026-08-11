@@ -3067,6 +3067,7 @@ final class cmuxUITests: XCTestCase {
         let backButton = hostApp.buttons["MobileWorkspaceBackButton"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: hostApp)
+        grantNotificationAuthorizationIfRequested()
         XCTAssertTrue(
             hostApp.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
                 .waitForExistence(timeout: 4)
@@ -6577,6 +6578,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 8))
         row.tap()
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    private func grantNotificationAuthorizationIfRequested() {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allow = springboard.buttons["Allow"]
+        if allow.waitForExistence(timeout: 3) {
+            allow.tap()
+        }
     }
 
     @MainActor
