@@ -637,12 +637,25 @@ import CmuxTerminalCore
     @Test func stalledCloseWorkersFailDeferredCreationAndRecoverSafely() async throws {
         let clock = ManualTerminalSurfaceRuntimeTeardownClock()
         let stalledSlots = AsyncStream<Int>.makeStream()
+        let recoveredSlots = AsyncStream<Int>.makeStream()
+        let releaseFirstRecoveredSlot = DispatchSemaphore(value: 0)
+        let shouldBlockRecoveredSlot = OSAllocatedUnfairLock(initialState: true)
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
             maximumRuntimeSurfaceOwnerCount: 2,
             closeTeardownTimeout: .seconds(5),
             closeTeardownClock: clock,
             closeTeardownStalledObserver: { slot in
                 stalledSlots.continuation.yield(slot)
+            },
+            closeTeardownRecoveredObserver: { slot in
+                recoveredSlots.continuation.yield(slot)
+                let shouldBlock = shouldBlockRecoveredSlot.withLock { shouldBlock in
+                    defer { shouldBlock = false }
+                    return shouldBlock
+                }
+                if shouldBlock {
+                    releaseFirstRecoveredSlot.wait()
+                }
             }
         )
         let pointers = (0..<2).map { _ in
@@ -660,6 +673,8 @@ import CmuxTerminalCore
             }
             freeStarted.continuation.finish()
             stalledSlots.continuation.finish()
+            recoveredSlots.continuation.finish()
+            releaseFirstRecoveredSlot.signal()
         }
         let reservations = try (0..<2).map { _ in
             try #require(coordinator.reserveRuntimeSurfaceOwnership())
@@ -753,7 +768,14 @@ import CmuxTerminalCore
                 == expectedMessage
         )
 
+        var recoveredSlotIterator = recoveredSlots.stream.makeAsyncIterator()
         releaseFrees[0].signal()
+        _ = try #require(await recoveredSlotIterator.next())
+        #expect(
+            !coordinator.debugCloseTeardownAllStalled,
+            "returned close worker retained the all-stalled admission failure"
+        )
+        releaseFirstRecoveredSlot.signal()
         #expect(await tickets[0].wait(timeout: nil))
         #expect(
             freedPointerBits.withLock { $0 }
@@ -763,7 +785,7 @@ import CmuxTerminalCore
             coordinator.reserveRuntimeSurfaceOwnership()
         )
         coordinator.cancelRuntimeSurfaceOwnership(recoveredReservation)
-        #expect(await !coordinator.debugCloseTeardownAllStalled)
+        #expect(!coordinator.debugCloseTeardownAllStalled)
 
         releaseFrees[1].signal()
         #expect(await tickets[1].wait(timeout: nil))
