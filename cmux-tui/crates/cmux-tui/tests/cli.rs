@@ -1080,10 +1080,8 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
     // SAFETY: this PID is the live child owned by the test fixture.
     assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
     let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
-    let owned_processes_stopped = owned_pids
-        .iter()
-        .copied()
-        .all(|pid| !process_exists(pid) && !process_group_exists(pid));
+    let owned_processes_stopped =
+        owned_pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid));
 
     // Keep lifecycle regressions leak-free. Every captured process group and
     // record belongs to this fixture's private state root.
