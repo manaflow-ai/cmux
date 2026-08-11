@@ -5,6 +5,8 @@ import Foundation
 import Testing
 @testable import NativeMuxDemo
 
+private let testLocalization = Localization.fallback
+
 private final class EventLog: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String] = []
@@ -108,7 +110,7 @@ func decodesEveryNativeLayoutShape() async throws {
     #expect(snapshot.screenCount(in: "ws_33333333333333333333333333333333") == 1)
     #expect(snapshot.screenCount(in: "ws_missing") == 0)
     #expect(snapshot.screens.first?.layout.root.paneIDs.count == 2)
-    guard case .viewport(let baseWidth, _, let columns) = snapshot.screens[0].layout.root else {
+    guard case .viewport(let baseWidth, let columns) = snapshot.screens[0].layout.root else {
         Issue.record("viewport root was not decoded")
         return
     }
@@ -164,7 +166,10 @@ func decodesEveryNativeLayoutShape() async throws {
     snapshot.setRevision(delta.revision)
     #expect(sawTitle)
     #expect(sawTopology)
-    #expect(snapshot.pane("pane_55555555555555555555555555555555")?.displayName == "renamed")
+    #expect(
+        snapshot.pane("pane_55555555555555555555555555555555")?
+            .displayName(localization: testLocalization) == "renamed"
+    )
     #expect(snapshot.cursor.revision == "9")
 }
 
@@ -504,10 +509,10 @@ func resourceRecoveryPolicyHasABoundedExponentialBackoff() {
     #expect(policy.backoffNanoseconds(afterFailedAttempt: 0) == 100)
     #expect(policy.backoffNanoseconds(afterFailedAttempt: 1) == 200)
     #expect(policy.backoffNanoseconds(afterFailedAttempt: 2) == 400)
-    #expect(policy.backoffNanoseconds(forConsecutiveRecovery: 0) == 100)
-    #expect(policy.backoffNanoseconds(forConsecutiveRecovery: 1) == 200)
-    #expect(policy.backoffNanoseconds(forConsecutiveRecovery: 2) == 400)
-    #expect(policy.backoffNanoseconds(forConsecutiveRecovery: 3) == nil)
+    #expect(policy.backoffNanoseconds(forRecoveryAttempt: 0) == 100)
+    #expect(policy.backoffNanoseconds(forRecoveryAttempt: 1) == 200)
+    #expect(policy.backoffNanoseconds(forRecoveryAttempt: 2) == 400)
+    #expect(policy.backoffNanoseconds(forRecoveryAttempt: 3) == nil)
 }
 
 @Test
@@ -539,9 +544,9 @@ func mutationIndeterminateErrorKeepsTheRetryIdentityForReconciliation() {
         "idempotency_key":"native-test-42"
       }
     }
-    """#)
+    """#, localization: testLocalization)
 
-    guard case .mutationIndeterminate(let operation, let idempotencyKey) = error else {
+    guard case .mutationIndeterminate(let operation, let idempotencyKey, _) = error else {
         Issue.record("The mutation failure was not classified as indeterminate.")
         return
     }
@@ -553,8 +558,11 @@ func mutationIndeterminateErrorKeepsTheRetryIdentityForReconciliation() {
 @Test
 func rawServiceFailuresStayOutOfLocalizedUserMessages() {
     let raw = "invitation has no Iroh route"
-    let connection = FrontendServiceError.connectionFailure(raw)
-    #expect(connection.localizedDescription == L10n.text(
+    let connection = FrontendServiceError.connectionFailure(
+        raw,
+        localization: testLocalization
+    )
+    #expect(connection.localizedDescription == testLocalization.text(
         "error.connection_failure",
         "The frontend could not connect. See diagnostics for details."
     ))
@@ -562,13 +570,41 @@ func rawServiceFailuresStayOutOfLocalizedUserMessages() {
     #expect(connection.diagnosticDescription == raw)
 
     let request = FrontendServiceError.requestFailure(
-        #"{"code":"transport.closed","message":"socket ended"}"#
+        #"{"code":"transport.closed","message":"socket ended"}"#,
+        localization: testLocalization
     )
-    #expect(request.localizedDescription == L10n.text(
+    #expect(request.localizedDescription == testLocalization.text(
         "error.request_failure",
         "The frontend request failed. See diagnostics for details."
     ))
     #expect(request.diagnosticDescription?.contains("socket ended") == true)
+}
+
+@Test
+func transportDiagnosticsAreDeduplicatedAndBounded() {
+    var entries: [String] = []
+    for diagnostic in ["first", "second", "third", "second", "123456"] {
+        entries = appendingTransportDiagnostic(
+            diagnostic,
+            to: entries,
+            maximumEntries: 3,
+            maximumCharacters: 4
+        )
+    }
+
+    #expect(entries == ["hird", "cond", "3456"])
+    #expect(entries.allSatisfy { $0.count <= 4 })
+}
+
+@Test
+func localizationIsInjectedForTextAndFormatting() {
+    let localization = Localization(
+        locale: Locale(identifier: "en_US_POSIX"),
+        resolve: { key, fallback in "[\(key)] \(fallback)" }
+    )
+
+    #expect(localization.text("sample.text", "Fallback") == "[sample.text] Fallback")
+    #expect(localization.format("sample.count", "%d items", 3) == "[sample.count] 3 items")
 }
 
 @Test
@@ -879,7 +915,11 @@ func resetKeepsSurfaceCreationError() {
         continuation: input.continuation,
         dropContinuation: drops.continuation
     )
-    let view = GhosttyRemoteSurfaceView(runtime: nil, inputRelay: relay)
+    let view = GhosttyRemoteSurfaceView(
+        runtime: nil,
+        inputRelay: relay,
+        localization: testLocalization
+    )
 
     view.apply(TerminalRenderEvent(
         kind: .reset,
@@ -887,7 +927,7 @@ func resetKeepsSurfaceCreationError() {
         payload: nativeResetPayload()
     ))
 
-    #expect(view.initializationError == L10n.text(
+    #expect(view.initializationError == testLocalization.text(
         "error.ghostty_runtime",
         "The embedded Ghostty renderer could not start."
     ))

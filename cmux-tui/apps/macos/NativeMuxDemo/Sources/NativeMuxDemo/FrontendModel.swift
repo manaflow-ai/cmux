@@ -51,13 +51,29 @@ struct FrontendRecoveryPolicy: Sendable {
         return initialBackoffNanoseconds << shift
     }
 
-    func backoffNanoseconds(forConsecutiveRecovery recovery: Int) -> UInt64? {
-        guard recovery < max(1, maximumAttempts) else { return nil }
-        return backoffNanoseconds(afterFailedAttempt: recovery)
+    func backoffNanoseconds(forRecoveryAttempt attempt: Int) -> UInt64? {
+        guard attempt < max(1, maximumAttempts) else { return nil }
+        return backoffNanoseconds(afterFailedAttempt: attempt)
     }
 }
 
 typealias FrontendRecoveryDelay = @Sendable (UInt64) async throws -> Void
+
+func appendingTransportDiagnostic(
+    _ diagnostic: String,
+    to entries: [String],
+    maximumEntries: Int = 8,
+    maximumCharacters: Int = 2_048
+) -> [String] {
+    let diagnostic = diagnostic.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !diagnostic.isEmpty else {
+        return Array(entries.suffix(max(1, maximumEntries)))
+    }
+    let bounded = String(diagnostic.suffix(max(1, maximumCharacters)))
+    var next = entries.filter { $0 != bounded }
+    next.append(bounded)
+    return Array(next.suffix(max(1, maximumEntries)))
+}
 
 struct FrontendResourceStream: Sendable, Equatable {
     let id: String
@@ -158,6 +174,7 @@ struct TerminalTitleFn {
 final class FrontendModel {
     private static let maximumPendingMutations = 16
 
+    let localization: Localization
     var invitation: String
     private(set) var snapshot: ResourceSnapshot?
     private(set) var isConnecting = false
@@ -185,11 +202,13 @@ final class FrontendModel {
     @ObservationIgnored private var resourceGeneration = FrontendResourceGeneration()
     @ObservationIgnored private let resourceDecoder = FrontendResourceDecoder()
     @ObservationIgnored private var focusMutations = FocusMutationTracker()
+    @ObservationIgnored private var transportDiagnosticEntries: [String] = []
     @ObservationIgnored private let recoveryPolicy: FrontendRecoveryPolicy
     @ObservationIgnored private let recoveryDelay: FrontendRecoveryDelay
 
     init(
         configuration: DemoLaunchConfiguration = .processEnvironment(),
+        localization: Localization = .fallback,
         recoveryPolicy: FrontendRecoveryPolicy = .standard,
         recoveryDelay: @escaping FrontendRecoveryDelay = { nanoseconds in
             try await ContinuousClock().sleep(
@@ -197,6 +216,7 @@ final class FrontendModel {
             )
         }
     ) {
+        self.localization = localization
         invitation = configuration.invitation
         shouldAutoConnect = configuration.autoConnect
         self.recoveryPolicy = recoveryPolicy
@@ -230,7 +250,7 @@ final class FrontendModel {
         guard !isConnecting, !isShuttingDown else { return }
         let invitation = invitation.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !invitation.isEmpty else {
-            errorMessage = L10n.text(
+            errorMessage = localization.text(
                 "connection.invitation.required",
                 "Enter an enrollment invitation."
             )
@@ -241,7 +261,10 @@ final class FrontendModel {
         connectTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let service = try await FrontendService.connect(invitation: invitation)
+                let service = try await FrontendService.connect(
+                    invitation: invitation,
+                    localization: localization
+                )
                 guard !isShuttingDown else {
                     await service.shutdown()
                     return
@@ -253,7 +276,7 @@ final class FrontendModel {
                 )
                 guard let machine = uniqueFrontendIdentity(machines) else {
                     throw FrontendServiceError.localized(
-                        L10n.text(
+                        localization.text(
                             "error.no_machine",
                             "The daemon did not identify exactly one machine."
                         )
@@ -265,7 +288,7 @@ final class FrontendModel {
                 )
                 guard let session = uniqueFrontendIdentity(sessions) else {
                     throw FrontendServiceError.localized(
-                        L10n.text(
+                        localization.text(
                             "error.no_session",
                             "The daemon did not identify exactly one session."
                         )
@@ -291,7 +314,11 @@ final class FrontendModel {
                     initialUpdates: updates,
                     initialStream: resourceStream
                 )
-                transportDiagnostics = await service.diagnostics()
+                transportDiagnosticEntries = appendingTransportDiagnostic(
+                    await service.diagnostics(),
+                    to: []
+                )
+                transportDiagnostics = transportDiagnosticEntries.joined(separator: "\n")
                 isConnecting = false
             } catch {
                 await disconnectAfterFailure(error)
@@ -343,9 +370,11 @@ final class FrontendModel {
         if let diagnostic = (error as? FrontendServiceError)?.diagnosticDescription,
            !diagnostic.isEmpty
         {
-            transportDiagnostics = [transportDiagnostics, diagnostic]
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n")
+            transportDiagnosticEntries = appendingTransportDiagnostic(
+                diagnostic,
+                to: transportDiagnosticEntries
+            )
+            transportDiagnostics = transportDiagnosticEntries.joined(separator: "\n")
         }
         errorMessage = error.localizedDescription
     }
@@ -393,11 +422,10 @@ final class FrontendModel {
         updatesTask = Task { [weak self] in
             var updates = initialUpdates
             var resourceStream = initialStream
-            var consecutiveRecoveries = 0
+            var recoveryAttempts = 0
             while !Task.isCancelled {
                 var endReason = FrontendResourceStreamEndReason.none
                 var recoveryNeeded = false
-                var madeProgress = false
                 for await _ in updates.stream {
                     guard !Task.isCancelled else { break }
                     guard let self else { continue }
@@ -411,7 +439,6 @@ final class FrontendModel {
                             recoveryNeeded = true
                             break
                         }
-                        madeProgress = true
                     }
                     if batch.ended {
                         endReason = batch.endReason
@@ -422,7 +449,7 @@ final class FrontendModel {
                 guard !Task.isCancelled, let self else { return }
                 guard recoveryNeeded || endReason == .gap else {
                     await self.disconnectAfterFailure(
-                        FrontendServiceError.localized(L10n.text(
+                        FrontendServiceError.localized(localization.text(
                             "error.session_event_stream_ended",
                             "The session event stream ended."
                         ))
@@ -430,16 +457,15 @@ final class FrontendModel {
                     return
                 }
                 do {
-                    if madeProgress { consecutiveRecoveries = 0 }
                     guard let delay = recoveryPolicy.backoffNanoseconds(
-                        forConsecutiveRecovery: consecutiveRecoveries
+                        forRecoveryAttempt: recoveryAttempts
                     ) else {
-                        throw FrontendServiceError.localized(L10n.text(
+                        throw FrontendServiceError.localized(localization.text(
                             "error.session_event_recovery_limit",
                             "The session update stream could not recover. Reconnect to try again."
                         ))
                     }
-                    consecutiveRecoveries += 1
+                    recoveryAttempts += 1
                     try await recoveryDelay(delay)
                     guard let machineID = self.machineID, let sessionID = self.sessionID else {
                         return
@@ -504,7 +530,7 @@ final class FrontendModel {
                 )
             }
         }
-        throw lastError ?? FrontendServiceError.localized(L10n.text(
+        throw lastError ?? FrontendServiceError.localized(localization.text(
             "error.session_event_stream_ended",
             "The session event stream ended."
         ))
@@ -653,7 +679,8 @@ final class FrontendModel {
             let controller = NativeTerminalModel(
                 terminalID: terminalID,
                 service: service,
-                runtime: ghosttyRuntime
+                runtime: ghosttyRuntime,
+                localization: localization
             )
             terminalControllers[paneID] = controller
             controller.attach()
@@ -788,7 +815,7 @@ final class FrontendModel {
             "workspace.create",
             selectors: [:],
             fields: [
-                "name": .string(L10n.text("workspace.default_name", "workspace")),
+                "name": .string(localization.text("workspace.default_name", "workspace")),
                 "initial_content": .string("terminal"),
             ]
         )
@@ -804,7 +831,7 @@ final class FrontendModel {
             "screen.create",
             selectors: ["workspace": workspace.id],
             fields: [
-                "name": .string(L10n.format(
+                "name": .string(localization.format(
                     "space.default_name",
                     "space %d",
                     (snapshot?.screens(in: workspace.id).count ?? 0) + 1
@@ -993,7 +1020,7 @@ final class FrontendModel {
 
         let replacementKey = mutationReplacementKey(operation, selectors: selectors)
         guard mutationTasks.count < Self.maximumPendingMutations else {
-            errorMessage = L10n.text(
+            errorMessage = localization.text(
                 "error.too_many_changes",
                 "Too many changes are waiting. Try again after they finish."
             )

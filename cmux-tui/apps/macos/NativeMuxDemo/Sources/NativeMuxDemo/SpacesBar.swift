@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SpacesBar: View {
+    @Environment(\.localization) private var localization
     let model: FrontendModel
     let snapshot: ResourceSnapshot
 
@@ -12,7 +13,7 @@ struct SpacesBar: View {
     var body: some View {
         let selectedScreenID = model.selectedScreen?.id
         HStack(spacing: 8) {
-            Text(L10n.text("spaces.title", "Spaces"))
+            Text(localization.text("spaces.title", "Spaces"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             ScrollView(.horizontal) {
@@ -25,7 +26,7 @@ struct SpacesBar: View {
                             HStack(spacing: 5) {
                                 Image(systemName: selected ? "circle.inset.filled" : "circle")
                                     .font(.system(size: 8))
-                                Text(screen.displayName)
+                                Text(screen.displayName(localization: localization))
                             }
                             .font(.caption)
                             .padding(.horizontal, 9)
@@ -37,7 +38,7 @@ struct SpacesBar: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
-                            Button(L10n.text("space.close", "Close space"), role: .destructive) {
+                            Button(localization.text("space.close", "Close space"), role: .destructive) {
                                 model.closeScreen(screen)
                             }
                         }
@@ -49,21 +50,21 @@ struct SpacesBar: View {
                 Image(systemName: "plus")
             }
             .buttonStyle(.plain)
-            .help(L10n.text("spaces.new", "New space"))
+            .help(localization.text("spaces.new", "New space"))
             Divider().frame(height: 17)
             Button(action: model.createAutoPane) {
                 Label(
-                    L10n.text("pane.auto", "Auto pane"),
+                    localization.text("pane.auto", "Auto pane"),
                     systemImage: "rectangle.stack.badge.plus"
                 )
                     .labelStyle(.iconOnly)
             }
             .buttonStyle(.plain)
-            .help(L10n.text("pane.new_auto", "New auto-layout pane"))
+            .help(localization.text("pane.new_auto", "New auto-layout pane"))
             Spacer()
             if let screen = model.selectedScreen,
-                case .viewport(_, _, _) = screen.layout.root,
-                let columnCountLabel = screen.columnCountLabel
+                case .viewport(_, _) = screen.layout.root,
+                let columnCountLabel = screen.columnCountLabel(localization: localization)
             {
                 Label(
                     columnCountLabel,

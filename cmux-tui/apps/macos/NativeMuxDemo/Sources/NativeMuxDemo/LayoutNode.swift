@@ -23,7 +23,6 @@ struct LayoutDocument: Decodable, Sendable {
 struct ViewportColumn: Decodable, Identifiable, Sendable {
     let columnID: String
     let width: Double
-    let widthLabel: String
     let root: LayoutNode
 
     var id: String { columnID }
@@ -45,8 +44,11 @@ struct ViewportColumn: Decodable, Identifiable, Sendable {
             )
         }
         width = decodedWidth
-        widthLabel = L10n.format("column.percent", "%d%%", Int(width * 100))
         root = try container.decode(LayoutNode.self, forKey: .root)
+    }
+
+    func widthLabel(localization: Localization) -> String {
+        localization.format("column.percent", "%d%%", Int(width * 100))
     }
 }
 
@@ -60,7 +62,7 @@ indirect enum LayoutNode: Decodable, Sendable {
         second: LayoutNode
     )
     case stack(paneIDs: [String], expandedPaneID: String)
-    case viewport(baseWidth: Double, baseWidthLabel: String, columns: [ViewportColumn])
+    case viewport(baseWidth: Double, columns: [ViewportColumn])
 
     enum SplitDirection: String, Decodable, Sendable {
         case horizontal
@@ -119,11 +121,6 @@ indirect enum LayoutNode: Decodable, Sendable {
             }
             self = .viewport(
                 baseWidth: baseWidth,
-                baseWidthLabel: L10n.format(
-                    "column.base_width",
-                    "base width %.2f",
-                    baseWidth
-                ),
                 columns: try container.decode([ViewportColumn].self, forKey: .columns)
             )
         case let kind:
@@ -143,7 +140,7 @@ indirect enum LayoutNode: Decodable, Sendable {
             first.paneIDs + second.paneIDs
         case .stack(let paneIDs, _):
             paneIDs
-        case .viewport(_, _, let columns):
+        case .viewport(_, let columns):
             columns.flatMap { $0.root.paneIDs }
         }
     }
@@ -156,7 +153,7 @@ indirect enum LayoutNode: Decodable, Sendable {
             first.visiblePaneIDs + second.visiblePaneIDs
         case .stack(_, let expandedPaneID):
             [expandedPaneID]
-        case .viewport(_, _, let columns):
+        case .viewport(_, let columns):
             columns.flatMap { $0.root.visiblePaneIDs }
         }
     }

@@ -187,6 +187,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   private(set) var initializationError: String?
 
   private let runtime: NativeGhosttyRuntime?
+  private let localization: Localization
   private let callbackContext: GhosttyRemoteSurfaceContext
   private let surfaceLifetime: GhosttyRemoteSurfaceLifetime
   private var surface: ghostty_surface_t? { surfaceLifetime.surface }
@@ -201,14 +202,19 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   override var acceptsFirstResponder: Bool { true }
 
-  init(runtime: NativeGhosttyRuntime?, inputRelay: GhosttyTerminalInputRelay) {
+  init(
+    runtime: NativeGhosttyRuntime?,
+    inputRelay: GhosttyTerminalInputRelay,
+    localization: Localization = .fallback
+  ) {
     self.runtime = runtime
+    self.localization = localization
     let callbackContext = GhosttyRemoteSurfaceContext(inputRelay: inputRelay)
     self.callbackContext = callbackContext
     surfaceLifetime = GhosttyRemoteSurfaceLifetime(callbackContext: callbackContext)
     super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
     if runtime == nil {
-      initializationError = L10n.text(
+      initializationError = localization.text(
         "error.ghostty_runtime",
         "The embedded Ghostty renderer could not start."
       )
@@ -225,14 +231,14 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     switch event.kind {
     case .reset:
       guard let reset = NativeKittyResetMetadata.decode(event.payload) else {
-        initializationError = L10n.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
+        initializationError = localization.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
         return
       }
       recreateSurface()
       setGrid(event.geometry)
       guard let surface else { return }
       guard restoreKittyReplay(surface: surface, metadata: reset) else {
-        initializationError = L10n.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
+        initializationError = localization.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
         return
       }
       updateSurfaceSize(reportGeometry: true)
@@ -309,7 +315,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     config.io_write_userdata = Unmanaged.passUnretained(callbackContext).toOpaque()
     surfaceLifetime.replace(with: ghostty_surface_new(runtime.app, &config))
     if surface == nil {
-      initializationError = L10n.text(
+      initializationError = localization.text(
         "error.ghostty_surface",
         "The embedded Ghostty terminal surface could not start."
       )

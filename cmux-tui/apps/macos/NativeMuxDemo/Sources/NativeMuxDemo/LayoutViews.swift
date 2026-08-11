@@ -19,12 +19,11 @@ struct LayoutRootView: View {
                 .padding(6)
         } else {
             switch screen.layout.root {
-            case .viewport(let baseWidth, let baseWidthLabel, let columns):
+            case .viewport(let baseWidth, let columns):
                 ViewportColumnsView(
                     actions: actions,
                     snapshot: snapshot,
                     baseWidth: baseWidth,
-                    baseWidthLabel: baseWidthLabel,
                     columns: columns,
                     terminalStates: terminalStates,
                     terminalTitle: terminalTitle
@@ -44,10 +43,10 @@ struct LayoutRootView: View {
 }
 
 struct ViewportColumnsView: View {
+    @Environment(\.localization) private var localization
     let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let baseWidth: Double
-    let baseWidthLabel: String
     let columns: [ViewportColumn]
     let terminalStates: [String: NativeTerminalViewState]
     let terminalTitle: TerminalTitleFn
@@ -70,7 +69,7 @@ struct ViewportColumnsView: View {
                                 Text(column.columnID.suffix(6))
                                     .font(.system(.caption2, design: .monospaced))
                                 Spacer()
-                                Text(column.widthLabel)
+                                Text(column.widthLabel(localization: localization))
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -130,7 +129,11 @@ struct ViewportColumnsView: View {
             }
             .scrollIndicators(.visible)
         }
-        .accessibilityValue(baseWidthLabel)
+        .accessibilityValue(localization.format(
+            "column.base_width",
+            "base width %.2f",
+            baseWidth
+        ))
     }
 }
 
@@ -180,13 +183,12 @@ struct LayoutNodeView: View {
                     terminalTitle: terminalTitle
                 )
             )
-        case .viewport(let baseWidth, let baseWidthLabel, let columns):
+        case .viewport(let baseWidth, let columns):
             return AnyView(
                 ViewportColumnsView(
                     actions: actions,
                     snapshot: snapshot,
                     baseWidth: baseWidth,
-                    baseWidthLabel: baseWidthLabel,
                     columns: columns,
                     terminalStates: terminalStates,
                     terminalTitle: terminalTitle
@@ -288,6 +290,7 @@ private struct SplitLayoutView: View {
 }
 
 private struct StackLayoutView: View {
+    @Environment(\.localization) private var localization
     let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let paneIDs: [String]
@@ -303,7 +306,7 @@ private struct StackLayoutView: View {
                 } label: {
                     HStack {
                         Image(systemName: "rectangle.compress.vertical")
-                        Text(snapshot.pane(paneID)?.displayName
+                        Text(snapshot.pane(paneID)?.displayName(localization: localization)
                             ?? String(paneID.suffix(5)))
                             .lineLimit(1)
                         Spacer()

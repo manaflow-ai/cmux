@@ -15,13 +15,14 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 }
 
 struct TerminalSurfaceView: View {
+  @Environment(\.localization) private var localization
   let state: NativeTerminalViewState
 
   var body: some View {
     ZStack {
       GhosttySurfaceRepresentable(surfaceView: state.surfaceView)
       if !state.isAttached, state.errorMessage.isEmpty {
-        ProgressView(L10n.text("terminal.connecting", "Attaching terminal…"))
+        ProgressView(localization.text("terminal.connecting", "Attaching terminal…"))
           .controlSize(.small)
           .padding(12)
           .background(.regularMaterial, in: .rect(cornerRadius: 8))
@@ -29,7 +30,7 @@ struct TerminalSurfaceView: View {
       if state.didExit {
         VStack {
           Spacer()
-          Text(L10n.text("terminal.exited", "Process exited"))
+          Text(localization.text("terminal.exited", "Process exited"))
             .font(.caption)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
@@ -44,7 +45,7 @@ struct TerminalSurfaceView: View {
             .font(.caption)
             .foregroundStyle(.red)
           if let retryAttach = state.retryAttach {
-            Button(L10n.text("terminal.retry_attach", "Retry"), action: retryAttach)
+            Button(localization.text("terminal.retry_attach", "Retry"), action: retryAttach)
               .buttonStyle(.borderedProminent)
               .controlSize(.small)
           }

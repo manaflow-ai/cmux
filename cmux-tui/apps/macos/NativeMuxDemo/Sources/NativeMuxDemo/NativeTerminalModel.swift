@@ -45,6 +45,7 @@ final class NativeTerminalModel {
   private(set) var didExit = false
 
   @ObservationIgnored private let service: FrontendService
+  @ObservationIgnored private let localization: Localization
   @ObservationIgnored private var handle: TerminalHandle?
   @ObservationIgnored private var updateTask: Task<Void, Never>?
   @ObservationIgnored private var inputTask: Task<Void, Never>?
@@ -77,10 +78,12 @@ final class NativeTerminalModel {
   init(
     terminalID: String,
     service: FrontendService,
-    runtime: NativeGhosttyRuntime?
+    runtime: NativeGhosttyRuntime?,
+    localization: Localization = .fallback
   ) {
     self.terminalID = terminalID
     self.service = service
+    self.localization = localization
     let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(256))
     let inputDrops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     inputStream = input.stream
@@ -91,7 +94,11 @@ final class NativeTerminalModel {
       continuation: input.continuation,
       dropContinuation: inputDrops.continuation
     )
-    surfaceView = GhosttyRemoteSurfaceView(runtime: runtime, inputRelay: inputRelay)
+    surfaceView = GhosttyRemoteSurfaceView(
+      runtime: runtime,
+      inputRelay: inputRelay,
+      localization: localization
+    )
     surfaceView.onGeometryChanged = { [weak self] geometry in
       self?.resize(geometry)
     }
@@ -126,7 +133,7 @@ final class NativeTerminalModel {
         requestRenderDrain(from: handle)
       } catch {
         if !isShuttingDown { didStart = false }
-        errorMessage = L10n.text(
+        errorMessage = localization.text(
           "error.terminal_attach",
           "The terminal could not be attached."
         )
@@ -154,7 +161,7 @@ final class NativeTerminalModel {
         guard !Task.isCancelled else { break }
         let accepted = await handle.submit(input)
         guard let self, !isShuttingDown else { return }
-        let rejected = L10n.text(
+        let rejected = localization.text(
           "error.terminal_input_rejected",
           "Terminal input was rejected."
         )
@@ -214,13 +221,17 @@ final class NativeTerminalModel {
           errorMessage = ""
           await handle.shutdown()
           for worker in workers { await worker.value }
-          errorMessage = L10n.text(
+          errorMessage = localization.text(
             "error.terminal_render_limit",
             "Terminal output exceeded the safe display limit. Select Retry."
           )
           return
         }
-        for event in batch.events { surfaceView.apply(event) }
+        for event in batch.events {
+          guard !Task.isCancelled, !isShuttingDown else { return }
+          surfaceView.apply(event)
+          await Task.yield()
+        }
         if let rendererError = surfaceView.initializationError {
           errorMessage = rendererError
         }
@@ -241,7 +252,7 @@ final class NativeTerminalModel {
   }
 
   private func reportInputOverload() {
-    let message = L10n.text(
+    let message = localization.text(
       "error.terminal_input_overloaded",
       "Terminal input is busy; try again."
     )
@@ -261,7 +272,7 @@ final class NativeTerminalModel {
         let accepted = await handle.resize(cols: next.cols, rows: next.rows)
         guard !Task.isCancelled else { return }
         if !accepted, resizeQueue.pending == nil, !isShuttingDown {
-          errorMessage = L10n.text(
+          errorMessage = localization.text(
             "error.terminal_resize_rejected",
             "Terminal resize was rejected."
           )

@@ -1,12 +1,13 @@
 import SwiftUI
 
-private func localizedContentKind(_ kind: String) -> String {
+private func localizedContentKind(_ kind: String, localization: Localization) -> String {
     kind == "browser"
-        ? L10n.text("content.browser", "Browser")
-        : L10n.text("content.terminal", "Terminal")
+        ? localization.text("content.browser", "Browser")
+        : localization.text("content.terminal", "Terminal")
 }
 
 struct PaneView: View {
+    @Environment(\.localization) private var localization
     let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let paneID: String
@@ -91,14 +92,14 @@ struct PaneView: View {
                 actions.zoomPane(paneID, pane?.zoomed != true)
             }
             Menu {
-                Button(L10n.text("pane.new_terminal", "New terminal tab")) {
+                Button(localization.text("pane.new_terminal", "New terminal tab")) {
                     actions.createTerminalTab(paneID)
                 }
-                Button(L10n.text("pane.new_browser", "New browser tab")) {
+                Button(localization.text("pane.new_browser", "New browser tab")) {
                     actions.createBrowserTab(paneID)
                 }
                 Divider()
-                Button(L10n.text("pane.close", "Close pane"), role: .destructive) {
+                Button(localization.text("pane.close", "Close pane"), role: .destructive) {
                     actions.closePane(paneID)
                 }
             } label: {
@@ -127,11 +128,11 @@ struct PaneView: View {
 
     private func helpText(_ key: String) -> String {
         switch key {
-        case "pane.split_right": return L10n.text(key, "Split right")
-        case "pane.split_down": return L10n.text(key, "Split down")
-        case "pane.new_column": return L10n.text(key, "New niri column")
-        case "pane.unzoom": return L10n.text(key, "Unzoom pane")
-        default: return L10n.text(key, "Zoom pane")
+        case "pane.split_right": return localization.text(key, "Split right")
+        case "pane.split_down": return localization.text(key, "Split down")
+        case "pane.new_column": return localization.text(key, "New niri column")
+        case "pane.unzoom": return localization.text(key, "Unzoom pane")
+        default: return localization.text(key, "Zoom pane")
         }
     }
 
@@ -149,7 +150,7 @@ struct PaneView: View {
                 .id(browser.id)
         } else {
             ContentUnavailableView(
-                L10n.text("layout.empty", "This space has no panes."),
+                localization.text("layout.empty", "This space has no panes."),
                 systemImage: "rectangle.dashed"
             )
         }
@@ -157,7 +158,7 @@ struct PaneView: View {
 
     private var activeTabTitle: String {
         guard let activeTab else {
-            return pane?.displayName ?? String(paneID.suffix(5))
+            return pane?.displayName(localization: localization) ?? String(paneID.suffix(5))
         }
         if let name = activeTab.name, !name.isEmpty { return name }
         if activeTab.contentKind == "terminal" {
@@ -174,7 +175,7 @@ struct PaneView: View {
         if let browser = snapshot.browser(for: activeTab), !browser.title.isEmpty {
             return browser.title
         }
-        return localizedContentKind(activeTab.contentKind)
+        return localizedContentKind(activeTab.contentKind, localization: localization)
     }
 
     private var activeTerminalID: String? {
@@ -184,6 +185,7 @@ struct PaneView: View {
 }
 
 struct VerticalTabsView: View {
+    @Environment(\.localization) private var localization
     let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let paneID: String
@@ -201,10 +203,10 @@ struct VerticalTabsView: View {
                 .padding(.top, 6)
             }
             Menu {
-                Button(L10n.text("pane.new_terminal", "New terminal tab")) {
+                Button(localization.text("pane.new_terminal", "New terminal tab")) {
                     actions.createTerminalTab(paneID)
                 }
-                Button(L10n.text("pane.new_browser", "New browser tab")) {
+                Button(localization.text("pane.new_browser", "New browser tab")) {
                     actions.createBrowserTab(paneID)
                 }
             } label: {
@@ -237,9 +239,9 @@ struct VerticalTabsView: View {
             }
         }
         .buttonStyle(.plain)
-        .help(tab.name ?? localizedContentKind(tab.contentKind))
+        .help(tab.name ?? localizedContentKind(tab.contentKind, localization: localization))
         .contextMenu {
-            Button(L10n.text("tab.close", "Close tab"), role: .destructive) {
+            Button(localization.text("tab.close", "Close tab"), role: .destructive) {
                 actions.closeTab(tab)
             }
         }

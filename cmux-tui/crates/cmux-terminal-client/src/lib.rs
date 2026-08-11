@@ -39,6 +39,7 @@ const TERMINAL_RECONNECT_INITIAL_DELAY: StdDuration = StdDuration::from_millis(2
 const TERMINAL_RECONNECT_MAX_DELAY: StdDuration = StdDuration::from_secs(4);
 const MAX_NATIVE_RENDER_EVENT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_NATIVE_RENDER_EVENTS: usize = 4096;
+const MAX_NATIVE_RENDER_BYTES_EVENT_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, PartialEq, Eq)]
 struct TerminalPublicId(String);
@@ -636,13 +637,21 @@ impl ClientState {
         rows: u16,
         payload: Vec<u8>,
     ) -> FrameEffect {
-        if self.push_native_render_event(kind, cols, rows, payload) {
-            FrameEffect::Continue
+        let accepted = if kind == NativeRenderEventKind::Bytes {
+            payload
+                .chunks(MAX_NATIVE_RENDER_BYTES_EVENT_BYTES)
+                .all(|chunk| {
+                    self.push_native_render_event(kind, cols, rows, chunk.to_vec())
+                })
         } else {
+            self.push_native_render_event(kind, cols, rows, payload)
+        };
+        if !accepted {
             self.status = "renderer-backpressure".into();
             self.resync_count = self.resync_count.saturating_add(1);
-            FrameEffect::Restart
+            return FrameEffect::Restart;
         }
+        FrameEffect::Continue
     }
 
     fn prepare_handshake(&mut self, terminal_id: TerminalPublicId) -> Result<(), String> {
@@ -2445,6 +2454,31 @@ mod tests {
         state.prepare_handshake(test_terminal_id()).unwrap();
         assert!(state.native_render_events.as_ref().unwrap().is_empty());
         assert_eq!(state.native_render_event_bytes, 0);
+    }
+
+    #[test]
+    fn native_render_queue_splits_large_byte_events() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+
+        assert_eq!(
+            state.continue_after_native_event(
+                NativeRenderEventKind::Bytes,
+                80,
+                24,
+                vec![b'x'; MAX_NATIVE_RENDER_BYTES_EVENT_BYTES + 1],
+            ),
+            FrameEffect::Continue
+        );
+
+        let events = state.native_render_events.as_ref().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[0].payload.len(),
+            MAX_NATIVE_RENDER_BYTES_EVENT_BYTES
+        );
+        assert_eq!(events[1].payload.len(), 1);
     }
 
     #[test]
