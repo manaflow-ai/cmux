@@ -201,7 +201,8 @@ final class NativeTerminalModel {
         if let rendererError = surfaceView.initializationError {
           errorMessage = rendererError
         }
-        didExit = await handle.hasExited()
+        let nextDidExit = await handle.hasExited()
+        if didExit != nextDidExit { didExit = nextDidExit }
         guard !Task.isCancelled, !isShuttingDown else { return }
         if batch.hasMore { drainRequested = true }
         if !drainRequested { return }
