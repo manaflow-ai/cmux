@@ -788,12 +788,16 @@ fn machine_connection_timeout_message() -> String {
         .machine_connection_timed_out(MACHINE_CONNECTION_TIMEOUT.as_secs())
 }
 
+pub(crate) fn machine_connection_canceled_message() -> &'static str {
+    crate::localization::catalog().sidebar.machine_connection_canceled
+}
+
 fn connect_target(
     target: &MachineTargetConfig,
     cancellation: Arc<MachineConnectCancellation>,
 ) -> anyhow::Result<MachineConnection> {
     if cancellation.is_cancelled() {
-        anyhow::bail!("machine connection was canceled");
+        anyhow::bail!(machine_connection_canceled_message());
     }
     match target {
         MachineTargetConfig::Unix { socket } => Ok(MachineConnection {

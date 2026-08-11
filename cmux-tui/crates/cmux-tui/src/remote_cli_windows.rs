@@ -22,9 +22,10 @@ use cmux_tui_core::{Mux, SurfaceOptions};
 use fs4::FileExt;
 use serde_json::{Value, json};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+use windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE;
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS, OpenProcess,
-    PROCESS_TERMINATE, SYNCHRONIZE, TerminateProcess, WaitForSingleObject,
+    PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject,
 };
 
 const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
@@ -365,7 +366,10 @@ fn start_managed_ssh_bridge(
     cancellation: Arc<crate::machine_runtime::MachineConnectCancellation>,
 ) -> anyhow::Result<ManagedSshLease> {
     validate_managed_ssh_options(&options)?;
-    anyhow::ensure!(!cancellation.is_cancelled(), "machine connection was canceled");
+    anyhow::ensure!(
+        !cancellation.is_cancelled(),
+        crate::machine_runtime::machine_connection_canceled_message()
+    );
     let runtime_dir = cmux_tui_core::platform::runtime_dir();
     ensure_secure_directory(&runtime_dir, DirectoryAccess::ManagedOwnerOnly)?;
     let socket_path = runtime_dir.join(format!("ssh-{}.sock", uuid::Uuid::new_v4().simple()));
@@ -455,11 +459,11 @@ fn proxy_local_connection_over_ssh(
             return Err(error).context("could not retain the Windows OpenSSH process handle");
         }
     };
-    let registered = register_ssh_process(processes, cancellation, Arc::clone(&process_handle))?;
+    let registered = register_ssh_process(processes, &cancellation, Arc::clone(&process_handle))?;
     if !registered {
         let _ = child.kill();
         let _ = child.wait();
-        anyhow::bail!("machine connection was canceled");
+        anyhow::bail!(crate::machine_runtime::machine_connection_canceled_message());
     }
 
     let mut upload = local.try_clone_box()?;
@@ -832,7 +836,7 @@ async fn serve_remote_mux_owner(
             }
         })
         .await;
-    let link_shutdown = link_server.shutdown();
+    let link_shutdown = link_server.shutdown().await;
     mux.shutdown();
     cmux_tui_core::server::cleanup(&paths.mux_socket);
     services?;

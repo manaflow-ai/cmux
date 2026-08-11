@@ -37,8 +37,7 @@ use cmux_remote::provider::{
     IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
     RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
     SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
-    register_relay_daemon_with_credentials, register_resolved_ssh_target, sanitized_route,
-    sanitized_route_text,
+    register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
@@ -625,35 +624,61 @@ fn start_client_runtime_inner(
             result
         })
         .context("could not start remote client thread")?;
-    let startup_deadline = Instant::now() + startup_timeout;
-    let ready = loop {
-        if cancellation.as_ref().is_some_and(|signal| signal.is_cancelled()) {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!("remote connection startup was canceled"));
-        }
-        let remaining = startup_deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(
-                "remote connection did not become ready within {}s",
-                startup_timeout.as_secs()
-            ));
-        }
-        let wait = remaining.min(Duration::from_millis(25));
-        match ready_rx.recv_timeout(wait) {
-            Ok(Ok(ready)) => break ready,
+    let ready = if cancellation.is_none() {
+        match ready_rx.recv_timeout(startup_timeout) {
+            Ok(Ok(ready)) => ready,
             Ok(Err(error)) => {
                 let _ = shutdown_tx.send(true);
                 reap_failed_startup(thread, "cmux-remote-client");
                 return Err(anyhow!(error));
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s",
+                    startup_timeout.as_secs()
+                ));
+            }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 let _ = shutdown_tx.send(true);
                 reap_failed_startup(thread, "cmux-remote-client");
                 return Err(anyhow!("remote connection startup worker stopped before readiness"));
+            }
+        }
+    } else {
+        let startup_deadline = Instant::now() + startup_timeout;
+        loop {
+            if cancellation.as_ref().is_some_and(|signal| signal.is_cancelled()) {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(crate::machine_runtime::machine_connection_canceled_message()));
+            }
+            let remaining = startup_deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s",
+                    startup_timeout.as_secs()
+                ));
+            }
+            let wait = remaining.min(Duration::from_millis(25));
+            match ready_rx.recv_timeout(wait) {
+                Ok(Ok(ready)) => break ready,
+                Ok(Err(error)) => {
+                    let _ = shutdown_tx.send(true);
+                    reap_failed_startup(thread, "cmux-remote-client");
+                    return Err(anyhow!(error));
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    let _ = shutdown_tx.send(true);
+                    reap_failed_startup(thread, "cmux-remote-client");
+                    return Err(anyhow!(
+                        "remote connection startup worker stopped before readiness"
+                    ));
+                }
             }
         }
     };
@@ -1145,9 +1170,25 @@ async fn bootstrap_initial_ssh_route(
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
             let target = if upgrade {
-                bootstrap
-                    .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
-                    .await?;
+                match bootstrap.probe_target().await {
+                    Ok((target, Some(_))) => {
+                        bootstrap
+                            .stop_daemon_target(
+                                &target,
+                                &ssh.remote_session,
+                                ssh.remote_state_dir.as_deref(),
+                            )
+                            .await?;
+                    }
+                    Ok((_, None)) => {}
+                    Err(BootstrapError::ProbeJson(_))
+                    | Err(BootstrapError::Remote { status: 0..=254, .. }) => {
+                        bootstrap
+                            .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
+                            .await?;
+                    }
+                    Err(error) => return Err(error),
+                }
                 let resolved = bootstrap.install_verified_target().await?;
                 resolved.target
             } else {
@@ -1156,7 +1197,7 @@ async fn bootstrap_initial_ssh_route(
             Ok::<_, BootstrapError>(target)
         }) => {
             let target = result.map_err(|_| BootstrapError::Timeout)??;
-            register_resolved_ssh_target(&destination, port, ssh, target)?;
+            ssh.register_resolved_target(&destination, port, target)?;
             Ok(())
         }
         () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),

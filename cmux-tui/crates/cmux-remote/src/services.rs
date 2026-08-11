@@ -818,7 +818,10 @@ impl DaemonServices {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let socket = uds_windows::UnixStream::connect(path)?;
+        let path = path.clone();
+        let socket = tokio::task::spawn_blocking(move || uds_windows::UnixStream::connect(path))
+            .await
+            .map_err(ServicesError::RequestTask)??;
         let local = crate::windows_socket::bridge(socket)?;
         let (local_reader, local_writer) = tokio::io::split(local);
 

@@ -2398,6 +2398,13 @@ impl Mux {
                 )?;
                 self.emit_resource_topology_legacy_events(ResourceOperation::TabClose, &commit);
             }
+            self.close_terminal_with_mutation(
+                &terminal.terminal_id,
+                terminal.incarnation.as_deref(),
+                None,
+                None,
+                &WorkspaceMutation::local("cmux-tui-recovery"),
+            )?;
         }
         Ok(())
     }

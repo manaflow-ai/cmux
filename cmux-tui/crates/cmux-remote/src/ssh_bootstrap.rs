@@ -349,17 +349,24 @@ impl SshBootstrapper {
         })?;
         let expected_size = std::fs::metadata(source).map_err(BootstrapError::Io)?.len();
         let upload_name = format!(".cmux-upload-{}.exe", uuid::Uuid::new_v4().simple());
-        let upload = self.run_scp(source, &upload_name).await?;
+        let upload = match self.run_scp(source, &upload_name).await {
+            Ok(upload) => upload,
+            Err(error) => {
+                self.cleanup_windows_upload(&upload_name).await;
+                return Err(error);
+            }
+        };
         if upload.status != 0 {
+            self.cleanup_windows_upload(&upload_name).await;
             return Err(BootstrapError::Install {
                 status: upload.status,
                 stderr: sanitize(&String::from_utf8_lossy(&upload.stderr)),
             });
         }
         let destination = powershell_single_quoted(&target.binary);
-        let upload_name = powershell_single_quoted(&upload_name);
+        let upload_name_quoted = powershell_single_quoted(&upload_name);
         let script = format!(
-            "$source=[IO.Path]::Combine($HOME,'{upload_name}');\
+            "$source=[IO.Path]::Combine($HOME,'{upload_name_quoted}');\
              $destination=[Environment]::ExpandEnvironmentVariables('{destination}');\
              $parent=[IO.Path]::GetDirectoryName($destination);\
              [IO.Directory]::CreateDirectory($parent)|Out-Null;\
@@ -373,8 +380,15 @@ impl SshBootstrapper {
         let encoded = powershell_encoded_command(&script);
         let command =
             format!("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}");
-        let output = self.run_remote([command.as_str()]).await?;
+        let output = match self.run_remote([command.as_str()]).await {
+            Ok(output) => output,
+            Err(error) => {
+                self.cleanup_windows_upload(&upload_name).await;
+                return Err(error);
+            }
+        };
         if output.status != 0 {
+            self.cleanup_windows_upload(&upload_name).await;
             return Err(BootstrapError::Install {
                 status: output.status,
                 stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
@@ -391,6 +405,18 @@ impl SshBootstrapper {
             });
         }
         Ok(ResolvedBootstrap { outcome: BootstrapOutcome::Installed, target })
+    }
+
+    async fn cleanup_windows_upload(&self, upload_name: &str) {
+        let upload_name = powershell_single_quoted(upload_name);
+        let script = format!(
+            "$path=[IO.Path]::Combine($HOME,'{upload_name}');\
+             if(Test-Path -LiteralPath $path){{Remove-Item -LiteralPath $path -Force}}"
+        );
+        let encoded = powershell_encoded_command(&script);
+        let command =
+            format!("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}");
+        let _ = self.run_remote([command.as_str()]).await;
     }
 
     async fn run_scp(
@@ -874,7 +900,7 @@ struct RemoteOutput {
     stderr: Vec<u8>,
 }
 
-fn sanitize(value: &str) -> String {
+pub(crate) fn sanitize(value: &str) -> String {
     let value = value.trim().replace(['\r', '\0'], "");
     if value.len() <= 4_096 {
         return value;
@@ -893,33 +919,15 @@ pub enum BootstrapError {
     Io(std::io::Error),
     ProbeJson(serde_json::Error),
     Timeout,
-    OutputLimit {
-        stream: &'static str,
-        limit: usize,
-    },
+    OutputLimit { stream: &'static str, limit: usize },
     Missing,
-    Remote {
-        status: i32,
-        stderr: String,
-    },
-    Install {
-        status: i32,
-        stderr: String,
-    },
+    Remote { status: i32, stderr: String },
+    Install { status: i32, stderr: String },
     PackageUnavailable(String),
     PlatformProbe(String),
-    LocalBinaryIncompatible {
-        local: String,
-        remote: String,
-    },
+    LocalBinaryIncompatible { local: String, remote: String },
     WindowsBinaryUnavailable(String),
-    #[doc(hidden)]
-    WindowsShellDetected,
-    WindowsRequiresWsl,
-    Incompatible {
-        version: String,
-        protocol: u8,
-    },
+    Incompatible { version: String, protocol: u8 },
 }
 
 impl fmt::Display for BootstrapError {
@@ -943,7 +951,9 @@ impl fmt::Display for BootstrapError {
                 formatter,
                 "this cmux-tui build is not backed by a published npm package ({version}); preinstall the matching remote binary or use an npm release build"
             ),
-            Self::PlatformProbe(message) => write!(formatter, "remote platform probe failed: {message}"),
+            Self::PlatformProbe(message) => {
+                write!(formatter, "remote platform probe failed: {message}")
+            }
             Self::LocalBinaryIncompatible { local, remote } => write!(
                 formatter,
                 "this unpublished cmux-tui build cannot be uploaded from {local} to {remote}; use a published build or preinstall a matching remote binary"
@@ -951,12 +961,6 @@ impl fmt::Display for BootstrapError {
             Self::WindowsBinaryUnavailable(version) => write!(
                 formatter,
                 "this cmux-tui build does not include a native Windows companion ({version}); set CMUX_TUI_WINDOWS_REMOTE_BINARY to the matching cmux-tui.exe"
-            ),
-            Self::WindowsShellDetected => {
-                formatter.write_str("the SSH host uses the native Windows command shell")
-            }
-            Self::WindowsRequiresWsl => formatter.write_str(
-                "native Windows cannot host the cmux-tui remote daemon yet; install a WSL 2 Linux distro with `wsl --install -d Ubuntu`, then connect through that Linux environment"
             ),
             Self::Incompatible { version, protocol } => write!(
                 formatter,
@@ -988,9 +992,7 @@ impl BootstrapError {
             ),
             Self::PlatformProbe(_)
             | Self::LocalBinaryIncompatible { .. }
-            | Self::WindowsBinaryUnavailable(_)
-            | Self::WindowsShellDetected
-            | Self::WindowsRequiresWsl => false,
+            | Self::WindowsBinaryUnavailable(_) => false,
             _ => false,
         }
     }

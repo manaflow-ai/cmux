@@ -56,20 +56,25 @@ mod windows {
     use std::path::{Component, Path, PathBuf};
 
     use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_INSUFFICIENT_BUFFER, HANDLE, INVALID_HANDLE_VALUE,
+        CloseHandle, ERROR_INSUFFICIENT_BUFFER, GENERIC_ALL, GENERIC_WRITE, HANDLE,
+        INVALID_HANDLE_VALUE, LocalFree,
     };
-    use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
+    use windows_sys::Win32::Security::Authorization::{
+        GetNamedSecurityInfoW, SE_FILE_OBJECT, SetNamedSecurityInfoW,
+    };
     use windows_sys::Win32::Security::{
-        ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, AddAccessAllowedAceEx, CONTAINER_INHERIT_ACE,
-        DACL_SECURITY_INFORMATION, GetLengthSid, GetTokenInformation, InitializeAcl,
-        OBJECT_INHERIT_ACE, PROTECTED_DACL_SECURITY_INFORMATION, PSID, TOKEN_QUERY, TOKEN_USER,
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_REVISION, AddAccessAllowedAceEx,
+        CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetLengthSid,
+        GetTokenInformation, InitializeAcl, OBJECT_INHERIT_ACE, OWNER_SECURITY_INFORMATION,
+        PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER,
         TokenUser,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ALL_ACCESS, FILE_ATTRIBUTE_DIRECTORY,
-        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
-        OPEN_EXISTING,
+        BY_HANDLE_FILE_INFORMATION, CreateFileW, DELETE, FILE_ALL_ACCESS, FILE_APPEND_DATA,
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_DELETE_CHILD,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA,
+        GetFileInformationByHandle, OPEN_EXISTING, WRITE_DAC, WRITE_OWNER,
     };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -77,9 +82,11 @@ mod windows {
 
     pub(super) fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Result<()> {
         validate_path(path)?;
-        create_local_app_data_path(path)?;
-        if matches!(access, DirectoryAccess::ManagedOwnerOnly) {
+        let created = create_local_app_data_path(path)?;
+        if created || matches!(access, DirectoryAccess::ManagedOwnerOnly) {
             restrict_to_current_user(path)?;
+        } else {
+            validate_current_user_access(path, access)?;
         }
         Ok(())
     }
@@ -94,7 +101,7 @@ mod windows {
         Ok(())
     }
 
-    fn create_local_app_data_path(path: &Path) -> io::Result<()> {
+    fn create_local_app_data_path(path: &Path) -> io::Result<bool> {
         let local_app_data = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .ok_or_else(|| invalid_path(path, "requires LOCALAPPDATA"))?;
@@ -105,17 +112,128 @@ mod windows {
             .ok_or_else(|| invalid_path(path, "must stay within LOCALAPPDATA"))?;
         let mut current = trusted_root.clone();
         let mut open_directories = vec![open_directory_no_follow(&trusted_root, path)?];
-        for component in relative {
+        let component_count = relative.len();
+        let mut final_created = false;
+        for (index, component) in relative.into_iter().enumerate() {
             current.push(component);
-            match fs::create_dir(&current) {
-                Ok(()) => {}
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            let created = match fs::create_dir(&current) {
+                Ok(()) => true,
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
                     return Err(invalid_path(path, "a validated parent directory disappeared"));
                 }
                 Err(error) => return Err(error),
+            };
+            if created && index + 1 == component_count {
+                final_created = true;
             }
             open_directories.push(open_directory_no_follow(&current, path)?);
+        }
+        Ok(final_created)
+    }
+
+    struct OwnedSecurityDescriptor(PSECURITY_DESCRIPTOR);
+
+    impl Drop for OwnedSecurityDescriptor {
+        fn drop(&mut self) {
+            // SAFETY: GetNamedSecurityInfoW allocated this descriptor with
+            // LocalAlloc and ownership was transferred to this wrapper.
+            unsafe {
+                LocalFree(self.0);
+            }
+        }
+    }
+
+    fn validate_current_user_access(path: &Path, access: DirectoryAccess) -> io::Result<()> {
+        let mut encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let mut owner: PSID = std::ptr::null_mut();
+        let mut dacl: *mut ACL = std::ptr::null_mut();
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        // SAFETY: all output pointers are writable and `encoded` is a live,
+        // NUL-terminated path for the duration of the synchronous call.
+        let status = unsafe {
+            GetNamedSecurityInfoW(
+                encoded.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                &mut owner,
+                std::ptr::null_mut(),
+                &mut dacl,
+                std::ptr::null_mut(),
+                &mut descriptor,
+            )
+        };
+        if status != 0 {
+            return Err(io::Error::from_raw_os_error(status as i32));
+        }
+        if descriptor.is_null() {
+            return Err(invalid_path(path, "has no security descriptor"));
+        }
+        let _descriptor = OwnedSecurityDescriptor(descriptor);
+        if owner.is_null() || dacl.is_null() {
+            return Err(invalid_path(path, "has no owner-only access control list"));
+        }
+
+        let current_user = current_user_sid()?;
+        let current_sid = current_user.as_ptr().cast_mut().cast::<c_void>();
+        // SAFETY: both pointers refer to live SIDs.
+        if unsafe { EqualSid(owner, current_sid) } == 0 {
+            return Err(invalid_path(path, "is not owned by the current user"));
+        }
+
+        // A non-owner may not have any allowed access for OwnerOnly, or any
+        // write/delete/control access for OwnerControlled.
+        const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
+        const ACCESS_ALLOWED_COMPOUND_ACE_TYPE: u8 = 4;
+        const ACCESS_ALLOWED_OBJECT_ACE_TYPE: u8 = 5;
+        const ACCESS_ALLOWED_CALLBACK_ACE_TYPE: u8 = 9;
+        const ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE: u8 = 11;
+        let forbidden_write = GENERIC_ALL
+            | GENERIC_WRITE
+            | FILE_WRITE_DATA
+            | FILE_APPEND_DATA
+            | FILE_WRITE_EA
+            | FILE_WRITE_ATTRIBUTES
+            | FILE_DELETE_CHILD
+            | DELETE
+            | WRITE_DAC
+            | WRITE_OWNER;
+        // SAFETY: `dacl` belongs to the live descriptor. Each successful
+        // GetAce call returns an ACE within that descriptor.
+        let ace_count = unsafe { (*dacl).AceCount };
+        for index in 0..u32::from(ace_count) {
+            let mut raw_ace: *mut c_void = std::ptr::null_mut();
+            if unsafe { GetAce(dacl, index, &mut raw_ace) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if raw_ace.is_null() {
+                return Err(invalid_path(path, "contains an invalid access rule"));
+            }
+            let header = unsafe { &*raw_ace.cast::<ACE_HEADER>() };
+            match header.AceType {
+                ACCESS_ALLOWED_ACE_TYPE => {
+                    if usize::from(header.AceSize) < size_of::<ACCESS_ALLOWED_ACE>() {
+                        return Err(invalid_path(path, "contains a truncated access rule"));
+                    }
+                    let allowed = unsafe { &*raw_ace.cast::<ACCESS_ALLOWED_ACE>() };
+                    let sid = std::ptr::addr_of!(allowed.SidStart).cast_mut().cast::<c_void>();
+                    let belongs_to_owner = unsafe { EqualSid(sid, current_sid) } != 0;
+                    let forbidden = match access {
+                        DirectoryAccess::OwnerControlled => forbidden_write,
+                        DirectoryAccess::OwnerOnly | DirectoryAccess::ManagedOwnerOnly => u32::MAX,
+                    };
+                    if !belongs_to_owner && allowed.Mask & forbidden != 0 {
+                        return Err(invalid_path(path, "grants forbidden access to another user"));
+                    }
+                }
+                ACCESS_ALLOWED_COMPOUND_ACE_TYPE
+                | ACCESS_ALLOWED_OBJECT_ACE_TYPE
+                | ACCESS_ALLOWED_CALLBACK_ACE_TYPE
+                | ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE => {
+                    return Err(invalid_path(path, "contains an unsupported allow rule"));
+                }
+                _ => {}
+            }
         }
         Ok(())
     }
@@ -187,37 +305,9 @@ mod windows {
     }
 
     fn restrict_to_current_user(path: &Path) -> io::Result<()> {
-        let token = current_process_token()?;
-        let mut required = 0_u32;
-        // SAFETY: `token` is valid and the null-buffer query writes only the
-        // required byte count.
-        let queried = unsafe {
-            GetTokenInformation(token.0, TokenUser, std::ptr::null_mut(), 0, &mut required)
-        };
-        if queried != 0
-            || io::Error::last_os_error().raw_os_error() != Some(ERROR_INSUFFICIENT_BUFFER as i32)
-        {
-            return Err(io::Error::last_os_error());
-        }
-        let mut token_user = vec![0_u64; usize::try_from(required).unwrap_or(0).div_ceil(8)];
-        // SAFETY: the aligned buffer contains at least `required` writable
-        // bytes and `token` remains open for this call.
-        if unsafe {
-            GetTokenInformation(
-                token.0,
-                TokenUser,
-                token_user.as_mut_ptr().cast(),
-                required,
-                &mut required,
-            )
-        } == 0
-        {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: successful TokenUser lookup initialized a TOKEN_USER at the
-        // beginning of the aligned buffer.
-        let sid = unsafe { (*(token_user.as_ptr().cast::<TOKEN_USER>())).User.Sid };
-        // SAFETY: `sid` points into the live token information buffer.
+        let sid = current_user_sid()?;
+        let sid = sid.as_ptr().cast_mut().cast::<c_void>();
+        // SAFETY: `sid` points into the live SID buffer.
         let sid_length = unsafe { GetLengthSid(sid) };
         if sid_length == 0 {
             return Err(io::Error::last_os_error());
@@ -261,6 +351,50 @@ mod windows {
             )
         };
         if status == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(status as i32)) }
+    }
+
+    fn current_user_sid() -> io::Result<Vec<u8>> {
+        let token = current_process_token()?;
+        let mut required = 0_u32;
+        // SAFETY: `token` is valid and the null-buffer query writes only the
+        // required byte count.
+        let queried = unsafe {
+            GetTokenInformation(token.0, TokenUser, std::ptr::null_mut(), 0, &mut required)
+        };
+        if queried != 0
+            || io::Error::last_os_error().raw_os_error() != Some(ERROR_INSUFFICIENT_BUFFER as i32)
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut token_user = vec![0_u64; usize::try_from(required).unwrap_or(0).div_ceil(8)];
+        // SAFETY: the aligned buffer contains at least `required` writable
+        // bytes and `token` remains open for this call.
+        if unsafe {
+            GetTokenInformation(
+                token.0,
+                TokenUser,
+                token_user.as_mut_ptr().cast(),
+                required,
+                &mut required,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: successful TokenUser lookup initialized a TOKEN_USER at the
+        // beginning of the aligned buffer.
+        let sid = unsafe { (*(token_user.as_ptr().cast::<TOKEN_USER>())).User.Sid };
+        // SAFETY: `sid` points into the live token information buffer.
+        let sid_length = unsafe { GetLengthSid(sid) };
+        if sid_length == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut owned = vec![0_u8; sid_length as usize];
+        // SAFETY: both SID pointers are valid for `sid_length` bytes.
+        unsafe {
+            std::ptr::copy_nonoverlapping(sid.cast::<u8>(), owned.as_mut_ptr(), owned.len());
+        }
+        Ok(owned)
     }
 
     struct OwnedHandle(HANDLE);
@@ -313,6 +447,21 @@ mod windows_tests {
 
         assert!(result.is_err());
         assert!(!outside.exists(), "an invalid state path created an outside-root directory");
+    }
+
+    #[test]
+    fn newly_created_directory_passes_owner_only_validation() {
+        let local_app_data = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap());
+        let directory = local_app_data.join(format!(
+            "cmux-secure-owner-only-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+
+        ensure_secure_directory(&directory, DirectoryAccess::OwnerControlled).unwrap();
+        ensure_secure_directory(&directory, DirectoryAccess::OwnerOnly).unwrap();
+
+        fs::remove_dir(&directory).unwrap();
     }
 
     #[test]

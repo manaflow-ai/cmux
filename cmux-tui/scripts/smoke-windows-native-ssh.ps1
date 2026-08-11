@@ -39,6 +39,9 @@ Restart-Service -Name sshd
 
 & ssh-keyscan.exe localhost 2>$null | Set-Content -Encoding ascii $knownHosts
 if ($LASTEXITCODE -ne 0) { throw "ssh-keyscan failed" }
+if (-not (Test-Path $knownHosts) -or (Get-Item $knownHosts).Length -eq 0) {
+    throw "ssh-keyscan returned no host key for localhost"
+}
 
 $sshOptions = @(
     "-i", $keyPath,
