@@ -15560,15 +15560,18 @@ mod tests {
                     &format!("subject_head_{index}"),
                 )
                 .unwrap();
-            let filter_value = journal_subscription_filter(JournalSensitivity::Sensitive, json!({
-                "kinds":["agent.child.completed"],
-                "subjects":[subject.clone()],
-                "regex":{
-                    "pattern":marker,
-                    "field":"payload",
-                    "case_sensitive":true,
-                },
-            }));
+            let filter_value = journal_subscription_filter(
+                JournalSensitivity::Sensitive,
+                json!({
+                    "kinds":["agent.child.completed"],
+                    "subjects":[subject.clone()],
+                    "regex":{
+                        "pattern":marker,
+                        "field":"payload",
+                        "case_sensitive":true,
+                    },
+                }),
+            );
             let direct = mux
                 .session_journal_reader()
                 .unwrap()
