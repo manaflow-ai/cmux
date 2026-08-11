@@ -1938,6 +1938,8 @@ pub struct Mux {
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_projection_rebuild_running: AtomicBool,
     #[cfg(test)]
+    agent_projection_refresh_failure: AtomicBool,
+    #[cfg(test)]
     journal_before_publish: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
@@ -2307,6 +2309,8 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records),
             agent_projection_rebuild_running: AtomicBool::new(false),
+            #[cfg(test)]
+            agent_projection_refresh_failure: AtomicBool::new(false),
             #[cfg(test)]
             journal_before_publish: Mutex::new(None),
             placement_notifications: Mutex::new(HashMap::new()),
@@ -5089,6 +5093,10 @@ impl Mux {
         registry: &WorkspaceRegistry,
         terminal_ids: HashSet<TerminalPublicId>,
     ) -> anyhow::Result<bool> {
+        #[cfg(test)]
+        if self.agent_projection_refresh_failure.swap(false, Ordering::AcqRel) {
+            anyhow::bail!("forced agent projection refresh failure");
+        }
         if terminal_ids.is_empty() {
             return Ok(true);
         }
@@ -5339,6 +5347,11 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
         self.workspace_registry.lock().unwrap().corrupt_agent_projection_for_test(terminal_id);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_agent_projection_refresh_for_test(&self) {
+        self.agent_projection_refresh_failure.store(true, Ordering::Release);
     }
 
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
@@ -20798,6 +20811,96 @@ mod tests {
         assert_eq!(mux.resource_event_epoch(), resource_epoch);
         assert_ne!(mux.wait_for_shared_journal(shared_epoch, Duration::from_secs(1)), shared_epoch);
         assert!(mux.list_agents(Some(surface_id), None).is_empty());
+        assert_eq!(
+            mux.session_journal_after(commit.sequence.saturating_sub(1), 1)
+                .unwrap()
+                .records
+                .first()
+                .map(|record| record.event_id.as_str()),
+            Some(commit.event_id.as_str())
+        );
+
+        let unrelated = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            None,
+            serde_json::json!({"context":{"session_id":"pending-unrelated-session"}}),
+        )
+        .unwrap();
+        let later_journal_epoch = mux.journal_event_epoch();
+        let later_shared_epoch = mux.shared_journal_epoch();
+        mux.append_journal_ingress(
+            &unrelated,
+            "journal-agent-pending-publish",
+            "journal-agent-pending-unrelated",
+        )
+        .unwrap();
+
+        assert!(observed_receiver.try_recv().is_err());
+        assert_ne!(mux.journal_event_epoch(), later_journal_epoch);
+        assert_eq!(mux.resource_event_epoch(), resource_epoch);
+        assert_ne!(
+            mux.wait_for_shared_journal(later_shared_epoch, Duration::from_secs(1)),
+            later_shared_epoch
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_agent_refresh_failure_still_publishes_the_durable_commit() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-refresh-failure-{}", WorkspacePublicId::random().unwrap()));
+        let session = "journal-agent-refresh-failure";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let created = public_request(
+            &mux,
+            "journal-agent-refresh-failure-create",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("journal-agent-refresh-failure-create"),
+        );
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            serde_json::json!({"context":{"session_id":"refresh-failure-session"}}),
+        )
+        .unwrap();
+        let journal_epoch = mux.journal_event_epoch();
+        let resource_epoch = mux.resource_event_epoch();
+        let shared_epoch = mux.shared_journal_epoch();
+        mux.fail_next_agent_projection_refresh_for_test();
+
+        let commit = mux
+            .append_journal_ingress(
+                &ingress,
+                "journal-agent-refresh-failure",
+                "journal-agent-refresh-failure-start",
+            )
+            .expect("a post-commit cache failure must not reject a durable ingress");
+
+        assert_ne!(mux.journal_event_epoch(), journal_epoch);
+        assert_eq!(mux.resource_event_epoch(), resource_epoch);
+        assert_ne!(mux.wait_for_shared_journal(shared_epoch, Duration::from_secs(1)), shared_epoch);
+        assert!(mux.list_agents(None, None).is_empty());
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         assert_eq!(
             mux.session_journal_after(commit.sequence.saturating_sub(1), 1)
                 .unwrap()
