@@ -54,6 +54,15 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    var startupRestoreAgent: SessionRestorableAgentSnapshot? {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            workspace.terminalPanel(for: surfaceID)?.startupRestoreAgent
+        case .dock(_, let dock, let surfaceID):
+            (dock.panels[surfaceID] as? TerminalPanel)?.startupRestoreAgent
+        }
+    }
+
     var restoredResumeWorkingDirectory: String? {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
@@ -265,7 +274,7 @@ extension TerminalController {
         )
     }
 
-    private func controlSurfaceRestoreRecord(
+    func controlSurfaceRestoreRecord(
         target: ControlSurfaceResumeTarget,
         binding: SurfaceResumeBindingSnapshot?
     ) -> ControlSurfaceRestoreRecord? {
@@ -280,18 +289,38 @@ extension TerminalController {
         // conversation. Reuse the session-restore identity gate so the record
         // returned to the CLI always agrees with the binding that generated its
         // typed `cmux restore <kind> <checkpoint>` selector.
-        let compatibleAgent: SessionRestorableAgentSnapshot? =
-            if binding == nil || binding?.isAgentHookBinding == true {
-                Workspace.restorableAgentForSessionRestore(
-                    target.restorableAgent,
-                    resumeBinding: binding
+        let compatibleAgent: (
+            snapshot: SessionRestorableAgentSnapshot,
+            source: String,
+            restoredWorkingDirectory: String?
+        )?
+        if binding == nil || binding?.isAgentHookBinding == true {
+            // A lifecycle snapshot supersedes startup provenance after
+            // the Vault-created surface has advanced into restore/hibernation state.
+            if let restoredAgent = Workspace.restorableAgentForSessionRestore(
+                target.restorableAgent,
+                resumeBinding: binding
+            ) {
+                compatibleAgent = (
+                    restoredAgent,
+                    "session-snapshot",
+                    target.restoredResumeWorkingDirectory
                 )
+            } else if let startupAgent = Workspace.restorableAgentForSessionRestore(
+                target.startupRestoreAgent,
+                resumeBinding: binding
+            ) {
+                compatibleAgent = (startupAgent, "vault", nil)
             } else {
-                nil
+                compatibleAgent = nil
             }
-        if let agent = compatibleAgent {
+        } else {
+            compatibleAgent = nil
+        }
+        if let compatibleAgent {
+            let agent = compatibleAgent.snapshot
             let launchCommand = binding?.launchCommand ?? agent.launchCommand
-            let workingDirectory = target.restoredResumeWorkingDirectory
+            let workingDirectory = compatibleAgent.restoredWorkingDirectory
                 ?? binding?.cwd
                 ?? agent.workingDirectory
                 ?? launchCommand?.workingDirectory
@@ -310,7 +339,7 @@ extension TerminalController {
                 modeRawValue: mode.rawValue,
                 kind: agent.kind.rawValue,
                 checkpointID: agent.sessionId,
-                source: "session-snapshot",
+                source: compatibleAgent.source,
                 workingDirectory: workingDirectory,
                 environment: binding?.environment ?? [:],
                 launchCommand: launchCommand.map {

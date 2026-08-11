@@ -32,6 +32,7 @@ struct SessionEntryResumeLaunchTests {
         )
 
         let launch = try #require(entry.resumeLaunch)
+        #expect(launch.strategy == .restoreVerb)
         #expect(
             launch.initialInput
                 == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex vault-session\n"
@@ -76,6 +77,7 @@ struct SessionEntryResumeLaunchTests {
         )
 
         let launch = try #require(entry.resumeLaunch)
+        #expect(launch.strategy == .restoreVerb)
         #expect(
             launch.initialInput
                 == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore my-agent custom-session\n"
@@ -137,7 +139,8 @@ struct SessionEntryResumeLaunchTests {
         #expect(record.source == "vault")
         #expect(record.workingDirectory == "/tmp")
         #expect(record.permissionMode == "acceptEdits")
-        #expect(record.environment["CLAUDE_CONFIG_DIR"] == "/tmp/claude-config")
+        #expect(record.environment.isEmpty)
+        #expect(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"] == "/tmp/claude-config")
         #expect(record.preparedArguments?.contains("--resume") == true)
         #expect(record.preparedArguments?.contains("vault-claude-session") == true)
         #expect(record.legacyCommand == nil)
