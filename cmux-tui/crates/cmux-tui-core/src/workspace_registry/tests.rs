@@ -7314,7 +7314,8 @@ fn journal_agent_explicit_start_reopens_final_same_session_identity() {
 
 #[test]
 fn journal_agent_new_session_can_start_with_turn_event() {
-    let mut registry = WorkspaceRegistry::in_memory("journal-agent-new-session-turn-start").unwrap();
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-new-session-turn-start").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-new-session-turn-start-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
     let validated = crate::journal_kernel::ValidatedJournalIngress {
