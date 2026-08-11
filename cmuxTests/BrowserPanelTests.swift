@@ -1109,6 +1109,23 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertEqual(panel.preferredFocusIntent, .addressBar)
     }
 
+    func testChromelessAddressBarRestoreFallsBackToWebViewFocus() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            chromeVisibility: .chromeless
+        )
+        panel.prepareFocusIntentForActivation(.browser(.addressBar))
+
+        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
+        XCTAssertTrue(
+            panel.restoreFocusIntent(.browser(.addressBar))
+        )
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+        XCTAssertEqual(panel.preferredFocusIntent, .webView)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.chromeVisibility, .chromeless)
+    }
+
     func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {
         let workspaceId = UUID()
         let terminalId = UUID()

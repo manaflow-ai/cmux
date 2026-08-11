@@ -389,15 +389,20 @@ extension DockSplitStore {
             icon: panel.displayIcon,
             kind: panel.panelType == .browser ? "browser" : "terminal",
             isDirty: panel.isDirty,
+            showsNotificationBadge: snapshot.isManuallyUnread,
             isLoading: (panel as? BrowserPanel)?.isLoading ?? false,
             isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
-            isPinned: false,
+            isPinned: snapshot.isPinned,
             inPane: paneId
         ) else {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id
+        adoptManualUnreadState(
+            snapshot.isManuallyUnread,
+            panelId: panel.id
+        )
         installSubscription(for: panel, tracksTerminalTitle: true)
         applyVisibility(to: panel)
         return tabId

@@ -2948,10 +2948,14 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
     private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
 
-    /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
-    /// the omnibar without changing the global browser default, while configured
-    /// chromeless panes can reject address-bar focus requests by construction.
-    @Published private(set) var chromeVisibility: BrowserChromeVisibility
+    /// Pane-owned browser chrome state. Views observe this focused model directly
+    /// instead of adding more Combine propagation to the legacy panel object.
+    let chromeState: BrowserChromeState
+
+    /// Per-surface browser chrome policy used by persistence and action routing.
+    var chromeVisibility: BrowserChromeVisibility {
+        chromeState.visibility
+    }
 
     var isOmnibarVisible: Bool {
         chromeVisibility.isOmnibarVisible
@@ -4136,7 +4140,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
-        self.chromeVisibility = chromeVisibility
+        self.chromeState = BrowserChromeState(visibility: chromeVisibility)
         self.usesTransparentBackground = transparentBackground
         let websiteDataStore = explicitWebsiteDataStore ?? (
             isRemoteWorkspace
@@ -7999,7 +8003,7 @@ extension BrowserPanel {
 
     @discardableResult
     func setChromeVisibility(_ visibility: BrowserChromeVisibility) -> Bool {
-        guard chromeVisibility != visibility else { return false }
+        guard chromeState.setVisibility(visibility) else { return false }
 #if DEBUG
         cmuxDebugLog(
             "browser.omnibar.visible panel=\(id.uuidString.prefix(5)) " +
@@ -8007,7 +8011,6 @@ extension BrowserPanel {
             "callers=\(Thread.callStackSymbols.dropFirst().prefix(5).map { frame in String(frame.split(separator: " ").dropFirst(3).first ?? "?") }.joined(separator: "<"))"
         )
 #endif
-        chromeVisibility = visibility
         if !visibility.isOmnibarVisible {
             pendingAddressBarFocusRequestId = nil
             pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
@@ -8119,8 +8122,7 @@ extension BrowserPanel {
             guard let requestId = requestAddressBarFocus(
                 selectionIntent: .preserveFieldEditorSelection
             ) else {
-                noteWebViewFocused()
-                focus()
+                _ = requestExplicitWebViewFocus()
                 return true
             }
             NotificationCenter.default.post(name: .browserFocusAddressBar, object: id)

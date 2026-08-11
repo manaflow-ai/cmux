@@ -178,6 +178,7 @@
 		804100000000000000000009 /* AppDelegate+AdjacentNavigationShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80410000000000000000000A /* AppDelegate+AdjacentNavigationShortcut.swift */; };
 		C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */; };
 C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */; };
+		986900010000000000000001 /* AppDelegate+BrowserActionRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900010000000000000002 /* AppDelegate+BrowserActionRouting.swift */; };
 		D35A00000000000000000001 /* AppDelegate+BrowserDesignMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */; };
 		C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */; };
 		C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */; };
@@ -264,6 +265,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */; };
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
+		986900020000000000000001 /* BrowserActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900020000000000000002 /* BrowserActionDispatcher.swift */; };
+		986900030000000000000001 /* BrowserActionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900030000000000000002 /* BrowserActionTarget.swift */; };
 		B424PNRQ0000000000000001 /* BrowserAddressBarFocusSelectionIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PNRQ0000000000000002 /* BrowserAddressBarFocusSelectionIntent.swift */; };
 		B5A5E5610000000000000001 /* BrowserAppLinkHandoffCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E5610000000000000002 /* BrowserAppLinkHandoffCoordinator.swift */; };
 		B5A5E5600000000000000001 /* BrowserAppLinkHandoffRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E5600000000000000002 /* BrowserAppLinkHandoffRegistry.swift */; };
@@ -294,7 +297,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */; };
 		BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */; };
 		D93410010000000000000001 /* BrowserChromePopoverAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410010000000000000002 /* BrowserChromePopoverAppearance.swift */; };
-		9869C0010000000000000001 /* BrowserChromeVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9869C0010000000000000002 /* BrowserChromeVisibility.swift */; };
 		D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */; };
 		D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */; };
 		D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */; };
@@ -457,6 +459,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5008371 /* BrowserSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008370 /* BrowserSearchOverlay.swift */; };
 		C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */; };
 		C67540050000000000000001 /* BrowserSessionDownloadSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540050000000000000002 /* BrowserSessionDownloadSaver.swift */; };
+		986900070000000000000001 /* BrowserSplitContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900070000000000000002 /* BrowserSplitContainer.swift */; };
 		C2035A0B000000000000001 /* BrowserSSLTrustBypassMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A0B000000000000002 /* BrowserSSLTrustBypassMessageHandler.swift */; };
 		C2035A030000000000000001 /* BrowserSSLTrustBypassState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A030000000000000002 /* BrowserSSLTrustBypassState.swift */; };
 		C2035A060000000000000001 /* BrowserSSLTrustBypassStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A060000000000000002 /* BrowserSSLTrustBypassStateTests.swift */; };
@@ -989,6 +992,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		904090409040904090409047 /* DockSplitPanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904090409040904090409048 /* DockSplitPanelContentView.swift */; };
 		DCDC1000000000000000B011 /* DockSplitStore+Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B012 /* DockSplitStore+Appearance.swift */; };
 		8777D0038777D0038777D003 /* DockSplitStore+AttentionRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777D0048777D0048777D004 /* DockSplitStore+AttentionRouting.swift */; };
+		986900040000000000000001 /* DockSplitStore+BrowserActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900040000000000000002 /* DockSplitStore+BrowserActions.swift */; };
 		DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */; };
 		9518D0C10000000000000001 /* DockSplitStore+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9518D0C10000000000000002 /* DockSplitStore+ClosedItemHistory.swift */; };
 		DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A004 /* DockSplitStore+Config.swift */; };
@@ -1004,6 +1008,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D81390020000000000000001 /* DockSplitStore+ShortcutCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81390020000000000000002 /* DockSplitStore+ShortcutCommands.swift */; };
 		D8684000000000000000000D /* DockSplitStore+SurfaceResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000E /* DockSplitStore+SurfaceResume.swift */; };
 		DCDC1000000000000000C010 /* DockSplitStore+SurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */; };
+		986900060000000000000001 /* DockSplitStore+TabContextActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900060000000000000002 /* DockSplitStore+TabContextActions.swift */; };
 		859110000000000000000003 /* DockSplitStore+TerminalLinkOpening.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000004 /* DockSplitStore+TerminalLinkOpening.swift */; };
 		DCDC1000000000000000B017 /* DockSplitStore+TerminalStartup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B018 /* DockSplitStore+TerminalStartup.swift */; };
 		D86861000000000000000001 /* DockSplitStore+WorkingDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86861000000000000000002 /* DockSplitStore+WorkingDirectory.swift */; };
@@ -1513,6 +1518,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A73000000000000000201 /* PaneDropTargetView+FileDropTextDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000202 /* PaneDropTargetView+FileDropTextDestination.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
+		986900050000000000000001 /* PanelHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900050000000000000002 /* PanelHost.swift */; };
 		BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */; };
 		C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */; };
 		B79500200000000000000001 /* PanelPortScanPublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500200000000000000002 /* PanelPortScanPublication.swift */; };
@@ -2920,6 +2926,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		80410000000000000000000A /* AppDelegate+AdjacentNavigationShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AdjacentNavigationShortcut.swift"; sourceTree = "<group>"; };
 		C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChat.swift"; sourceTree = "<group>"; };
 C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChatNotifications.swift"; sourceTree = "<group>"; };
+		986900010000000000000002 /* AppDelegate+BrowserActionRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BrowserActionRouting.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BrowserDesignMode.swift"; sourceTree = "<group>"; };
 		C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CanvasShortcutRouting.swift"; sourceTree = "<group>"; };
 		C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ClosedItemHistory.swift"; sourceTree = "<group>"; };
@@ -3006,6 +3013,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarDebug.swift; sourceTree = "<group>"; };
 		D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarPassThrough.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
+		986900020000000000000002 /* BrowserActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserActionDispatcher.swift; sourceTree = "<group>"; };
+		986900030000000000000002 /* BrowserActionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserActionTarget.swift; sourceTree = "<group>"; };
 		B424PNRQ0000000000000002 /* BrowserAddressBarFocusSelectionIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAddressBarFocusSelectionIntent.swift; sourceTree = "<group>"; };
 		B5A5E5610000000000000002 /* BrowserAppLinkHandoffCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppLinkHandoffCoordinator.swift; sourceTree = "<group>"; };
 		B5A5E5600000000000000002 /* BrowserAppLinkHandoffRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppLinkHandoffRegistry.swift; sourceTree = "<group>"; };
@@ -3036,7 +3045,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeMetrics.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChromeMetricsTests.swift; sourceTree = "<group>"; };
 		D93410010000000000000002 /* BrowserChromePopoverAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromePopoverAppearance.swift; sourceTree = "<group>"; };
-		9869C0010000000000000002 /* BrowserChromeVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeVisibility.swift; sourceTree = "<group>"; };
 		D7032A020000000000000002 /* BrowserClientCertificateAuthenticationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateAuthenticationController.swift; sourceTree = "<group>"; };
 		D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateCredentialPicker.swift; sourceTree = "<group>"; };
 		D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserClientCertificateCredentialPickerTests.swift; sourceTree = "<group>"; };
@@ -3199,6 +3207,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5008370 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserSearchOverlay.swift; sourceTree = "<group>"; };
 		C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserServerTrustFingerprint.swift; sourceTree = "<group>"; };
 		C67540050000000000000002 /* BrowserSessionDownloadSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSessionDownloadSaver.swift; sourceTree = "<group>"; };
+		986900070000000000000002 /* BrowserSplitContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSplitContainer.swift; sourceTree = "<group>"; };
 		C2035A0B000000000000002 /* BrowserSSLTrustBypassMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustBypassMessageHandler.swift; sourceTree = "<group>"; };
 		C2035A030000000000000002 /* BrowserSSLTrustBypassState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustBypassState.swift; sourceTree = "<group>"; };
 		C2035A060000000000000002 /* BrowserSSLTrustBypassStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSSLTrustBypassStateTests.swift; sourceTree = "<group>"; };
@@ -3656,6 +3665,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		904090409040904090409048 /* DockSplitPanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSplitPanelContentView.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B012 /* DockSplitStore+Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Appearance.swift"; sourceTree = "<group>"; };
 		8777D0048777D0048777D004 /* DockSplitStore+AttentionRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+AttentionRouting.swift"; sourceTree = "<group>"; };
+		986900040000000000000002 /* DockSplitStore+BrowserActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+BrowserActions.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+CloseConfirmation.swift"; sourceTree = "<group>"; };
 		9518D0C10000000000000002 /* DockSplitStore+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+ClosedItemHistory.swift"; sourceTree = "<group>"; };
 		DCDC0000000000000000A004 /* DockSplitStore+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Config.swift"; sourceTree = "<group>"; };
@@ -3671,6 +3681,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D81390020000000000000002 /* DockSplitStore+ShortcutCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+ShortcutCommands.swift"; sourceTree = "<group>"; };
 		D8684000000000000000000E /* DockSplitStore+SurfaceResume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SurfaceResume.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SurfaceTransfer.swift"; sourceTree = "<group>"; };
+		986900060000000000000002 /* DockSplitStore+TabContextActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+TabContextActions.swift"; sourceTree = "<group>"; };
 		859110000000000000000004 /* DockSplitStore+TerminalLinkOpening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+TerminalLinkOpening.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B018 /* DockSplitStore+TerminalStartup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+TerminalStartup.swift"; sourceTree = "<group>"; };
 		D86861000000000000000002 /* DockSplitStore+WorkingDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+WorkingDirectory.swift"; sourceTree = "<group>"; };
@@ -4176,6 +4187,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C51A73000000000000000202 /* PaneDropTargetView+FileDropTextDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PaneDropTargetView+FileDropTextDestination.swift"; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
+		986900050000000000000002 /* PanelHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelHost.swift; sourceTree = "<group>"; };
 		CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelOwnedNativeViewSession.swift; sourceTree = "<group>"; };
 		C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelOwnedNativeViewSessionTests.swift; sourceTree = "<group>"; };
 		B79500200000000000000002 /* PanelPortScanPublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelPortScanPublication.swift; sourceTree = "<group>"; };
@@ -5730,6 +5742,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001041 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				986900010000000000000002 /* AppDelegate+BrowserActionRouting.swift */,
+				986900020000000000000002 /* BrowserActionDispatcher.swift */,
+				986900030000000000000002 /* BrowserActionTarget.swift */,
+				986900070000000000000002 /* BrowserSplitContainer.swift */,
+				986900040000000000000002 /* DockSplitStore+BrowserActions.swift */,
+				986900060000000000000002 /* DockSplitStore+TabContextActions.swift */,
+				986900050000000000000002 /* PanelHost.swift */,
 				A11CE0030000000000000001 /* AboutLicenseContent.swift */,
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
@@ -6823,7 +6842,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C71500030000000000000001 /* SessionContentWidthPresentation.swift */,
 				C71500050000000000000001 /* TerminalPaneBackgroundView.swift */,
 				BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */,
-				9869C0010000000000000002 /* BrowserChromeVisibility.swift */,
 				048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */,
 				109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */,
 				326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */,
@@ -8740,6 +8758,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				804100000000000000000009 /* AppDelegate+AdjacentNavigationShortcut.swift in Sources */,
 				C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */,
 				C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */,
+				986900010000000000000001 /* AppDelegate+BrowserActionRouting.swift in Sources */,
 				D35A00000000000000000001 /* AppDelegate+BrowserDesignMode.swift in Sources */,
 				C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */,
 				C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */,
@@ -8793,6 +8812,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				74060000000000000000001B /* BonsplitConfiguration+RemoteTmuxEmbedded.swift in Sources */,
 					D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
+				986900020000000000000001 /* BrowserActionDispatcher.swift in Sources */,
+				986900030000000000000001 /* BrowserActionTarget.swift in Sources */,
 				B424PNRQ0000000000000001 /* BrowserAddressBarFocusSelectionIntent.swift in Sources */,
 				B5A5E5610000000000000001 /* BrowserAppLinkHandoffCoordinator.swift in Sources */,
 				B5A5E5600000000000000001 /* BrowserAppLinkHandoffRegistry.swift in Sources */,
@@ -8820,7 +8841,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				805600000000000000000007 /* BrowserAutomationViewportError.swift in Sources */,
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
 				D93410010000000000000001 /* BrowserChromePopoverAppearance.swift in Sources */,
-				9869C0010000000000000001 /* BrowserChromeVisibility.swift in Sources */,
 				D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */,
 				D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */,
 				D35A0000000000000000001F /* BrowserDesignModeArtifactRetention.swift in Sources */,
@@ -8939,6 +8959,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5008371 /* BrowserSearchOverlay.swift in Sources */,
 				C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */,
 				C67540050000000000000001 /* BrowserSessionDownloadSaver.swift in Sources */,
+				986900070000000000000001 /* BrowserSplitContainer.swift in Sources */,
 				C2035A0B000000000000001 /* BrowserSSLTrustBypassMessageHandler.swift in Sources */,
 				C2035A030000000000000001 /* BrowserSSLTrustBypassState.swift in Sources */,
 				C2035A080000000000000001 /* BrowserSSLTrustGrant.swift in Sources */,
@@ -9137,6 +9158,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				904090409040904090409047 /* DockSplitPanelContentView.swift in Sources */,
 				DCDC1000000000000000B011 /* DockSplitStore+Appearance.swift in Sources */,
 				8777D0038777D0038777D003 /* DockSplitStore+AttentionRouting.swift in Sources */,
+				986900040000000000000001 /* DockSplitStore+BrowserActions.swift in Sources */,
 				DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */,
 				9518D0C10000000000000001 /* DockSplitStore+ClosedItemHistory.swift in Sources */,
 				DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */,
@@ -9152,6 +9174,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D81390020000000000000001 /* DockSplitStore+ShortcutCommands.swift in Sources */,
 				D8684000000000000000000D /* DockSplitStore+SurfaceResume.swift in Sources */,
 				DCDC1000000000000000C010 /* DockSplitStore+SurfaceTransfer.swift in Sources */,
+				986900060000000000000001 /* DockSplitStore+TabContextActions.swift in Sources */,
 				859110000000000000000003 /* DockSplitStore+TerminalLinkOpening.swift in Sources */,
 				DCDC1000000000000000B017 /* DockSplitStore+TerminalStartup.swift in Sources */,
 				D86861000000000000000001 /* DockSplitStore+WorkingDirectory.swift in Sources */,
@@ -9504,6 +9527,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A73000000000000000201 /* PaneDropTargetView+FileDropTextDestination.swift in Sources */,
 				A5001400 /* Panel.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
+				986900050000000000000001 /* PanelHost.swift in Sources */,
 				BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */,
 				B79500200000000000000001 /* PanelPortScanPublication.swift in Sources */,
 				C54860060000000000000001 /* PanelStableSurfaceIdentity.swift in Sources */,

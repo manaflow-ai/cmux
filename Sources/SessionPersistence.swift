@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxBrowser
 import CmuxCore
 import Foundation
 import Bonsplit

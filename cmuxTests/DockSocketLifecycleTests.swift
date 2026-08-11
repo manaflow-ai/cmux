@@ -63,6 +63,72 @@ struct DockSocketLifecycleTests {
         return try #require(envelope["result"] as? [String: Any])
     }
 
+    @MainActor
+    private func verifyBrowserOpenSplitStaysInDock(
+        _ dock: DockSplitStore,
+        sourceBrowserId: UUID,
+        ownerId: UUID,
+        windowId: UUID,
+        workspace: Workspace
+    ) throws {
+        let sourcePaneId = try #require(
+            dock.paneId(forPanelId: sourceBrowserId)
+        )
+        let originalDockPanelIds = Set(dock.panels.keys)
+        let originalWorkspacePanelIds = Set(workspace.panels.keys)
+
+        let result = try v2Result(
+            method: "browser.open_split",
+            params: [
+                "workspace_id": ownerId.uuidString,
+                "surface_id": sourceBrowserId.uuidString,
+                "url": "about:blank",
+                "focus": false,
+                "show_omnibar": false,
+                "transparent_background": true,
+                "bypass_remote_proxy": true,
+            ]
+        )
+
+        let createdBrowserId = try #require(
+            UUID(uuidString: try #require(result["surface_id"] as? String))
+        )
+        let createdBrowser = try #require(
+            dock.browserPanel(for: createdBrowserId)
+        )
+        let targetPaneId = try #require(
+            dock.paneId(forPanelId: createdBrowserId)
+        )
+
+        #expect(result["window_id"] as? String == windowId.uuidString)
+        #expect(result["workspace_id"] as? String == ownerId.uuidString)
+        #expect(
+            result["source_surface_id"] as? String ==
+                sourceBrowserId.uuidString
+        )
+        #expect(
+            result["source_pane_id"] as? String ==
+                sourcePaneId.id.uuidString
+        )
+        #expect(result["pane_id"] as? String == targetPaneId.id.uuidString)
+        #expect(
+            result["target_pane_id"] as? String ==
+                targetPaneId.id.uuidString
+        )
+        #expect(result["created_split"] as? Bool == true)
+        #expect(result["placement_strategy"] as? String == "split_right")
+        #expect(result["show_omnibar"] as? Bool == false)
+        #expect(result["transparent_background"] as? Bool == true)
+        #expect(result["bypass_remote_proxy"] as? Bool == true)
+        #expect(targetPaneId != sourcePaneId)
+        #expect(dock.containsPanel(createdBrowserId))
+        #expect(Set(dock.panels.keys) == originalDockPanelIds.union([createdBrowserId]))
+        #expect(Set(workspace.panels.keys) == originalWorkspacePanelIds)
+        #expect(createdBrowser.chromeVisibility == .hidden)
+        #expect(createdBrowser.sessionSnapshotTransparentBackground)
+        #expect(createdBrowser.bypassesRemoteWorkspaceProxyForTabDuplication)
+    }
+
     private func restoreUserDefault(_ value: Any?, forKey key: String) {
         let defaults = UserDefaults.standard
         if let value {
@@ -561,6 +627,16 @@ struct DockSocketLifecycleTests {
                     let tabs = try #require(tabListResult["tabs"] as? [[String: Any]])
                     #expect(tabListResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(tabs.contains { $0["id"] as? String == dockSurfaceId.uuidString })
+                    let windowDock = try #require(
+                        appDelegate.existingWindowDock(forWindowId: windowId)
+                    )
+                    try verifyBrowserOpenSplitStaysInDock(
+                        windowDock,
+                        sourceBrowserId: dockSurfaceId,
+                        ownerId: windowId,
+                        windowId: windowId,
+                        workspace: workspace
+                    )
                     #expect(Set(workspace.panels.keys) == mainPanelIds)
                 }
             }
@@ -637,6 +713,14 @@ struct DockSocketLifecycleTests {
                 #expect(
                     reloadResult["surface_id"] as? String ==
                         browserId.uuidString
+                )
+
+                try verifyBrowserOpenSplitStaysInDock(
+                    dock,
+                    sourceBrowserId: browserId,
+                    ownerId: workspace.id,
+                    windowId: windowId,
+                    workspace: workspace
                 )
             }
         }

@@ -227,6 +227,33 @@ final class BrowserOmnibarPerformanceSupportTests: XCTestCase {
         XCTAssertEqual(matches.map(\.url), [url])
     }
 
+    func testOpenTabSuggestionPreservesWorkspaceDockHost() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let snapshot = try XCTUnwrap(BrowserOpenTabSuggestionSnapshot(
+            host: .workspaceDock(workspaceId),
+            panelId: panelId,
+            url: "https://dock.example/dashboard",
+            title: "Dock Dashboard"
+        ))
+        let index = BrowserOpenTabSuggestionIndex()
+
+        let matches = index.matching(
+            for: "dashboard",
+            currentWorkspaceId: workspaceId,
+            currentHost: .workspace(workspaceId),
+            currentPanelId: UUID(),
+            currentPanelSnapshot: nil,
+            includeCurrentPanelForSingleCharacterQuery: false,
+            limit: 5,
+            seedSnapshots: { [snapshot] }
+        )
+
+        XCTAssertEqual(matches.count, 1)
+        XCTAssertEqual(matches.first?.host, .workspaceDock(workspaceId))
+        XCTAssertEqual(matches.first?.panelId, panelId)
+    }
+
     @MainActor
     private func waitForPendingSleep(on clock: ManualOmnibarSuggestionRefreshClock) async {
         let pendingSleep = expectation(description: "manual clock has a pending sleep")

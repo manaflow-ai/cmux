@@ -6,6 +6,7 @@ import CmuxSettings
 import CmuxTerminal
 import CmuxWorkspaces
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -48,6 +49,498 @@ struct DockShortcutRoutingTests {
 
                 #expect(harness.tabManager.focusedBrowserPanel === dockBrowser)
                 #expect(harness.tabManager.focusedBrowserPanel !== mainBrowser)
+                let actionTarget = try #require(
+                    harness.appDelegate.focusedBrowserActionTarget(
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(
+                    actionTarget == BrowserActionTarget(
+                        host: .windowDock(harness.dock.workspaceId),
+                        panelId: dockBrowserId
+                    )
+                )
+            }
+        }
+    }
+
+    @Test("Focused Dock browser wins while AppKit still reports the main terminal responder")
+    @MainActor
+    func focusedDockBrowserWinsDuringStaleMainTerminalFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let dockBrowserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let dockBrowser = try #require(
+                    harness.dock.browserPanel(for: dockBrowserId)
+                )
+                let staleTerminalResponder = GhosttyNSView(
+                    frame: NSRect(x: 0, y: 0, width: 20, height: 20)
+                )
+                let contentView = try #require(harness.window.contentView)
+                contentView.addSubview(staleTerminalResponder)
+                defer { staleTerminalResponder.removeFromSuperview() }
+                #expect(
+                    harness.window.makeFirstResponder(
+                        staleTerminalResponder
+                    )
+                )
+                #expect(
+                    staleTerminalResponder.cmuxStrictOwningGhosttyView() ===
+                        staleTerminalResponder
+                )
+
+                let actionTarget = try #require(
+                    harness.appDelegate.focusedBrowserActionTarget(
+                        preferredWindow: harness.window
+                    )
+                )
+                #expect(
+                    actionTarget == BrowserActionTarget(
+                        host: .windowDock(harness.dock.workspaceId),
+                        panelId: dockBrowserId
+                    )
+                )
+                let shortcut = KeyboardShortcutSettings.Action
+                    .browserReload.defaultShortcut
+                let event = try #require(Self.event(shortcut, in: harness))
+                #expect(
+                    harness.appDelegate.shortcutEventFocusedBrowserPanel(
+                        event
+                    ) === dockBrowser
+                )
+            }
+        }
+    }
+
+    @Test("Dock browser responder callbacks resolve the Dock-owned model")
+    @MainActor
+    func dockBrowserResponderCallbacksResolveDockModel() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let dockBrowserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let dockBrowser = try #require(
+                    harness.dock.browserPanel(for: dockBrowserId)
+                )
+
+                dockBrowser.startFind()
+
+                #expect(
+                    harness.appDelegate.browserPanel(for: dockBrowserId) ===
+                        dockBrowser
+                )
+                #expect(
+                    harness.appDelegate.browserPanel(
+                        owning: dockBrowser.webView
+                    ) === dockBrowser
+                )
+                #expect(
+                    harness.appDelegate.browserFindBarIsVisible(
+                        for: dockBrowser.webView
+                    )
+                )
+                dockBrowser.hideFind()
+                #expect(
+                    !harness.appDelegate.browserFindBarIsVisible(
+                        for: dockBrowser.webView
+                    )
+                )
+            }
+        }
+    }
+
+    @Test("Workspace Dock browsers retain a distinct host from main workspace browsers")
+    @MainActor
+    func workspaceDockBrowserUsesDistinctActionHost() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let mainPane = try #require(
+                    harness.mainWorkspace.bonsplitController.focusedPaneId
+                )
+                let mainBrowser = try #require(
+                    harness.mainWorkspace.newBrowserSurface(
+                        inPane: mainPane,
+                        focus: true
+                    )
+                )
+                let workspaceDock = harness.mainWorkspace.dockSplit
+                let dockPane = try #require(
+                    workspaceDock.bonsplitController.allPaneIds.first
+                )
+                let dockBrowserId = try #require(
+                    workspaceDock.newSurface(
+                        kind: .browser,
+                        inPane: dockPane,
+                        focus: true
+                    )
+                )
+                let dockBrowser = try #require(
+                    workspaceDock.browserPanel(for: dockBrowserId)
+                )
+
+                let mainTarget = try #require(
+                    harness.appDelegate.browserActionTarget(for: mainBrowser)
+                )
+                let dockTarget = try #require(
+                    harness.appDelegate.browserActionTarget(for: dockBrowser)
+                )
+
+                #expect(
+                    mainTarget == BrowserActionTarget(
+                        host: .workspace(harness.mainWorkspace.id),
+                        panelId: mainBrowser.id
+                    )
+                )
+                #expect(
+                    dockTarget == BrowserActionTarget(
+                        host: .workspaceDock(harness.mainWorkspace.id),
+                        panelId: dockBrowserId
+                    )
+                )
+                #expect(
+                    harness.appDelegate.dock(resolving: dockTarget) ===
+                        workspaceDock
+                )
+                #expect(
+                    harness.appDelegate.browserPanel(
+                        resolving: dockTarget
+                    ) === dockBrowser
+                )
+                #expect(
+                    harness.appDelegate.browserPanel(for: dockBrowserId) ===
+                        dockBrowser
+                )
+                #expect(
+                    harness.appDelegate.browserPanel(
+                        owning: dockBrowser.webView
+                    ) === dockBrowser
+                )
+                #expect(
+                    harness.appDelegate.browserReferenceTabManager(
+                        for: dockBrowser
+                    ) === harness.tabManager
+                )
+
+                let dockPanelCountBefore = workspaceDock.panels.count
+                let mainPanelCountBefore =
+                    harness.mainWorkspace.panels.count
+                let dispatcher = BrowserActionDispatcher(
+                    appDelegate: harness.appDelegate
+                )
+                #expect(dispatcher.perform(.split(.right), on: dockTarget))
+                #expect(
+                    workspaceDock.panels.count == dockPanelCountBefore + 1
+                )
+                #expect(
+                    harness.mainWorkspace.panels.count == mainPanelCountBefore
+                )
+            }
+        }
+    }
+
+    @Test("Dock browsers count as live users of their browser profile")
+    @MainActor
+    func dockBrowsersCountAsLiveProfileUsers() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let dockBrowserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let dockBrowser = try #require(
+                    harness.dock.browserPanel(for: dockBrowserId)
+                )
+
+                #expect(
+                    BrowserProfileAutomation.liveBrowserPanelCount(
+                        profileID: dockBrowser.profileID
+                    ) == 1
+                )
+            }
+        }
+    }
+
+    @Test("New Dock browsers inherit the source browser profile without inheriting chrome")
+    @MainActor
+    func newDockBrowsersInheritSourceProfile() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let profile = try #require(
+                    BrowserProfileStore.shared.createProfile(
+                        named: "Dock profile inheritance \(UUID().uuidString)"
+                    )
+                )
+                defer {
+                    _ = BrowserProfileStore.shared.deleteProfile(
+                        id: profile.id
+                    )
+                }
+                let sourceId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        url: URL(string: "https://example.com/source"),
+                        focus: true,
+                        preferredProfileID: profile.id,
+                        chromeVisibility: .chromeless
+                    )
+                )
+
+                let siblingId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let sibling = try #require(
+                    harness.dock.browserPanel(for: siblingId)
+                )
+                #expect(sibling.profileID == profile.id)
+                #expect(sibling.chromeVisibility == .visible)
+
+                harness.dock.focusPanel(sourceId)
+                let splitId = try #require(
+                    harness.dock.newSplit(
+                        kind: .browser,
+                        orientation: .horizontal,
+                        insertFirst: false,
+                        sourcePanelId: sourceId,
+                        focus: true
+                    )
+                )
+                let split = try #require(
+                    harness.dock.browserPanel(for: splitId)
+                )
+                #expect(split.profileID == profile.id)
+                #expect(split.chromeVisibility == .visible)
+            }
+        }
+    }
+
+    @Test("Dock browser web context menu moves its live tab to a workspace")
+    @MainActor
+    func dockBrowserWebContextMenuMovesLiveTabToWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let browserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true,
+                        chromeVisibility: .chromeless
+                    )
+                )
+                _ = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: false
+                    )
+                )
+                let browser = try #require(
+                    harness.dock.browserPanel(for: browserId)
+                )
+                let workspaceCountBefore = harness.tabManager.tabs.count
+
+                #expect(
+                    browser.webView
+                        .contextMenuCanMoveTabToNewWorkspace?() == true
+                )
+                #expect(
+                    browser.webView
+                        .contextMenuMoveTabToNewWorkspace?() == true
+                )
+
+                #expect(!harness.dock.containsPanel(browserId))
+                #expect(
+                    harness.tabManager.tabs.count == workspaceCountBefore + 1
+                )
+                let destination = try #require(
+                    harness.tabManager.tabs.first {
+                        $0.panels[browserId] != nil
+                    }
+                )
+                let movedBrowser = try #require(
+                    destination.browserPanel(for: browserId)
+                )
+                #expect(movedBrowser === browser)
+                #expect(movedBrowser.chromeVisibility == .chromeless)
+            }
+        }
+    }
+
+    @Test("Browser actions remain scoped to their captured Dock host")
+    @MainActor
+    func browserActionsRemainScopedToCapturedDockHost() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let mainPane = try #require(
+                    harness.mainWorkspace.bonsplitController.focusedPaneId
+                )
+                let mainBrowser = try #require(
+                    harness.mainWorkspace.newBrowserSurface(
+                        inPane: mainPane,
+                        focus: true
+                    )
+                )
+                let dockBrowserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let dockBrowser = try #require(
+                    harness.dock.browserPanel(for: dockBrowserId)
+                )
+                let target = BrowserActionTarget(
+                    host: .windowDock(harness.dock.workspaceId),
+                    panelId: dockBrowserId
+                )
+                let dispatcher = BrowserActionDispatcher(
+                    appDelegate: harness.appDelegate
+                )
+                let dockPanelCountBefore = harness.dock.panels.count
+                let mainPanelCountBefore = harness.mainWorkspace.panels.count
+                let dockZoomBefore = dockBrowser.currentPageZoomFactor()
+                let mainZoomBefore = mainBrowser.currentPageZoomFactor()
+
+                #expect(dispatcher.perform(.zoomIn, on: target))
+                #expect(dockBrowser.currentPageZoomFactor() > dockZoomBefore)
+                #expect(mainBrowser.currentPageZoomFactor() == mainZoomBefore)
+
+                #expect(dispatcher.perform(.startFind, on: target))
+                #expect(dockBrowser.searchState != nil)
+                #expect(mainBrowser.searchState == nil)
+
+                #expect(dispatcher.perform(.split(.right), on: target))
+                #expect(harness.dock.panels.count == dockPanelCountBefore + 1)
+                #expect(harness.mainWorkspace.panels.count == mainPanelCountBefore)
+                #expect(
+                    harness.appDelegate.focusedBrowserAddressBarPanelId() ==
+                        harness.dock.focusedPanelId
+                )
+            }
+        }
+    }
+
+    @Test("Explicit Dock browser focus reveals its owning Dock")
+    @MainActor
+    func explicitDockBrowserFocusRevealsOwningDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let terminalId = try #require(
+                    harness.dock.newSurface(
+                        kind: .terminal,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let browserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: false
+                    )
+                )
+                harness.dock.focusPanel(terminalId)
+                harness.fileExplorerState.setVisible(false)
+                harness.fileExplorerState.mode = .files
+
+                let handled = BrowserActionDispatcher(
+                    appDelegate: harness.appDelegate
+                ).perform(
+                    .focus,
+                    on: BrowserActionTarget(
+                        host: .windowDock(harness.dock.workspaceId),
+                        panelId: browserId
+                    )
+                )
+
+                #expect(handled)
+                #expect(harness.fileExplorerState.isVisible)
+                #expect(harness.fileExplorerState.mode == .dock)
+                #expect(harness.dock.focusedPanelId == browserId)
+            }
+        }
+    }
+
+    @Test("Dock browser duplication preserves browser policy and state")
+    @MainActor
+    func dockBrowserDuplicationPreservesPolicyAndState() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let url = try #require(
+                    URL(string: "https://example.com/dashboard")
+                )
+                let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+                let sourceId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        url: url,
+                        focus: true,
+                        chromeVisibility: .chromeless,
+                        bypassRemoteProxy: true,
+                        websiteDataStore: websiteDataStore
+                    )
+                )
+                let source = try #require(
+                    harness.dock.browserPanel(for: sourceId)
+                )
+                source.setMuted(true)
+                let mainPanelIdsBefore = Set(
+                    harness.mainWorkspace.panels.keys
+                )
+
+                let duplicate = try #require(
+                    harness.dock.duplicateBrowserToRight(
+                        panelId: sourceId
+                    )
+                )
+
+                #expect(duplicate.id != source.id)
+                #expect(
+                    duplicate.currentURLForTabDuplication?.absoluteString ==
+                        url.absoluteString
+                )
+                #expect(duplicate.profileID == source.profileID)
+                #expect(duplicate.chromeVisibility == .chromeless)
+                #expect(duplicate.isMuted)
+                let duplicateTabId = try #require(
+                    harness.dock.surfaceId(forPanelId: duplicate.id)
+                )
+                #expect(
+                    harness.dock.bonsplitController.tab(duplicateTabId)?
+                        .isAudioMuted == true
+                )
+                #expect(
+                    duplicate.bypassesRemoteWorkspaceProxyForTabDuplication
+                )
+                #expect(
+                    duplicate.explicitEphemeralWebsiteDataStoreForSibling ===
+                        websiteDataStore
+                )
+                #expect(harness.dock.focusedPanelId == duplicate.id)
+                #expect(
+                    Set(harness.mainWorkspace.panels.keys) ==
+                        mainPanelIdsBefore
+                )
             }
         }
     }
@@ -282,6 +775,43 @@ struct DockShortcutRoutingTests {
                 #expect(Self.dispatch(numberedShortcut, in: harness))
                 #expect(harness.dock.focusedPanelId == thirdPanel)
                 #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+            }
+        }
+    }
+
+    @Test("Customized browser split targets the Dock and focuses its address bar")
+    @MainActor
+    func customizedBrowserSplitTargetsDockAndFocusesAddressBar() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let sourceId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let mainPanelIdsBefore = Set(
+                    harness.mainWorkspace.panels.keys
+                )
+                let shortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(
+                    shortcut,
+                    for: .splitBrowserRight
+                )
+
+                #expect(Self.dispatch(shortcut, in: harness))
+                let focusedId = try #require(harness.dock.focusedPanelId)
+                #expect(focusedId != sourceId)
+                #expect(harness.dock.browserPanel(for: focusedId) != nil)
+                #expect(
+                    harness.appDelegate.focusedBrowserAddressBarPanelId() ==
+                        focusedId
+                )
+                #expect(
+                    Set(harness.mainWorkspace.panels.keys) ==
+                        mainPanelIdsBefore
+                )
             }
         }
     }
@@ -724,13 +1254,8 @@ struct DockShortcutRoutingTests {
 
                 let find = Self.customShortcut(key: "o")
                 KeyboardShortcutSettings.setShortcut(find, for: .find)
-                let searchFocusNotifications =
-                    NotificationCenter.default.notifications(
-                        named: .ghosttySearchFocus,
-                        object: dockTerminal.surface
-                    )
                 try #require(Self.dispatch(find, in: harness))
-                for await _ in searchFocusNotifications { break }
+                await Self.waitForSearchState(dockTerminal.surface)
                 #expect(dockTerminal.searchState != nil)
                 #expect(mainTerminal.searchState == nil)
 
@@ -1027,6 +1552,85 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Dock manual unread state survives snapshots and live transfer")
+    @MainActor
+    func dockManualUnreadSurvivesSnapshotsAndTransfer() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await Self.withHarness { harness in
+                let browserId = try #require(
+                    harness.dock.newSurface(
+                        kind: .browser,
+                        inPane: harness.rootPane,
+                        focus: true
+                    )
+                )
+                let originalTabId = try #require(
+                    harness.dock.surfaceId(forPanelId: browserId)
+                )
+
+                harness.dock.bonsplitController.requestTabContextAction(
+                    .markAsUnread,
+                    for: originalTabId,
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.dock.manualUnreadPanelIds.contains(browserId)
+                )
+                #expect(
+                    harness.dock.bonsplitController.tab(originalTabId)?
+                        .showsNotificationBadge == true
+                )
+                #expect(
+                    harness.dock.sessionSnapshot(includeScrollback: false)
+                        .panels.first { $0.id == browserId }?
+                        .isManuallyUnread == true
+                )
+
+                let detached = try #require(
+                    harness.dock.detachSurface(panelId: browserId)
+                )
+                #expect(detached.manuallyUnread)
+                #expect(
+                    !harness.dock.manualUnreadPanelIds.contains(browserId)
+                )
+                let targetPane = try #require(
+                    harness.dock.bonsplitController.allPaneIds.first
+                )
+                _ = try #require(
+                    harness.dock.attachDetachedSurface(
+                        detached,
+                        inPane: targetPane,
+                        focus: true
+                    )
+                )
+                let restoredTabId = try #require(
+                    harness.dock.surfaceId(forPanelId: browserId)
+                )
+                #expect(
+                    harness.dock.manualUnreadPanelIds.contains(browserId)
+                )
+                #expect(
+                    harness.dock.bonsplitController.tab(restoredTabId)?
+                        .showsNotificationBadge == true
+                )
+
+                harness.dock.bonsplitController.requestTabContextAction(
+                    .markAsRead,
+                    for: restoredTabId,
+                    inPane: targetPane
+                )
+                #expect(
+                    !harness.dock.manualUnreadPanelIds.contains(browserId)
+                )
+                #expect(
+                    harness.dock.sessionSnapshot(includeScrollback: false)
+                        .panels.first { $0.id == browserId }?
+                        .isManuallyUnread == false
+                )
+            }
+        }
+    }
+
     @Test("Dock browser tab context actions dispatch to their browser")
     @MainActor
     func dockBrowserTabContextActionsDispatchToBrowser() async throws {
@@ -1042,7 +1646,30 @@ struct DockShortcutRoutingTests {
                 let sourceTabId = try #require(
                     harness.dock.surfaceId(forPanelId: sourceId)
                 )
+                let sourceBrowser = try #require(
+                    harness.dock.browserPanel(for: sourceId)
+                )
                 let panelCountBefore = harness.dock.panels.count
+
+                harness.dock.bonsplitController.requestTabContextAction(
+                    .toggleAudioMute,
+                    for: sourceTabId,
+                    inPane: harness.rootPane
+                )
+                #expect(sourceBrowser.isMuted)
+                #expect(
+                    harness.dock.bonsplitController.tab(sourceTabId)?
+                        .isAudioMuted == true
+                )
+                harness.dock.bonsplitController.requestTabContextAction(
+                    .togglePin,
+                    for: sourceTabId,
+                    inPane: harness.rootPane
+                )
+                #expect(
+                    harness.dock.bonsplitController.tab(sourceTabId)?
+                        .isPinned == true
+                )
 
                 harness.dock.bonsplitController.requestTabContextAction(
                     .duplicate,
@@ -1068,6 +1695,7 @@ private extension DockShortcutRoutingTests {
         let tabManager: TabManager
         let rootPane: PaneID
         let window: NSWindow
+        let fileExplorerState: FileExplorerState
     }
 
     @MainActor
@@ -1141,7 +1769,8 @@ private extension DockShortcutRoutingTests {
             mainWorkspace: mainWorkspace,
             tabManager: manager,
             rootPane: rootPane,
-            window: window
+            window: window,
+            fileExplorerState: fileExplorerState
         ))
     }
 
@@ -1158,6 +1787,16 @@ private extension DockShortcutRoutingTests {
             }
         }
         for await _ in readiness { break }
+    }
+
+    @MainActor
+    static func waitForSearchState(_ surface: TerminalSurface) async {
+        for _ in 0..<20 {
+            if surface.searchState != nil {
+                return
+            }
+            await Task.yield()
+        }
     }
 
     @MainActor

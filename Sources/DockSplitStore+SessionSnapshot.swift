@@ -172,7 +172,12 @@ extension DockSplitStore {
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let tab = surfaceId(forPanelId: panelId).flatMap { bonsplitController.tab($0) }
         let tabTitle = tab?.title
-        let customTitle = transfer?.customTitle ?? (tab?.hasCustomTitle == true ? tabTitle : nil)
+        let customTitle: String?
+        if let tab {
+            customTitle = tab.hasCustomTitle ? tabTitle : nil
+        } else {
+            customTitle = transfer?.customTitle
+        }
         let directory = sessionWorkingDirectory(panel: panel, transfer: transfer)
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
@@ -320,8 +325,8 @@ extension DockSplitStore {
             customTitleSource: transfer?.customTitleSource ?? (customTitle == nil ? nil : .user),
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
-            isPinned: false,
-            isManuallyUnread: transfer?.manuallyUnread ?? false,
+            isPinned: tab?.isPinned ?? transfer?.isPinned ?? false,
+            isManuallyUnread: manualUnreadPanelIds.contains(panelId),
             listeningPorts: [],
             ttyName: transfer?.ttyName,
             terminal: terminalSnapshot,
