@@ -47,7 +47,7 @@ import Testing
     }
 
     @Test(arguments: ["automatic", "tailscale", "unknown"])
-    func anyPersistedConnectionMethodMakesUpgradeIneligible(_ rawMethod: String) {
+    func completedUpgradeRemainsEligibleAfterAConnectionChoice(_ rawMethod: String) {
         let defaults = makeDefaults()
         defaults.set(
             MobileOnboardingProgress.complete.rawValue,
@@ -55,7 +55,7 @@ import Testing
         )
         defaults.set(rawMethod, forKey: MobileConnectionMethodStore.methodKey)
 
-        #expect(MobileAutoConnectMigrationStore(defaults: defaults).resolution == .ineligible)
+        #expect(MobileAutoConnectMigrationStore(defaults: defaults).resolution == .pending)
     }
 
     @Test(arguments: MobileAutoConnectMigrationResolution.allCases)
