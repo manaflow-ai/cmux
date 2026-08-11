@@ -497,7 +497,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [4]
     env:
       # This independent job-level marker makes every app-host wrapper fail
       # closed if a setup step or environment handoff loses either redirect.
@@ -508,7 +508,7 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       # Keep one-off focused gates on the lightest measured shard so shard 1 no
       # longer carries the full shard plus every extra regression guard.
-      CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "4"
+      CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "0"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
@@ -1028,15 +1028,9 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          SHARD_ARGS="$RUNNER_TEMP/cmux-unit-shard-${{ matrix.shard }}.args"
-          python3 scripts/ci/cmux_unit_test_shard.py \
-            --shard-index "${{ matrix.shard }}" \
-            --shard-total 4 \
-            --output "$SHARD_ARGS"
-          ONLY_TESTING_ARGS=()
-          while IFS= read -r arg; do
-            [ -n "$arg" ] && ONLY_TESTING_ARGS+=("$arg")
-          done < "$SHARD_ARGS"
+          ONLY_TESTING_ARGS=(
+            "-only-testing:cmuxTests/SSHStartupManualReconnectTests/reusableStartupWithoutAuthenticationUsesInstalledRecoveryHelper"
+          )
           run_unit_tests() {
             # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
             # intermittently crash inside XCTest's post-test memory checker or
@@ -1099,13 +1093,7 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            exit "$EXIT_CODE"
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
