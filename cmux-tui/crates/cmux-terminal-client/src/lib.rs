@@ -2629,4 +2629,26 @@ mod tests {
             daemon.shutdown().await;
         });
     }
+
+    #[test]
+    fn reconnect_backoff_stops_when_terminal_shutdown_is_published() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let (shutdown, mut shutdown_events) = tokio::sync::watch::channel(false);
+            let waiter = tokio::spawn(async move {
+                wait_for_reconnect_backoff(
+                    &mut shutdown_events,
+                    std::time::Duration::from_secs(60),
+                )
+                .await
+            });
+            tokio::task::yield_now().await;
+            shutdown.send_replace(true);
+            let completed = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+                .await
+                .expect("shutdown did not wake reconnect backoff")
+                .expect("reconnect backoff task panicked");
+            assert!(!completed, "shutdown must cancel reconnect backoff");
+        });
+    }
 }
