@@ -14884,6 +14884,9 @@ fn insert_surface_checked(
             "terminal placement identity does not match its runtime"
         );
     }
+    validate_terminal_runtime_registration(mux, state, &surface)?;
+    validate_terminal_placement_registration(state, &surface)?;
+    validate_terminal_host_placement_registration(mux, state, &surface)?;
     register_terminal_runtime_checked(mux, state, &surface)?;
     register_terminal_placement_checked(state, &surface)?;
     register_terminal_host_placement_checked(mux, state, &surface)?;
@@ -14947,6 +14950,33 @@ fn register_terminal_runtime_checked(
     state: &mut State,
     surface: &Arc<Surface>,
 ) -> anyhow::Result<()> {
+    validate_terminal_runtime_registration(mux, state, surface)?;
+    let Some(terminal_id) = surface.terminal_public_id() else {
+        return Ok(());
+    };
+    let runtime_id = surface
+        .terminal_runtime_id()
+        .context("terminal content identity requires a PTY runtime")?;
+    let host = mux.resource_terminal_host_identity(surface);
+    if !state.terminal_catalog.contains_key(terminal_id) {
+        state.terminal_catalog.insert(terminal_id.clone(), surface.clone());
+    }
+    state.terminal_catalog_by_runtime.insert(runtime_id, terminal_id.clone());
+    if let Some(host) = host {
+        state
+            .terminal_catalog_by_host
+            .entry(host.terminal_id)
+            .or_default()
+            .insert(terminal_id.clone());
+    }
+    Ok(())
+}
+
+fn validate_terminal_runtime_registration(
+    mux: &Mux,
+    state: &State,
+    surface: &Arc<Surface>,
+) -> anyhow::Result<()> {
     let Some(terminal_id) = surface.terminal_public_id() else {
         return Ok(());
     };
@@ -14971,16 +15001,6 @@ fn register_terminal_runtime_checked(
             existing.shares_terminal_runtime(surface),
             "terminal content identity points at two runtimes"
         );
-    } else {
-        state.terminal_catalog.insert(terminal_id.clone(), surface.clone());
-    }
-    state.terminal_catalog_by_runtime.insert(runtime_id, terminal_id.clone());
-    if let Some(host) = host {
-        state
-            .terminal_catalog_by_host
-            .entry(host.terminal_id)
-            .or_default()
-            .insert(terminal_id.clone());
     }
     Ok(())
 }
@@ -14989,13 +15009,30 @@ fn register_terminal_placement_checked(
     state: &mut State,
     surface: &Arc<Surface>,
 ) -> anyhow::Result<()> {
+    validate_terminal_placement_registration(state, surface)?;
+    if surface.resource_identity().is_none() || surface.terminal_public_id().is_none() {
+        return Ok(());
+    }
+    let runtime_id =
+        surface.terminal_runtime_id().context("terminal placement requires a PTY runtime")?;
+    state.terminal_placements_by_runtime.entry(runtime_id).or_default().insert(surface.id);
+    Ok(())
+}
+
+fn validate_terminal_placement_registration(
+    state: &State,
+    surface: &Arc<Surface>,
+) -> anyhow::Result<()> {
     if surface.resource_identity().is_none() || surface.terminal_public_id().is_none() {
         return Ok(());
     }
     let runtime_id =
         surface.terminal_runtime_id().context("terminal placement requires a PTY runtime")?;
     anyhow::ensure!(
-        state.terminal_placements_by_runtime.entry(runtime_id).or_default().insert(surface.id),
+        !state
+            .terminal_placements_by_runtime
+            .get(&runtime_id)
+            .is_some_and(|placements| placements.contains(&surface.id)),
         "duplicate terminal runtime placement"
     );
     Ok(())
@@ -15020,15 +15057,31 @@ fn register_terminal_host_placement_checked(
     state: &mut State,
     surface: &Arc<Surface>,
 ) -> anyhow::Result<()> {
+    validate_terminal_host_placement_registration(mux, state, surface)?;
+    let Some(identity) = mux.resource_terminal_host_identity(surface) else {
+        return Ok(());
+    };
+    state
+        .terminal_placements_by_host
+        .entry(identity.terminal_id)
+        .or_default()
+        .insert(surface.id);
+    Ok(())
+}
+
+fn validate_terminal_host_placement_registration(
+    mux: &Mux,
+    state: &State,
+    surface: &Arc<Surface>,
+) -> anyhow::Result<()> {
     let Some(identity) = mux.resource_terminal_host_identity(surface) else {
         return Ok(());
     };
     anyhow::ensure!(
-        state
+        !state
             .terminal_placements_by_host
-            .entry(identity.terminal_id)
-            .or_default()
-            .insert(surface.id),
+            .get(&identity.terminal_id)
+            .is_some_and(|placements| placements.contains(&surface.id)),
         "duplicate terminal host placement"
     );
     Ok(())
@@ -20566,6 +20619,63 @@ mod tests {
         assert!(mux.surface(new_surface.id).is_some());
         removed.kill();
         new_surface.kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_insertion_rejects_partial_indexes_without_catalog_mutation() {
+        let mux = test_mux();
+        let host = TerminalHostIdentity {
+            terminal_id: "00112233445566778899aabbccddeeff".into(),
+            incarnation: "11111111111111111111111111111111".into(),
+        };
+        let public_id = restore_terminal_id(903);
+        let surface = Surface::exited_terminal_placeholder_with_terminal_public_id(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            host.clone(),
+            public_id.clone(),
+        )
+        .unwrap();
+        let runtime_id = surface.terminal_runtime_id().unwrap();
+        {
+            let mut state = mux.state.lock().unwrap();
+            state
+                .terminal_placements_by_host
+                .entry(host.terminal_id.clone())
+                .or_default()
+                .insert(surface.id);
+        }
+
+        let error = insert_surface_checked(
+            &mux,
+            &mut mux.state.lock().unwrap(),
+            surface.clone(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("duplicate terminal host placement"));
+        mux.with_state(|state| {
+            assert!(!state.surfaces.contains_key(&surface.id));
+            assert!(!state.terminal_catalog.contains_key(&public_id));
+            assert!(!state.terminal_catalog_by_runtime.contains_key(&runtime_id));
+            assert!(
+                !state
+                    .terminal_catalog_by_host
+                    .get(&host.terminal_id)
+                    .is_some_and(|ids| ids.contains(&public_id)),
+                "failed insertion leaked a terminal catalog host index"
+            );
+            assert!(
+                state
+                    .terminal_placements_by_host
+                    .get(&host.terminal_id)
+                    .is_some_and(|placements| placements.contains(&surface.id)),
+                "failed insertion changed the pre-existing partial index"
+            );
+        });
+        surface.kill();
     }
 
     #[test]
