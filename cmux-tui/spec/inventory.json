@@ -416,7 +416,7 @@
     {"variant": "SelectProviderScope", "classification": "external-protocol", "route": "machine-provider select_scope"},
     {"variant": "InvokeProviderAction", "classification": "external-protocol", "route": "machine-provider invoke_action"},
     {"variant": "CreateMachineFrom", "classification": "composite", "route": "native source picker + client-local machine catalog"},
-    {"variant": "ConnectMachineTarget", "classification": "composite", "route": "SSH config picker + client-local connector; managed remote client on Unix and native OpenSSH relay bridge on Windows"},
+    {"variant": "ConnectMachineTarget", "classification": "composite", "route": "SSH config picker + client-local machine connector"},
     {"variant": "ConnectOtherMachine", "classification": "composite", "route": "frontend prompt + client-local machine connector"}
   ],
   "feature_families": [
