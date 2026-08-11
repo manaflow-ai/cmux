@@ -118,13 +118,13 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
                 .appendingPathComponent(Self.libraryFileName)
                 .path
         }
-        let permitsDeveloperLibraryPaths = permitsDeveloperLibraryPaths
+        let developerPathsPermitted = Self.permitsDeveloperLibraryPaths
         var paths = prioritizedLibraryPaths(
             environmentPath: environmentPath,
             bundledLibraryPath: bundledLibraryPath,
-            permitsDeveloperLibraryPaths: permitsDeveloperLibraryPaths
+            permitsDeveloperLibraryPaths: developerPathsPermitted
         )
-        guard permitsDeveloperLibraryPaths else { return paths }
+        guard developerPathsPermitted else { return paths }
 
         // Repo source root: this file lives at
         // Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/Nucleo/.
