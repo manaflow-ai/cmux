@@ -205,6 +205,75 @@ struct MobileTaskModelCatalogClientTests {
     }
 
     @MainActor
+    @Test func focusedClientProbeDoesNotDependOnTerminalHealthState() async throws {
+        let router = RoutingHostRouter()
+        await router.setTaskModels(
+            [
+                MobileTaskAgentModel(
+                    id: "host-next-999",
+                    displayName: "Host Next 999"
+                ),
+            ],
+            provider: .claude
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: []
+        )
+
+        // Terminal stream health can enter recovery while the owned RPC
+        // client remains usable. Read-only discovery should probe that exact
+        // client instead of depending on the workspace mutation state flag.
+        store.connectionState = .disconnected
+        let result = try await store.fetchTaskModels(
+            provider: .claude,
+            macDeviceID: "test-mac",
+            instanceTag: nil
+        )
+
+        #expect(result.models.map(\.id) == ["host-next-999"])
+        #expect(await router.recordedTaskModelListProviders() == ["claude"])
+    }
+
+    @MainActor
+    @Test func controlClientProbeDoesNotChangeTheFocusedMac() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: foregroundRouter,
+            hostCapabilities: []
+        )
+        let focusedClient = store.remoteClient
+        let secondaryRouter = RoutingHostRouter()
+        await secondaryRouter.setTaskModels(
+            [
+                MobileTaskAgentModel(
+                    id: "secondary-host-next-999",
+                    displayName: "Secondary Host Next 999"
+                ),
+            ],
+            provider: .claude
+        )
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "secondary-mac",
+            router: secondaryRouter,
+            supportedHostCapabilities: []
+        )
+
+        let result = try await store.fetchTaskModels(
+            provider: .claude,
+            macDeviceID: "secondary-mac",
+            instanceTag: nil
+        )
+
+        #expect(result.models.map(\.id) == ["secondary-host-next-999"])
+        #expect(await secondaryRouter.recordedTaskModelListProviders() == ["claude"])
+        #expect(await foregroundRouter.recordedTaskModelListProviders().isEmpty)
+        #expect(store.foregroundMacDeviceID == "test-mac")
+        #expect(store.remoteClient === focusedClient)
+    }
+
+    @MainActor
     @Test func settledConnectionRefreshQueriesOnlyTheConnectedHost() async throws {
         let probe = MobileTaskModelCatalogProbe(responses: [
             catalogData(claude: [("backend-next-999", "Backend Next 999")]),
