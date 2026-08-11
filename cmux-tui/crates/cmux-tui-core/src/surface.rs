@@ -1245,16 +1245,6 @@ impl TerminalRuntimeOwnerCompletion {
     }
 }
 
-#[cfg(test)]
-struct TerminalRuntimeOwnerLease(Arc<PtyTerminalRuntime>);
-
-#[cfg(test)]
-impl Drop for TerminalRuntimeOwnerLease {
-    fn drop(&mut self) {
-        self.0.owner_completion.finish_worker();
-    }
-}
-
 /// Content runtime shared by every view placement of one terminal.
 ///
 /// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
@@ -2276,9 +2266,8 @@ impl Surface {
             let surface = surface.clone();
             move || {
                 #[cfg(test)]
-                let _owner = TerminalRuntimeOwnerLease(
-                    surface.as_pty().expect("surface reader got non-pty surface").terminal.clone(),
-                );
+                let owner =
+                    surface.as_pty().expect("surface reader got non-pty surface").terminal.clone();
                 let mut buf = [0u8; 64 * 1024];
                 loop {
                     let n = match reader.read(&mut buf) {
@@ -2372,6 +2361,11 @@ impl Surface {
                     pty.local_pty_drained.store(true, Ordering::Release);
                 }
                 publish_local_exit_if_ready(&surface);
+                #[cfg(test)]
+                {
+                    drop(surface);
+                    owner.owner_completion.finish_worker();
+                }
             }
         })?;
 
@@ -2381,14 +2375,18 @@ impl Surface {
             let surface = surface.clone();
             move || {
                 #[cfg(test)]
-                let _owner = TerminalRuntimeOwnerLease(
-                    surface.as_pty().expect("surface reaper got non-pty surface").terminal.clone(),
-                );
+                let owner =
+                    surface.as_pty().expect("surface reaper got non-pty surface").terminal.clone();
                 let exit = wait_for_native_child_status(child.as_mut());
                 if let Some(pty) = surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
                 }
                 publish_local_exit_if_ready(&surface);
+                #[cfg(test)]
+                {
+                    drop(surface);
+                    owner.owner_completion.finish_worker();
+                }
             }
         })?;
 
@@ -2677,12 +2675,12 @@ impl Surface {
             let scrollback = opts.scrollback;
             move || {
                 #[cfg(test)]
-                let _owner = TerminalRuntimeOwnerLease(
-                    surface.as_pty().expect("host proxy got non-pty surface").terminal.clone(),
-                );
-                let mut sequence_boundary = sequence_boundary;
-                let mut protocol_version = protocol_version;
-                'connection: loop {
+                let owner =
+                    surface.as_pty().expect("host proxy got non-pty surface").terminal.clone();
+                (|| {
+                    let mut sequence_boundary = sequence_boundary;
+                    let mut protocol_version = protocol_version;
+                    'connection: loop {
                     let mut stager =
                         HostedFrameStager::new_for_version(sequence_boundary, protocol_version);
                     let mut received_exit = None;
@@ -3230,8 +3228,15 @@ impl Surface {
                         protocol_version = replacement_protocol_version;
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
-                        continue 'connection;
+                            continue 'connection;
+                        }
                     }
+                })();
+                #[cfg(test)]
+                {
+                    drop(surface);
+                    drop(mux);
+                    owner.owner_completion.finish_worker();
                 }
             }
         })?;

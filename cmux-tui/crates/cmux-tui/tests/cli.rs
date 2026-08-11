@@ -1204,8 +1204,10 @@ fn graceful_shutdown_stops_server_owned_sidebar_process() {
         process_exit.wait_until(shutdown_deadline).expect("wait for server-owned process exit")
     });
     // The successful fixture has no durable host and one direct /bin/cat
-    // process. The pre-captured pidfd/kqueue event is bound to that exact
-    // process and proves exit without racing zombie reaping or PID reuse.
+    // process. cmux-pty executes that program directly, and /bin/cat does not
+    // fork, so its exact PID exit also proves this fixture cannot retain a
+    // process-group descendant. The pre-captured pidfd/kqueue event proves
+    // that exit without racing zombie reaping or PID reuse.
     // Unexpected durable hosts stay in this result and fail below.
     let owned_processes_stopped = process_exits_published;
 
