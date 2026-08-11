@@ -12,8 +12,6 @@ import Testing
 
     @Test func browserStreamActivatesWhenNoLocalBrowserIsOpen() {
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: false,
-            hasChosenChatSession: false,
             hasActiveBrowser: false,
             hasActiveBrowserStream: true
         ) == .browserStream)
@@ -21,8 +19,6 @@ import Testing
 
     @Test func simulatorStreamActivatesWhenNoBrowserSurfaceIsOpen() {
         #expect(WorkspaceActiveSurface.derive(
-            isChatMode: false,
-            hasChosenChatSession: false,
             hasActiveBrowser: false,
             hasActiveBrowserStream: false,
             hasActiveSimulatorStream: true

@@ -16,18 +16,11 @@ struct TerminalSurfaceMountOwnershipTests {
         let store = MobileShellComposite.preview()
         let surfaceID = "off-window-terminal"
         let coordinator = GhosttySurfaceRepresentable.Coordinator(
-            workspaceID: "workspace",
             surfaceID: surfaceID,
             store: store,
-            artifactFilesEnabled: false,
-            terminalFolderTapEnabled: false,
-            terminalFilesChipEnabled: false,
-            sessionArtifactCountEnabled: false,
-            visibleArtifactCount: 0,
-            onArtifactFilesRequested: { _ in },
-            onArtifactPathTapped: { _ in },
-            onVisibleArtifactCountChanged: { _ in },
-            onArtifactGalleryRefreshSignal: { _ in }
+            composerSubmitAction: nil,
+            onComposerChromeHeightChange: nil,
+            onBottomScrollEdgeElementContainersChange: nil
         )
         let surfaceView = GhosttySurfaceView(
             runtime: try GhosttyRuntime.shared(),
@@ -55,18 +48,11 @@ struct TerminalSurfaceMountOwnershipTests {
         let terminal = try #require(workspace.terminals.first)
         let surfaceID = terminal.id.rawValue
         let coordinator = GhosttySurfaceRepresentable.Coordinator(
-            workspaceID: workspace.id.rawValue,
             surfaceID: surfaceID,
             store: store,
-            artifactFilesEnabled: false,
-            terminalFolderTapEnabled: false,
-            terminalFilesChipEnabled: false,
-            sessionArtifactCountEnabled: false,
-            visibleArtifactCount: 0,
-            onArtifactFilesRequested: { _ in },
-            onArtifactPathTapped: { _ in },
-            onVisibleArtifactCountChanged: { _ in },
-            onArtifactGalleryRefreshSignal: { _ in }
+            composerSubmitAction: nil,
+            onComposerChromeHeightChange: nil,
+            onBottomScrollEdgeElementContainersChange: nil
         )
         let surfaceView = GhosttySurfaceView(
             runtime: try GhosttyRuntime.shared(),
