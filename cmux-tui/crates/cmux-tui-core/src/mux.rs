@@ -5636,7 +5636,11 @@ impl Mux {
             target
         };
         let TerminalHostCallbackTarget::Live(surface) = target else {
-            return true;
+            // The caller keeps the replacement stream in reconnect state and
+            // retries after publication. Returning success here would consume
+            // the one reconnect result before lifecycle and Kitty quota state
+            // can be applied to the live surface.
+            return false;
         };
         if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str()) {
             return false;
@@ -8786,7 +8790,7 @@ impl Mux {
         let Some(surface) = self.catalog_terminal_by_host(state, &identity.terminal_id)? else {
             // Spawn and adoption commit their durable lifecycle before they
             // publish a surface into State. The authenticated host can lose
-            // its admin stream in that gap. Accept the callback without
+            // its admin stream in that gap. Recognize the current host without
             // advancing lifecycle until surface publication is complete.
             let pending = match terminal.lifecycle {
                 TerminalLifecycle::Launching => terminal.incarnation.is_none(),
