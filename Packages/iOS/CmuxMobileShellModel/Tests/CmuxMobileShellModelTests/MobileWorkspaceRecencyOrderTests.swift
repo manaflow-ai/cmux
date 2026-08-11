@@ -3,7 +3,7 @@ import Testing
 
 @testable import CmuxMobileShellModel
 
-/// Behavior tests for the `.recentActivity` flat presentation order.
+/// Behavior tests for `.recentActivity` flat and grouped presentation order.
 @Suite struct MobileWorkspaceRecencyOrderTests {
     private func ws(
         _ id: String,

@@ -209,6 +209,7 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 )
             }
             .accessibilityAddTraits(value.selection == .all ? .isSelected : [])
+            .accessibilityIdentifier("MobileWorkspaceMacPickerAll")
             ForEach(value.machines) { machine in
                 let selection = WorkspaceMacSelection.machine(machine.id)
                 Button {
@@ -221,6 +222,7 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                     )
                 }
                 .accessibilityAddTraits(value.selection == selection ? .isSelected : [])
+                .accessibilityIdentifier(machineMenuAccessibilityIdentifier(machine.id))
             }
             if value.statusLine == .notConnected, let reconnect = actions.reconnect {
                 Divider()
@@ -249,6 +251,12 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 width: value.labelWidth,
                 statusLine: value.statusLine
             )
+            // Put the identity on the rendered label as well as the Menu.
+            // UIKit's toolbar bridge can otherwise omit the outer SwiftUI
+            // identifier from the native accessibility tree used by CUA.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(value.title)
+            .accessibilityIdentifier("MobileWorkspaceMacPicker")
         }
         .buttonStyle(.plain)
         .tint(.primary)
@@ -267,6 +275,11 @@ struct WorkspaceMacTitlePicker: View, Equatable {
         if isSelected {
             Image(systemName: "checkmark")
         }
+    }
+
+    private func machineMenuAccessibilityIdentifier(_ id: String) -> String {
+        let stableID = id.replacingOccurrences(of: "\u{1F}", with: "-")
+        return "MobileWorkspaceMacPickerMachine-\(stableID)"
     }
 }
 
