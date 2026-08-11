@@ -2277,7 +2277,6 @@ mod tests {
 
         let closing = {
             let mux = mux.clone();
-            let selectors = selectors.clone();
             std::thread::spawn(move || {
                 super::super::handle_parsed_resource_request(
                     &mux,

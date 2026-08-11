@@ -2323,7 +2323,7 @@ impl Mux {
                 "terminal {terminal_public_id} has no durable host record"
             ))
         })?;
-        let terminal_incarnation = terminal.incarnation.clone();
+        let terminal_incarnation = terminal.incarnation;
         let mut state = self.state.lock().unwrap();
         let closing_tab_ids = state
             .placements_of_content(&ContentPublicId::Terminal(terminal_public_id.clone()))
