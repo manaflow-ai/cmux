@@ -9,22 +9,6 @@ enum BrowserSplitContainer {
     case workspace(Workspace)
     case dock(DockSplitStore)
 
-    /// The result of placing a browser to the right of a source surface.
-    struct Placement {
-        let panel: BrowserPanel
-        let createdSplit: Bool
-    }
-
-    /// Browser creation options shared by the main workspace and Dock hosts.
-    struct Request {
-        let url: URL?
-        let focus: Bool
-        let preferredProfileID: UUID?
-        let chromeVisibility: BrowserChromeVisibility
-        let transparentBackground: Bool
-        let bypassRemoteProxy: Bool
-    }
-
     var host: PanelHost {
         switch self {
         case .workspace(let workspace):
@@ -94,8 +78,8 @@ enum BrowserSplitContainer {
     /// Reuses the nearest pane on the right or creates a horizontal split.
     func openBrowserToRight(
         of sourcePanelID: UUID,
-        request: Request
-    ) -> Placement? {
+        request: BrowserSplitRequest
+    ) -> BrowserSplitPlacement? {
         guard containsPanel(sourcePanelID),
               let sourcePane = paneID(forPanelID: sourcePanelID) else {
             return nil
@@ -106,7 +90,7 @@ enum BrowserSplitContainer {
                 in: targetPane,
                 request: request
             ).map {
-                Placement(panel: $0, createdSplit: false)
+                BrowserSplitPlacement(panel: $0, createdSplit: false)
             }
         }
 
@@ -114,7 +98,7 @@ enum BrowserSplitContainer {
             from: sourcePanelID,
             request: request
         ).map {
-            Placement(panel: $0, createdSplit: true)
+            BrowserSplitPlacement(panel: $0, createdSplit: true)
         }
     }
 
@@ -158,7 +142,7 @@ enum BrowserSplitContainer {
 
     private func createBrowserSurface(
         in paneID: PaneID,
-        request: Request
+        request: BrowserSplitRequest
     ) -> BrowserPanel? {
         switch self {
         case .workspace(let workspace):
@@ -193,7 +177,7 @@ enum BrowserSplitContainer {
 
     private func createBrowserSplit(
         from sourcePanelID: UUID,
-        request: Request
+        request: BrowserSplitRequest
     ) -> BrowserPanel? {
         switch self {
         case .workspace(let workspace):

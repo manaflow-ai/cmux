@@ -7093,7 +7093,7 @@ class TerminalController {
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
             let transparentBackground = v2Bool(params, "transparent_background") ?? false
             let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
-            let request = BrowserSplitContainer.Request(
+            let request = BrowserSplitRequest(
                 url: url,
                 focus: focus,
                 preferredProfileID: preferredProfileID,

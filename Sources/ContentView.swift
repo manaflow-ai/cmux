@@ -8310,7 +8310,7 @@ struct ContentView: View {
             AppDelegate.shared?.dock(resolving: $0)
         }
         let dockBrowserTarget = dockBrowserStore == nil ? nil : browserTarget
-        let performBrowserAction: (BrowserActionDispatcher.Action) -> Bool = {
+        let performBrowserAction: (BrowserAction) -> Bool = {
             action in
             guard let browserTarget, let browserDispatcher else {
                 return false

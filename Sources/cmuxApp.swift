@@ -1192,7 +1192,7 @@ struct cmuxApp: App {
 
     @discardableResult
     private func performFocusedBrowserAction(
-        _ action: BrowserActionDispatcher.Action
+        _ action: BrowserAction
     ) -> Bool {
         guard let target = activeBrowserActionTarget else { return false }
         return BrowserActionDispatcher(appDelegate: appDelegate)

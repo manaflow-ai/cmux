@@ -5,36 +5,11 @@ import CmuxPanes
 /// Executes browser commands against an explicitly captured panel target.
 @MainActor
 struct BrowserActionDispatcher {
-    enum Action {
-        case focus
-        case back
-        case forward
-        case reload
-        case openInDefaultBrowser
-        case focusAddressBar
-        case toggleFocusMode(reason: String)
-        case toggleOmnibar
-        case toggleDeveloperTools
-        case showJavaScriptConsole
-        case toggleReactGrab
-        case toggleDesignMode(reason: String)
-        case zoomIn
-        case zoomOut
-        case resetZoom
-        case split(SplitDirection)
-        case duplicateRight
-        case moveToNewWorkspace
-        case startFind
-        case findNext
-        case findPrevious
-        case hideFind
-    }
-
     let appDelegate: AppDelegate
 
     @discardableResult
     func perform(
-        _ action: Action,
+        _ action: BrowserAction,
         on target: BrowserActionTarget
     ) -> Bool {
         guard let panel = appDelegate.browserPanel(resolving: target) else {
