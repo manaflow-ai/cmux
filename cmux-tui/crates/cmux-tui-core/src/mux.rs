@@ -18408,6 +18408,65 @@ mod tests {
     }
 
     #[test]
+    fn terminal_close_replay_repairs_index_only_topology_after_the_durable_commit() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        let public_id = surface.terminal_public_id().cloned().unwrap();
+        let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&surface.id].clone());
+        let mutation = WorkspaceMutation::new("terminal-close-index-replay", "test").unwrap();
+
+        mux.set_resource_close_after_commit_hook_for_test(Some(Arc::new(|| {
+            panic!("simulated daemon crash after terminal close commit")
+        })));
+        let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            mux.close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+        }));
+        assert!(crashed.is_err());
+        mux.set_resource_close_after_commit_hook_for_test(None);
+
+        let _removed_surface = mux.remove_surface_runtime_for_test(surface.id).unwrap();
+        let _removed_catalog = mux.remove_terminal_catalog_for_test(&public_id).unwrap();
+        mux.with_state(|state| {
+            assert!(!state.surfaces.contains_key(&surface.id));
+            assert!(!state.terminal_catalog.contains_key(&public_id));
+            assert!(state.resource_indexes.tabs.contains_key(&tab_id));
+            assert!(state.panes.values().any(|pane| pane.tabs.contains(&surface.id)));
+        });
+
+        let replay = mux
+            .close_terminal_with_mutation(
+                &host.terminal_id,
+                Some(&host.incarnation),
+                None,
+                None,
+                &mutation,
+            )
+            .unwrap();
+
+        assert!(replay.already_closed);
+        mux.with_state(|state| {
+            assert!(!state.resource_indexes.tabs.contains_key(&tab_id));
+            assert!(state.panes.values().all(|pane| !pane.tabs.contains(&surface.id)));
+            assert!(
+                state
+                    .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+                    .is_empty()
+            );
+        });
+        surface.kill();
+        mux.shutdown();
+    }
+
+    #[test]
     fn terminal_close_preserves_unrelated_content_placement_order() {
         let mux = test_mux();
         let closing = mux.new_workspace(None, Some((80, 24))).unwrap();
