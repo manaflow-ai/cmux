@@ -3961,6 +3961,9 @@ fn explicit_attach_registers_a_full_session_tui_client() {
                 }
                 assert!(attached.iter().any(|id| id.as_str() == Some(terminal.as_str())));
                 assert!(attached.iter().any(|id| id.as_str() == Some(second_terminal.as_str())));
+                let client_id = client["id"].as_str().expect("TUI client public id").to_string();
+                let detached = cli(&server, &["--quiet", "client", client_id.as_str(), "detach"]);
+                assert_success(&detached);
                 return;
             }
         }
