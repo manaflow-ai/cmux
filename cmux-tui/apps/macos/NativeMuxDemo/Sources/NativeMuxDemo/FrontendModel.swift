@@ -160,8 +160,10 @@ final class FrontendModel {
     init(
         configuration: DemoLaunchConfiguration = .processEnvironment(),
         recoveryPolicy: FrontendRecoveryPolicy = .standard,
-        recoveryDelay: @escaping FrontendRecoveryDelay = {
-            try await Task.sleep(nanoseconds: $0)
+        recoveryDelay: @escaping FrontendRecoveryDelay = { nanoseconds in
+            try await ContinuousClock().sleep(
+                for: .nanoseconds(Int64(clamping: nanoseconds))
+            )
         }
     ) {
         invitation = configuration.invitation
@@ -1017,10 +1019,13 @@ final class FrontendModel {
     func shutdownAndWait() async {
         guard !isShuttingDown else { return }
         isShuttingDown = true
-        connectTask?.cancel()
+        let connection = connectTask
+        connectTask = nil
+        connection?.cancel()
         updatesTask?.cancel()
         refreshTask?.cancel()
         focusMutations = FocusMutationTracker()
+        await connection?.value
         let controllers = Array(terminalControllers.values)
         let titles = Array(terminalTitles.values)
         let retirements = Array(terminalRetirementTasks.values)

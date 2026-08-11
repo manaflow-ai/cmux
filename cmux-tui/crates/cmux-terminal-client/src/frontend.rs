@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ffi::{CStr, CString, c_char, c_void};
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -22,6 +23,7 @@ use super::{
 };
 
 const FRONTEND_CONNECTION_TIMEOUT_ERROR: &str = "frontend connection timed out";
+const FRONTEND_CONNECTION_CANCELLED_ERROR: &str = "frontend connection cancelled";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const RESOURCE_UPDATE_QUEUE_MAX_ITEMS: usize = 256;
 const RESOURCE_UPDATE_QUEUE_MAX_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES * 2;
@@ -54,6 +56,32 @@ impl CmuxFrontendAttachCancellation {
         while !self.canceled.load(Ordering::Acquire) {
             self.notify.notified().await;
         }
+    }
+}
+
+async fn run_frontend_connect_stage<T>(
+    future: impl Future<Output = Result<T, String>>,
+    timeout: Option<Duration>,
+    cancellation: Option<&CmuxFrontendAttachCancellation>,
+) -> Result<T, String> {
+    let stage = async {
+        match timeout {
+            Some(timeout) => connect_with_timeout(future, timeout).await,
+            None => future.await,
+        }
+    };
+    tokio::pin!(stage);
+    match cancellation {
+        Some(cancellation) => {
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => {
+                    Err(FRONTEND_CONNECTION_CANCELLED_ERROR.to_owned())
+                }
+                result = &mut stage => result,
+            }
+        }
+        None => stage.await,
     }
 }
 
@@ -518,6 +546,7 @@ unsafe fn frontend_connect(
     error_buffer: *mut c_char,
     error_capacity: usize,
     timeout: Option<Duration>,
+    cancellation: *const CmuxFrontendAttachCancellation,
 ) -> *mut CmuxFrontendClient {
     if invitation_uri.is_null() {
         copy_utf8("invitation URI is null", error_buffer, error_capacity);
@@ -542,14 +571,13 @@ unsafe fn frontend_connect(
             return std::ptr::null_mut();
         }
     };
+    let cancellation = unsafe { cancellation.as_ref() };
     let started = Instant::now();
-    let connected = match timeout {
-        Some(timeout) => runtime.block_on(connect_with_timeout(
-            connect_transport(invitation, "NativeMux Demo"),
-            timeout,
-        )),
-        None => runtime.block_on(connect_transport(invitation, "NativeMux Demo")),
-    };
+    let connected = runtime.block_on(run_frontend_connect_stage(
+        connect_transport(invitation, "NativeMux Demo"),
+        timeout,
+        cancellation,
+    ));
     let ConnectedTransport { connection, provider, multiplexer, provider_name, path, generation } =
         match connected {
             Ok(connected) => connected,
@@ -563,13 +591,11 @@ unsafe fn frontend_connect(
                 return std::ptr::null_mut();
             }
         };
-    let control_result = match timeout {
-        Some(timeout) => runtime.block_on(connect_with_timeout(
-            open_control_stream(&multiplexer),
-            timeout.saturating_sub(started.elapsed()),
-        )),
-        None => runtime.block_on(open_control_stream(&multiplexer)),
-    };
+    let control_result = runtime.block_on(run_frontend_connect_stage(
+        open_control_stream(&multiplexer),
+        timeout.map(|timeout| timeout.saturating_sub(started.elapsed())),
+        cancellation,
+    ));
     let (stream, buffered) = match control_result {
         Ok(control) => control,
         Err(error) => {
@@ -634,6 +660,33 @@ pub unsafe extern "C" fn cmux_frontend_client_connect_with_timeout(
             error_buffer,
             error_capacity,
             Some(Duration::from_millis(timeout_milliseconds)),
+            std::ptr::null(),
+        )
+    }
+}
+
+/// Enrolls one native frontend transport with a deadline and cancellation.
+///
+/// # Safety
+///
+/// String and error pointers follow `cmux_frontend_client_connect_with_timeout`.
+/// A non-null cancellation pointer must stay live until this function returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_client_connect_cancellable(
+    invitation_uri: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+    cancellation: *const CmuxFrontendAttachCancellation,
+) -> *mut CmuxFrontendClient {
+    // SAFETY: forwards this function's documented C pointer contract.
+    unsafe {
+        frontend_connect(
+            invitation_uri,
+            error_buffer,
+            error_capacity,
+            Some(Duration::from_millis(timeout_milliseconds)),
+            cancellation,
         )
     }
 }
@@ -979,6 +1032,25 @@ pub unsafe extern "C" fn cmux_frontend_terminal_copy_next_render_event(
     true
 }
 
+/// Discards the leased render event and every queued render event.
+///
+/// # Safety
+///
+/// `terminal` must be a live pointer returned by the frontend attach API.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_terminal_discard_render_events(
+    terminal: *mut CmuxFrontendTerminal,
+) {
+    let Some(terminal) = (unsafe { terminal.as_ref() }) else { return };
+    let mut state = terminal.state.lock().unwrap();
+    state.native_render_event_lease = None;
+    if let Some(events) = state.native_render_events.as_mut() {
+        events.clear();
+    }
+    state.native_render_event_bytes = 0;
+    state.status = "renderer-discarded".into();
+}
+
 fn enqueue_terminal(terminal: &CmuxFrontendTerminal, frame: Frame) -> bool {
     let Ok(encoded) = encode_frame(&frame) else { return false };
     let active = terminal.active.lock().unwrap();
@@ -1239,6 +1311,34 @@ mod tests {
             let _ = ready_rx.await;
             cancellation.cancel();
             waiter.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn frontend_connect_stage_observes_cancellation() {
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let cancellation = Arc::new(CmuxFrontendAttachCancellation::new());
+            let waiting_cancellation = cancellation.clone();
+            let (ready, ready_rx) = oneshot::channel();
+            let waiter = tokio::spawn(async move {
+                let pending = async move {
+                    let _ = ready.send(());
+                    std::future::pending::<Result<(), String>>().await
+                };
+                run_frontend_connect_stage(
+                    pending,
+                    None,
+                    Some(waiting_cancellation.as_ref()),
+                )
+                .await
+            });
+            let _ = ready_rx.await;
+            cancellation.cancel();
+            assert_eq!(
+                waiter.await.unwrap().unwrap_err(),
+                FRONTEND_CONNECTION_CANCELLED_ERROR
+            );
         });
     }
 

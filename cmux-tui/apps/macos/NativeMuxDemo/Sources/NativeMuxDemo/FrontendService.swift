@@ -1,6 +1,7 @@
 import CCmuxTerminal
 import Foundation
 import Dispatch
+import Synchronization
 
 enum FrontendServiceError: LocalizedError {
   case message(String)
@@ -83,12 +84,40 @@ private func decodeError(_ buffer: [CChar]) -> String {
   )
 }
 
+typealias FFITimeoutScheduler = @Sendable (
+  _ nanoseconds: UInt64,
+  _ action: @escaping @Sendable () async -> Void
+) -> Task<Void, Never>
+
+private func continuousClockFFITimeout(
+  nanoseconds: UInt64,
+  action: @escaping @Sendable () async -> Void
+) -> Task<Void, Never> {
+  Task {
+    do {
+      try await ContinuousClock().sleep(
+        for: .nanoseconds(Int64(clamping: nanoseconds))
+      )
+    } catch {
+      return
+    }
+    await action()
+  }
+}
+
 // Safe because the queue is the sole executor for each handle's blocking C
 // calls; callers never access the raw handle outside this serialized path.
 final class SerialFFIExecutor: @unchecked Sendable {
   private let queue: DispatchQueue
+  private let timeoutScheduler: FFITimeoutScheduler
 
-  init(label: String) { queue = DispatchQueue(label: label) }
+  init(
+    label: String,
+    timeoutScheduler: @escaping FFITimeoutScheduler = continuousClockFFITimeout
+  ) {
+    queue = DispatchQueue(label: label)
+    self.timeoutScheduler = timeoutScheduler
+  }
 
   func run<T: Sendable>(
     _ operation: @escaping @Sendable () -> T,
@@ -107,87 +136,67 @@ final class SerialFFIExecutor: @unchecked Sendable {
     onEnqueued: (@Sendable () -> Void)? = nil
   ) async -> T? {
     let waiter = FFIResultWaiter<T>()
-    return await withTaskCancellationHandler {
-      await withCheckedContinuation { continuation in
-        waiter.install(continuation)
-        queue.async {
-          guard cancellation.beginExecution() else {
-            waiter.complete(nil)
-            return
-          }
-          let result = operation()
-          cancellation.finishExecution()
-          waiter.complete(result)
-        }
-        if let timeoutNanoseconds {
-          let timeoutTask = Task.detached {
-            do {
-              try await Task.sleep(nanoseconds: timeoutNanoseconds)
-            } catch {
-              return
-            }
-            if cancellation.cancel() { waiter.complete(nil) }
-          }
-          waiter.installTimeoutTask(timeoutTask)
-        }
-        onEnqueued?()
+    queue.async {
+      guard cancellation.beginExecution() else {
+        Task { await waiter.complete(nil) }
+        return
       }
+      let result = operation()
+      cancellation.finishExecution()
+      Task { await waiter.complete(result) }
+    }
+    if let timeoutNanoseconds {
+      let timeoutTask = timeoutScheduler(timeoutNanoseconds) {
+        if cancellation.cancel() { await waiter.complete(nil) }
+      }
+      await waiter.installTimeoutTask(timeoutTask)
+    }
+    onEnqueued?()
+    return await withTaskCancellationHandler {
+      await waiter.value()
     } onCancel: {
-      if cancellation.cancel() { waiter.complete(nil) }
+      if cancellation.cancel() {
+        Task { await waiter.complete(nil) }
+      }
     }
   }
 }
 
-private final class FFIResultWaiter<T: Sendable>: @unchecked Sendable {
-  private let lock = NSLock()
+private actor FFIResultWaiter<T: Sendable> {
   private var continuation: CheckedContinuation<T?, Never>?
   private var completed = false
   private var result: T?
   private var timeoutTask: Task<Void, Never>?
 
-  func install(_ continuation: CheckedContinuation<T?, Never>) {
-    lock.lock()
-    if completed {
-      let completedResult = result
-      lock.unlock()
-      continuation.resume(returning: completedResult)
-    } else {
+  func value() async -> T? {
+    if completed { return result }
+    return await withCheckedContinuation { continuation in
       self.continuation = continuation
-      lock.unlock()
     }
   }
 
   func installTimeoutTask(_ task: Task<Void, Never>) {
-    lock.lock()
     if completed {
-      lock.unlock()
       task.cancel()
     } else {
       timeoutTask = task
-      lock.unlock()
     }
   }
 
   func complete(_ result: T?) {
-    lock.lock()
-    guard !completed else {
-      lock.unlock()
-      return
-    }
+    guard !completed else { return }
     completed = true
     self.result = result
     let continuation = continuation
     self.continuation = nil
-    let timeoutTask = timeoutTask
-    self.timeoutTask = nil
-    lock.unlock()
     timeoutTask?.cancel()
+    timeoutTask = nil
     continuation?.resume(returning: result)
   }
 }
 
-final class FFICancellation: @unchecked Sendable {
-  private enum State: Equatable {
+final class FFICancellation: Sendable {
+  private enum State: UInt8, Sendable {
     case queued
     case running
     case cancelledBeforeExecution
@@ -195,8 +204,7 @@ final class FFICancellation: @unchecked Sendable {
     case completed
   }
 
-  private let lock = NSLock()
-  private var state = State.queued
+  private let state = Atomic<UInt8>(State.queued.rawValue)
   private let onCancel: @Sendable () -> Void
 
   init(onCancel: @escaping @Sendable () -> Void) {
@@ -204,40 +212,49 @@ final class FFICancellation: @unchecked Sendable {
   }
 
   func beginExecution() -> Bool {
-    lock.lock()
-    defer { lock.unlock() }
-    guard state == .queued else { return false }
-    state = .running
-    return true
+    state.compareExchange(
+      expected: State.queued.rawValue,
+      desired: State.running.rawValue,
+      ordering: .acquiringAndReleasing
+    ).exchanged
   }
 
   func finishExecution() {
-    lock.lock()
-    state = .completed
-    lock.unlock()
+    state.store(State.completed.rawValue, ordering: .releasing)
   }
 
   @discardableResult
   func cancel() -> Bool {
-    lock.lock()
-    let completedBeforeExecution: Bool
-    switch state {
-    case .queued:
-      state = .cancelledBeforeExecution
-      completedBeforeExecution = true
-    case .running:
-      state = .cancelledDuringExecution
-      completedBeforeExecution = false
-    case .cancelledBeforeExecution, .cancelledDuringExecution, .completed:
-      lock.unlock()
-      return false
+    while true {
+      let currentRaw = state.load(ordering: .acquiring)
+      guard let current = State(rawValue: currentRaw) else { return false }
+      let next: State
+      let completedBeforeExecution: Bool
+      switch current {
+      case .queued:
+        next = .cancelledBeforeExecution
+        completedBeforeExecution = true
+      case .running:
+        next = .cancelledDuringExecution
+        completedBeforeExecution = false
+      case .cancelledBeforeExecution, .cancelledDuringExecution, .completed:
+        return false
+      }
+      let transition = state.compareExchange(
+        expected: currentRaw,
+        desired: next.rawValue,
+        ordering: .acquiringAndReleasing
+      )
+      if transition.exchanged {
+        onCancel()
+        return completedBeforeExecution
+      }
     }
-    lock.unlock()
-    onCancel()
-    return completedBeforeExecution
   }
 }
 
+// Safe because raw points to a Rust object whose cancellation flag and wakeup
+// primitive are thread-safe, and this Swift owner releases it only after use.
 final class FrontendAttachCancellation: @unchecked Sendable {
   let raw: OpaquePointer
 
@@ -295,20 +312,37 @@ actor FrontendService {
   }
 
   static func connect(invitation: String) async throws -> FrontendService {
-    let result = await Task.detached(priority: .userInitiated) {
-      var error = [CChar](repeating: 0, count: 2_048)
-      let handle = invitation.withCString {
-        cmux_frontend_client_connect_with_timeout($0, &error, error.count, 20_000)
-      }
-      return ConnectedFrontend(
-        rawAddress: handle.map { UInt(bitPattern: $0) },
-        error: decodeError(error)
-      )
-    }.value
+    let cancellation = FrontendAttachCancellation()
+    let result = await withTaskCancellationHandler {
+      await Task.detached(priority: .userInitiated) {
+        var error = [CChar](repeating: 0, count: 2_048)
+        let handle = invitation.withCString {
+          cmux_frontend_client_connect_cancellable(
+            $0,
+            &error,
+            error.count,
+            20_000,
+            cancellation.raw
+          )
+        }
+        return ConnectedFrontend(
+          rawAddress: handle.map { UInt(bitPattern: $0) },
+          error: decodeError(error)
+        )
+      }.value
+    } onCancel: {
+      cancellation.cancel()
+    }
     guard let rawAddress = result.rawAddress else {
+      if Task.isCancelled { throw CancellationError() }
       throw FrontendServiceError.message(result.error)
     }
-    return FrontendService(rawAddress: rawAddress)
+    let service = FrontendService(rawAddress: rawAddress)
+    if Task.isCancelled {
+      await service.shutdown()
+      throw CancellationError()
+    }
+    return service
   }
 
   func request<T: Decodable & Sendable>(
@@ -574,13 +608,16 @@ actor TerminalHandle {
 
   func drainRenderEvents() async -> TerminalRenderEventBatch {
     guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
-      return TerminalRenderEventBatch(events: [], hasMore: false)
+      return TerminalRenderEventBatch(events: [], hasMore: false, overflowed: false)
     }
     return await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
-      return drainTerminalRenderEvents { descriptor, buffer, capacity in
-        cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, buffer, capacity)
-      }
+      return drainTerminalRenderEvents(
+        discard: { cmux_frontend_terminal_discard_render_events(raw) },
+        copy: { descriptor, buffer, capacity in
+          cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, buffer, capacity)
+        }
+      )
     }
   }
 
@@ -622,10 +659,14 @@ struct TerminalRenderEvent: Sendable {
 struct TerminalRenderEventBatch: Sendable {
   let events: [TerminalRenderEvent]
   let hasMore: Bool
+  let overflowed: Bool
 }
 
 func drainTerminalRenderEvents(
   maximumEvents: Int = 64,
+  maximumEventBytes: Int = 4_194_304,
+  maximumBytes: Int = 8_388_608,
+  discard: () -> Void = {},
   copy: (
     _ descriptor: inout CmuxFrontendRenderEvent,
     _ buffer: UnsafeMutablePointer<UInt8>?,
@@ -633,12 +674,24 @@ func drainTerminalRenderEvents(
   ) -> Bool
 ) -> TerminalRenderEventBatch {
   let eventBudget = max(1, maximumEvents)
+  let eventByteBudget = max(1, maximumEventBytes)
+  let byteBudget = max(eventByteBudget, maximumBytes)
   var processed = 0
+  var retainedBytes = 0
   var result: [TerminalRenderEvent] = []
   result.reserveCapacity(eventBudget)
   while processed < eventBudget {
     var descriptor = CmuxFrontendRenderEvent()
     guard copy(&descriptor, nil, 0) else { break }
+    if descriptor.payload_length > eventByteBudget {
+      discard()
+      return TerminalRenderEventBatch(events: [], hasMore: false, overflowed: true)
+    }
+    if retainedBytes > 0,
+      descriptor.payload_length > byteBudget - min(retainedBytes, byteBudget)
+    {
+      return TerminalRenderEventBatch(events: result, hasMore: true, overflowed: false)
+    }
     var payload = Data()
     if descriptor.payload_length > 0 {
       payload = Data(count: descriptor.payload_length)
@@ -652,6 +705,7 @@ func drainTerminalRenderEvents(
       guard copied else { break }
     }
     processed += 1
+    retainedBytes += payload.count
     guard let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind) else { continue }
     result.append(TerminalRenderEvent(
       kind: kind,
@@ -659,5 +713,9 @@ func drainTerminalRenderEvents(
       payload: payload
     ))
   }
-  return TerminalRenderEventBatch(events: result, hasMore: processed >= eventBudget)
+  return TerminalRenderEventBatch(
+    events: result,
+    hasMore: processed >= eventBudget || retainedBytes >= byteBudget,
+    overflowed: false
+  )
 }

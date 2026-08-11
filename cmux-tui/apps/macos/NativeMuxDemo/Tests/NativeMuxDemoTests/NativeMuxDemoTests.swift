@@ -301,7 +301,10 @@ func canceledQueuedFFIOperationDoesNotExecute() async {
 
 @Test
 func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async {
-    let executor = SerialFFIExecutor(label: "test.native-terminal.queue-deadline")
+    let executor = SerialFFIExecutor(
+        label: "test.native-terminal.queue-deadline",
+        timeoutScheduler: { _, action in Task { await action() } }
+    )
     let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     let releaseFirst = DispatchSemaphore(value: 0)
     let first = Task {
@@ -329,6 +332,36 @@ func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async {
     _ = await first.value
     firstStarted.continuation.finish()
     #expect(operations.snapshot == ["cancel"])
+}
+
+@Test
+func completedFFIOperationCancelsPendingDeadline() async {
+    let deadlineHold = AsyncStream<Void>.makeStream()
+    let deadlineCancelled = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let executor = SerialFFIExecutor(
+        label: "test.native-terminal.completed-deadline",
+        timeoutScheduler: { _, _ in
+            Task {
+                await withTaskCancellationHandler {
+                    for await _ in deadlineHold.stream {}
+                } onCancel: {
+                    deadlineCancelled.continuation.yield()
+                }
+            }
+        }
+    )
+
+    let result = await executor.runCancellable(
+        cancellation: FFICancellation {},
+        timeoutNanoseconds: 15_000_000_000
+    ) {
+        true
+    }
+
+    #expect(result == true)
+    for await _ in deadlineCancelled.stream { break }
+    deadlineHold.continuation.finish()
+    deadlineCancelled.continuation.finish()
 }
 
 @Test
@@ -655,8 +688,74 @@ func renderDrainConsumesUnknownPayloadBeforeContinuing() {
     #expect(batch.events.first?.kind == .bytes)
     #expect(batch.events.first?.payload == Data("visible".utf8))
     #expect(!batch.hasMore)
+    #expect(!batch.overflowed)
     #expect(pending.isEmpty)
     #expect(leased == nil)
+}
+
+@Test
+func renderDrainRejectsOversizedEventBeforeAllocation() {
+    var discarded = false
+    var requestedPayloadBuffer = false
+    let batch = drainTerminalRenderEvents(
+        maximumEventBytes: 3,
+        maximumBytes: 6,
+        discard: { discarded = true },
+        copy: { descriptor, buffer, _ in
+            descriptor = CmuxFrontendRenderEvent()
+            descriptor.kind = TerminalRenderEvent.Kind.bytes.rawValue
+            descriptor.payload_length = 4
+            requestedPayloadBuffer = buffer != nil
+            return true
+        }
+    )
+
+    #expect(batch.events.isEmpty)
+    #expect(!batch.hasMore)
+    #expect(batch.overflowed)
+    #expect(discarded)
+    #expect(!requestedPayloadBuffer)
+}
+
+@Test
+func renderDrainLeavesTheNextEventAtTheBatchByteBudget() {
+    var pending = [Data("four".utf8), Data("five".utf8)]
+    var leased: Data?
+    let copy: (inout CmuxFrontendRenderEvent, UnsafeMutablePointer<UInt8>?, Int) -> Bool = {
+        descriptor, buffer, capacity in
+        if leased == nil { leased = pending.first }
+        guard let payload = leased else { return false }
+        descriptor = CmuxFrontendRenderEvent()
+        descriptor.kind = TerminalRenderEvent.Kind.bytes.rawValue
+        descriptor.cols = 80
+        descriptor.rows = 24
+        descriptor.payload_length = payload.count
+        guard let buffer, capacity >= payload.count else { return true }
+        payload.copyBytes(to: buffer, count: payload.count)
+        pending.removeFirst()
+        leased = nil
+        return true
+    }
+
+    let first = drainTerminalRenderEvents(
+        maximumEventBytes: 4,
+        maximumBytes: 6,
+        copy: copy
+    )
+    #expect(first.events.map(\.payload) == [Data("four".utf8)])
+    #expect(first.hasMore)
+    #expect(!first.overflowed)
+    #expect(pending.count == 1)
+
+    let second = drainTerminalRenderEvents(
+        maximumEventBytes: 4,
+        maximumBytes: 6,
+        copy: copy
+    )
+    #expect(second.events.map(\.payload) == [Data("five".utf8)])
+    #expect(!second.hasMore)
+    #expect(!second.overflowed)
+    #expect(pending.isEmpty)
 }
 
 @Test

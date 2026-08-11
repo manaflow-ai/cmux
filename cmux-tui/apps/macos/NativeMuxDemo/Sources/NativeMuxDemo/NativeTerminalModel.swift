@@ -37,7 +37,7 @@ func terminalGeometry(width: CGFloat, height: CGFloat) -> TerminalGeometry {
 @MainActor
 @Observable
 final class NativeTerminalModel {
-  private static let maxRenderBatchesPerPass = 4
+  private static let maxRenderBatchesPerPass = 1
 
   let terminalID: String
   private(set) var errorMessage = ""
@@ -197,6 +197,29 @@ final class NativeTerminalModel {
         drainRequested = false
         let batch = await handle.drainRenderEvents()
         guard !Task.isCancelled, !isShuttingDown else { return }
+        if batch.overflowed {
+          let workers = [updateTask, inputTask, inputDropTask, resizeTask].compactMap { $0 }
+          for worker in workers { worker.cancel() }
+          updateTask = nil
+          inputTask = nil
+          inputDropTask = nil
+          resizeTask = nil
+          drainRequested = false
+          self.handle = nil
+          isAttached = false
+          didStart = false
+          didExit = false
+          inputErrorMessage = nil
+          resizeQueue = NewestResizeQueue()
+          errorMessage = ""
+          await handle.shutdown()
+          for worker in workers { await worker.value }
+          errorMessage = L10n.text(
+            "error.terminal_render_limit",
+            "Terminal output exceeded the safe display limit. Select Retry."
+          )
+          return
+        }
         for event in batch.events { surfaceView.apply(event) }
         if let rendererError = surfaceView.initializationError {
           errorMessage = rendererError

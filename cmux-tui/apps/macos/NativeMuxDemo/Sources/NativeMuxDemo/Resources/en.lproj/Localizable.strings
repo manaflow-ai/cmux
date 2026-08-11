@@ -53,6 +53,7 @@
 "error.terminal_input_overloaded" = "Terminal input is busy; try again.";
 "error.terminal_attach" = "The terminal could not be attached.";
 "error.terminal_resize_rejected" = "Terminal resize was rejected.";
+"error.terminal_render_limit" = "Terminal output exceeded the safe display limit. Select Retry.";
 "error.terminal_snapshot" = "The terminal snapshot was invalid.";
 "error.ghostty_runtime" = "The embedded Ghostty renderer could not start.";
 "error.ghostty_surface" = "The embedded Ghostty terminal surface could not start.";

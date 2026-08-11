@@ -64,6 +64,14 @@ CmuxFrontendClient *cmux_frontend_client_connect_with_timeout(
     char *error_buffer,
     size_t error_capacity,
     uint64_t timeout_milliseconds);
+// cancellation may be NULL. Otherwise it must stay live until this function
+// returns. Cancellation covers transport enrollment and control stream setup.
+CmuxFrontendClient *cmux_frontend_client_connect_cancellable(
+    const char *invitation_uri,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds,
+    const CmuxFrontendAttachCancellation *cancellation);
 void cmux_frontend_client_set_update_callback(
     const CmuxFrontendClient *client,
     CmuxTerminalClientUpdateCallback callback,
@@ -145,6 +153,8 @@ bool cmux_frontend_terminal_copy_next_render_event(
     CmuxFrontendRenderEvent *event,
     uint8_t *buffer,
     size_t capacity);
+void cmux_frontend_terminal_discard_render_events(
+    CmuxFrontendTerminal *terminal);
 size_t cmux_frontend_terminal_copy_frame(
     const CmuxFrontendTerminal *terminal,
     char *buffer,
