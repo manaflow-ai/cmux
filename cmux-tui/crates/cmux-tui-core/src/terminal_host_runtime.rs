@@ -7386,6 +7386,7 @@ mod unix {
                         }
                         Err(error) => return Err(error.into()),
                     };
+                    stream.set_nonblocking(false)?;
                     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
                     let hello_frame = read_required_frame(&mut stream, "owner hello")?;
                     if hello_frame.version != 4 {
