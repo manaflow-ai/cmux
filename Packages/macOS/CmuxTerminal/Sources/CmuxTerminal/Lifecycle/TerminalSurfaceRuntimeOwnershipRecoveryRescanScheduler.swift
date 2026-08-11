@@ -33,7 +33,8 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     }
   }
 
-  private struct State {
+  // Safety: this state never escapes `state`'s OSAllocatedUnfairLock.
+  private struct State: @unchecked Sendable {
     var nextSequence: UInt64 = 0
     // Every indexed entry is one linked FIFO node. Synchronous cancellation
     // removes both views under this lock, so no weak tombstone survives.
