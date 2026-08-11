@@ -176,8 +176,10 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     @State private var fixtureRoute: FixtureWorkspaceRoute?
-    // Mirrors the shell: search results push over the live search session.
+    // Mirrors the shell: the session ends across the push and is restored
+    // through the focus engine once the pop completes.
     @State private var searchFixturePath: [MobileWorkspacePreview.ID] = []
+    @State private var restoreSearchOnPop = false
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -585,14 +587,21 @@ public struct WorkspaceListLayoutPreviewView: View {
                                     selectedPrimaryTab = primarySearchCoordinator.commitSubmit()
                                 }
                             ))
-                            // Mirrors the shell: a push over the live search;
-                            // the UIKit flag rides the transitions so the
-                            // session's bottom anchor survives the pop.
                             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                                 fixtureWorkspaceDetail(for: workspaceID)
-                                    .background(HidesBottomBarWhenPushed())
+                                    .onDisappear {
+                                        guard restoreSearchOnPop else { return }
+                                        restoreSearchOnPop = false
+                                        guard selectedPrimaryTab == .search,
+                                              searchFixturePath.isEmpty else { return }
+                                        primarySearchCoordinator.requestFocusRestore(for: .workspaces)
+                                    }
                             }
                         }
+                        .toolbarVisibility(
+                            searchFixturePath.isEmpty ? .automatic : .hidden,
+                            for: .tabBar
+                        )
                     } notificationSearch: {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)
@@ -605,6 +614,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         .onChange(of: selectedPrimaryTab) { oldValue, newValue in
             if oldValue == .search, newValue != .search {
                 searchFixturePath = []
+                restoreSearchOnPop = false
             }
         }
         .overlay(alignment: .topLeading) {
@@ -644,6 +654,8 @@ public struct WorkspaceListLayoutPreviewView: View {
         selectedWorkspaceID = id
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
+            primarySearchCoordinator.deactivateCurrentSearch()
+            restoreSearchOnPop = true
             if searchFixturePath.last != id {
                 searchFixturePath = [id]
             }

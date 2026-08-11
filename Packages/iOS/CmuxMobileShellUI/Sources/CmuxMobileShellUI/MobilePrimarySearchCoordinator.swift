@@ -16,6 +16,8 @@ final class MobilePrimarySearchCoordinator {
         didSet { normalizeCommittedSearchText(for: .notifications, oldValue: oldValue) }
     }
     private(set) var activationGeneration: UInt64 = 0
+    private(set) var workspaceFocusRestoreRequest: UInt64 = 0
+    private(set) var notificationFocusRestoreRequest: UInt64 = 0
 
     private var phase: MobilePrimarySearchPhase = .inactive
     private var platformSearchingScope: MobilePrimarySearchScope?
@@ -42,6 +44,31 @@ final class MobilePrimarySearchCoordinator {
         isPresented = presented
         if presented {
             activate(scope: scope)
+        }
+    }
+
+    /// Requests a focus-engine re-presentation of the scope's search session,
+    /// restoring the committed query as the live draft. The field modifier
+    /// observes the counter and drives its `searchFocused` binding, which
+    /// activates through the platform's focus route (the isPresented binding
+    /// presents in the top navigation drawer when set programmatically).
+    func requestFocusRestore(for scope: MobilePrimarySearchScope) {
+        self.scope = scope
+        setPresentation(true)
+        switch scope {
+        case .workspaces:
+            workspaceFocusRestoreRequest &+= 1
+        case .notifications:
+            notificationFocusRestoreRequest &+= 1
+        }
+    }
+
+    func focusRestoreRequest(for scope: MobilePrimarySearchScope) -> UInt64 {
+        switch scope {
+        case .workspaces:
+            workspaceFocusRestoreRequest
+        case .notifications:
+            notificationFocusRestoreRequest
         }
     }
 

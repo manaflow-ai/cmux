@@ -176,12 +176,15 @@ struct WorkspaceShellView: View {
     // the destination stack's own onAppear.
     @State private var workspacesStackIsOnScreen = false
     @State private var notificationsStackIsOnScreen = false
-    // Workspaces opened from search results push onto the search stacks with
-    // the search session left live; HidesBottomBarWhenPushed keeps the bar's
-    // departure and return inside the push/pop transitions so the session's
-    // bottom anchor survives (see workspaceSearchTabContent).
+    // Workspaces opened from search results push onto the search stacks; the
+    // search session ends across the push (committing the query) and is
+    // restored through the FOCUS engine once the pop completes — the only
+    // programmatic activation route the platform hosts at the search tab's
+    // bottom control (see workspaceSearchTabContent).
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var restoreWorkspaceSearchOnPop = false
+    @State private var restoreNotificationSearchOnPop = false
     @State private var showingRootSettings = false
     @State private var settingsPairingScannerHandoff = SettingsPairingScannerHandoff()
     @State private var showingRootDeviceTree = false
@@ -303,6 +306,8 @@ struct WorkspaceShellView: View {
                 if oldValue == .search, newValue != .search {
                     workspaceSearchNavigationPath = []
                     notificationSearchNavigationPath = []
+                    restoreWorkspaceSearchOnPop = false
+                    restoreNotificationSearchOnPop = false
                 }
             }
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
@@ -388,21 +393,28 @@ struct WorkspaceShellView: View {
                         rootToolbarContent
                     }
                 }
-                // A plain navigation push over the LIVE search session. The
-                // bar hides via UIKit's hidesBottomBarWhenPushed (bridged
-                // below) so its departure and return ride the push/pop
-                // transitions and the session's bottom anchor survives; a
-                // SwiftUI toolbarVisibility hide outlives the pop and makes
-                // the platform re-host the restored field at the top.
+                // A plain navigation push; the session ended at select and
+                // is restored through the focus engine once the pop finishes
+                // and the path-driven bar hide below has returned the bar.
                 .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                     workspaceDestination(
                         for: workspaceID,
                         createWorkspace: createWorkspaceInCompactStack,
                         canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                     )
-                    .background(HidesBottomBarWhenPushed())
+                    .onDisappear {
+                        guard restoreWorkspaceSearchOnPop else { return }
+                        restoreWorkspaceSearchOnPop = false
+                        guard selectedPrimaryTab == .search,
+                              workspaceSearchNavigationPath.isEmpty else { return }
+                        primarySearchCoordinator.requestFocusRestore(for: .workspaces)
+                    }
                 }
             }
+            .toolbarVisibility(
+                workspaceSearchNavigationPath.isEmpty ? .automatic : .hidden,
+                for: .tabBar
+            )
         }
     }
 
@@ -450,15 +462,25 @@ struct WorkspaceShellView: View {
                     rootToolbarContent
                 }
             }
-            // Mirrors workspaceSearchTabContent: push over the live search.
+            // Mirrors workspaceSearchTabContent.
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
                     createWorkspace: createWorkspaceInCompactStack,
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                 )
-                .background(HidesBottomBarWhenPushed())
+                .onDisappear {
+                    guard restoreNotificationSearchOnPop else { return }
+                    restoreNotificationSearchOnPop = false
+                    guard selectedPrimaryTab == .search,
+                          notificationSearchNavigationPath.isEmpty else { return }
+                    primarySearchCoordinator.requestFocusRestore(for: .notifications)
+                }
             }
+            .toolbarVisibility(
+                notificationSearchNavigationPath.isEmpty ? .automatic : .hidden,
+                for: .tabBar
+            )
         }
     }
 
@@ -874,6 +896,8 @@ struct WorkspaceShellView: View {
                 selectedTab: selectedPrimaryTab
             ) {
             case .mountedNotificationSearch:
+                primarySearchCoordinator.deactivateCurrentSearch()
+                restoreNotificationSearchOnPop = true
                 if notificationSearchNavigationPath.last != workspaceID {
                     notificationSearchNavigationPath = [workspaceID]
                 }
@@ -963,6 +987,8 @@ struct WorkspaceShellView: View {
     /// `workspaceSearchTabContent`.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        primarySearchCoordinator.deactivateCurrentSearch()
+        restoreWorkspaceSearchOnPop = true
         store.selectedWorkspaceID = id
         if workspaceSearchNavigationPath.last != id {
             workspaceSearchNavigationPath = [id]
@@ -1129,40 +1155,6 @@ struct WorkspaceShellView: View {
 /// never fires on the root list.
 /// `internal` (not `private`) so `cmuxFeatureTests` can drive
 /// `GestureHostController`'s delegate decisions directly.
-/// Bridges UIKit's `hidesBottomBarWhenPushed` onto the SwiftUI hosting
-/// controller a `navigationDestination` pushes. Unlike a SwiftUI
-/// `toolbarVisibility(.hidden, for: .tabBar)` — which keeps the hide in force
-/// for the whole presentation and makes the platform re-host a restored
-/// search field in the top navigation bar — the UIKit flag hides and restores
-/// the bar AS PART of the push/pop transition, so a live search session's
-/// bottom anchor survives and the field returns exactly where it was.
-struct HidesBottomBarWhenPushed: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> UIViewController { Flagger() }
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
-
-    final class Flagger: UIViewController {
-        override func willMove(toParent parent: UIViewController?) {
-            // Flag the direct parent immediately (the destination's hosting
-            // controller in the common case) so the value is set before the
-            // push transition reads it.
-            parent?.hidesBottomBarWhenPushed = true
-            super.willMove(toParent: parent)
-        }
-
-        override func viewWillAppear(_ animated: Bool) {
-            // Flag the ancestor the navigation controller actually pushed —
-            // the controller sitting directly inside it — for hosting
-            // hierarchies that nest intermediate containers.
-            var candidate: UIViewController? = self
-            while let current = candidate, !(current.parent is UINavigationController) {
-                candidate = current.parent
-            }
-            candidate?.hidesBottomBarWhenPushed = true
-            super.viewWillAppear(animated)
-        }
-    }
-}
-
 struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController { GestureHostController() }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}

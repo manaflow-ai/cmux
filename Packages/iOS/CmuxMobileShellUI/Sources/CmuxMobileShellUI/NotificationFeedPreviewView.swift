@@ -16,8 +16,10 @@ public struct NotificationFeedPreviewView: View {
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()
     @State private var notificationRoute: NotificationWorkspaceRoute?
-    // Mirrors the shell: search results push over the live search session.
+    // Mirrors the shell: the session ends across the push and is restored
+    // through the focus engine once the pop completes.
     @State private var searchNotificationPath: [MobileWorkspacePreview.ID] = []
+    @State private var restoreSearchOnPop = false
     @State private var pendingSearchNotificationNavigationID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
 
@@ -75,14 +77,22 @@ public struct NotificationFeedPreviewView: View {
                         scope: .notifications,
                         submit: { selectedTab = primarySearchCoordinator.commitSubmit() }
                     ))
-                    // Mirrors the shell: push over the live search with the
-                    // UIKit flag riding the transitions.
                     .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                         NotificationFeedPreviewWorkspaceDestination(
                             workspaceName: workspaceName(for: workspaceID)
                         )
-                        .background(HidesBottomBarWhenPushed())
+                        .onDisappear {
+                            guard restoreSearchOnPop else { return }
+                            restoreSearchOnPop = false
+                            guard selectedTab == .search,
+                                  searchNotificationPath.isEmpty else { return }
+                            primarySearchCoordinator.requestFocusRestore(for: .notifications)
+                        }
                     }
+                    .toolbarVisibility(
+                        searchNotificationPath.isEmpty ? .automatic : .hidden,
+                        for: .tabBar
+                    )
                 }
             }
             .background {
@@ -145,6 +155,8 @@ public struct NotificationFeedPreviewView: View {
             open: { item in
                 let workspaceID = MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID)
                 if selectedTab == .search {
+                    primarySearchCoordinator.deactivateCurrentSearch()
+                    restoreSearchOnPop = true
                     if searchNotificationPath.last != workspaceID {
                         searchNotificationPath = [workspaceID]
                     }
