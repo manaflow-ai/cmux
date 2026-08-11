@@ -1,6 +1,6 @@
+import Dispatch
 import Foundation
 import Observation
-import Dispatch
 
 struct DemoLaunchConfiguration: Sendable {
     let invitation: String
