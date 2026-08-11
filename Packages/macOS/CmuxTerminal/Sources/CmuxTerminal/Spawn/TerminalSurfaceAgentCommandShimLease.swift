@@ -34,6 +34,11 @@ public final class TerminalSurfaceAgentCommandShimLease: Sendable {
     /// and request cleanup again later.
     @discardableResult
     public func release() async -> Bool {
-        await state.release()
+        await release(removalClock: ContinuousClock())
+    }
+
+    @discardableResult
+    func release(removalClock: any Clock<Duration>) async -> Bool {
+        await state.release(removalClock: removalClock)
     }
 }

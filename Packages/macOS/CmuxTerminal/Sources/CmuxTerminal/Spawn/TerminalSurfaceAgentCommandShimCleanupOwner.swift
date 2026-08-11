@@ -8,10 +8,10 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
     private let reportRemovalFailure:
         @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
     private var leases: [String: TerminalSurfaceAgentCommandShimLease] = [:]
-    private var retryTasks: [String: Task<Void, Never>] = [:]
+    private var retryTask: Task<Void, Never>?
 
     var retainedLeaseCount: Int { leases.count }
-    var pendingRetryCount: Int { retryTasks.count }
+    var pendingRetryCount: Int { retryTask == nil ? 0 : 1 }
 
     init(
         removalAttemptLimit: Int,
@@ -22,6 +22,7 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
             @escaping @Sendable (TerminalSurfaceAgentCommandShimSet, String) -> Void
     ) {
         precondition(removalAttemptLimit > 0)
+        precondition(!retryDelays.isEmpty)
         precondition(retryDelays.allSatisfy { $0 > .zero })
         self.removalAttemptLimit = removalAttemptLimit
         self.removalLane = removalLane
@@ -30,11 +31,7 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
         self.reportRemovalFailure = reportRemovalFailure
     }
 
-    deinit {
-        for task in retryTasks.values {
-            task.cancel()
-        }
-    }
+    deinit { retryTask?.cancel() }
 
     func cleanup(
         _ shims: TerminalSurfaceAgentCommandShimSet,
@@ -58,47 +55,51 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
         if await lease.release(removalClock: retryClock) {
             finish(directoryPath: directoryPath)
         } else {
-            scheduleRetries(directoryPath: directoryPath, retryClock: retryClock)
+            scheduleRetries(retryClock: retryClock)
         }
     }
 
     private func scheduleRetries(
-        directoryPath: String,
         retryClock: any Clock<Duration>
     ) {
-        guard retryTasks[directoryPath] == nil else { return }
+        guard retryTask == nil else { return }
         let retryDelays = retryDelays
-        retryTasks[directoryPath] = Task.detached(priority: .utility) { [weak self] in
-            for delay in retryDelays {
+        retryTask = Task.detached(priority: .utility) { [weak self] in
+            var delayIndex = 0
+            while !Task.isCancelled {
+                let delay = retryDelays[delayIndex]
                 do {
                     try await retryClock.sleep(for: delay, tolerance: nil)
                 } catch {
                     return
                 }
                 guard let self else { return }
-                if await self.retry(directoryPath: directoryPath, retryClock: retryClock) {
+                if await self.retryAll(retryClock: retryClock) {
                     return
                 }
+                delayIndex = (delayIndex + 1) % retryDelays.count
             }
-            await self?.finish(directoryPath: directoryPath)
         }
     }
 
-    private func retry(
-        directoryPath: String,
+    private func retryAll(
         retryClock: any Clock<Duration>
     ) async -> Bool {
-        guard let lease = leases[directoryPath] else {
-            finish(directoryPath: directoryPath)
-            return true
+        for directoryPath in Array(leases.keys) {
+            guard let lease = leases[directoryPath] else { continue }
+            if await lease.release(removalClock: retryClock) {
+                leases[directoryPath] = nil
+            }
         }
-        guard await lease.release(removalClock: retryClock) else { return false }
-        finish(directoryPath: directoryPath)
+        guard leases.isEmpty else { return false }
+        retryTask = nil
         return true
     }
 
     private func finish(directoryPath: String) {
         leases[directoryPath] = nil
-        retryTasks.removeValue(forKey: directoryPath)?.cancel()
+        guard leases.isEmpty else { return }
+        retryTask?.cancel()
+        retryTask = nil
     }
 }

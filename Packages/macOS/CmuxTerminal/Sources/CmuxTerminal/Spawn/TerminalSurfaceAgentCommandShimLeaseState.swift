@@ -8,46 +8,125 @@ private enum TerminalSurfaceShimRemovalOutcome: Sendable {
     case cancelled
 }
 
-private struct TerminalSurfaceShimRemovalError: Error, CustomStringConvertible {
-    let description: String
-    let isTimeout: Bool
-}
-
-actor TerminalSurfaceAgentCommandShimRemovalLane {
-    private var isOccupied = false
-
-    func claim() -> Bool {
-        guard !isOccupied else { return false }
-        isOccupied = true
-        return true
-    }
-
-    func release() {
-        isOccupied = false
-    }
-}
-
-private actor TerminalSurfaceShimRemovalRace {
+private actor TerminalSurfaceAgentCommandShimRemovalRequest {
     private var outcome: TerminalSurfaceShimRemovalOutcome?
-    private var waiter: CheckedContinuation<TerminalSurfaceShimRemovalOutcome, Never>?
+    private var waiters: [
+        UUID: CheckedContinuation<TerminalSurfaceShimRemovalOutcome, Never>
+    ] = [:]
 
     func resolve(_ outcome: TerminalSurfaceShimRemovalOutcome) {
         guard self.outcome == nil else { return }
         self.outcome = outcome
-        waiter?.resume(returning: outcome)
-        waiter = nil
+        let waiters = Array(waiters.values)
+        self.waiters.removeAll()
+        for waiter in waiters { waiter.resume(returning: outcome) }
+    }
+
+    func resolvedOutcome() -> TerminalSurfaceShimRemovalOutcome? {
+        outcome
     }
 
     func value() async -> TerminalSurfaceShimRemovalOutcome {
         if let outcome { return outcome }
-        return await withCheckedContinuation { waiter = $0 }
+        let identifier = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if let outcome {
+                    continuation.resume(returning: outcome)
+                } else if Task.isCancelled {
+                    continuation.resume(returning: .cancelled)
+                } else {
+                    waiters[identifier] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(identifier) }
+        }
+    }
+
+    private func cancelWaiter(_ identifier: UUID) {
+        waiters.removeValue(forKey: identifier)?.resume(returning: .cancelled)
+    }
+}
+
+actor TerminalSurfaceAgentCommandShimRemovalLane {
+    private struct PendingRemoval: Sendable {
+        let directoryPath: String
+        let shims: TerminalSurfaceAgentCommandShimSet
+        let attemptLimit: Int
+        let operation:
+            @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
+        let request: TerminalSurfaceAgentCommandShimRemovalRequest
+    }
+
+    private var pendingRemovals: [PendingRemoval] = []
+    private var nextPendingRemovalIndex = 0
+    private var requests: [String: TerminalSurfaceAgentCommandShimRemovalRequest] = [:]
+    private var worker: Task<Void, Never>?
+
+    fileprivate func submit(
+        _ shims: TerminalSurfaceAgentCommandShimSet,
+        attemptLimit: Int,
+        operation:
+        @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
+    ) -> TerminalSurfaceAgentCommandShimRemovalRequest {
+        precondition(attemptLimit > 0)
+        if let request = requests[shims.directoryPath] { return request }
+        let request = TerminalSurfaceAgentCommandShimRemovalRequest()
+        requests[shims.directoryPath] = request
+        pendingRemovals.append(
+            PendingRemoval(
+                directoryPath: shims.directoryPath,
+                shims: shims,
+                attemptLimit: attemptLimit,
+                operation: operation,
+                request: request
+            )
+        )
+        startWorkerIfNeeded()
+        return request
+    }
+
+    private func startWorkerIfNeeded() {
+        guard worker == nil else { return }
+        worker = Task { [weak self] in
+            guard let self else { return }
+            await self.drainPendingRemovals()
+        }
+    }
+
+    private func drainPendingRemovals() async {
+        while nextPendingRemovalIndex < pendingRemovals.count {
+            let pending = pendingRemovals[nextPendingRemovalIndex]
+            nextPendingRemovalIndex += 1
+            var outcome = TerminalSurfaceShimRemovalOutcome.failure(
+                "command shim removal made no attempt"
+            )
+            for _ in 0..<pending.attemptLimit {
+                do {
+                    try await pending.operation(pending.shims)
+                    outcome = .success
+                    break
+                } catch {
+                    outcome = .failure(String(reflecting: error))
+                }
+            }
+            await pending.request.resolve(outcome)
+            requests[pending.directoryPath] = nil
+        }
+        pendingRemovals.removeAll(keepingCapacity: true)
+        nextPendingRemovalIndex = 0
+        worker = nil
     }
 }
 
 actor TerminalSurfaceAgentCommandShimLeaseState {
     private var shims: TerminalSurfaceAgentCommandShimSet?
-    private var removalAttempt: (id: UUID, task: Task<Void, any Error>)?
-    private var removalTimedOut = false
+    private var removalRequest: TerminalSurfaceAgentCommandShimRemovalRequest?
+    private var removalAttempt: (
+        id: UUID,
+        task: Task<TerminalSurfaceShimRemovalOutcome, Never>
+    )?
     private let removalAttemptLimit: Int
     private let removalAttemptTimeout: Duration
     private let removalLane: TerminalSurfaceAgentCommandShimRemovalLane
@@ -78,122 +157,83 @@ actor TerminalSurfaceAgentCommandShimLeaseState {
 
     func release(removalClock: any Clock<Duration> = ContinuousClock()) async -> Bool {
         guard let shims else { return true }
-        guard !removalTimedOut else { return false }
-        let attempt: (id: UUID, task: Task<Void, any Error>)
+        let request: TerminalSurfaceAgentCommandShimRemovalRequest
+        let shouldWaitForDeadline: Bool
+        if let removalRequest {
+            request = removalRequest
+            shouldWaitForDeadline = await request.resolvedOutcome() != nil
+        } else {
+            request = await removalLane.submit(
+                shims,
+                attemptLimit: removalAttemptLimit,
+                operation: remove
+            )
+            removalRequest = request
+            shouldWaitForDeadline = true
+        }
+        guard shouldWaitForDeadline else { return false }
+
+        let attempt: (
+            id: UUID,
+            task: Task<TerminalSurfaceShimRemovalOutcome, Never>
+        )
         if let removalAttempt {
             attempt = removalAttempt
         } else {
             let id = UUID()
-            let remove = remove
-            let removalAttemptLimit = removalAttemptLimit
-            let removalAttemptTimeout = removalAttemptTimeout
-            let removalLane = removalLane
+            let deadline = removalAttemptTimeout
             let task = Task.detached(priority: .utility) {
-                var lastError: (any Error)?
-                for _ in 0..<removalAttemptLimit {
-                    do {
-                        try await Self.remove(
-                            shims,
-                            deadline: removalAttemptTimeout,
-                            clock: removalClock,
-                            removalLane: removalLane,
-                            operation: remove
-                        )
-                        return
-                    } catch let error as TerminalSurfaceShimRemovalError
-                        where error.isTimeout
-                    {
-                        throw error
-                    } catch {
-                        lastError = error
-                    }
-                }
-                throw lastError ?? CancellationError()
+                await Self.wait(
+                    for: request,
+                    deadline: deadline,
+                    clock: removalClock
+                )
             }
             attempt = (id: id, task: task)
             removalAttempt = attempt
         }
 
-        do {
-            try await attempt.task.value
-            guard removalAttempt?.id == attempt.id else { return self.shims == nil }
+        let outcome = await attempt.task.value
+        guard removalAttempt?.id == attempt.id else { return self.shims == nil }
+        removalAttempt = nil
+        switch outcome {
+        case .success:
             self.shims = nil
-            removalAttempt = nil
+            removalRequest = nil
             return true
-        } catch {
-            guard removalAttempt?.id == attempt.id else { return self.shims == nil }
-            removalAttempt = nil
-            if let removalError = error as? TerminalSurfaceShimRemovalError,
-               removalError.isTimeout
-            {
-                removalTimedOut = true
-            }
-            reportRemovalFailure(shims, String(reflecting: error))
+        case let .failure(description):
+            removalRequest = nil
+            reportRemovalFailure(shims, description)
+            return false
+        case .timedOut:
+            reportRemovalFailure(
+                shims,
+                "command shim removal exceeded \(removalAttemptTimeout)"
+            )
+            return false
+        case .cancelled:
             return false
         }
     }
 
-    private nonisolated static func remove(
-        _ shims: TerminalSurfaceAgentCommandShimSet,
+    private nonisolated static func wait(
+        for request: TerminalSurfaceAgentCommandShimRemovalRequest,
         deadline: Duration,
-        clock: any Clock<Duration>,
-        removalLane: TerminalSurfaceAgentCommandShimRemovalLane,
-        operation: @escaping @Sendable (TerminalSurfaceAgentCommandShimSet) async throws -> Void
-    ) async throws {
-        try Task.checkCancellation()
-        guard await removalLane.claim() else {
-            throw TerminalSurfaceShimRemovalError(
-                description: "command shim removal lane is occupied",
-                isTimeout: false
-            )
-        }
-        do {
-            try Task.checkCancellation()
-        } catch {
-            await removalLane.release()
-            throw error
-        }
-
-        let race = TerminalSurfaceShimRemovalRace()
-        let removalTask = Task.detached(priority: .utility) {
-            do {
-                try await operation(shims)
-                await removalLane.release()
-                await race.resolve(.success)
-            } catch {
-                await removalLane.release()
-                await race.resolve(.failure(String(reflecting: error)))
+        clock: any Clock<Duration>
+    ) async -> TerminalSurfaceShimRemovalOutcome {
+        await withTaskGroup(of: TerminalSurfaceShimRemovalOutcome.self) { group in
+            group.addTask { await request.value() }
+            group.addTask {
+                do {
+                    try await clock.sleep(for: deadline, tolerance: nil)
+                    return .timedOut
+                } catch {
+                    return .cancelled
+                }
             }
-        }
-        let timeoutTask = Task.detached(priority: .utility) {
-            do {
-                try await clock.sleep(for: deadline, tolerance: nil)
-                await race.resolve(.timedOut)
-            } catch {
-                await race.resolve(.cancelled)
-            }
-        }
-        let outcome = await withTaskCancellationHandler {
-            await race.value()
-        } onCancel: {
-            removalTask.cancel()
-            timeoutTask.cancel()
-            Task { await race.resolve(.cancelled) }
-        }
-        removalTask.cancel()
-        timeoutTask.cancel()
-        switch outcome {
-        case .success:
-            return
-        case let .failure(description):
-            throw TerminalSurfaceShimRemovalError(description: description, isTimeout: false)
-        case .timedOut:
-            throw TerminalSurfaceShimRemovalError(
-                description: "command shim removal exceeded \(deadline)",
-                isTimeout: true
-            )
-        case .cancelled:
-            throw CancellationError()
+            let outcome = await group.next() ?? .cancelled
+            group.cancelAll()
+            return outcome
         }
     }
 }

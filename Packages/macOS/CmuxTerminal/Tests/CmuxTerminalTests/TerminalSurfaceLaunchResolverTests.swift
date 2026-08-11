@@ -800,14 +800,19 @@ struct TerminalSurfaceLaunchResolverTests {
         )
 
         let firstRelease = Task { await firstState.release(removalClock: clock) }
-        await remover.waitUntilBlocked()
+        await remover.waitUntilInvocation(count: 1)
         try await clock.waitUntilSleepers()
         clock.advance(by: .seconds(5))
         #expect(!(await firstRelease.value))
 
-        #expect(!(await secondState.release(removalClock: clock)))
+        let secondRelease = Task { await secondState.release(removalClock: clock) }
+        try await clock.waitUntilSleepers()
         #expect(await remover.invocationCount == 1)
+        clock.advance(by: .seconds(5))
+        #expect(!(await secondRelease.value))
 
+        await remover.complete()
+        await remover.waitUntilInvocation(count: 2)
         await remover.complete()
     }
 
@@ -825,11 +830,10 @@ struct TerminalSurfaceLaunchResolverTests {
         let firstFilesystem = makeFilesystem()
         let secondFilesystem = makeFilesystem()
 
-        #expect(await firstFilesystem.agentCommandShimRemovalLane.claim())
-        #expect(await secondFilesystem.agentCommandShimRemovalLane.claim())
-
-        await firstFilesystem.agentCommandShimRemovalLane.release()
-        await secondFilesystem.agentCommandShimRemovalLane.release()
+        #expect(
+            ObjectIdentifier(firstFilesystem.agentCommandShimRemovalLane)
+                != ObjectIdentifier(secondFilesystem.agentCommandShimRemovalLane)
+        )
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -982,7 +986,9 @@ private actor BlockingCommandShimInstaller {
 }
 
 private actor NoncooperativeCommandShimRemover {
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var invocationWaiters: [
+        (count: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
     private var completion: CheckedContinuation<Void, Never>?
     private(set) var invocationCount = 0
 
@@ -991,16 +997,16 @@ private actor NoncooperativeCommandShimRemover {
         invocationCount += 1
         await withCheckedContinuation { continuation in
             completion = continuation
-            let waiters = startWaiters
-            startWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
+            let waiters = invocationWaiters.filter { $0.count <= invocationCount }
+            invocationWaiters.removeAll { $0.count <= invocationCount }
+            for waiter in waiters { waiter.continuation.resume() }
         }
     }
 
-    func waitUntilBlocked() async {
-        guard completion == nil else { return }
+    func waitUntilInvocation(count: Int) async {
+        guard invocationCount < count else { return }
         await withCheckedContinuation { continuation in
-            startWaiters.append(continuation)
+            invocationWaiters.append((count, continuation))
         }
     }
 
