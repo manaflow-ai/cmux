@@ -74,6 +74,16 @@ import Testing
         #expect(filter.filter(keyInput) == keyInput)
     }
 
+    @Test func stripsQueuedFocusReportsAndEOTBeforeFreshInput() {
+        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
+        let queuedWakeInput = Data([0x04])
+            + Data("\u{1B}[I\u{1B}[O\u{1B}[I".utf8)
+        #expect(filter.filter(queuedWakeInput) == Data())
+
+        let freshControlCAndEnter = Data([0x03, 0x0D])
+        #expect(filter.filter(freshControlCAndEnter) == freshControlCAndEnter)
+    }
+
     @Test func flushesPendingInputWhenNoContinuationArrives() {
         let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
         let escape = Data([0x1B])
@@ -279,6 +289,36 @@ import Testing
         inputPipe[1] = -1
 
         #expect(try readUntilEOF(fd: bridgePair[1]) == liveProbeReply)
+    }
+
+    @Test func stdinPumpDoesNotPropagateReconnectInputEOFToBridge() throws {
+        var inputPipe = [Int32](repeating: -1, count: 2)
+        try makePipe(&inputPipe)
+        var bridgePair = [Int32](repeating: -1, count: 2)
+        try makeSocketPair(&bridgePair)
+        defer {
+            closeIfOpen(inputPipe[0])
+            closeIfOpen(inputPipe[1])
+            closeIfOpen(bridgePair[0])
+            closeIfOpen(bridgePair[1])
+        }
+
+        let control = try SSHPTYAttachReconnectInputFilter.startStdinPump(
+            fd: bridgePair[0],
+            inputFD: inputPipe[0],
+            filterEnabled: true
+        )
+        #expect(control != nil)
+        Darwin.close(inputPipe[1])
+        inputPipe[1] = -1
+
+        var bridgePoll = pollfd(
+            fd: bridgePair[1],
+            events: Int16(POLLIN | POLLHUP | POLLERR),
+            revents: 0
+        )
+        #expect(Darwin.poll(&bridgePoll, 1, 500) == 0, "stdin EOF must not half-close the persistent bridge")
+        _ = control
     }
 
     private func makePipe(_ fds: inout [Int32]) throws {
