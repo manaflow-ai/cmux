@@ -265,6 +265,15 @@ function DashboardOrganizationSwitcher() {
       clearTimeout(timeout);
       activeSwitchTimerRef.current = null;
       activeSwitchRef.current = null;
+      if (timedOut) {
+        queuedSwitchRef.current = null;
+        void queryClient.invalidateQueries({
+          queryKey: organizationQueryKey,
+          exact: true,
+        });
+        setSwitchPending(false);
+        return;
+      }
       const queued = queuedSwitchRef.current;
       queuedSwitchRef.current = null;
       if (queued) {
@@ -272,24 +281,20 @@ function DashboardOrganizationSwitcher() {
         runSwitch(queued, request);
         return;
       }
-      if (!timedOut) {
-        applySuccessfulSwitch(request);
-        setSwitchPending(false);
-      } else {
-        // The request eventually settled after the UI deadline. Reconcile the
-        // catalog, but do not navigate away from whatever the user opened.
-        void queryClient.invalidateQueries({
-          queryKey: organizationQueryKey,
-          exact: true,
-        });
-        setSwitchPending(false);
-      }
+      applySuccessfulSwitch(request);
+      setSwitchPending(false);
     }, () => {
       if (!mountedRef.current) return;
       if (activeSwitchRef.current !== operation) return;
       clearTimeout(timeout);
       activeSwitchTimerRef.current = null;
       activeSwitchRef.current = null;
+      if (timedOut) {
+        queuedSwitchRef.current = null;
+        setSwitchPending(false);
+        setSwitchError(true);
+        return;
+      }
       const queued = queuedSwitchRef.current;
       queuedSwitchRef.current = null;
       if (queued) {
