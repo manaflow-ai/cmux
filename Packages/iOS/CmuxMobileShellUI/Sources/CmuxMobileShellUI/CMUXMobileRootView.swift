@@ -124,6 +124,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowChangesPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.changesPreviewMode != nil
+        #else
+        return false
+        #endif
+    }
+
     @ViewBuilder private var transcriptDemoPreview: some View {
         #if os(iOS) && DEBUG
         NavigationStack {
@@ -404,6 +412,10 @@ struct CMUXMobileRootView: View {
             workspaceListLayoutPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
+        } else if shouldShowOnboardingPreview {
+            onboardingPreview
+        } else if shouldShowOnboarding {
+            onboardingFlow
         } else if !isAuthenticated {
             SignInView()
         } else {

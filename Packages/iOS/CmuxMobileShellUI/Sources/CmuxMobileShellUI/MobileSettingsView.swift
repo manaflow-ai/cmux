@@ -48,6 +48,11 @@ struct MobileSettingsView: View {
     @State private var notificationsEnabled = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
+    @State private var showingTerminalDemo = false
+    @State private var showingToastGallery = false
+    /// Seconds between tapping "Run Toast Demo" and the first toast, so you
+    /// can navigate to any screen and watch it play there.
+    @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
 #endif
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
@@ -531,6 +536,14 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingShortcuts) {
                 TerminalShortcutsSettingsView()
             }
+            #if DEBUG
+            .fullScreenCover(isPresented: $showingTerminalDemo) {
+                TerminalLogDemoScreen()
+            }
+            .sheet(isPresented: $showingToastGallery) {
+                ToastGalleryView()
+            }
+            #endif
             .sheet(isPresented: $showingOnboarding) {
                 // Re-entry never writes first-run progress. The final scene reads
                 // live connection state and can reopen pairing from offline Settings.

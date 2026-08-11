@@ -121,6 +121,26 @@ struct TerminalComposerView: View {
     /// Minimum height of the compose field, matching the one-line baseline.
     private let composerFieldMinHeight: CGFloat = 40
 
+    /// Whether the field's text alone is empty. Drives secondary visuals; the
+    /// send affordance keys on ``canSend`` so image-only messages remain valid.
+    private var trimmedIsEmpty: Bool {
+        store.terminalInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Send is enabled when the text is non-empty or this terminal has a staged
+    /// attachment.
+    private var canSend: Bool {
+        store.composerCanSend(forTerminalID: terminalID)
+    }
+
+    private var sendStatus: MobileTerminalSendStatus {
+        store.terminalSendStatus(forTerminalID: terminalID)
+    }
+
+    private var isSending: Bool {
+        sendStatus == .sending
+    }
+
     /// This terminal's staged image attachments, shown as the chip row above the
     /// field and sent (in order) ahead of the text on submit.
     private var pendingAttachments: [MobilePendingAttachment] {
