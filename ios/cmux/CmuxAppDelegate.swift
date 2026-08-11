@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import UIKit
 import UserNotifications
 import cmuxFeature
