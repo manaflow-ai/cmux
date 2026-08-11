@@ -5893,7 +5893,7 @@ fn journal_agent_cache_restore_excludes_tombstoned_terminal_projection() {
         .commit_resource_patch(
             &WorkspaceMutation::new("journal-agent-cache-terminal-close", "test").unwrap(),
             "terminal.close",
-            &json!({"terminal_id":terminal_id.clone()}),
+            &json!({"terminal_id":terminal_id}),
             None,
             None,
             &ResourcePatch {
