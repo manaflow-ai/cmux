@@ -6,10 +6,14 @@ private actor MobileTaskModelStrategyProbe {
     private(set) var commands: [(String, Duration)] = []
     private(set) var readPaths: [String] = []
     var commandOutput: String?
+    var minimumCommandTimeout: Duration?
     var files: [String: Data] = [:]
 
     func run(_ command: String, timeout: Duration) -> String? {
         commands.append((command, timeout))
+        if let minimumCommandTimeout, timeout < minimumCommandTimeout {
+            return nil
+        }
         return commandOutput
     }
 
@@ -25,6 +29,7 @@ struct MobileTaskModelProviderStrategyTests {
 
     @Test func openCodeUsesAgentCommandAsAuthoritativeCatalog() async {
         let probe = MobileTaskModelStrategyProbe()
+        await probe.setMinimumCommandTimeout(.seconds(20))
         await probe.setCommandOutput("""
         test-provider/host-next-999
         test-provider/host-second-998
@@ -49,7 +54,7 @@ struct MobileTaskModelProviderStrategyTests {
         let commands = await probe.commands
         #expect(commands.count == 1)
         #expect(commands.first?.0 == "opencode models")
-        #expect(commands.first?.1 == .seconds(5))
+        #expect(commands.first?.1 == .seconds(30))
         #expect(await probe.readPaths.isEmpty)
     }
 
@@ -123,6 +128,10 @@ struct MobileTaskModelProviderStrategyTests {
 }
 
 private extension MobileTaskModelStrategyProbe {
+    func setMinimumCommandTimeout(_ timeout: Duration?) {
+        minimumCommandTimeout = timeout
+    }
+
     func setCommandOutput(_ output: String?) {
         commandOutput = output
     }

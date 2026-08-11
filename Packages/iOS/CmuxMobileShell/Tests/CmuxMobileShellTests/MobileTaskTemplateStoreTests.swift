@@ -5,7 +5,7 @@ import CmuxMobileShellModel
 
 @MainActor
 @Suite(.serialized) struct MobileTaskTemplateStoreTests {
-    @Test func firstListSeedsDefaultTemplatesOnce() {
+    @Test func seededTemplatesCannotBeDeleted() {
         let defaults = Self.defaults()
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
 
@@ -14,7 +14,7 @@ import CmuxMobileShellModel
         store.deleteTemplate(id: store.listTemplates()[0].id)
         let reloaded = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
 
-        #expect(reloaded.listTemplates().map(\.name) == ["Codex", "OpenCode", "Shell"])
+        #expect(reloaded.listTemplates().map(\.name) == ["Claude", "Codex", "OpenCode", "Shell"])
     }
 
     @Test func seedingV4ClearsAbandonedV1V2AndV3Keys() {
@@ -80,6 +80,18 @@ import CmuxMobileShellModel
         #expect(store.listTemplates().count == templates.count - deletedIDs.count)
         #expect(store.lastTemplateID() == nil)
         #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).listTemplates() == store.listTemplates())
+    }
+
+    @Test func batchDeletionKeepsSeedsAndDeletesCustomTemplates() {
+        let defaults = Self.defaults()
+        let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let seeds = store.listTemplates()
+        let custom = MobileTaskTemplate(name: "Custom", icon: "hammer", command: "custom-agent")
+        store.addTemplate(custom)
+
+        store.deleteTemplates(ids: Set(seeds.map(\.id) + [custom.id]))
+
+        #expect(store.listTemplates() == seeds)
     }
 
     @Test func lastUsedValuesRoundTrip() {
