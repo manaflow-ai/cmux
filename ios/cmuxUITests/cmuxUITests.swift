@@ -4818,10 +4818,9 @@ final class cmuxUITests: XCTestCase {
         ])
         let table = app.tables["ChatTranscriptTableView"]
         _ = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
-        let attachment = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@", "ci-failure.png"))
-            .firstMatch
+        let attachment = app.buttons["ChatAttachmentButton"]
         XCTAssertTrue(attachment.waitForExistence(timeout: 4))
+        XCTAssertEqual(attachment.label, "ci-failure.png")
         guard scrollTranscript(table, toReveal: attachment, timeout: 10) else {
             XCTFail("Missing attachment never became visible")
             return
@@ -7434,9 +7433,7 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> ChatTranscriptMetrics {
-        let imageAttachment = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@", "ci-failure.png"))
-            .firstMatch
+        let imageAttachment = app.buttons["ChatAttachmentButton"]
         let cardElements = [
             app.buttons["ChatQuestionOption0"],
             app.buttons["ChatPermissionApprove"],

@@ -62,7 +62,6 @@ public struct ChatAttachmentBubbleView: View {
                         .padding(.horizontal, 4)
                 }
             }
-            .accessibilityElement(children: .combine)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .sheet(item: $fallbackSelection) { selection in
@@ -87,11 +86,16 @@ public struct ChatAttachmentBubbleView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: displayName))
+            .accessibilityValue(Text(verbatim: hostPath))
+            .accessibilityIdentifier("ChatAttachmentButton")
             .task(id: hostPath) {
                 await loadThumbnail(path: hostPath)
             }
         } else {
             bubble
+                .accessibilityElement(children: .combine)
         }
     }
 
