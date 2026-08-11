@@ -9,10 +9,16 @@ use anyhow::{Context, Result, bail};
 use cmux_tui_core::platform::transport;
 #[cfg(windows)]
 use serde::{Deserialize, Serialize};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 use sha2::{Digest, Sha256};
 #[cfg(target_os = "macos")]
 use startup_benchmark_protocol::macos_account_identity;
+#[cfg(windows)]
+use startup_benchmark_protocol::{
+    BOOTSTRAP_CLEANUP_TIMEOUT, BOOTSTRAP_STARTUP_TIMEOUT, BootstrapCleanupCheckpoint,
+    BootstrapCleanupResult, BootstrapFailureCheckpoint, BootstrapObservedEvent, BootstrapStage,
+    BootstrapStartupTrace, failure_line, setup_line,
+};
 use startup_benchmark_protocol::{
     CONTROL_TIMEOUT, TimingSink, arm_line, read_control_line, ready_line, write_control_line,
 };
@@ -869,6 +875,7 @@ mod platform {
 
     const BOOTSTRAP_SCHEMA_VERSION: u32 = 1;
     const MAX_BOOTSTRAP_MESSAGE_BYTES: usize = 64 * 1024;
+    const MAX_BOOTSTRAP_CHECKPOINT_BYTES: usize = 64 * 1024;
 
     #[derive(Deserialize, Serialize)]
     #[serde(deny_unknown_fields)]
@@ -891,6 +898,10 @@ mod platform {
     #[derive(Deserialize, Serialize)]
     #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
     enum BootstrapMessage {
+        Stage {
+            nonce: String,
+            stage: BootstrapStage,
+        },
         Ready {
             nonce: String,
             standard_handles_valid: bool,
@@ -909,32 +920,75 @@ mod platform {
     }
 
     pub fn run_outer(launch: &Launch) -> Result<ExitStatus> {
-        let mut restricted = RestrictedToken::new(launch)?;
-        let bootstrap = restricted.start_bootstrap(launch);
-        let mut bootstrap = match bootstrap {
-            Ok(bootstrap) => bootstrap,
+        let mut control = transport::connect(&launch.control)
+            .with_context(|| format!("connect control socket {}", launch.control.display()))?;
+        control.set_read_timeout(Some(CONTROL_TIMEOUT))?;
+        control.set_write_timeout(Some(CONTROL_TIMEOUT))?;
+        match fs::remove_file(&launch.control) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // Windows AF_UNIX names do not create filesystem entries.
+            }
+            Err(error) => return Err(error).context("remove live Windows control socket"),
+        }
+        write_control_line(&mut control, &setup_line(&launch.nonce))?;
+        let startup_deadline = Instant::now()
+            .checked_add(BOOTSTRAP_STARTUP_TIMEOUT)
+            .context("Windows bootstrap startup deadline overflow")?;
+        let mut trace = BootstrapStartupTrace::new();
+        trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::PublicControlConnected));
+
+        let mut restricted = match RestrictedToken::new(launch) {
+            Ok(restricted) => restricted,
             Err(error) => {
-                let cleanup = restricted.cleanup();
-                return match cleanup {
-                    Ok(()) => Err(error),
-                    Err(cleanup) => Err(error
-                        .context(format!("Windows containment cleanup also failed: {cleanup:#}"))),
-                };
+                trace.observe(BootstrapObservedEvent::Error);
+                return finish_failed_bootstrap_startup(
+                    launch,
+                    &mut control,
+                    trace,
+                    error.context("create Windows restricted startup owner"),
+                    None,
+                    None,
+                );
             }
         };
-        let result = (|| {
-            bootstrap.wait_ready(&launch.nonce)?;
-            let mut control = transport::connect(&launch.control)
-                .with_context(|| format!("connect control socket {}", launch.control.display()))?;
-            control.set_read_timeout(Some(CONTROL_TIMEOUT))?;
-            control.set_write_timeout(Some(CONTROL_TIMEOUT))?;
-            match fs::remove_file(&launch.control) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    // Windows AF_UNIX names do not create filesystem entries.
-                }
-                Err(error) => return Err(error).context("remove live Windows control socket"),
+        trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::RestrictedTokenCreated));
+        if Instant::now() >= startup_deadline {
+            trace.observe(BootstrapObservedEvent::Timeout);
+            return finish_failed_bootstrap_startup(
+                launch,
+                &mut control,
+                trace,
+                anyhow::anyhow!("restricted-token setup exceeded the private startup deadline"),
+                Some(&mut restricted),
+                None,
+            );
+        }
+        let mut bootstrap = match restricted.start_bootstrap(launch, &mut trace) {
+            Ok(bootstrap) => bootstrap,
+            Err(error) => {
+                trace.observe(BootstrapObservedEvent::Error);
+                return finish_failed_bootstrap_startup(
+                    launch,
+                    &mut control,
+                    trace,
+                    error.context("start Windows restricted bootstrap"),
+                    Some(&mut restricted),
+                    None,
+                );
             }
+        };
+        if let Err(error) = bootstrap.wait_ready(&launch.nonce, startup_deadline, &mut trace) {
+            return finish_failed_bootstrap_startup(
+                launch,
+                &mut control,
+                trace,
+                error,
+                Some(&mut restricted),
+                Some(&mut bootstrap),
+            );
+        }
+        let result = (|| {
             write_control_line(&mut control, &ready_line(&launch.nonce))?;
             let arm = read_control_line(&mut control)?;
             if arm != arm_line(&launch.nonce).trim_end() {
@@ -944,8 +998,11 @@ mod platform {
             drop(control);
             bootstrap.arm_and_wait(&launch.nonce, launch.prove_private_job)
         })();
-        let cleanup = restricted.cleanup();
-        let bootstrap_cleanup = bootstrap.finish();
+        let cleanup_deadline = Instant::now()
+            .checked_add(BOOTSTRAP_CLEANUP_TIMEOUT)
+            .context("Windows containment cleanup deadline overflow")?;
+        let cleanup = restricted.cleanup(cleanup_deadline);
+        let bootstrap_cleanup = bootstrap.finish(cleanup_deadline);
         combine_windows_results(result, cleanup, bootstrap_cleanup)
     }
 
@@ -970,8 +1027,10 @@ mod platform {
         // SAFETY: same ownership transfer as the paired input handle above.
         let mut output = unsafe { File::from_raw_handle(output_handle.take() as RawHandle) };
         let result = (|| {
+            write_bootstrap_stage(&mut output, &config.nonce, BootstrapStage::ConfigConsumed)?;
             validate_launch(&config.launch)
                 .context("validate consumed Windows bootstrap launch")?;
+            write_bootstrap_stage(&mut output, &config.nonce, BootstrapStage::LaunchValidated)?;
             run_bootstrap_inner(config, input, &mut output)
         })();
         if let Err(error) = &result {
@@ -1142,7 +1201,11 @@ mod platform {
             })
         }
 
-        fn start_bootstrap(&mut self, launch: &Launch) -> Result<BootstrapSession> {
+        fn start_bootstrap(
+            &mut self,
+            launch: &Launch,
+            trace: &mut BootstrapStartupTrace,
+        ) -> Result<BootstrapSession> {
             let current = env::current_exe().context("resolve Windows bootstrap executable")?;
             let application = wide(current.as_os_str());
             let current_directory = wide(launch.fixture_root.as_os_str());
@@ -1176,6 +1239,7 @@ mod platform {
                 },
                 "create suspended restricted bootstrap",
             )?;
+            trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ProcessCreatedSuspended));
             let process_handle = OwnedHandle(process.hProcess);
             let thread_handle = OwnedHandle(process.hThread);
             // SAFETY: both handles are live and the process is still suspended.
@@ -1188,6 +1252,7 @@ mod platform {
                 return Err(error).context("assign bootstrap to non-breakaway job");
             }
             self.product_assigned = true;
+            trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::JobAssigned));
             let pipes = BootstrapPipes::create()?;
             let control_read = duplicate_into_process(
                 pipes.bootstrap_read.0,
@@ -1213,8 +1278,9 @@ mod platform {
                     duplicate_into_process(handle.0, process_handle.0, false, "private Job query")
                 })
                 .transpose()?;
+            trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::HandlesDuplicated));
             let config_path = bootstrap_config_path(launch);
-            write_bootstrap_config(
+            let (config_bytes, config_sha256) = write_bootstrap_config(
                 &config_path,
                 &BootstrapConfig {
                     schema_version: BOOTSTRAP_SCHEMA_VERSION,
@@ -1226,20 +1292,25 @@ mod platform {
                     query_job,
                 },
             )?;
+            trace.record_config(config_bytes, config_sha256);
+            trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ConfigWritten));
             // SAFETY: thread_handle is the suspended primary thread.
             if unsafe { ResumeThread(thread_handle.0) } == u32::MAX {
-                let _ = fs::remove_file(&config_path);
                 return Err(std::io::Error::last_os_error()).context("resume restricted bootstrap");
             }
-            let session = BootstrapSession::new(process_handle, pipes, config_path);
+            trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ProcessResumed));
+            let session = BootstrapSession::new(process_handle, pipes, config_path)?;
             let _ = &self.restricting_sid;
             Ok(session)
         }
 
-        fn cleanup(&mut self) -> Result<()> {
+        fn cleanup(&mut self, deadline: Instant) -> Result<()> {
             if self.product_assigned {
-                self.terminate_descendants_and_wait_empty()?;
+                self.terminate_descendants_and_wait_empty(deadline)?;
                 self.product_assigned = false;
+            }
+            if Instant::now() >= deadline {
+                bail!("Windows containment cleanup deadline expired before profile cleanup");
             }
             match self.profile.as_mut() {
                 Some(profile) => profile.cleanup(),
@@ -1247,12 +1318,9 @@ mod platform {
             }
         }
 
-        fn terminate_descendants_and_wait_empty(&self) -> Result<()> {
+        fn terminate_descendants_and_wait_empty(&self, deadline: Instant) -> Result<()> {
             // SAFETY: job is a live private Job Object owned by this supervisor.
             check(unsafe { TerminateJobObject(self.job.0, 125) }, "terminate contained job")?;
-            let deadline = Instant::now()
-                .checked_add(CONTROL_TIMEOUT)
-                .context("Job Object cleanup deadline overflow")?;
             loop {
                 let remaining = deadline
                     .checked_duration_since(Instant::now())
@@ -1301,13 +1369,27 @@ mod platform {
     struct BootstrapSession {
         process: OwnedHandle,
         writer: Option<File>,
-        receiver: mpsc::Receiver<std::result::Result<BootstrapMessage, String>>,
+        receiver: mpsc::Receiver<BootstrapEvent>,
         reader: Option<thread::JoinHandle<()>>,
+        status: Option<thread::JoinHandle<()>>,
         config_path: PathBuf,
     }
 
+    enum BootstrapEvent {
+        Message(BootstrapMessage),
+        PipeEof,
+        ProtocolError(String),
+        ProcessExited(std::result::Result<u32, String>),
+    }
+
     impl BootstrapSession {
-        fn new(process: OwnedHandle, mut pipes: BootstrapPipes, config_path: PathBuf) -> Self {
+        fn new(
+            process: OwnedHandle,
+            mut pipes: BootstrapPipes,
+            config_path: PathBuf,
+        ) -> Result<Self> {
+            let wait_handle =
+                duplicate_current_process_handle(process.0, "restricted bootstrap status wait")?;
             let controller_read = pipes.controller_read.take();
             let controller_write = pipes.controller_write.take();
             drop(pipes);
@@ -1316,51 +1398,115 @@ mod platform {
             // SAFETY: same one-owner transfer for the command pipe.
             let writer = unsafe { File::from_raw_handle(controller_write as RawHandle) };
             let (sender, receiver) = mpsc::channel();
+            let reader_sender = sender.clone();
             let reader = thread::spawn(move || {
                 let mut reader = BufReader::new(reader);
                 loop {
                     let mut line = Vec::new();
-                    let result =
-                        reader.read_until(b'\n', &mut line).map_err(|error| error.to_string());
-                    let result = result.and_then(|count| {
-                        if count == 0 {
-                            return Err("Windows bootstrap event pipe closed".into());
+                    let event = match reader.read_until(b'\n', &mut line) {
+                        Ok(0) => BootstrapEvent::PipeEof,
+                        Ok(_) if line.len() > MAX_BOOTSTRAP_MESSAGE_BYTES => {
+                            BootstrapEvent::ProtocolError(
+                                "Windows bootstrap event exceeded its bound".into(),
+                            )
                         }
-                        if line.len() > MAX_BOOTSTRAP_MESSAGE_BYTES {
-                            return Err("Windows bootstrap event exceeded its bound".into());
-                        }
-                        serde_json::from_slice(&line).map_err(|error| error.to_string())
-                    });
-                    let terminal = result.is_err();
-                    if sender.send(result).is_err() || terminal {
-                        break;
+                        Ok(_) => match serde_json::from_slice(&line) {
+                            Ok(message) => BootstrapEvent::Message(message),
+                            Err(error) => BootstrapEvent::ProtocolError(error.to_string()),
+                        },
+                        Err(error) => BootstrapEvent::ProtocolError(error.to_string()),
+                    };
+                    let terminal =
+                        matches!(event, BootstrapEvent::PipeEof | BootstrapEvent::ProtocolError(_));
+                    if reader_sender.send(event).is_err() || terminal {
+                        return;
                     }
                 }
             });
-            Self { process, writer: Some(writer), receiver, reader: Some(reader), config_path }
+            let status = thread::spawn(move || {
+                let handle = OwnedHandle(wait_handle as HANDLE);
+                let result = wait_process_exit_code(&handle).map_err(|error| format!("{error:#}"));
+                let _ = sender.send(BootstrapEvent::ProcessExited(result));
+            });
+            Ok(Self {
+                process,
+                writer: Some(writer),
+                receiver,
+                reader: Some(reader),
+                status: Some(status),
+                config_path,
+            })
         }
 
-        fn wait_ready(&mut self, nonce: &str) -> Result<()> {
-            match self.receive("wait for restricted bootstrap READY")? {
-                BootstrapMessage::Ready {
-                    nonce: observed,
-                    standard_handles_valid,
-                    standard_handles_inheritable,
-                    private_job_member,
-                } if observed == nonce
-                    && standard_handles_valid
-                    && standard_handles_inheritable
-                    && private_job_member =>
-                {
-                    if self.config_path.exists() {
-                        bail!("restricted bootstrap did not consume its launch config");
+        fn wait_ready(
+            &mut self,
+            nonce: &str,
+            deadline: Instant,
+            trace: &mut BootstrapStartupTrace,
+        ) -> Result<()> {
+            loop {
+                let event =
+                    match self.receive_until(deadline, "wait for restricted bootstrap READY") {
+                        Ok(event) => event,
+                        Err(error) if Instant::now() >= deadline => {
+                            trace.observe(BootstrapObservedEvent::Timeout);
+                            return Err(error);
+                        }
+                        Err(error) => {
+                            trace.observe(BootstrapObservedEvent::Error);
+                            return Err(error);
+                        }
+                    };
+                match event {
+                    BootstrapEvent::Message(BootstrapMessage::Stage { nonce: observed, stage })
+                        if observed == nonce =>
+                    {
+                        trace.observe(BootstrapObservedEvent::Stage(stage));
                     }
-                    Ok(())
+                    BootstrapEvent::Message(BootstrapMessage::Ready {
+                        nonce: observed,
+                        standard_handles_valid,
+                        standard_handles_inheritable,
+                        private_job_member,
+                    }) if observed == nonce
+                        && standard_handles_valid
+                        && standard_handles_inheritable
+                        && private_job_member =>
+                    {
+                        if self.config_path.exists() {
+                            trace.observe(BootstrapObservedEvent::Error);
+                            bail!("restricted bootstrap did not consume its launch config");
+                        }
+                        trace.observe(BootstrapObservedEvent::Ready);
+                        return Ok(());
+                    }
+                    BootstrapEvent::Message(BootstrapMessage::Error { nonce: observed, error })
+                        if observed == nonce =>
+                    {
+                        trace.observe(BootstrapObservedEvent::Error);
+                        bail!("restricted bootstrap failed before READY: {error}")
+                    }
+                    BootstrapEvent::ProcessExited(Ok(code)) => {
+                        trace.observe(BootstrapObservedEvent::Exit(code));
+                        bail!("restricted bootstrap exited before READY with code {code}")
+                    }
+                    BootstrapEvent::ProcessExited(Err(error)) => {
+                        trace.observe(BootstrapObservedEvent::Error);
+                        bail!("read restricted bootstrap exit state: {error}")
+                    }
+                    BootstrapEvent::PipeEof => {
+                        trace.observe(BootstrapObservedEvent::Eof);
+                        bail!("restricted bootstrap event pipe closed before READY")
+                    }
+                    BootstrapEvent::ProtocolError(error) => {
+                        trace.observe(BootstrapObservedEvent::Error);
+                        bail!("restricted bootstrap event protocol failed: {error}")
+                    }
+                    _ => {
+                        trace.observe(BootstrapObservedEvent::Error);
+                        bail!("restricted bootstrap READY evidence mismatch")
+                    }
                 }
-                BootstrapMessage::Error { nonce: observed, error } if observed == nonce => {
-                    bail!("restricted bootstrap failed before READY: {error}")
-                }
-                _ => bail!("restricted bootstrap READY evidence mismatch"),
             }
         }
 
@@ -1368,16 +1514,36 @@ mod platform {
             let writer =
                 self.writer.as_mut().context("Windows bootstrap command pipe is closed")?;
             write_bootstrap_message(writer, &BootstrapCommand::Arm { nonce: nonce.into() })?;
-            let (code, contained) = match self.receive("wait for restricted product status")? {
-                BootstrapMessage::Exit {
-                    nonce: observed,
-                    code,
-                    private_job_descendant_contained,
-                } if observed == nonce => (code, private_job_descendant_contained),
-                BootstrapMessage::Error { nonce: observed, error } if observed == nonce => {
-                    bail!("restricted bootstrap product launch failed: {error}")
+            let deadline = Instant::now()
+                .checked_add(CONTROL_TIMEOUT)
+                .context("restricted product status deadline overflow")?;
+            let (code, contained) = loop {
+                match self.receive_until(deadline, "wait for restricted product status")? {
+                    BootstrapEvent::Message(BootstrapMessage::Exit {
+                        nonce: observed,
+                        code,
+                        private_job_descendant_contained,
+                    }) if observed == nonce => break (code, private_job_descendant_contained),
+                    BootstrapEvent::Message(BootstrapMessage::Error { nonce: observed, error })
+                        if observed == nonce =>
+                    {
+                        bail!("restricted bootstrap product launch failed: {error}")
+                    }
+                    BootstrapEvent::ProcessExited(Ok(_)) => {
+                        // The event-pipe line can arrive after the process signal. Keep the one
+                        // absolute deadline while the reader drains the already-written status.
+                    }
+                    BootstrapEvent::ProcessExited(Err(error)) => {
+                        bail!("read restricted bootstrap product exit state: {error}")
+                    }
+                    BootstrapEvent::PipeEof => {
+                        bail!("restricted bootstrap event pipe closed before product status")
+                    }
+                    BootstrapEvent::ProtocolError(error) => {
+                        bail!("restricted bootstrap event protocol failed: {error}")
+                    }
+                    _ => bail!("restricted bootstrap exit evidence mismatch"),
                 }
-                _ => bail!("restricted bootstrap exit evidence mismatch"),
             };
             if require_descendant && !contained {
                 bail!(
@@ -1388,23 +1554,162 @@ mod platform {
             Ok(ExitStatus::from_raw(code))
         }
 
-        fn receive(&self, operation: &str) -> Result<BootstrapMessage> {
-            match self.receiver.recv_timeout(CONTROL_TIMEOUT) {
-                Ok(Ok(message)) => Ok(message),
-                Ok(Err(error)) => bail!("{operation}: {error}"),
+        fn receive_until(&self, deadline: Instant, operation: &str) -> Result<BootstrapEvent> {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|remaining| !remaining.is_zero());
+            let Some(remaining) = remaining else {
+                bail!("{operation}: deadline expired");
+            };
+            match self.receiver.recv_timeout(remaining) {
+                Ok(event) => Ok(event),
+                Err(mpsc::RecvTimeoutError::Timeout) => bail!("{operation}: deadline expired"),
                 Err(error) => Err(error).context(operation.to_string()),
             }
         }
 
-        fn finish(&mut self) -> Result<()> {
+        fn finish(&mut self, deadline: Instant) -> Result<()> {
             self.writer.take();
-            let _ = fs::remove_file(&self.config_path);
-            wait_process(&self.process, CONTROL_TIMEOUT, "restricted bootstrap cleanup")?;
+            wait_process_until(&self.process, deadline, "restricted bootstrap cleanup")?;
             if let Some(reader) = self.reader.take() {
                 reader.join().map_err(|_| anyhow::anyhow!("bootstrap reader thread panicked"))?;
             }
+            if let Some(status) = self.status.take() {
+                status.join().map_err(|_| anyhow::anyhow!("bootstrap status thread panicked"))?;
+            }
             Ok(())
         }
+    }
+
+    fn finish_failed_bootstrap_startup(
+        launch: &Launch,
+        control: &mut Box<dyn transport::Stream>,
+        mut trace: BootstrapStartupTrace,
+        error: anyhow::Error,
+        restricted: Option<&mut RestrictedToken>,
+        bootstrap: Option<&mut BootstrapSession>,
+    ) -> Result<ExitStatus> {
+        if trace.terminal.is_none() {
+            trace.observe(BootstrapObservedEvent::Error);
+        }
+        let config_present = bootstrap_config_path(launch).is_file();
+        let reason = bounded_text(&format!("{error:#}"), 2_048);
+        let checkpoint = BootstrapFailureCheckpoint {
+            schema_version: 1,
+            record_type: "startup-failure",
+            nonce: &launch.nonce,
+            reason: &reason,
+            config_present_after_failure: config_present,
+            trace: &trace,
+        };
+        let checkpoint_result = create_bootstrap_failure_checkpoint(launch, &checkpoint);
+        let cleanup_deadline = Instant::now()
+            .checked_add(BOOTSTRAP_CLEANUP_TIMEOUT)
+            .context("Windows failed-startup cleanup deadline overflow")?;
+        let containment_started = restricted.is_some();
+        let bootstrap_started = bootstrap.is_some();
+        let containment_result = match restricted {
+            Some(restricted) => restricted.cleanup(cleanup_deadline),
+            None => Ok(()),
+        };
+        let bootstrap_result = match bootstrap {
+            Some(bootstrap) => bootstrap.finish(cleanup_deadline),
+            None => Ok(()),
+        };
+        let containment_cleanup = cleanup_checkpoint(&containment_result, containment_started);
+        let bootstrap_cleanup = cleanup_checkpoint(&bootstrap_result, bootstrap_started);
+        let cleanup_checkpoint = BootstrapCleanupCheckpoint {
+            schema_version: 1,
+            record_type: "cleanup-result",
+            nonce: &launch.nonce,
+            containment_cleanup: &containment_cleanup,
+            bootstrap_cleanup: &bootstrap_cleanup,
+        };
+        let (checkpoint_name, checkpoint_append_error) = match checkpoint_result {
+            Ok((name, mut file)) => {
+                let result = append_bootstrap_cleanup_checkpoint(&mut file, &cleanup_checkpoint);
+                (Some(name), result.err())
+            }
+            Err(checkpoint) => (None, Some(checkpoint)),
+        };
+        let failure = failure_line(&launch.nonce, checkpoint_name.as_deref())?;
+        write_control_line(control, &failure)?;
+        control.shutdown(std::net::Shutdown::Both)?;
+
+        let mut details = Vec::new();
+        if let Err(cleanup) = containment_result {
+            details.push(format!("containment cleanup failed: {cleanup:#}"));
+        }
+        if let Err(cleanup) = bootstrap_result {
+            details.push(format!("bootstrap cleanup failed: {cleanup:#}"));
+        }
+        if let Some(checkpoint) = checkpoint_append_error {
+            details.push(format!("bootstrap checkpoint failed: {checkpoint:#}"));
+        }
+        if details.is_empty() { Err(error) } else { Err(error.context(details.join("; "))) }
+    }
+
+    fn cleanup_checkpoint(result: &Result<()>, started: bool) -> BootstrapCleanupResult {
+        if !started {
+            return BootstrapCleanupResult::not_started();
+        }
+        match result {
+            Ok(()) => BootstrapCleanupResult::completed(),
+            Err(error) => {
+                BootstrapCleanupResult::failed(bounded_text(&format!("{error:#}"), 1_024))
+            }
+        }
+    }
+
+    fn create_bootstrap_failure_checkpoint(
+        launch: &Launch,
+        checkpoint: &BootstrapFailureCheckpoint<'_>,
+    ) -> Result<(String, File)> {
+        let name = format!("bootstrap-failure-{}.json", &launch.nonce[..16]);
+        let bytes = serde_json::to_vec(checkpoint)?;
+        if bytes.len() > MAX_BOOTSTRAP_CHECKPOINT_BYTES / 2 {
+            bail!("Windows bootstrap failure checkpoint exceeded its bound");
+        }
+        let path = launch.fixture_root.join(&name);
+        let mut file =
+            fs::OpenOptions::new().write(true).create_new(true).open(&path).with_context(|| {
+                format!("create bootstrap failure checkpoint {}", path.display())
+            })?;
+        file.write_all(&bytes)?;
+        file.write_all(b"\n")?;
+        file.flush()?;
+        Ok((name, file))
+    }
+
+    fn append_bootstrap_cleanup_checkpoint(
+        file: &mut File,
+        checkpoint: &BootstrapCleanupCheckpoint<'_>,
+    ) -> Result<()> {
+        let bytes = serde_json::to_vec(checkpoint)?;
+        let final_size = file
+            .metadata()?
+            .len()
+            .checked_add(u64::try_from(bytes.len())?)
+            .and_then(|size| size.checked_add(1))
+            .context("Windows bootstrap checkpoint size overflow")?;
+        if final_size > u64::try_from(MAX_BOOTSTRAP_CHECKPOINT_BYTES)? {
+            bail!("Windows bootstrap cleanup checkpoint exceeded its bound");
+        }
+        file.write_all(&bytes)?;
+        file.write_all(b"\n")?;
+        file.flush()?;
+        Ok(())
+    }
+
+    fn bounded_text(value: &str, maximum: usize) -> String {
+        if value.len() <= maximum {
+            return value.to_string();
+        }
+        let mut end = maximum;
+        while !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &value[..end])
     }
 
     fn run_bootstrap_inner(config: BootstrapConfig, input: File, output: &mut File) -> Result<()> {
@@ -1417,6 +1722,7 @@ mod platform {
             .map_err(|_| anyhow::anyhow!("Windows bootstrap requires three standard handles"))?;
         let (standard_handles_valid, standard_handles_inheritable) =
             validate_standard_handles(&standard_handles)?;
+        write_bootstrap_stage(output, &config.nonce, BootstrapStage::StandardHandlesValidated)?;
         let query_job = config
             .query_job
             .map(|value| OwnedHandle::from_transferred(value, "private Job query handle"))
@@ -1425,6 +1731,7 @@ mod platform {
             query_job.as_ref().map(|job| process_in_job(job.0)).transpose()?.unwrap_or(true);
         let timing = TimingSink::open(&config.launch.timing, &config.nonce)?;
         fs::remove_file(&config.launch.timing).context("consume Windows bootstrap timing page")?;
+        write_bootstrap_stage(output, &config.nonce, BootstrapStage::TimingConsumed)?;
         write_bootstrap_message(
             output,
             &BootstrapMessage::Ready {
@@ -1604,6 +1911,25 @@ mod platform {
         Ok(target as usize)
     }
 
+    fn duplicate_current_process_handle(source: HANDLE, name: &str) -> Result<usize> {
+        let mut target = null_mut();
+        check(
+            unsafe {
+                DuplicateHandle(
+                    GetCurrentProcess(),
+                    source,
+                    GetCurrentProcess(),
+                    &mut target,
+                    0,
+                    0,
+                    DUPLICATE_SAME_ACCESS,
+                )
+            },
+            &format!("duplicate Windows {name}"),
+        )?;
+        Ok(target as usize)
+    }
+
     fn validate_standard_handles(handles: &[OwnedHandle]) -> Result<(bool, bool)> {
         let mut valid = true;
         let mut inheritable = true;
@@ -1648,16 +1974,22 @@ mod platform {
         launch.fixture_root.join(format!("bootstrap-{}.json", &launch.nonce[..16]))
     }
 
-    fn write_bootstrap_config(path: &Path, config: &BootstrapConfig) -> Result<()> {
+    fn write_bootstrap_config(path: &Path, config: &BootstrapConfig) -> Result<(u64, String)> {
+        let mut bytes = serde_json::to_vec(config)?;
+        bytes.push(b'\n');
+        if bytes.len() > MAX_BOOTSTRAP_MESSAGE_BYTES {
+            bail!("Windows bootstrap config exceeded its bound");
+        }
+        let digest = format!("{:x}", Sha256::digest(&bytes));
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(path)
             .with_context(|| format!("create Windows bootstrap config {}", path.display()))?;
-        serde_json::to_writer(&mut file, config)?;
-        file.write_all(b"\n")?;
-        file.sync_all()?;
-        Ok(())
+        file.write_all(&bytes)?;
+        file.flush()?;
+        drop(file);
+        Ok((u64::try_from(bytes.len())?, digest))
     }
 
     fn write_bootstrap_message(writer: &mut File, message: &impl Serialize) -> Result<()> {
@@ -1665,6 +1997,13 @@ mod platform {
         writer.write_all(b"\n")?;
         writer.flush()?;
         Ok(())
+    }
+
+    fn write_bootstrap_stage(writer: &mut File, nonce: &str, stage: BootstrapStage) -> Result<()> {
+        write_bootstrap_message(
+            writer,
+            &BootstrapMessage::Stage { nonce: nonce.to_string(), stage },
+        )
     }
 
     fn read_bootstrap_message<T: for<'de> Deserialize<'de>>(
@@ -1685,6 +2024,28 @@ mod platform {
             WAIT_TIMEOUT => bail!("{operation} exceeded its deadline"),
             _ => Err(std::io::Error::last_os_error()).context(operation.to_string()),
         }
+    }
+
+    fn wait_process_until(process: &OwnedHandle, deadline: Instant, operation: &str) -> Result<()> {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .with_context(|| format!("{operation} deadline expired"))?;
+        wait_process(process, remaining, operation)
+    }
+
+    fn wait_process_exit_code(process: &OwnedHandle) -> Result<u32> {
+        // SAFETY: process is a live duplicated process handle owned by this thread.
+        if unsafe { WaitForSingleObject(process.0, INFINITE) } != WAIT_OBJECT_0 {
+            return Err(std::io::Error::last_os_error())
+                .context("wait for restricted bootstrap status");
+        }
+        let mut code = 0_u32;
+        check(
+            unsafe { GetExitCodeProcess(process.0, &mut code) },
+            "read restricted bootstrap status",
+        )?;
+        Ok(code)
     }
 
     fn combine_windows_results(

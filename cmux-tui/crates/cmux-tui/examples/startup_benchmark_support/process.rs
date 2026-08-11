@@ -25,7 +25,8 @@ use super::{
 #[cfg(target_os = "macos")]
 use crate::startup_benchmark_protocol::macos_account_identity;
 use crate::startup_benchmark_protocol::{
-    TimingPage, arm_line, monotonic_ns, read_control_line, ready_line, write_control_line,
+    SupervisorStartupLine, TimingPage, arm_line, monotonic_ns, parse_supervisor_startup_line,
+    read_control_line, write_control_line,
 };
 
 const EVENT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -414,11 +415,28 @@ impl LaunchControl {
         if let Some(thread) = self.accept_thread.take() {
             thread.join().map_err(|_| anyhow!("supervisor control thread panicked"))?;
         }
-        let timeout = deadline.timeout(PROCESS_TIMEOUT, "reading supervisor READY")?;
-        stream.set_read_timeout(Some(timeout))?;
-        let ready = read_control_line(&mut stream)?;
-        if ready != ready_line(&self.nonce).trim_end() {
-            bail!("supervisor READY identity mismatch");
+        let public_line_deadline =
+            deadline.instant(PROCESS_TIMEOUT, "reading the bounded supervisor startup protocol")?;
+        let mut line =
+            read_supervisor_startup_line(&mut stream, public_line_deadline, &self.nonce)?;
+        if line == SupervisorStartupLine::Setup {
+            line = read_supervisor_startup_line(&mut stream, public_line_deadline, &self.nonce)?;
+        }
+        match line {
+            SupervisorStartupLine::Ready => {}
+            SupervisorStartupLine::Failure { checkpoint_name } => {
+                let checkpoint = checkpoint_name
+                    .map(|name| self.control_path.parent().unwrap_or(Path::new(".")).join(name));
+                bail!(
+                    "product supervisor startup failed; checkpoint: {}",
+                    checkpoint
+                        .as_deref()
+                        .map_or_else(|| "unavailable".into(), |path| path.display().to_string())
+                );
+            }
+            SupervisorStartupLine::Setup => {
+                bail!("product supervisor sent duplicate SETUP events")
+            }
         }
         let timeout = deadline.timeout(PROCESS_TIMEOUT, "writing supervisor ARM")?;
         stream.set_write_timeout(Some(timeout))?;
@@ -430,6 +448,19 @@ impl LaunchControl {
     fn measured_duration(&self, event_ns: u64) -> Result<Duration> {
         Ok(Duration::from_nanos(self.timing.measured_duration_ns(event_ns)?))
     }
+}
+
+fn read_supervisor_startup_line(
+    stream: &mut Box<dyn transport::Stream>,
+    deadline: Instant,
+    nonce: &str,
+) -> Result<SupervisorStartupLine> {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .context("supervisor startup line deadline expired")?;
+    stream.set_read_timeout(Some(remaining))?;
+    parse_supervisor_startup_line(&read_control_line(stream)?, nonce)
 }
 
 impl Drop for LaunchControl {

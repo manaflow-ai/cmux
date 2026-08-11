@@ -15,13 +15,15 @@ use cmux_tui_core::platform::transport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use startup_benchmark_protocol::{
-    CONTROL_TIMEOUT, TimingPage, arm_line, monotonic_ns, read_control_line, ready_line,
+    CONTROL_TIMEOUT, SupervisorStartupLine, TimingPage, arm_line, monotonic_ns,
+    parse_supervisor_startup_line, read_control_line, validate_bootstrap_failure_records,
     write_control_line,
 };
 use wait_timeout::ChildExt;
 
 const MAX_SUPERVISOR_STDERR_BYTES: usize = 64 * 1024;
 const MAX_PRODUCT_EVENT_BYTES: usize = 64 * 1024;
+const MAX_BOOTSTRAP_CHECKPOINT_BYTES: u64 = 64 * 1024;
 
 #[derive(Serialize)]
 struct PreflightEvidence {
@@ -83,6 +85,20 @@ enum SupervisorStartupEvent {
     ProductLine(io::Result<Vec<u8>>),
     ProductOutputClosed(io::Result<()>),
     StderrClosed(io::Result<Vec<u8>>),
+}
+
+enum PreflightProtocolOutcome {
+    Success {
+        status: ExitStatus,
+        supervisor_stderr: Vec<u8>,
+        contained: bool,
+        inbound_network_denied: bool,
+        child_evidence: ChildProbeEvidence,
+    },
+    StartupFailure {
+        checkpoint_name: Option<String>,
+        public_deadline: Instant,
+    },
 }
 
 struct SupervisorEventOwner {
@@ -155,15 +171,23 @@ impl SupervisorEventOwner {
     }
 
     fn finish(&mut self) -> Result<(ExitStatus, Vec<u8>, bool)> {
-        let status = match self.child.wait_timeout(CONTROL_TIMEOUT)? {
+        let deadline = Instant::now()
+            .checked_add(CONTROL_TIMEOUT)
+            .context("preflight completion deadline overflow")?;
+        self.finish_until(deadline)
+    }
+
+    fn finish_until(&mut self, deadline: Instant) -> Result<(ExitStatus, Vec<u8>, bool)> {
+        let process_timeout = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .context("preflight supervisor cleanup deadline expired")?;
+        let status = match self.child.wait_timeout(process_timeout)? {
             Some(status) => status,
             None => {
                 return self.fail("preflight supervisor exceeded its deadline", "process timeout");
             }
         };
-        let deadline = Instant::now()
-            .checked_add(CONTROL_TIMEOUT)
-            .context("preflight completion deadline overflow")?;
         while self.stderr.is_none() || !self.output_closed {
             let remaining = deadline.saturating_duration_since(Instant::now());
             match self.receiver.recv_timeout(remaining) {
@@ -288,6 +312,53 @@ fn run() -> Result<()> {
         Some("--breakaway-probe") => Ok(()),
         _ => run_controller(&values),
     }
+}
+
+fn read_preflight_startup_line(
+    stream: &mut Box<dyn transport::Stream>,
+    deadline: Instant,
+    nonce: &str,
+) -> Result<SupervisorStartupLine> {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .context("preflight public startup-line deadline expired")?;
+    stream.set_read_timeout(Some(remaining))?;
+    parse_supervisor_startup_line(&read_control_line(stream)?, nonce)
+}
+
+fn copy_bootstrap_failure_checkpoint(
+    fixture_root: &Path,
+    output: &Path,
+    checkpoint_name: Option<&str>,
+    expected_nonce: &str,
+) -> Result<PathBuf> {
+    let checkpoint_name = checkpoint_name
+        .context("preflight supervisor failure did not name a bootstrap checkpoint")?;
+    let source = fixture_root.join(checkpoint_name);
+    if source.parent() != Some(fixture_root) {
+        bail!("bootstrap checkpoint escaped the preflight fixture root");
+    }
+    let metadata = fs::symlink_metadata(&source)
+        .with_context(|| format!("inspect bootstrap checkpoint {}", source.display()))?;
+    if !metadata.file_type().is_file() || metadata.len() > MAX_BOOTSTRAP_CHECKPOINT_BYTES {
+        bail!("bootstrap checkpoint is not one bounded regular file");
+    }
+    let bytes = fs::read(&source)?;
+    validate_bootstrap_failure_records(&bytes, expected_nonce)?;
+    let stem = output
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .context("preflight evidence output has no portable stem")?;
+    let destination = output.with_file_name(format!("{stem}-bootstrap-failure.json"));
+    let mut file =
+        OpenOptions::new().write(true).create_new(true).open(&destination).with_context(|| {
+            format!("create copied bootstrap checkpoint {}", destination.display())
+        })?;
+    file.write_all(&bytes)?;
+    file.flush()?;
+    drop(file);
+    Ok(destination)
 }
 
 fn run_controller(values: &[String]) -> Result<()> {
@@ -422,12 +493,31 @@ fn run_controller(values: &[String]) -> Result<()> {
     };
     let protocol_result = (|| -> Result<_> {
         let mut supervisor_stream = events.accept_control()?;
-        supervisor_stream.set_read_timeout(Some(CONTROL_TIMEOUT))?;
-        supervisor_stream.set_write_timeout(Some(CONTROL_TIMEOUT))?;
-        let ready = read_control_line(&mut supervisor_stream)?;
-        if ready != ready_line(&nonce).trim_end() {
-            bail!("preflight READY identity mismatch");
+        let public_deadline = Instant::now()
+            .checked_add(CONTROL_TIMEOUT)
+            .context("preflight public startup-line deadline overflow")?;
+        let mut startup =
+            read_preflight_startup_line(&mut supervisor_stream, public_deadline, &nonce)?;
+        if startup == SupervisorStartupLine::Setup {
+            startup = read_preflight_startup_line(&mut supervisor_stream, public_deadline, &nonce)?;
         }
+        match startup {
+            SupervisorStartupLine::Ready => {}
+            SupervisorStartupLine::Failure { checkpoint_name } => {
+                return Ok(PreflightProtocolOutcome::StartupFailure {
+                    checkpoint_name,
+                    public_deadline,
+                });
+            }
+            SupervisorStartupLine::Setup => {
+                bail!("preflight supervisor sent duplicate SETUP events")
+            }
+        }
+        let write_timeout = public_deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .context("preflight ARM deadline expired")?;
+        supervisor_stream.set_write_timeout(Some(write_timeout))?;
         write_control_line(&mut supervisor_stream, &arm_line(&nonce))?;
         supervisor_stream.shutdown(std::net::Shutdown::Both)?;
 
@@ -444,11 +534,50 @@ fn run_controller(values: &[String]) -> Result<()> {
             serde_json::from_slice(&events.product_line("descendant probe evidence")?)
                 .context("parse preflight descendant evidence")?;
         let (status, supervisor_stderr, contained) = events.finish()?;
-        Ok((status, supervisor_stderr, contained, inbound_network_denied, child_evidence))
+        Ok(PreflightProtocolOutcome::Success {
+            status,
+            supervisor_stderr,
+            contained,
+            inbound_network_denied,
+            child_evidence,
+        })
     })();
     let (status, supervisor_stderr, contained, inbound_network_denied, child_evidence) =
         match protocol_result {
-            Ok(result) => result,
+            Ok(PreflightProtocolOutcome::Success {
+                status,
+                supervisor_stderr,
+                contained,
+                inbound_network_denied,
+                child_evidence,
+            }) => (status, supervisor_stderr, contained, inbound_network_denied, child_evidence),
+            Ok(PreflightProtocolOutcome::StartupFailure { checkpoint_name, public_deadline }) => {
+                let copied = copy_bootstrap_failure_checkpoint(
+                    &root,
+                    &output,
+                    checkpoint_name.as_deref(),
+                    &nonce,
+                );
+                let finished = events.finish_until(public_deadline);
+                return match (copied, finished) {
+                    (Ok(path), Ok((status, stderr, _))) => Err(anyhow::anyhow!(
+                        "preflight supervisor reported bounded startup failure; checkpoint {}; exit {status}; stderr: {}",
+                        path.display(),
+                        String::from_utf8_lossy(&stderr)
+                    )),
+                    (Err(copy), Ok((status, stderr, _))) => Err(copy.context(format!(
+                        "preflight supervisor startup failed and exited {status}; stderr: {}",
+                        String::from_utf8_lossy(&stderr)
+                    ))),
+                    (Ok(path), Err(finish)) => Err(finish.context(format!(
+                        "preflight supervisor startup failed; checkpoint {}",
+                        path.display()
+                    ))),
+                    (Err(copy), Err(finish)) => Err(copy.context(format!(
+                        "preflight startup checkpoint copy and natural cleanup failed: {finish:#}"
+                    ))),
+                };
+            }
             Err(error) => return events.abort(error),
         };
     let event_ns = monotonic_ns()?;

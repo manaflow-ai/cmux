@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
 use memmap2::{MmapMut, MmapOptions};
+use serde::{Deserialize, Serialize};
 
 const PAGE_BYTES: u64 = 4096;
 const MAGIC: &[u8; 8] = b"CMUXT001";
@@ -19,6 +20,204 @@ const T0_OFFSET: usize = 40;
 const GENERATION_OFFSET: usize = 48;
 
 pub const CONTROL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+pub const BOOTSTRAP_STARTUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+pub const BOOTSTRAP_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BootstrapStage {
+    PublicControlConnected,
+    RestrictedTokenCreated,
+    ProcessCreatedSuspended,
+    JobAssigned,
+    HandlesDuplicated,
+    ConfigWritten,
+    ProcessResumed,
+    ConfigConsumed,
+    LaunchValidated,
+    StandardHandlesValidated,
+    TimingConsumed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum BootstrapTerminal {
+    Ready,
+    Exit { code: u32 },
+    Eof,
+    Timeout,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootstrapObservedEvent {
+    Stage(BootstrapStage),
+    Ready,
+    Exit(u32),
+    Eof,
+    Timeout,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BootstrapCleanupResult {
+    pub state: &'static str,
+    pub detail: Option<String>,
+}
+
+impl BootstrapCleanupResult {
+    pub fn completed() -> Self {
+        Self { state: "completed", detail: None }
+    }
+
+    pub fn failed(detail: impl Into<String>) -> Self {
+        Self { state: "failed", detail: Some(detail.into()) }
+    }
+
+    pub fn not_started() -> Self {
+        Self { state: "not-started", detail: None }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BootstrapStartupTrace {
+    pub stages: Vec<BootstrapStage>,
+    pub config_bytes: Option<u64>,
+    pub config_sha256: Option<String>,
+    pub config_consumed: bool,
+    pub process_exit_code: Option<u32>,
+    pub terminal: Option<BootstrapTerminal>,
+}
+
+impl BootstrapStartupTrace {
+    pub fn new() -> Self {
+        Self {
+            stages: Vec::new(),
+            config_bytes: None,
+            config_sha256: None,
+            config_consumed: false,
+            process_exit_code: None,
+            terminal: None,
+        }
+    }
+
+    pub fn record_config(&mut self, bytes: u64, sha256: String) {
+        self.config_bytes = Some(bytes);
+        self.config_sha256 = Some(sha256);
+    }
+
+    pub fn observe(&mut self, event: BootstrapObservedEvent) -> Option<BootstrapTerminal> {
+        if self.terminal.is_some() {
+            return self.terminal;
+        }
+        let terminal = match event {
+            BootstrapObservedEvent::Stage(stage) => {
+                if stage == BootstrapStage::ConfigConsumed {
+                    self.config_consumed = true;
+                }
+                self.stages.push(stage);
+                return None;
+            }
+            BootstrapObservedEvent::Ready => BootstrapTerminal::Ready,
+            BootstrapObservedEvent::Exit(code) => {
+                self.process_exit_code = Some(code);
+                BootstrapTerminal::Exit { code }
+            }
+            BootstrapObservedEvent::Eof => BootstrapTerminal::Eof,
+            BootstrapObservedEvent::Timeout => BootstrapTerminal::Timeout,
+            BootstrapObservedEvent::Error => BootstrapTerminal::Error,
+        };
+        self.terminal = Some(terminal);
+        Some(terminal)
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct BootstrapFailureCheckpoint<'a> {
+    pub schema_version: u32,
+    pub record_type: &'static str,
+    pub nonce: &'a str,
+    pub reason: &'a str,
+    pub config_present_after_failure: bool,
+    pub trace: &'a BootstrapStartupTrace,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BootstrapCleanupCheckpoint<'a> {
+    pub schema_version: u32,
+    pub record_type: &'static str,
+    pub nonce: &'a str,
+    pub containment_cleanup: &'a BootstrapCleanupResult,
+    pub bootstrap_cleanup: &'a BootstrapCleanupResult,
+}
+
+pub fn validate_bootstrap_failure_records(bytes: &[u8], expected_nonce: &str) -> Result<()> {
+    let records = bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|record| !record.is_empty())
+        .map(serde_json::from_slice::<serde_json::Value>)
+        .collect::<serde_json::Result<Vec<_>>>()
+        .context("validate bootstrap checkpoint JSON records")?;
+    let valid_record = |index: usize, record_type: &str| {
+        records.get(index).is_some_and(|record| {
+            record.get("schema_version").and_then(serde_json::Value::as_u64) == Some(1)
+                && record.get("record_type").and_then(serde_json::Value::as_str)
+                    == Some(record_type)
+                && record.get("nonce").and_then(serde_json::Value::as_str) == Some(expected_nonce)
+        })
+    };
+    if records.len() != 2
+        || !valid_record(0, "startup-failure")
+        || !valid_record(1, "cleanup-result")
+    {
+        bail!("bootstrap checkpoint identity, schema, or ordered records are invalid");
+    }
+    Ok(())
+}
+
+pub fn setup_line(nonce: &str) -> String {
+    format!("SETUP {nonce}\n")
+}
+
+pub fn failure_line(nonce: &str, checkpoint_name: Option<&str>) -> Result<String> {
+    let checkpoint_name = checkpoint_name.unwrap_or("-");
+    if checkpoint_name.len() > 96
+        || checkpoint_name
+            .bytes()
+            .any(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_')))
+    {
+        bail!("bootstrap failure checkpoint name is not portable");
+    }
+    Ok(format!("FAILURE {nonce} {checkpoint_name}\n"))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SupervisorStartupLine {
+    Setup,
+    Ready,
+    Failure { checkpoint_name: Option<String> },
+}
+
+pub fn parse_supervisor_startup_line(line: &str, nonce: &str) -> Result<SupervisorStartupLine> {
+    if line == setup_line(nonce).trim_end() {
+        return Ok(SupervisorStartupLine::Setup);
+    }
+    if line == ready_line(nonce).trim_end() {
+        return Ok(SupervisorStartupLine::Ready);
+    }
+    let prefix = format!("FAILURE {nonce} ");
+    let Some(checkpoint) = line.strip_prefix(&prefix) else {
+        bail!("supervisor startup line identity mismatch");
+    };
+    if checkpoint == "-" {
+        return Ok(SupervisorStartupLine::Failure { checkpoint_name: None });
+    }
+    let canonical = failure_line(nonce, Some(checkpoint))?;
+    if canonical.trim_end() != line {
+        bail!("supervisor failure line was not canonical");
+    }
+    Ok(SupervisorStartupLine::Failure { checkpoint_name: Some(checkpoint.to_string()) })
+}
 
 pub struct TimingPage {
     path: PathBuf,
@@ -286,6 +485,127 @@ mod tests {
         let nonce = "ab".repeat(NONCE_BYTES);
         assert_eq!(ready_line(&nonce), format!("READY {nonce}\n"));
         assert_eq!(arm_line(&nonce), format!("ARM {nonce}\n"));
+    }
+
+    #[test]
+    fn bootstrap_trace_records_ready_as_a_terminal_event() {
+        let mut trace = BootstrapStartupTrace::new();
+
+        assert_eq!(trace.observe(BootstrapObservedEvent::Ready), Some(BootstrapTerminal::Ready));
+        assert_eq!(trace.observe(BootstrapObservedEvent::Exit(1)), Some(BootstrapTerminal::Ready));
+        assert_eq!(
+            trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ConfigConsumed)),
+            Some(BootstrapTerminal::Ready)
+        );
+        assert_eq!(trace.process_exit_code, None);
+        assert!(!trace.config_consumed);
+        assert!(trace.stages.is_empty());
+    }
+
+    #[test]
+    fn bootstrap_trace_records_exit_code_before_ready() {
+        let mut trace = BootstrapStartupTrace::new();
+
+        assert_eq!(
+            trace.observe(BootstrapObservedEvent::Exit(1)),
+            Some(BootstrapTerminal::Exit { code: 1 })
+        );
+        assert_eq!(trace.process_exit_code, Some(1));
+        assert_eq!(
+            trace.observe(BootstrapObservedEvent::Ready),
+            Some(BootstrapTerminal::Exit { code: 1 })
+        );
+    }
+
+    #[test]
+    fn bootstrap_trace_distinguishes_pipe_eof() {
+        let mut trace = BootstrapStartupTrace::new();
+
+        assert_eq!(trace.observe(BootstrapObservedEvent::Eof), Some(BootstrapTerminal::Eof));
+    }
+
+    #[test]
+    fn bootstrap_trace_distinguishes_startup_timeout() {
+        let mut trace = BootstrapStartupTrace::new();
+
+        assert_eq!(
+            trace.observe(BootstrapObservedEvent::Timeout),
+            Some(BootstrapTerminal::Timeout)
+        );
+    }
+
+    #[test]
+    fn bootstrap_trace_records_config_consumption_as_a_stage() {
+        let mut trace = BootstrapStartupTrace::new();
+
+        assert_eq!(
+            trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ConfigConsumed)),
+            None
+        );
+        assert!(trace.config_consumed);
+        assert_eq!(trace.stages, vec![BootstrapStage::ConfigConsumed]);
+    }
+
+    #[test]
+    fn bootstrap_trace_preserves_config_not_consumed_failure_order() {
+        let mut trace = BootstrapStartupTrace::new();
+
+        trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::LaunchValidated));
+        trace.observe(BootstrapObservedEvent::Error);
+        trace.observe(BootstrapObservedEvent::Stage(BootstrapStage::ConfigConsumed));
+
+        assert_eq!(trace.terminal, Some(BootstrapTerminal::Error));
+        assert!(!trace.config_consumed);
+        assert_eq!(trace.stages, vec![BootstrapStage::LaunchValidated]);
+    }
+
+    #[test]
+    fn bootstrap_checkpoint_keeps_cleanup_results() {
+        let containment = BootstrapCleanupResult::completed();
+        let bootstrap = BootstrapCleanupResult::failed("exit wait exceeded deadline");
+        let checkpoint = BootstrapCleanupCheckpoint {
+            schema_version: 1,
+            record_type: "cleanup-result",
+            nonce: "nonce",
+            containment_cleanup: &containment,
+            bootstrap_cleanup: &bootstrap,
+        };
+
+        assert_eq!(checkpoint.containment_cleanup.state, "completed");
+        assert_eq!(checkpoint.bootstrap_cleanup.state, "failed");
+        assert_eq!(
+            checkpoint.bootstrap_cleanup.detail.as_deref(),
+            Some("exit wait exceeded deadline")
+        );
+    }
+
+    #[test]
+    fn bootstrap_checkpoint_round_trip_preserves_identity_and_order() {
+        let trace = BootstrapStartupTrace::new();
+        let containment = BootstrapCleanupResult::completed();
+        let bootstrap = BootstrapCleanupResult::completed();
+        let failure = BootstrapFailureCheckpoint {
+            schema_version: 1,
+            record_type: "startup-failure",
+            nonce: "nonce",
+            reason: "bootstrap exited",
+            config_present_after_failure: false,
+            trace: &trace,
+        };
+        let cleanup = BootstrapCleanupCheckpoint {
+            schema_version: 1,
+            record_type: "cleanup-result",
+            nonce: "nonce",
+            containment_cleanup: &containment,
+            bootstrap_cleanup: &bootstrap,
+        };
+        let mut records = serde_json::to_vec(&failure).unwrap();
+        records.push(b'\n');
+        records.extend(serde_json::to_vec(&cleanup).unwrap());
+        records.push(b'\n');
+
+        validate_bootstrap_failure_records(&records, "nonce").unwrap();
+        assert!(validate_bootstrap_failure_records(&records, "different").is_err());
     }
 
     #[cfg(target_os = "macos")]
