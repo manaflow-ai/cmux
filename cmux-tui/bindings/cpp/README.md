@@ -142,7 +142,7 @@ optional source-session label. Both mutations return their typed snapshots.
 `decode_confirmation_required_details()` to obtain its token, revision, and
 closing pane IDs.
 
-Generated protocol-v11 compatibility APIs remain available only through the
+Generated protocol-v12 compatibility APIs remain available only through the
 explicit raw namespace:
 
 ```cpp
