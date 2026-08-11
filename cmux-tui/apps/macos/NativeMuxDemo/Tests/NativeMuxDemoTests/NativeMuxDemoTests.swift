@@ -532,6 +532,25 @@ func focusMutationTrackerRejectsStaleRollback() {
     #expect(rollback?.screenID == "screen-a")
 }
 
+@Test
+func focusMutationAdmissionWaitsForControllerRetirement() {
+    #expect(frontendFocusMutationIsAdmitted(
+        pendingMutations: 0,
+        pendingRetirements: 0,
+        maximumPendingMutations: 16
+    ))
+    #expect(!frontendFocusMutationIsAdmitted(
+        pendingMutations: 16,
+        pendingRetirements: 0,
+        maximumPendingMutations: 16
+    ))
+    #expect(!frontendFocusMutationIsAdmitted(
+        pendingMutations: 0,
+        pendingRetirements: 1,
+        maximumPendingMutations: 16
+    ))
+}
+
 @Test @MainActor
 func terminalTitleLookupStreamsOnlyTheSelectedOwner() async throws {
     let selected = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
@@ -686,10 +705,10 @@ func localizationIsInjectedForTextAndFormatting() {
     #expect(localization.format("sample.count", "%d items", 3) == "[sample.count] 3 items")
 }
 
-@Test
+@Test @MainActor
 func terminalInputRelayReportsBoundedBufferDrops() async {
-    let input = AsyncStream<TerminalInputQueueEvent>.makeStream(
-        bufferingPolicy: .bufferingNewest(1)
+    let input = AsyncStream<QueuedTerminalInput>.makeStream(
+        bufferingPolicy: .bufferingOldest(1)
     )
     let drops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     let relay = GhosttyTerminalInputRelay(
@@ -704,11 +723,11 @@ func terminalInputRelayReportsBoundedBufferDrops() async {
     #expect(relay.send(Data("first".utf8)))
     #expect(!relay.send(Data("second".utf8)))
     var inputIterator = input.stream.makeAsyncIterator()
-    guard let event = await inputIterator.next(), case .input(.bytes(let received)) = event else {
-        Issue.record("The relay did not keep the newest buffered input.")
+    guard let queued = await inputIterator.next(), case .bytes(let received) = queued.input else {
+        Issue.record("The relay did not keep the oldest buffered input.")
         return
     }
-    #expect(received == Data("second".utf8))
+    #expect(received == Data("first".utf8))
     var dropIterator = drops.stream.makeAsyncIterator()
     let dropSignal: Void? = await dropIterator.next()
     #expect(dropSignal != nil)
@@ -718,16 +737,23 @@ func terminalInputRelayReportsBoundedBufferDrops() async {
 }
 
 @Test
-func terminalInputEpochGatePreservesOrderedTransportEpochs() {
-    var gate = TerminalInputEpochGate()
+func terminalInputRelayStampsTheTransportEpochBeforeQueueing() async {
+    let input = AsyncStream<QueuedTerminalInput>.makeStream()
+    let drops = AsyncStream<Void>.makeStream()
+    let relay = GhosttyTerminalInputRelay(
+        continuation: input.continuation,
+        dropContinuation: drops.continuation
+    )
 
-    #expect(gate.receive(.input(.bytes(Data("before-reset".utf8)))) == nil)
-    #expect(gate.receive(.epoch(7)) == nil)
-    let oldEpoch = gate.receive(.input(.bytes(Data("old".utf8))))
-    #expect(oldEpoch?.1 == 7)
-    #expect(gate.receive(.epoch(8)) == nil)
-    let newEpoch = gate.receive(.input(.bytes(Data("new".utf8))))
-    #expect(newEpoch?.1 == 8)
+    relay.beginEpoch(7)
+    #expect(relay.send(Data("old".utf8)))
+    relay.beginEpoch(8)
+    #expect(relay.send(Data("new".utf8)))
+    input.continuation.finish()
+    var queued = input.stream.makeAsyncIterator()
+
+    #expect(await queued.next()?.epoch == 7)
+    #expect(await queued.next()?.epoch == 8)
 }
 
 @Test
@@ -1083,7 +1109,7 @@ func decodesNativeResetSidecarKittyAliasesAndCursors() {
 
 @Test @MainActor
 func resetKeepsSurfaceCreationError() {
-    let input = AsyncStream<TerminalInputQueueEvent>.makeStream()
+    let input = AsyncStream<QueuedTerminalInput>.makeStream()
     let drops = AsyncStream<Void>.makeStream()
     let relay = GhosttyTerminalInputRelay(
         continuation: input.continuation,
@@ -1109,7 +1135,7 @@ func resetKeepsSurfaceCreationError() {
 
 @Test @MainActor
 func invalidResetBlocksLaterRenderEventsAndReadyState() async {
-    let input = AsyncStream<TerminalInputQueueEvent>.makeStream()
+    let input = AsyncStream<QueuedTerminalInput>.makeStream()
     let drops = AsyncStream<Void>.makeStream()
     let relay = GhosttyTerminalInputRelay(
         continuation: input.continuation,
@@ -1140,22 +1166,18 @@ func invalidResetBlocksLaterRenderEventsAndReadyState() async {
         payload: Data("stale".utf8)
     ))
     view.apply(TerminalRenderEvent(kind: .ready, geometry: geometry, payload: Data()))
+    #expect(relay.send(Data("rejected".utf8)))
     input.continuation.finish()
-    var inputEvents = input.stream.makeAsyncIterator()
+    var queuedInput = input.stream.makeAsyncIterator()
 
     #expect(!view.renderStreamValid)
     #expect(!view.hasMarkedText())
     #expect(view.markedRange().location == NSNotFound)
-    guard case .some(.epoch(let resetEpoch)) = await inputEvents.next() else {
-        Issue.record("Reset did not start its transport input epoch.")
-        return
-    }
-    guard case .some(.epoch(let failedEpoch)) = await inputEvents.next() else {
+    guard let failedInput = await queuedInput.next() else {
         Issue.record("Invalid reset did not fence terminal input.")
         return
     }
-    #expect(resetEpoch == 1)
-    #expect(failedEpoch == 0)
+    #expect(failedInput.epoch == 0)
     #expect(view.initializationError == testLocalization.text(
         "error.terminal_snapshot",
         "The terminal snapshot was invalid."
@@ -1164,7 +1186,7 @@ func invalidResetBlocksLaterRenderEventsAndReadyState() async {
 
 @Test @MainActor
 func exitClearsMarkedTextFromThePreviousInputEpoch() async {
-    let input = AsyncStream<TerminalInputQueueEvent>.makeStream()
+    let input = AsyncStream<QueuedTerminalInput>.makeStream()
     let drops = AsyncStream<Void>.makeStream()
     let relay = GhosttyTerminalInputRelay(
         continuation: input.continuation,
@@ -1187,16 +1209,17 @@ func exitClearsMarkedTextFromThePreviousInputEpoch() async {
         payload: Data(),
         inputEpoch: 7
     ))
+    #expect(relay.send(Data("after-exit".utf8)))
     input.continuation.finish()
-    var inputEvents = input.stream.makeAsyncIterator()
+    var queuedInput = input.stream.makeAsyncIterator()
 
     #expect(!view.hasMarkedText())
     #expect(view.markedRange().location == NSNotFound)
-    guard case .some(.epoch(let exitEpoch)) = await inputEvents.next() else {
+    guard let exitInput = await queuedInput.next() else {
         Issue.record("Exit did not fence terminal input.")
         return
     }
-    #expect(exitEpoch == 7)
+    #expect(exitInput.epoch == 7)
 }
 
 @Test

@@ -14,6 +14,7 @@ typedef struct CmuxFrontendClient CmuxFrontendClient;
 typedef struct CmuxFrontendTerminal CmuxFrontendTerminal;
 typedef struct CmuxFrontendAttachCancellation CmuxFrontendAttachCancellation;
 typedef struct CmuxFrontendQueueCancellation CmuxFrontendQueueCancellation;
+typedef struct CmuxFrontendInputEpochGate CmuxFrontendInputEpochGate;
 typedef void (*CmuxTerminalClientUpdateCallback)(void *context);
 
 #define CMUX_FRONTEND_QUEUE_CANCEL_NONE 0u
@@ -38,6 +39,8 @@ typedef struct {
     uint32_t kind;
     uint16_t cols;
     uint16_t rows;
+    // Input derived from this render event must use the same epoch. The
+    // epoch-specific send APIs reject it after the transport restarts.
     uint64_t input_epoch;
     size_t payload_length;
 } CmuxFrontendRenderEvent;
@@ -64,6 +67,16 @@ typedef enum {
     CMUX_FRONTEND_RESOURCE_STREAM_END_GAP = 4,
     CMUX_FRONTEND_RESOURCE_STREAM_END_ERROR = 5,
 } CmuxFrontendResourceStreamEndReason;
+
+// Thread-safe bridge used by synchronous renderer callbacks to stamp queued
+// input before it crosses into an async consumer.
+CmuxFrontendInputEpochGate *cmux_frontend_input_epoch_gate_new(void);
+void cmux_frontend_input_epoch_gate_store(
+    const CmuxFrontendInputEpochGate *gate,
+    uint64_t epoch);
+uint64_t cmux_frontend_input_epoch_gate_load(
+    const CmuxFrontendInputEpochGate *gate);
+void cmux_frontend_input_epoch_gate_free(CmuxFrontendInputEpochGate *gate);
 
 // Native frontend API. One enrolled client owns resource control plus any
 // number of terminal renderer attachments. Disconnect every terminal before

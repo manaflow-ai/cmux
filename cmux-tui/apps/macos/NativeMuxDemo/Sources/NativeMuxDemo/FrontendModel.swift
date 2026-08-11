@@ -204,6 +204,14 @@ struct TerminalTitleFn {
     }
 }
 
+func frontendFocusMutationIsAdmitted(
+    pendingMutations: Int,
+    pendingRetirements: Int,
+    maximumPendingMutations: Int
+) -> Bool {
+    pendingMutations < maximumPendingMutations && pendingRetirements == 0
+}
+
 @MainActor
 @Observable
 final class FrontendModel {
@@ -645,6 +653,8 @@ final class FrontendModel {
             guard let self, !Task.isCancelled else { return }
             do {
                 try await refreshNow()
+            } catch is CancellationError {
+                return
             } catch {
                 recordAndPresent(error)
             }
@@ -791,6 +801,18 @@ final class FrontendModel {
         workspaceID: String,
         screenID: String?
     ) {
+        guard service != nil, machineID != nil, sessionID != nil else { return }
+        guard frontendFocusMutationIsAdmitted(
+            pendingMutations: mutationTasks.count,
+            pendingRetirements: terminalRetirementTasks.count,
+            maximumPendingMutations: Self.maximumPendingMutations
+        ) else {
+            errorMessage = localization.text(
+                "error.too_many_changes",
+                "Too many changes are waiting. Try again after they finish."
+            )
+            return
+        }
         let requestID = focusMutations.begin(
             workspaceID: selectedWorkspaceID,
             screenID: selectedScreenID

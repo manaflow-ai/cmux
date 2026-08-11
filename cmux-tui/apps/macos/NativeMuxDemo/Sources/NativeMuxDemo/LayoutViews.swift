@@ -311,7 +311,6 @@ private struct SplitLayoutView: View {
 }
 
 private struct StackLayoutView: View {
-    @Environment(\.localization) private var localization
     let actions: LayoutActions
     let snapshot: ResourceSnapshot
     let paneIDs: [String]
@@ -325,17 +324,11 @@ private struct StackLayoutView: View {
                 Button {
                     actions.focusPane(paneID)
                 } label: {
-                    HStack {
-                        Image(systemName: "rectangle.compress.vertical")
-                        Text(snapshot.pane(paneID)?.displayName(localization: localization)
-                            ?? String(paneID.suffix(5)))
-                            .lineLimit(1)
-                        Spacer()
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .frame(height: 25)
-                    .background(.bar, in: .rect(cornerRadius: 4))
+                    CollapsedStackPaneRow(
+                        snapshot: snapshot,
+                        paneID: paneID,
+                        terminalTitle: terminalTitle
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -347,5 +340,79 @@ private struct StackLayoutView: View {
                 terminalTitle: terminalTitle
             )
         }
+    }
+}
+
+private struct CollapsedStackPaneRow: View {
+    @Environment(\.localization) private var localization
+    let snapshot: ResourceSnapshot
+    let paneID: String
+    let terminalTitle: TerminalTitleFn
+
+    @State private var observedTerminalID: String?
+    @State private var observedTerminalTitle: String?
+
+    var body: some View {
+        HStack {
+            Image(systemName: "rectangle.compress.vertical")
+            Text(displayTitle)
+                .lineLimit(1)
+            Spacer()
+        }
+        .font(.caption)
+        .padding(.horizontal, 8)
+        .frame(height: 25)
+        .background(.bar, in: .rect(cornerRadius: 4))
+        .task(id: activeTerminalID) {
+            observedTerminalID = nil
+            observedTerminalTitle = nil
+            guard let terminalID = activeTerminalID,
+                  let subscription = terminalTitle(terminalID),
+                  !Task.isCancelled else { return }
+            observedTerminalID = terminalID
+            observedTerminalTitle = subscription.current
+            var previous = subscription.current
+            for await title in subscription.updates {
+                guard !Task.isCancelled else { return }
+                guard title != previous else { continue }
+                previous = title
+                observedTerminalTitle = title
+            }
+        }
+    }
+
+    private var activeTab: TabSnapshot? {
+        let tabs = snapshot.tabs(in: paneID)
+        return tabs.first { $0.focused } ?? tabs.first
+    }
+
+    private var activeTerminalID: String? {
+        guard let activeTab, activeTab.contentKind == "terminal" else { return nil }
+        return activeTab.contentID
+    }
+
+    private var displayTitle: String {
+        if let name = snapshot.pane(paneID)?.name, !name.isEmpty { return name }
+        guard let activeTab else {
+            return snapshot.pane(paneID)?.displayName(localization: localization)
+                ?? String(paneID.suffix(5))
+        }
+        if let name = activeTab.name, !name.isEmpty { return name }
+        if activeTab.contentKind == "terminal" {
+            if observedTerminalID == activeTab.contentID,
+               let observedTerminalTitle,
+               !observedTerminalTitle.isEmpty {
+                return observedTerminalTitle
+            }
+            if let title = snapshot.terminal(for: activeTab)?.title, !title.isEmpty {
+                return title
+            }
+        }
+        if let browser = snapshot.browser(for: activeTab), !browser.title.isEmpty {
+            return browser.title
+        }
+        return activeTab.contentKind == "browser"
+            ? localization.text("content.browser", "Browser")
+            : localization.text("content.terminal", "Terminal")
     }
 }

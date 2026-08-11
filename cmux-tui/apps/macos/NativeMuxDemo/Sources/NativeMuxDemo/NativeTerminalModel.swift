@@ -7,24 +7,9 @@ enum TerminalInput: Sendable {
   case key(chord: String, repeat: Bool)
 }
 
-enum TerminalInputQueueEvent: Sendable {
-  case input(TerminalInput)
-  case epoch(UInt64)
-}
-
-struct TerminalInputEpochGate: Sendable {
-  private var epoch: UInt64?
-
-  mutating func receive(_ event: TerminalInputQueueEvent) -> (TerminalInput, UInt64)? {
-    switch event {
-    case .epoch(let next):
-      epoch = next
-      return nil
-    case .input(let input):
-      guard let epoch else { return nil }
-      return (input, epoch)
-    }
-  }
+struct QueuedTerminalInput: Sendable {
+  let input: TerminalInput
+  let epoch: UInt64
 }
 
 struct TerminalGeometry: Equatable, Sendable {
@@ -91,9 +76,10 @@ final class NativeTerminalModel {
   @ObservationIgnored private var drainRequested = false
   @ObservationIgnored private var inputErrorMessage: String?
   @ObservationIgnored private var resizeQueue = NewestResizeQueue()
-  @ObservationIgnored private let inputStream: AsyncStream<TerminalInputQueueEvent>
+  @ObservationIgnored private let inputStream: AsyncStream<QueuedTerminalInput>
   @ObservationIgnored private let inputContinuation:
-    AsyncStream<TerminalInputQueueEvent>.Continuation
+    AsyncStream<QueuedTerminalInput>.Continuation
+  @ObservationIgnored private let inputRelay: GhosttyTerminalInputRelay
   @ObservationIgnored private let inputDropStream: AsyncStream<Void>
   @ObservationIgnored private let inputDropContinuation: AsyncStream<Void>.Continuation
   @ObservationIgnored private var latestGeometry: TerminalGeometry?
@@ -120,8 +106,8 @@ final class NativeTerminalModel {
     self.terminalID = terminalID
     self.service = service
     self.localization = localization
-    let input = AsyncStream<TerminalInputQueueEvent>.makeStream(
-      bufferingPolicy: .bufferingNewest(256)
+    let input = AsyncStream<QueuedTerminalInput>.makeStream(
+      bufferingPolicy: .bufferingOldest(256)
     )
     let inputDrops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     inputStream = input.stream
@@ -132,6 +118,7 @@ final class NativeTerminalModel {
       continuation: input.continuation,
       dropContinuation: inputDrops.continuation
     )
+    self.inputRelay = inputRelay
     surfaceView = GhosttyRemoteSurfaceView(
       runtime: runtime,
       inputRelay: inputRelay,
@@ -195,12 +182,13 @@ final class NativeTerminalModel {
     guard inputTask == nil else { return }
     let stream = inputStream
     inputTask = Task { [weak self] in
-      var epochGate = TerminalInputEpochGate()
-      for await event in stream {
+      for await queuedInput in stream {
         guard !Task.isCancelled, let self, !isShuttingDown else { return }
-        guard let (input, inputEpoch) = epochGate.receive(event) else { continue }
         guard let handle, isAttached else { continue }
-        let accepted = await handle.submit(input, inputEpoch: inputEpoch)
+        let accepted = await handle.submit(
+          queuedInput.input,
+          inputEpoch: queuedInput.epoch
+        )
         guard !Task.isCancelled, !isShuttingDown,
           let activeHandle = self.handle, activeHandle === handle
         else { continue }
@@ -309,9 +297,7 @@ final class NativeTerminalModel {
 
   func submit(_ input: TerminalInput) {
     guard isAttached, !didExit else { return }
-    if case .dropped = inputContinuation.yield(.input(input)) {
-      reportInputOverload()
-    }
+    inputRelay.send(input)
   }
 
   private func reportInputOverload() {

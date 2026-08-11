@@ -4,21 +4,38 @@ import Foundation
 import GhosttyKit
 import QuartzCore
 
-final class GhosttyTerminalInputRelay: Sendable {
-  private let continuation: AsyncStream<TerminalInputQueueEvent>.Continuation
+/// Safe across Ghostty's manual-I/O callback thread because the continuation
+/// is Sendable and the epoch value lives in a Rust atomic gate.
+final class GhosttyTerminalInputRelay: @unchecked Sendable {
+  private let continuation: AsyncStream<QueuedTerminalInput>.Continuation
   private let dropContinuation: AsyncStream<Void>.Continuation
+  private let epochGate: OpaquePointer
 
   init(
-    continuation: AsyncStream<TerminalInputQueueEvent>.Continuation,
+    continuation: AsyncStream<QueuedTerminalInput>.Continuation,
     dropContinuation: AsyncStream<Void>.Continuation
   ) {
     self.continuation = continuation
     self.dropContinuation = dropContinuation
+    guard let epochGate = cmux_frontend_input_epoch_gate_new() else {
+      preconditionFailure("The terminal input epoch gate could not be created.")
+    }
+    self.epochGate = epochGate
+  }
+
+  deinit {
+    cmux_frontend_input_epoch_gate_free(epochGate)
   }
 
   @discardableResult
   func send(_ data: Data) -> Bool {
-    switch continuation.yield(.input(.bytes(data))) {
+    send(.bytes(data))
+  }
+
+  @discardableResult
+  func send(_ input: TerminalInput) -> Bool {
+    let epoch = cmux_frontend_input_epoch_gate_load(epochGate)
+    switch continuation.yield(QueuedTerminalInput(input: input, epoch: epoch)) {
     case .enqueued:
       return true
     case .dropped, .terminated:
@@ -31,7 +48,7 @@ final class GhosttyTerminalInputRelay: Sendable {
   }
 
   func beginEpoch(_ epoch: UInt64) {
-    continuation.yield(.epoch(epoch))
+    cmux_frontend_input_epoch_gate_store(epochGate, epoch)
   }
 }
 

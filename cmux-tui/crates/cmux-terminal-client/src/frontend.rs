@@ -46,6 +46,58 @@ const QUEUE_STATE_CANCELLED_DURING_EXECUTION: u8 = 3;
 const QUEUE_STATE_COMPLETED: u8 = 4;
 
 #[repr(C)]
+pub struct CmuxFrontendInputEpochGate {
+    epoch: AtomicU64,
+}
+
+/// Creates a thread-safe epoch gate for one native input queue.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_frontend_input_epoch_gate_new() -> *mut CmuxFrontendInputEpochGate {
+    Box::into_raw(Box::new(CmuxFrontendInputEpochGate { epoch: AtomicU64::new(0) }))
+}
+
+/// Stores the transport epoch currently owned by the renderer.
+///
+/// # Safety
+///
+/// `gate` must be null or a live pointer returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_input_epoch_gate_store(
+    gate: *const CmuxFrontendInputEpochGate,
+    epoch: u64,
+) {
+    let Some(gate) = (unsafe { gate.as_ref() }) else { return };
+    gate.epoch.store(epoch, Ordering::Release);
+}
+
+/// Loads the renderer-owned transport epoch, or zero for a null gate.
+///
+/// # Safety
+///
+/// `gate` must be null or a live pointer returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_input_epoch_gate_load(
+    gate: *const CmuxFrontendInputEpochGate,
+) -> u64 {
+    (unsafe { gate.as_ref() }).map_or(0, |gate| gate.epoch.load(Ordering::Acquire))
+}
+
+/// Frees one input epoch gate. A null pointer is ignored.
+///
+/// # Safety
+///
+/// A non-null pointer must be owned and must not be used after this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_input_epoch_gate_free(
+    gate: *mut CmuxFrontendInputEpochGate,
+) {
+    if !gate.is_null() {
+        // SAFETY: ownership is transferred by the caller contract above.
+        drop(unsafe { Box::from_raw(gate) });
+    }
+}
+
+#[repr(C)]
 pub struct CmuxFrontendAttachCancellation {
     canceled: AtomicBool,
     notify: Notify,
@@ -1539,6 +1591,16 @@ pub unsafe extern "C" fn cmux_frontend_client_disconnect(client: *mut CmuxFronte
 mod tests {
     use super::*;
     use crate::{NativeRenderEventKind, TerminalPublicId};
+
+    #[test]
+    fn input_epoch_gate_starts_closed_and_publishes_updates() {
+        let gate = cmux_frontend_input_epoch_gate_new();
+        assert!(!gate.is_null());
+        assert_eq!(unsafe { cmux_frontend_input_epoch_gate_load(gate) }, 0);
+        unsafe { cmux_frontend_input_epoch_gate_store(gate, 42) };
+        assert_eq!(unsafe { cmux_frontend_input_epoch_gate_load(gate) }, 42);
+        unsafe { cmux_frontend_input_epoch_gate_free(gate) };
+    }
 
     #[test]
     fn frontend_attach_cancellation_wakes_the_waiter() {
