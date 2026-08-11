@@ -12782,7 +12782,7 @@ struct CMUXCLI {
     }
 
     private func sshPTYAttachRetryLoopLines(command: String) -> [String] {
-        SSHPTYAttachRetryScriptBuilder().lines(command: command, reauthenticates: false)
+        SSHPTYAttachRetryScriptBuilder().linesWithoutReauthentication(command: command)
     }
 
     private func sshSessionTargetParams(

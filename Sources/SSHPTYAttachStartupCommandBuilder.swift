@@ -67,9 +67,16 @@ enum SSHPTYAttachStartupCommandBuilder {
             "cmux_ssh_attach_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; cmux_ssh_attach_attempt_registration_retry=0; while ! cmux_ssh_attach_register_attempt; do cmux_ssh_attach_attempt_registration_retry=$((cmux_ssh_attach_attempt_registration_retry + 1)); if [ \"$cmux_ssh_attach_attempt_registration_retry\" -ge 3 ]; then return 1; fi; /bin/sleep 0.1; done; }",
             "cmux_ssh_attach_attempt() { cmux_ssh_attach_begin_attempt || return 1; \(attachCommand); }",
         ]
-        lines += SSHPTYAttachRetryScriptBuilder().lines(
+        let retryBuilder = SSHPTYAttachRetryScriptBuilder()
+        if foregroundAuth != nil {
+            return retryBuilder.freshShellCommand(
+                leadingLines: lines,
+                command: "cmux_ssh_attach_attempt",
+                retryLoopSetupLines: retryLoopSetupLines
+            )
+        }
+        lines += retryBuilder.linesWithoutReauthentication(
             command: "cmux_ssh_attach_attempt",
-            reauthenticates: foregroundAuth != nil,
             retryLoopSetupLines: retryLoopSetupLines
         )
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"

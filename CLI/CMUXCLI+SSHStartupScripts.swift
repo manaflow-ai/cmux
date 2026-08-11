@@ -341,9 +341,6 @@ extension CMUXCLI {
         if let trimmedOneTimeCommand, !trimmedOneTimeCommand.isEmpty {
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
         }
-        // A prior foreground-auth cleanup can outlive the session that created
-        // it, so every SSH startup owns one bounded recovery pass.
-        scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
         let reconnectConfiguration = retryPTYAttachStatus ? [
             "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_reconnect_limit\" in '') cmux_ssh_reconnect_limit='∞'; cmux_ssh_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_reconnect_limit=20; cmux_ssh_reconnect_unbounded=0 ;; *) cmux_ssh_reconnect_unbounded=0 ;; esac",
@@ -461,7 +458,11 @@ extension CMUXCLI {
             "fi",
             "exit $cmux_ssh_status",
         ]
-        return scriptLines.joined(separator: "\n")
+        // A prior foreground-auth cleanup can outlive the session that created
+        // it, so every SSH startup runs with the bounded recovery policy.
+        return authRetryPolicy.freshShellCommand(
+            continuation: scriptLines.joined(separator: "\n")
+        )
     }
     private func writeSSHStartupScript(_ scriptBody: String, remoteRelayPort: Int) throws -> String {
         let scriptURL = FileManager.default.temporaryDirectory.appendingPathComponent(

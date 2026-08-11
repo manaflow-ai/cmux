@@ -9,19 +9,61 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     /// Creates a persistent SSH PTY retry script builder.
     public init() {}
 
-    /// Builds shell lines that retry PTY attachment and optional foreground authentication.
-    ///
-    /// The surrounding script supplies `cmux_ssh_attach_foreground_auth` when
-    /// `reauthenticates` is true and supplies `cmux_ssh_attach_signal_exit`.
-    /// The builder emits the authentication-group ownership helpers needed by
-    /// the reauthentication state machine.
+    /// Builds shell lines that retry PTY attachment without foreground authentication.
     ///
     /// - Parameters:
     ///   - command: Shell command that performs one PTY attachment attempt.
-    ///   - reauthenticates: Whether status 255 requires foreground authentication before reattaching.
-    ///   - retryLoopSetupLines: Lines installed after cleanup helpers exist and before retry work starts.
+    ///   - retryLoopSetupLines: Lines installed before retry work starts.
     /// - Returns: macOS `/bin/sh` lines implementing the shared retry state machine.
-    public func lines(
+    public func linesWithoutReauthentication(
+        command: String,
+        retryLoopSetupLines: [String] = []
+    ) -> [String] {
+        retryLines(
+            command: command,
+            reauthenticates: false,
+            retryLoopSetupLines: retryLoopSetupLines
+        )
+    }
+
+    /// Runs a complete reauthenticating retry body in a fresh policy-owned shell.
+    ///
+    /// - Parameters:
+    ///   - leadingLines: Definitions and state required by the retry body.
+    ///   - command: Shell command that performs one PTY attachment attempt.
+    ///   - retryLoopSetupLines: Lines installed before retry work starts.
+    /// - Returns: A command that replaces its current shell with the owned policy shell.
+    public func freshShellCommand(
+        leadingLines: [String],
+        command: String,
+        retryLoopSetupLines: [String] = []
+    ) -> String {
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let continuation = (
+            leadingLines + retryLines(
+                command: command,
+                reauthenticates: true,
+                retryLoopSetupLines: retryLoopSetupLines
+            )
+        ).joined(separator: "\n")
+        return policy.freshShellCommand(continuation: continuation)
+    }
+
+    func lines(
+        command: String,
+        reauthenticates: Bool,
+        retryLoopSetupLines: [String] = []
+    ) -> [String] {
+        let retryLines = retryLines(
+            command: command,
+            reauthenticates: reauthenticates,
+            retryLoopSetupLines: retryLoopSetupLines
+        )
+        guard reauthenticates else { return retryLines }
+        return [SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction()] + retryLines
+    }
+
+    private func retryLines(
         command: String,
         reauthenticates: Bool,
         retryLoopSetupLines: [String] = []
@@ -43,9 +85,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let noProgressStatus = SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue
         let sessionRunningStatus = SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue
         let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
-        var lines = reauthenticates
-            ? [authPolicy.processTreeTerminationShellFunction()]
-            : []
+        var lines: [String] = []
         lines += [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
