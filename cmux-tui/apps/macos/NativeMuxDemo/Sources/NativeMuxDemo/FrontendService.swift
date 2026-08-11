@@ -305,15 +305,17 @@ actor FrontendService {
   func drainResourceUpdates() async -> FrontendResourceUpdateBatch {
     guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
       return FrontendResourceUpdateBatch(
-        envelopes: [], overflowed: false, ended: true, endReason: .error
+        envelopes: [], hasMore: false, overflowed: false, ended: true, endReason: .error
       )
     }
-    return await enqueue {
+    let batch = await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
       return drainFrontendResourceUpdates { descriptor, buffer, capacity in
         cmux_frontend_client_copy_resource_update(raw, &descriptor, buffer, capacity)
       }
     }
+    if batch.hasMore { updateSink?.continuation.yield() }
+    return batch
   }
 
   func stopUpdates(generation: UInt64? = nil) async {

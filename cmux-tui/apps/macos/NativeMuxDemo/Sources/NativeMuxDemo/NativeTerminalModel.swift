@@ -53,6 +53,7 @@ final class NativeTerminalModel {
   @ObservationIgnored private var drainTask: Task<Void, Never>?
   @ObservationIgnored private var inputDropTask: Task<Void, Never>?
   @ObservationIgnored private var drainRequested = false
+  @ObservationIgnored private var inputErrorMessage: String?
   @ObservationIgnored private var resizeQueue = NewestResizeQueue()
   @ObservationIgnored private let inputStream: AsyncStream<TerminalInput>
   @ObservationIgnored private let inputContinuation: AsyncStream<TerminalInput>.Continuation
@@ -68,7 +69,8 @@ final class NativeTerminalModel {
       surfaceView: surfaceView,
       errorMessage: errorMessage,
       isAttached: isAttached,
-      didExit: didExit
+      didExit: didExit,
+      retryAttach: !isAttached && !errorMessage.isEmpty ? { [weak self] in self?.attach() } : nil
     )
   }
 
@@ -98,6 +100,7 @@ final class NativeTerminalModel {
   func attach() {
     guard !didStart, !isShuttingDown else { return }
     didStart = true
+    errorMessage = ""
     beginInputOverloadReporting()
     attachTask = Task { [weak self] in
       guard let self else { return }
@@ -156,9 +159,11 @@ final class NativeTerminalModel {
           "Terminal input was rejected."
         )
         if !accepted {
+          inputErrorMessage = rejected
           errorMessage = rejected
-        } else if errorMessage == rejected {
-          errorMessage = ""
+        } else if let inputErrorMessage {
+          self.inputErrorMessage = nil
+          if errorMessage == inputErrorMessage { errorMessage = "" }
         }
       }
     }
@@ -212,10 +217,12 @@ final class NativeTerminalModel {
   }
 
   private func reportInputOverload() {
-    errorMessage = L10n.text(
+    let message = L10n.text(
       "error.terminal_input_overloaded",
       "Terminal input is busy; try again."
     )
+    inputErrorMessage = message
+    errorMessage = message
   }
 
   func resize(_ geometry: TerminalGeometry) {

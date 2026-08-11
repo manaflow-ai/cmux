@@ -39,11 +39,18 @@ struct TerminalSurfaceView: View {
         }
       }
       if !state.errorMessage.isEmpty {
-        Text(state.errorMessage)
-          .font(.caption)
-          .foregroundStyle(.red)
-          .padding(10)
-          .background(.regularMaterial, in: .rect(cornerRadius: 8))
+        VStack(spacing: 8) {
+          Text(state.errorMessage)
+            .font(.caption)
+            .foregroundStyle(.red)
+          if let retryAttach = state.retryAttach {
+            Button(L10n.text("terminal.retry_attach", "Retry"), action: retryAttach)
+              .buttonStyle(.borderedProminent)
+              .controlSize(.small)
+          }
+        }
+        .padding(10)
+        .background(.regularMaterial, in: .rect(cornerRadius: 8))
       }
     }
     .background(Color(nsColor: .black))

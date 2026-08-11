@@ -19,6 +19,7 @@
 "pane.close" = "ペインを閉じる";
 "tab.close" = "タブを閉じる";
 "terminal.connecting" = "ターミナルに接続中…";
+"terminal.retry_attach" = "再試行";
 "terminal.exited" = "プロセスが終了しました";
 "browser.invalid_url" = "このブラウザタブには有効な URL がありません。";
 "browser.manual_load" = "開くまで、このタブはリモートコンテンツを読み込みません。";
