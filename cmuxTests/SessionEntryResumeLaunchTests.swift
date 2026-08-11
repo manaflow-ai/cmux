@@ -228,6 +228,10 @@ struct SessionEntryResumeLaunchTests {
         )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
+        #expect(
+            source.restoredResumeSessionWorkingDirectoriesByPanelId[sourcePanelID]
+                == launch.workingDirectory
+        )
         let persisted = source.sessionSnapshot(includeScrollback: false)
         #expect(
             persisted.panels.first { $0.id == sourcePanelID }?.terminal?.agent?.sessionId
@@ -244,6 +248,10 @@ struct SessionEntryResumeLaunchTests {
 
         #expect(restoredPanel.surface.debugInitialInputForTesting() == launch.initialInput)
         #expect(
+            restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelID]
+                == launch.workingDirectory
+        )
+        #expect(
             restored.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == restoredPanelID }?.terminal?.agent?.sessionId
                 == sessionID
@@ -253,12 +261,20 @@ struct SessionEntryResumeLaunchTests {
     @Test("Vault tab and split placements seed persistent lifecycle state")
     func vaultPlacementPathsSeedLifecycleState() throws {
         let sessionID = "vault-placement-session"
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-vault-placement-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .path
+        try FileManager.default.createDirectory(
+            atPath: workingDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(atPath: workingDirectory) }
         let entry = SessionEntry(
             id: "codex:\(sessionID)",
             agent: .codex,
             sessionId: sessionID,
             title: "Placed Vault session",
-            cwd: "/tmp/vault-placement-project",
+            cwd: workingDirectory,
             gitBranch: nil,
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 1_800_000_004),
@@ -297,10 +313,24 @@ struct SessionEntryResumeLaunchTests {
         for panelID in [tabPanel.id, splitPanel.id] {
             #expect(workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId == sessionID)
             #expect(
+                workspace.restoredResumeSessionWorkingDirectoriesByPanelId[panelID]
+                    == workingDirectory
+            )
+            #expect(
                 persisted.panels.first { $0.id == panelID }?.terminal?.agent?.sessionId
                     == sessionID
             )
         }
+
+        workspace.restoredAgentResumeStatesByPanelId[tabPanel.id] = .autoResumeCommandRunning
+        workspace.panelDirectories[tabPanel.id] = FileManager.default.homeDirectoryForCurrentUser.path
+        workspace.foregroundProcessWorkingDirectoryProvider = { _ in nil }
+        let inheritedSplit = try #require(workspace.newTerminalSplit(
+            from: tabPanel.id,
+            orientation: .vertical,
+            focus: false
+        ))
+        #expect(inheritedSplit.requestedWorkingDirectory == workingDirectory)
     }
 
     @Test("Vault coordinator preserves matching-cwd and new-workspace placement")
@@ -344,6 +374,10 @@ struct SessionEntryResumeLaunchTests {
                 == "matching-session"
         )
         #expect(
+            originalWorkspace.restoredResumeSessionWorkingDirectoriesByPanelId[matchingPanelID]
+                == matchingDirectory
+        )
+        #expect(
             originalWorkspace.terminalPanel(for: matchingPanelID)?
                 .surface.debugInitialInputForTesting() == matchingLaunch.initialInput
         )
@@ -378,6 +412,10 @@ struct SessionEntryResumeLaunchTests {
         #expect(
             createdWorkspace.restoredAgentSnapshotsByPanelId[createdPanelID]?.sessionId
                 == "different-session"
+        )
+        #expect(
+            createdWorkspace.restoredResumeSessionWorkingDirectoriesByPanelId[createdPanelID]
+                == differentDirectory
         )
         #expect(
             createdWorkspace.terminalPanel(for: createdPanelID)?
