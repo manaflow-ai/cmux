@@ -842,6 +842,44 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn reaper_releases_capacity_after_child_wait_ownership_is_lost() {
+        let _guard = REAPER_TEST_LOCK.lock().unwrap();
+        let (_observer, events) = ReaperTestObserver::install();
+        drop(chrome_reaper_lease().unwrap());
+        let active = {
+            let slot = CHROME_REAPER.get().unwrap().lock().unwrap();
+            slot.as_ref().unwrap().active.clone()
+        };
+        let baseline = active.load(Ordering::Acquire);
+        let lease = chrome_reaper_lease().unwrap();
+        assert_eq!(active.load(Ordering::Acquire), baseline + 1);
+
+        unsafe extern "C" {
+            fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+        }
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = i32::try_from(child.id()).unwrap();
+        let mut status = 0;
+        // SAFETY: pid identifies this live test child and status is writable.
+        assert_eq!(unsafe { waitpid(pid, &raw mut status, 0) }, pid);
+        assert_eq!(child.try_wait().unwrap_err().raw_os_error(), Some(libc::ECHILD));
+        let profile_dir = make_profile_dir().unwrap();
+
+        reap_child_detached(lease, child, Some(profile_dir.clone()));
+        wait_for_reaper_test_event(&events, ReaperTestEvent::Complete(pid as u32));
+
+        assert_eq!(active.load(Ordering::Acquire), baseline);
+        assert!(!profile_dir.exists(), "ownership loss retained the Chrome profile directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn terminal_reaper_wait_error_retains_ownership_for_retry() {
         let _guard = REAPER_TEST_LOCK.lock().unwrap();
         let (_observer, events) = ReaperTestObserver::install();
