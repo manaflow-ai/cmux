@@ -1363,6 +1363,8 @@ impl ProviderMachineRuntime {
             }
         };
         if self.accepted_selection.is_some() {
+            // This is a one-shot control reconnect. A successful reconnect
+            // restarts owner updates without copying this request forward.
             result.ui.request = Some(MachineRequest::ReconnectProvider);
         }
         if let Some(mutation) = effects.session_mutation {
@@ -3503,6 +3505,10 @@ mod tests {
         let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
         assert_eq!(reconnected.ui.snapshot.active, Some(local_key));
         assert!(reconnected.ui.request.is_none());
+        assert!(
+            controller.provider.accepted_selection.is_some(),
+            "owner readiness remains pending without scheduling another reconnect"
+        );
 
         controller.provider.snapshot.machines[1].connectable = true;
         let provider_update = controller.provider.ui_state_for_open_connection();
