@@ -2754,6 +2754,8 @@ mod unix {
         /// resize keeps this lock until all prior parser commands drain, which
         /// gives both the host and smart clients the same output/resize order.
         source_order_lock: Mutex<()>,
+        #[cfg(test)]
+        exit_after_source_order: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
         parser_commands: SyncSender<ParserCommand>,
         parser_budget: ParserBudget,
         /// Generation advanced after each parser write. Snapshot admission
@@ -3821,6 +3823,10 @@ mod unix {
             )?;
             if let Some(exit) = exit {
                 let _source_order = self.source_order_lock.lock().unwrap();
+                #[cfg(test)]
+                if let Some(hook) = self.exit_after_source_order.lock().unwrap().clone() {
+                    hook();
+                }
                 // Snapshot capture keeps `term` held from the dead check
                 // through smart subscription. Publish Exit under that same
                 // lock so an attach either joins before Exit or observes dead.
@@ -4258,6 +4264,8 @@ mod unix {
             sequence: AtomicU64::new(0),
             smart: SmartStreamState::new(),
             source_order_lock: Mutex::new(()),
+            #[cfg(test)]
+            exit_after_source_order: Mutex::new(None),
             parser_commands,
             parser_budget: ParserBudget::new(MAX_HOST_PARSER_QUEUED_BYTES),
             parser_progress: (Mutex::new(0), Condvar::new()),
@@ -5496,6 +5504,7 @@ mod unix {
                 sequence: AtomicU64::new(0),
                 smart: SmartStreamState::new(),
                 source_order_lock: Mutex::new(()),
+                exit_after_source_order: Mutex::new(None),
                 parser_commands,
                 parser_budget: ParserBudget::new(1),
                 parser_progress: (Mutex::new(0), Condvar::new()),
@@ -5584,6 +5593,7 @@ mod unix {
                 sequence: AtomicU64::new(0),
                 smart: SmartStreamState::new(),
                 source_order_lock: Mutex::new(()),
+                exit_after_source_order: Mutex::new(None),
                 parser_commands,
                 parser_budget: ParserBudget::new(1),
                 parser_progress: (Mutex::new(0), Condvar::new()),
@@ -6723,16 +6733,39 @@ mod unix {
             let server = thread::spawn(move || -> anyhow::Result<bool> {
                 let accept_before = |deadline: Instant| -> anyhow::Result<Option<UnixStream>> {
                     loop {
+                        let now = Instant::now();
+                        if now >= deadline {
+                            return Ok(None);
+                        }
+                        let timeout_ms = deadline
+                            .saturating_duration_since(now)
+                            .as_millis()
+                            .clamp(1, i32::MAX as u128) as i32;
+                        let mut poll_fd = libc::pollfd {
+                            fd: listener.as_raw_fd(),
+                            events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+                            revents: 0,
+                        };
+                        // SAFETY: poll_fd is initialized and listener owns the
+                        // descriptor for the complete poll call.
+                        let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+                        if ready == 0 {
+                            return Ok(None);
+                        }
+                        if ready < 0 {
+                            let error = std::io::Error::last_os_error();
+                            if error.kind() == std::io::ErrorKind::Interrupted {
+                                continue;
+                            }
+                            return Err(error.into());
+                        }
                         match listener.accept() {
                             Ok((stream, _)) => {
                                 stream.set_nonblocking(false)?;
                                 return Ok(Some(stream));
                             }
                             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                                if Instant::now() >= deadline {
-                                    return Ok(None);
-                                }
-                                thread::sleep(Duration::from_millis(2));
+                                continue;
                             }
                             Err(error) => return Err(error.into()),
                         }
@@ -7258,36 +7291,24 @@ mod unix {
             assert!(!host.dead.load(Ordering::Acquire));
 
             let (started_tx, started_rx) = std::sync::mpsc::channel();
+            let (ordered_tx, ordered_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let release_rx = Arc::new(Mutex::new(release_rx));
+            *host.exit_after_source_order.lock().unwrap() = Some(Arc::new(move || {
+                ordered_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+            }));
             let exit = thread::spawn(move || {
                 started_tx.send(()).unwrap();
                 exit_host.persist_and_publish_exit_if_drained().unwrap();
             });
             started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-            let deadline = Instant::now() + Duration::from_secs(5);
-            loop {
-                match host.source_order_lock.try_lock() {
-                    Ok(source_order) => {
-                        drop(source_order);
-                        assert!(Instant::now() < deadline, "Exit did not reach publication");
-                        thread::yield_now();
-                    }
-                    Err(TryLockError::WouldBlock) => break,
-                    Err(TryLockError::Poisoned(error)) => panic!("{error}"),
-                }
-            }
-            // Once Exit owns source ordering, the old implementation is
-            // runnable and only a few uncontended operations from `dead =
-            // true`. Give it a generous scheduling window so this regression
-            // cannot pass merely because that thread was preempted after the
-            // lock probe. The fixed implementation remains blocked on `term`.
-            let transition_deadline = Instant::now() + Duration::from_secs(1);
-            while !host.dead.load(Ordering::Acquire) && Instant::now() < transition_deadline {
-                thread::sleep(Duration::from_millis(1));
-            }
+            ordered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert!(
                 !host.dead.load(Ordering::Acquire),
                 "Exit bypassed the terminal snapshot lock after the attach dead check"
             );
+            release_tx.send(()).unwrap();
 
             drop(smart_publication);
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
