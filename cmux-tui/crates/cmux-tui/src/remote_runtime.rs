@@ -148,10 +148,7 @@ impl DaemonCleanupPauseHandle {
             if other_shutdown.is_finished() {
                 return;
             }
-            assert!(
-                Instant::now() < deadline,
-                "unrelated daemon shutdown did not finish"
-            );
+            assert!(Instant::now() < deadline, "unrelated daemon shutdown did not finish");
             thread::sleep(Duration::from_millis(1));
         }
     }
@@ -4354,9 +4351,7 @@ mod tests {
         let runtime_path = state_dir.join("runtime.json");
         let outcome_path = state_dir.join("shutdown.json");
         let deadline = Instant::now() + Duration::from_secs(3);
-        while (runtime_path.exists() || !outcome_path.exists())
-            && Instant::now() < deadline
-        {
+        while (runtime_path.exists() || !outcome_path.exists()) && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(10));
         }
 
@@ -4994,10 +4989,7 @@ mod tests {
             {
                 break pid;
             }
-            assert!(
-                Instant::now() < deadline,
-                "client did not enter reconnect SSH bootstrap"
-            );
+            assert!(Instant::now() < deadline, "client did not enter reconnect SSH bootstrap");
             thread::sleep(Duration::from_millis(10));
         };
 
