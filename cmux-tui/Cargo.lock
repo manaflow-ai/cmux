@@ -649,6 +649,7 @@ dependencies = [
  "uds_windows",
  "url",
  "uuid",
+ "wait-timeout",
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
