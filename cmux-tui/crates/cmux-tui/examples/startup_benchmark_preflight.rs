@@ -1659,7 +1659,7 @@ fn product_platform_proofs() -> Result<ProbeEvidence> {
     use std::mem::size_of;
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::process::CommandExt;
-    use std::ptr::{null, null_mut};
+    use std::ptr::null_mut;
 
     use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, HANDLE};
     use windows_sys::Win32::Security::{

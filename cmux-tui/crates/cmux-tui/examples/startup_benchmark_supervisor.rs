@@ -956,8 +956,8 @@ mod platform {
 
     use windows_sys::Win32::Foundation::{
         CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_NOT_ALL_ASSIGNED, ERROR_SUCCESS,
-        GENERIC_ALL, GetLastError, HANDLE, INVALID_HANDLE_VALUE, LocalFree, SetLastError,
-        WAIT_OBJECT_0, WAIT_TIMEOUT,
+        GENERIC_ALL, GetLastError, HANDLE, INVALID_HANDLE_VALUE, LocalFree, STILL_ACTIVE,
+        SetLastError, WAIT_OBJECT_0, WAIT_TIMEOUT,
     };
     use windows_sys::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS,
@@ -993,10 +993,10 @@ mod platform {
     };
     use windows_sys::Win32::System::Threading::{
         CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateEventW,
-        CreateProcessWithTokenW, GetCurrentProcess, GetCurrentThreadId, GetExitCodeProcess,
-        GetProcessId, GetProcessIdOfThread, GetThreadId, INFINITE, OpenProcessToken,
-        PROCESS_DUP_HANDLE, PROCESS_INFORMATION, QueryFullProcessImageNameW, ResumeThread,
-        STARTUPINFOW, STILL_ACTIVE, SuspendThread, TerminateProcess, WaitForSingleObject,
+        CreateProcessWithTokenW, GetCurrentProcess, GetExitCodeProcess, GetProcessId,
+        GetProcessIdOfThread, GetThreadId, INFINITE, OpenProcessToken, PROCESS_DUP_HANDLE,
+        PROCESS_INFORMATION, QueryFullProcessImageNameW, ResumeThread, STARTUPINFOW, SuspendThread,
+        TerminateProcess, WaitForSingleObject,
     };
     use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
@@ -1005,6 +1005,7 @@ mod platform {
     use crate::startup_benchmark_windows_diagnostic::{self, CaptureRequest};
 
     const MAX_BOOTSTRAP_CHECKPOINT_BYTES: usize = 64 * 1024;
+    const LOGON_ID_ATTRIBUTES: u32 = SE_GROUP_LOGON_ID as u32;
 
     pub fn run_outer(launch: &Launch) -> Result<ExitStatus> {
         let mut control = transport::connect(&launch.control)
@@ -2008,7 +2009,6 @@ mod platform {
                 hang_diagnostic: None,
                 hang_diagnostic_error: None,
                 process_id,
-                primary_thread_id,
                 target_cmux_bench_environment_filtered,
                 account_sid,
                 restricting_sid,
