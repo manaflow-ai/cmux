@@ -308,7 +308,7 @@ extension TabManager {
 
     private func browserOpenTabSuggestionSeedSnapshots() -> [BrowserOpenTabSuggestionSnapshot] {
         let workspaceSnapshots = tabs.flatMap { workspace in
-            workspace.panels.compactMap { _, panel in
+            workspace.panels.compactMap { _, panel -> BrowserOpenTabSuggestionSnapshot? in
                 guard let browserPanel = panel as? BrowserPanel else { return nil }
                 return BrowserOpenTabSuggestionSnapshot(
                     workspaceId: workspace.id,
@@ -323,7 +323,7 @@ extension TabManager {
                 AppDelegate.shared?.dockReferenceTabManager(for: $0) === self
             }
             .flatMap { dock in
-                dock.panels.values.compactMap { panel in
+                dock.panels.values.compactMap { panel -> BrowserOpenTabSuggestionSnapshot? in
                     guard let browser = panel as? BrowserPanel else {
                         return nil
                     }
