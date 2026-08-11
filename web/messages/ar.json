@@ -158,6 +158,7 @@
       "signOut": "تسجيل الخروج",
       "signingOut": "جارٍ تسجيل الخروج…",
       "signOutError": "تعذّر تسجيل الخروج. حاول مرة أخرى.",
+      "organizationSwitchError": "تعذّر تبديل المؤسسة. حاول مرة أخرى.",
       "signIn": "تسجيل الدخول"
     },
     "aiAccounts": {
