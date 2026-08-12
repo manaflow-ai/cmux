@@ -683,18 +683,20 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
         }
         Divider()
         Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(url.path, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                url.path,
+                to: .general
+            )
         } label: {
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
     if let resumeCommand = entry.copyResumeCommand {
         Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(resumeCommand, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                resumeCommand,
+                to: .general
+            )
         } label: {
             Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
         }
