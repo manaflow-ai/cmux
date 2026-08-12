@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAgentChat
 import CmuxTerminal
 import CmuxTerminalBackend
 import Foundation
@@ -2430,9 +2431,13 @@ struct TerminalBackendTopologyCoordinatorTests {
             terminalBackendTopologyMutationCoordinator: mutationCoordinator,
             terminalBackendTopologyAdoptionRegistry: TerminalBackendTopologyAdoptionRegistry()
         )
+        var resumeIntents: [AgentChatResumeIntent] = []
         let manager = TabManager(
             autoWelcomeIfNeeded: false,
-            terminalClientComposition: composition
+            terminalClientComposition: composition,
+            agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder {
+                resumeIntents.append($0)
+            }
         )
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let agent = SessionRestorableAgentSnapshot(
@@ -2476,6 +2481,10 @@ struct TerminalBackendTopologyCoordinatorTests {
             workspace.restoredResumeSessionWorkingDirectoriesByPanelId[surfaceID]
                 == "/tmp/canonical-resume"
         )
+        let resumeIntent = try #require(resumeIntents.last)
+        #expect(resumeIntent.sessionID == "canonical-resume-session")
+        #expect(resumeIntent.surfaceID == surfaceID.uuidString)
+        #expect(resumeIntent.workspaceID == workspaceID.uuidString)
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
@@ -2837,6 +2846,15 @@ struct TerminalBackendTopologyCoordinatorTests {
             workspaces: [canonical]
         )
         let plan = try TerminalBackendTopologyProjectionPlan(topology: snapshot.topology)
+        #expect(first.registry.register(
+            TerminalBackendNativeBrowserPresentationRequest(
+                url: sourceURL,
+                profileID: nil,
+                chromeVisibility: .chromeless,
+                transparentBackground: false
+            ),
+            for: surfaceID
+        ))
 
         try await first.runtime.claimBeforeProjection(
             authority: authority,
@@ -2851,6 +2869,7 @@ struct TerminalBackendTopologyCoordinatorTests {
 
         let browser = try #require(manager.tabs.first?.panels[surfaceID.rawValue] as? BrowserPanel)
         #expect(browser.endpointProvenance == .frontendNativeCanonical(surfaceID))
+        #expect(browser.chromeVisibility == .chromeless)
         #expect(browser.currentURLForTabDuplication == sourceURL)
         #expect(!browser.shouldPersistSessionSnapshot())
         let swiftSnapshot = manager.sessionSnapshot(includeScrollback: false)
@@ -2904,13 +2923,13 @@ struct TerminalBackendTopologyCoordinatorTests {
             url: credentialRequest.url,
             initialRequest: credentialRequest,
             profileID: nil,
-            omnibarVisible: true,
+            chromeVisibility: .visible,
             transparentBackground: false
         )
         let ordinaryRequest = TerminalBackendNativeBrowserPresentationRequest(
             url: try #require(URL(string: "https://example.com/second")),
             profileID: nil,
-            omnibarVisible: true,
+            chromeVisibility: .visible,
             transparentBackground: false
         )
 
@@ -2949,7 +2968,7 @@ struct TerminalBackendTopologyCoordinatorTests {
                 url: sourceURL,
                 initialRequest: credentialRequest,
                 profileID: nil,
-                omnibarVisible: true,
+                chromeVisibility: .visible,
                 transparentBackground: false
             ),
             for: surfaceID

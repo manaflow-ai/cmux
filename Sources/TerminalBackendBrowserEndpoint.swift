@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxTerminalBackend
 import CmuxCore
 import Foundation
@@ -113,7 +114,7 @@ struct TerminalBackendNativeBrowserPresentationRequest: @unchecked Sendable {
     let profileID: UUID?
     let preloadInitialNavigationInBackground: Bool
     let bypassInsecureHTTPHostOnce: String?
-    let omnibarVisible: Bool
+    let chromeVisibility: BrowserChromeVisibility
     let transparentBackground: Bool
     let proxyEndpoint: BrowserProxyEndpoint?
     let bypassRemoteProxy: Bool
@@ -127,7 +128,7 @@ struct TerminalBackendNativeBrowserPresentationRequest: @unchecked Sendable {
         profileID: UUID?,
         preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
-        omnibarVisible: Bool,
+        chromeVisibility: BrowserChromeVisibility,
         transparentBackground: Bool,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
@@ -140,7 +141,7 @@ struct TerminalBackendNativeBrowserPresentationRequest: @unchecked Sendable {
         self.profileID = profileID
         self.preloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.bypassInsecureHTTPHostOnce = bypassInsecureHTTPHostOnce
-        self.omnibarVisible = omnibarVisible
+        self.chromeVisibility = chromeVisibility
         self.transparentBackground = transparentBackground
         self.proxyEndpoint = proxyEndpoint
         self.bypassRemoteProxy = bypassRemoteProxy
@@ -242,7 +243,7 @@ struct NativeTerminalBackendBrowserEndpointFactory:
             preloadInitialNavigationInBackground:
                 request?.preloadInitialNavigationInBackground ?? false,
             bypassInsecureHTTPHostOnce: request?.bypassInsecureHTTPHostOnce,
-            omnibarVisible: request?.omnibarVisible ?? true,
+            chromeVisibility: request?.chromeVisibility ?? .visible,
             transparentBackground: request?.transparentBackground ?? false,
             proxyEndpoint: request?.proxyEndpoint,
             bypassRemoteProxy: request?.bypassRemoteProxy ?? false,

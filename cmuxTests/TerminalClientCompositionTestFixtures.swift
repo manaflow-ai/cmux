@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import CmuxFoundation
 import CmuxGit
 import CmuxRemoteSession
@@ -40,6 +41,7 @@ extension TabManager {
         },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.init(
@@ -60,6 +62,7 @@ extension TabManager {
             defaultWorkspaceWorkingDirectoryProvider: defaultWorkspaceWorkingDirectoryProvider,
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             closeTabWarningDefaults: closeTabWarningDefaults
         )
     }
@@ -76,12 +79,15 @@ extension Workspace {
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
+        initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
+        initialTerminalStartupRestoreCommitOwner: WorkspaceTerminalStartupRestoreCommitOwner = .workspaceTopology,
         initialTerminalEnvironment: [String: String] = [:],
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
         allowTextBoxFocusDefault: Bool = true,
+        settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -91,6 +97,7 @@ extension Workspace {
         initialTerminalSurfaceID: UUID? = nil,
         initialTerminalPaneID: UUID? = nil,
         isCanonicalTopologyProjection: Bool = false,
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.init(
@@ -102,12 +109,15 @@ extension Workspace {
             initialSurface: initialSurface,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
+            initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+            initialTerminalStartupRestoreCommitOwner: initialTerminalStartupRestoreCommitOwner,
             initialTerminalEnvironment: initialTerminalEnvironment,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             initialDetachedSurface: initialDetachedSurface,
@@ -118,6 +128,7 @@ extension Workspace {
             initialTerminalSurfaceID: initialTerminalSurfaceID,
             initialTerminalPaneID: initialTerminalPaneID,
             isCanonicalTopologyProjection: isCanonicalTopologyProjection,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
@@ -130,7 +141,13 @@ extension DockSplitStore {
         scope: DockScope = .workspace,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
-        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
+        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
+        terminalTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
+        settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
+        agentSessionAutoResumeDefaults: UserDefaults = .standard,
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
+        terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
+        closedItemHistoryStore: ClosedItemHistoryStore? = nil
     ) {
         self.init(
             workspaceId: workspaceId,
@@ -138,7 +155,13 @@ extension DockSplitStore {
             terminalClientComposition: .embedded(),
             baseDirectoryProvider: baseDirectoryProvider,
             remoteBrowserSettingsProvider: remoteBrowserSettingsProvider,
-            browserAvailabilityProvider: browserAvailabilityProvider
+            browserAvailabilityProvider: browserAvailabilityProvider,
+            terminalTitleUpdateCoalescer: terminalTitleUpdateCoalescer,
+            settings: settings,
+            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
+            terminalWorkingDirectoryResolver: terminalWorkingDirectoryResolver,
+            closedItemHistoryStore: closedItemHistoryStore
         )
     }
 }

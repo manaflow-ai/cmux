@@ -764,7 +764,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(setEnvironment["SPACED"] as? String, "  keep exact  ")
         XCTAssertNil(setEnvironment["ANTHROPIC_API_KEY"])
         XCTAssertEqual(setBinding["auto_resume"] as? Bool, false)
-        workspace.restoredAgentSnapshotsByPanelId[panelId] =
+        workspace.restoredAgentLifecycle.setSnapshot(
             SessionRestorableAgentSnapshot(
                 kind: .codex,
                 sessionId: UUID().uuidString.lowercased(),
@@ -775,7 +775,9 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                     arguments: ["/opt/stale/codex"],
                     workingDirectory: "/tmp/stale-agent"
                 )
-            )
+            ),
+            panelId: panelId
+        )
 
         let getResult = try v2Result(
             method: "surface.resume.get",
@@ -851,13 +853,16 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             panelId: panelId
         ))
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
-            kind: .grok,
-            sessionId: checkpointID,
-            workingDirectory: workingDirectory,
-            launchCommand: launchCommand
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .grok,
+                sessionId: checkpointID,
+                workingDirectory: workingDirectory,
+                launchCommand: launchCommand
+            ),
+            panelId: panelId
         )
-        workspace.restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
+        workspace.restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
 
         // Shell integration reports commandRunning before `cmux restore` starts.
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
@@ -1014,20 +1019,23 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         ))
 
         let staleSessionID = UUID().uuidString.lowercased()
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: staleSessionID,
-            workingDirectory: "/tmp/stale",
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "codex",
-                executablePath: "/opt/stale/codex",
-                arguments: ["/opt/stale/codex", "--model", "gpt-stale"],
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: staleSessionID,
                 workingDirectory: "/tmp/stale",
-                environment: [
-                    "CODEX_HOME": "/tmp/stale-codex-home",
-                    "OPENAI_API_KEY": "must-not-cross-socket",
-                ]
-            )
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/opt/stale/codex",
+                    arguments: ["/opt/stale/codex", "--model", "gpt-stale"],
+                    workingDirectory: "/tmp/stale",
+                    environment: [
+                        "CODEX_HOME": "/tmp/stale-codex-home",
+                        "OPENAI_API_KEY": "must-not-cross-socket",
+                    ]
+                )
+            ),
+            panelId: panelId
         )
 
         let getResult = try v2Result(
@@ -1179,19 +1187,22 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ),
             panelId: panelId
         ))
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
-            kind: .custom("cwd-agent"),
-            sessionId: sessionID,
-            workingDirectory: savedDirectory,
-            launchCommand: launch,
-            registration: CmuxVaultAgentRegistration(
-                id: "cwd-agent",
-                name: "CWD Agent",
-                detect: CmuxVaultAgentDetectRule(processName: "cwd-agent"),
-                sessionIdSource: .argvOption("--session"),
-                resumeCommand: "{{executable}} --cwd {{cwd}} --session {{sessionId}}",
-                cwd: .preserve
-            )
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .custom("cwd-agent"),
+                sessionId: sessionID,
+                workingDirectory: savedDirectory,
+                launchCommand: launch,
+                registration: CmuxVaultAgentRegistration(
+                    id: "cwd-agent",
+                    name: "CWD Agent",
+                    detect: CmuxVaultAgentDetectRule(processName: "cwd-agent"),
+                    sessionIdSource: .argvOption("--session"),
+                    resumeCommand: "{{executable}} --cwd {{cwd}} --session {{sessionId}}",
+                    cwd: .preserve
+                )
+            ),
+            panelId: panelId
         )
         workspace.restoredResumeSessionWorkingDirectoriesByPanelId[panelId] =
             restoredDirectory

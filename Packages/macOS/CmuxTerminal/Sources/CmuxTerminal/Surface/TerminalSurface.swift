@@ -309,6 +309,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     weak var configurationReloadDeferredRuntimeSurfaceView:
         (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
+    var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownReservation:
@@ -675,7 +676,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.keyboardCopyModeActive = externalRuntime?.snapshot.copyModeActive ?? false
         self.spawnPolicyProvider = presentationDependencies.spawnPolicy
         self.hibernationRecorder = presentationDependencies.hibernationRecorder
-        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
+        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
+        self.startupRestoreAdmissionPhase = runtimeSpawnPolicy.requiresStartupRestoreAdmission
+            ? .awaitingAdmission
+            : .unrestricted
         self.scrollbackReplayEnvironmentKey = presentationDependencies.scrollbackReplayEnvironmentKey
         self.globalFontMagnificationPercent = presentationDependencies.globalFontMagnificationPercent
         self.fontConfigurationSnapshotProvider =

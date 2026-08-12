@@ -2002,7 +2002,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                omnibarVisible: false
+                chromeVisibility: .hidden
             )
         )
 

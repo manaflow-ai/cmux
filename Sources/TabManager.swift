@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentChat
 import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
@@ -419,6 +420,7 @@ class TabManager: ObservableObject {
     let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
+    let agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -517,6 +519,7 @@ class TabManager: ObservableObject {
         },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.terminalClientComposition = terminalClientComposition
@@ -532,6 +535,7 @@ class TabManager: ObservableObject {
             }
         )
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -1046,6 +1050,7 @@ class TabManager: ObservableObject {
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+            initialTerminalStartupRestoreCommitOwner: .tabManagerTopology,
             initialTerminalEnvironment: initialTerminalEnvironment,
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -1055,6 +1060,7 @@ class TabManager: ObservableObject {
             settings: settings,
             closeTabWarningDefaults: closeTabWarningDefaults,
             terminalClientComposition: terminalClientComposition,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
@@ -1075,6 +1081,7 @@ class TabManager: ObservableObject {
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
             terminalClientComposition: terminalClientComposition,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             nativeSSHConnectionBroker: nativeSSHConnectionBroker
         )
     }
@@ -1086,7 +1093,8 @@ class TabManager: ObservableObject {
             terminalClientComposition: terminalClientComposition,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local },
-            settings: settings
+            settings: settings,
+            agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
         )
         windowDockTitleRoutingStores.setObject(
             store,
@@ -1305,7 +1313,9 @@ class TabManager: ObservableObject {
                 TerminalBackendNativeBrowserPresentationRequest(
                     url: initialBrowserURL,
                     profileID: nil,
-                    omnibarVisible: initialBrowserOmnibarVisible,
+                    chromeVisibility: BrowserChromeVisibility(
+                        omnibarVisible: initialBrowserOmnibarVisible
+                    ),
                     transparentBackground: initialBrowserTransparentBackground
                 ),
                 for: browserSurfaceID
@@ -1332,13 +1342,17 @@ class TabManager: ObservableObject {
                 }
                 if initialSurface == .terminal,
                    let initialTerminalStartupRestoreAgent,
-                   workspace.panels[surfaceID] is TerminalPanel {
-                    workspace.seedSessionRestoredAgentState(
-                        panelId: surfaceID,
-                        restorableAgent: initialTerminalStartupRestoreAgent,
+                   let terminalPanel = workspace.panels[surfaceID] as? TerminalPanel {
+                    workspace.terminalStartupRestoreCoordinator.stage(
+                        panel: terminalPanel,
+                        snapshot: initialTerminalStartupRestoreAgent,
+                        manualResumeAvailable: true,
                         willRunStartupCommand: false,
                         willRunStartupInput: initialTerminalInput != nil,
-                        resumeSessionWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory
+                        resumeWorkingDirectory: initialTerminalStartupRestoreAgent.workingDirectory
+                    )
+                    workspace.terminalStartupRestoreCoordinator.commitPendingRestores(
+                        panelIDs: [surfaceID]
                     )
                 }
                 if select {
@@ -1594,6 +1608,9 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
+            if initialTerminalStartupRestoreAgent != nil {
+                newWorkspace.terminalStartupRestoreCoordinator.commitPendingRestores()
+            }
             // The global insertion-index rules don't know about group sections.
             // Re-run the group-aware normalize so a freshly-added workspace
             // can't land inside another group's contiguous section.
@@ -7078,10 +7095,15 @@ extension TabManager {
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 terminalClientComposition: terminalClientComposition,
+                agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             workspace.owningTabManager = self
-            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
+            let restoredPanelIds = workspace.restoreSessionSnapshot(
+                workspaceSnapshot,
+                excludingStableIdentities: excludingStableIdentities,
+                startupRestoreCommitOwner: .tabManagerTopology
+            )
             reconcileWorkspaceCustomization(
                 afterRestoring: workspaceSnapshot,
                 to: workspace,
@@ -7109,6 +7131,7 @@ extension TabManager {
                 settings: settings,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 terminalClientComposition: terminalClientComposition,
+                agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
@@ -7131,6 +7154,9 @@ extension TabManager {
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
+        for workspace in newTabs {
+            workspace.terminalStartupRestoreCoordinator.commitPendingRestores()
+        }
         restoreWorkspaceDockSessionSnapshots(from: snapshot, excludingStableIdentities: excludingStableIdentities)
         let restoredGroups: [WorkspaceGroup] = {
             guard let groupSnapshots = snapshot.workspaceGroups else { return [] }

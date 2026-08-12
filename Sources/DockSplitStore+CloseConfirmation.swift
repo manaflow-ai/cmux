@@ -200,7 +200,7 @@ extension DockSplitStore {
         _ = newSurface(kind: surfaceKind, inPane: pane, focus: true)
     }
 
-    private func dockPanelNeedsConfirmClose(_ panel: any Panel) -> Bool {
+    func dockPanelNeedsConfirmClose(_ panel: any Panel) -> Bool {
         if let terminalPanel = panel as? TerminalPanel {
             return terminalPanel.needsConfirmClose()
         }
