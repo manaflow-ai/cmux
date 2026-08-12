@@ -983,9 +983,13 @@ reload_device() {
         # Phone went offline or is LOCKED mid-delivery: park the already-built
         # signed app in the install queue so it lands on unlock/reconnect,
         # notify, and exit promptly with the deferred-delivery code. Never
-        # watch for unlock here.
-        "$QUEUE_SCRIPT" enqueue --tag "$TAG" --app "$device_app_path" \
-          --device-id "$selected_device_install_id" --checkout "$(cd "$IOS_DIR/.." && pwd)" || true
+        # watch for unlock here. Only claim "queued" if the enqueue succeeded.
+        if ! "$QUEUE_SCRIPT" enqueue --tag "$TAG" --app "$device_app_path" \
+            --device-id "$selected_device_install_id" --checkout "$(cd "$IOS_DIR/.." && pwd)"; then
+          echo "error: iPhone is locked/offline AND the build could NOT be queued; nothing will auto-install" >&2
+          echo "error: retry after unlocking: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
+          return 1
+        fi
         reload_device_notify "iPhone locked/offline: $TAG build queued" \
           "Unlock/reconnect the iPhone to receive the '$TAG' dev build (auto-installs via the queue). Manual retry: scripts/iphone-install-queue.sh drain"
         echo "==> queued; unlock to receive. Retry: scripts/iphone-install-queue.sh drain (then scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id)"

@@ -444,10 +444,17 @@ drain_entry() {
   # Compute the expected readiness receipt and REMOVE any pre-existing one
   # before launching, so a leftover receipt from an earlier run can never
   # satisfy the freshness backstop (mtime comparisons have whole-second
-  # resolution; existence-after-removal does not).
+  # resolution; existence-after-removal does not). If the stale receipt cannot
+  # be cleared, fail closed: a verified claim must never rest on an old file.
   local receipt
   receipt="$RECEIPT_DIR/$(slugify "$tag")-$(slugify "$device_id").json"
-  [[ "$no_attach" == "1" ]] || rm -f "$receipt" 2>/dev/null || true
+  if [[ "$no_attach" != "1" && -e "$receipt" ]]; then
+    rm -f "$receipt" 2>/dev/null || true
+    if [[ -e "$receipt" ]]; then
+      finish_failed "cannot clear stale readiness receipt $receipt; refusing a drain whose verification could not be trusted"
+      return $?
+    fi
+  fi
   local mdl_rc=0
   ( cd "$checkout" && env ${mdl_env[@]+"${mdl_env[@]}"} "$mdl" "${args[@]}" ) \
       >"$launch_log" 2>&1 || mdl_rc=$?
