@@ -20,7 +20,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
             "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 7; }",
             "cmux_ssh_attach_foreground_auth() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' auth >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 254; fi",
             "  return 0",
@@ -53,7 +53,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
             "cmux_test_attach() {",
             """
-            count=$(test -f "$CMUX_TEST_LOG" && grep -c '^attach$' "$CMUX_TEST_LOG" 2>/dev/null || printf 0)
+            count=$(grep -c '^attach$' "$CMUX_TEST_LOG" 2>/dev/null) || count=0
             printf '%s\\n' attach >> "$CMUX_TEST_LOG"
             if [ "$count" -eq 0 ]; then return 255; fi
             return 253
@@ -88,13 +88,14 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
             "sleep() { :; }",
             "cmux_test_attach() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null || true)",
+            "  count=${count:-0}",
             "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 255; fi",
             "  return 7",
             "}",
             "cmux_ssh_attach_foreground_auth() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' auth >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 0; fi",
             "  if [ \"$count\" -eq 1 ]; then return 252; fi",
@@ -133,7 +134,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "sleep() { :; }",
             "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
             "cmux_ssh_attach_foreground_auth() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^auth$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' auth >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 0; fi",
             "  return 255",
@@ -278,7 +279,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         let script = ([
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
             "cmux_test_attach() {",
-            "  count=$(test -f \"$CMUX_TEST_LOG\" && grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null || printf 0)",
+            "  count=$(grep -c '^attach$' \"$CMUX_TEST_LOG\" 2>/dev/null) || count=0",
             "  printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"",
             "  if [ \"$count\" -eq 0 ]; then return 255; fi",
             "  IFS= read -r cmux_test_input || return 42",
