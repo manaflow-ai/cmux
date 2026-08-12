@@ -1096,6 +1096,53 @@ import CmuxTerminalCore
         }
     }
 
+    @Test func repeatedStallReplacesQueuedFailureDeliveriesWithinCapacity() async throws {
+        let admission = TerminalSurfaceRuntimeOwnershipAdmission(
+            maximumOwnerCount: 2
+        )
+        let failureDrain = TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain(
+            maximumFailureCount: 2,
+            admission: admission
+        )
+        let owners = try (0..<2).map { _ in
+            try #require(admission.reserve())
+        }
+        let recoveryIDs = (0..<2).map { _ in UUID() }
+        var failureCount = 0
+        defer {
+            for recoveryID in recoveryIDs {
+                admission.cancelRecovery(recoveryID)
+            }
+            admission.clearAllStalledCloseTeardowns()
+            for owner in owners {
+                admission.release(owner)
+            }
+        }
+
+        for recoveryID in recoveryIDs {
+            #expect(
+                admission.reserve(
+                    recoveryID: recoveryID,
+                    onRecovery: { reservation in
+                        admission.release(reservation)
+                    },
+                    onFailure: { failureCount += 1 }
+                ) == .deferred
+            )
+        }
+        failureDrain.enqueue(
+            admission.failRecoveriesForAllStalledCloseTeardowns()
+        )
+
+        admission.clearAllStalledCloseTeardowns()
+        failureDrain.enqueue(
+            admission.failRecoveriesForAllStalledCloseTeardowns()
+        )
+        await waitForMainActorQueueBarrier()
+
+        #expect(failureCount == recoveryIDs.count)
+    }
+
     @Test func newRecoveryDefersBehindScheduledOlderGrant() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
             maximumRuntimeSurfaceOwnerCount: 2
