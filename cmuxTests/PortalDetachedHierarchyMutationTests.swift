@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import Testing
 
 #if canImport(cmux_DEV)
@@ -45,6 +46,41 @@ private func makeRegisteredPortalHierarchy() throws -> (
     ) {}
     #expect(invalidator.isHierarchyCurrent(for: rootView))
     return (window, rootView, splitView, panes, siblingView, invalidator)
+}
+
+private typealias PositionedSubviewInsertion = @convention(c) (
+    AnyObject,
+    Selector,
+    AnyObject?,
+    Int,
+    AnyObject?
+) -> Void
+
+@MainActor
+@Suite(.serialized)
+struct PortalNilSubviewInsertionBoundaryTests {
+    @Test
+    func nilPositionedSubviewFromSwiftUILeavesTrackedHierarchyUnchanged() throws {
+        let fixture = try makeRegisteredPortalHierarchy()
+        defer { fixture.window.orderOut(nil) }
+        defer { fixture.invalidator.invalidate() }
+
+        let selector = #selector(NSView.addSubview(_:positioned:relativeTo:))
+        let implementation = try #require(class_getMethodImplementation(NSView.self, selector))
+        let addSubview = unsafeBitCast(implementation, to: PositionedSubviewInsertion.self)
+
+        #expect(fixture.siblingView.subviews.isEmpty)
+        addSubview(
+            fixture.siblingView,
+            selector,
+            nil,
+            NSWindow.OrderingMode.above.rawValue,
+            nil
+        )
+
+        #expect(fixture.siblingView.subviews.isEmpty)
+        #expect(fixture.invalidator.isHierarchyCurrent(for: fixture.rootView))
+    }
 }
 
 @MainActor
