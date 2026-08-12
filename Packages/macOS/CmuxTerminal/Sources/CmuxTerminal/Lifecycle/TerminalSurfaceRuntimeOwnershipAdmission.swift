@@ -335,12 +335,9 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         let output = state.withLock { state in
             let capacityWasOpen = recoveryCapacityIsOpen(in: state)
             for delivery in completedDeliveries {
-                precondition(
-                    state.pendingRecoveryFailureDeliveryIDs.remove(
-                        delivery.deliveryID
-                    ) != nil,
-                    "completed stalled recovery failure must be owned"
-                )
+                guard state.pendingRecoveryFailureDeliveryIDs.remove(
+                    delivery.deliveryID
+                ) != nil else { continue }
                 if state.recoveryEntriesByID[delivery.recoveryID]?
                     .pendingFailureDeliveryID == delivery.deliveryID {
                     state.recoveryEntriesByID[delivery.recoveryID]?
@@ -362,6 +359,18 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
         }
     }
 
+    func ownsStalledCloseFailure(
+        _ delivery: TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery
+    ) -> Bool {
+        state.withLock { state in
+            state.pendingRecoveryFailureDeliveryIDs.contains(
+                delivery.deliveryID
+            )
+                && state.recoveryEntriesByID[delivery.recoveryID]?
+                    .pendingFailureDeliveryID == delivery.deliveryID
+        }
+    }
+
     func clearAllStalledCloseTeardowns() {
         let grant: TerminalSurfaceRuntimeOwnershipRecoveryGrant?
         grant = state.withLock { state in
@@ -369,6 +378,13 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
                 return nil
             }
             state.closeTeardownAllStalled = false
+            for recoveryID in Array(state.recoveryEntriesByID.keys) {
+                guard let deliveryID = state.recoveryEntriesByID[recoveryID]?
+                    .pendingFailureDeliveryID else { continue }
+                state.recoveryEntriesByID[recoveryID]?
+                    .pendingFailureDeliveryID = nil
+                state.pendingRecoveryFailureDeliveryIDs.remove(deliveryID)
+            }
             let grant = takeNextRecoveryGrant(from: &state)
             _ = takeRecoveryRescanRequest(from: &state)
             return grant

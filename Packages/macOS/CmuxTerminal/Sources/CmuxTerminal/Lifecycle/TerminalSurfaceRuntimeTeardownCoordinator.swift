@@ -606,6 +606,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         if stalledCloseExecutionSlots.count
             < Self.maximumConcurrentCloseTeardownCount {
             runtimeOwnershipAdmission.clearAllStalledCloseTeardowns()
+            recoveryRescanScheduler.cancelPendingOverflowFailures()
         }
         runtimeOwnershipAdmission.setCloseTeardownDegraded(
             activeCloseTeardownsBySlot.count

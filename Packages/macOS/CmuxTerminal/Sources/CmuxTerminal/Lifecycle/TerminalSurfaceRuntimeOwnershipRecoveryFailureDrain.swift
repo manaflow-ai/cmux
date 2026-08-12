@@ -11,9 +11,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
   private static let maximumBatchCount = 32
 
   private struct State {
-    var failures: [
-      TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery
-    ] = []
+    var failures: [TerminalSurfaceRuntimeOwnershipRecoveryFailureDelivery] = []
     var nextFailureIndex = 0
     var task: Task<Void, Never>?
   }
@@ -85,7 +83,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
       state.nextFailureIndex = endIndex
       return batch
     }
-    for failure in batch {
+    for failure in batch where admission.ownsStalledCloseFailure(failure) {
       failure()
     }
     admission.completeStalledCloseRecoveryFailures(batch)

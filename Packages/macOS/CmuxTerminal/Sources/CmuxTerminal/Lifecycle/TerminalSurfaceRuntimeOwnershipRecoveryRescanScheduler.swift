@@ -43,6 +43,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     var tailID: UUID?
     var failureThroughSequence: UInt64?
     var failureCursorID: UUID?
+    var failureCancellationGeneration: UInt64 = 0
     var rescanRequested = false
     var rescanTask: Task<Void, Never>?
   }
@@ -174,6 +175,22 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     startGate?.start()
   }
 
+  /// Invalidates failure delivery that was scheduled for a fully stalled
+  /// close pool. A recovered close slot owns this transition before it opens
+  /// admission again, so a queued MainActor batch cannot publish a stale
+  /// capacity error after native ownership capacity has returned.
+  internal func cancelPendingOverflowFailures() {
+    state.withLockUnchecked { state in
+      state.failureThroughSequence = nil
+      state.failureCursorID = nil
+      precondition(state.failureCancellationGeneration < UInt64.max)
+      state.failureCancellationGeneration += 1
+      for entry in state.entriesByID.values {
+        entry.failureReported = false
+      }
+    }
+  }
+
   deinit {
     state.withLockUnchecked { state in
       state.rescanTask?.cancel()
@@ -203,13 +220,19 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
     var processedCount = 0
     if shouldRun {
       while processedCount < Self.maximumBatchCount {
-        if let failedEntry = state.withLockUnchecked({ state in
+        if let failure = state.withLockUnchecked({ state in
           takeNextFailureEntry(from: &state)
         }) {
-          failedEntry.surface?
-            .failRuntimeSurfaceCreationForTeardownCapacity(
-              preservingRecoveryOwner: true
-            )
+          let failureIsCurrent = state.withLockUnchecked { state in
+            state.failureThroughSequence != nil
+              && state.failureCancellationGeneration == failure.generation
+          }
+          if failureIsCurrent {
+            failure.entry.surface?
+              .failRuntimeSurfaceCreationForTeardownCapacity(
+                preservingRecoveryOwner: true
+              )
+          }
           processedCount += 1
           continue
         }
@@ -319,7 +342,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
 
   private func takeNextFailureEntry(
     from state: inout State
-  ) -> OverflowEntry? {
+  ) -> (entry: OverflowEntry, generation: UInt64)? {
     guard let cutoff = state.failureThroughSequence else { return nil }
     while let currentID = state.failureCursorID,
       let entry = state.entriesByID[currentID]
@@ -328,7 +351,7 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryRescanScheduler:
       state.failureCursorID = entry.nextID
       guard !entry.failureReported else { continue }
       entry.failureReported = true
-      return entry
+      return (entry, state.failureCancellationGeneration)
     }
     state.failureThroughSequence = nil
     state.failureCursorID = nil
