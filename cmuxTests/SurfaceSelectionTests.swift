@@ -139,7 +139,7 @@ struct SurfaceSelectionTests {
             window.orderOut(nil)
             window.close()
         }
-        let baseURL = try #require(URL(string: "https://selection.test/document"))
+        let baseURL = URL(fileURLWithPath: "/tmp/cmux-selection-test/document.html")
         let loader = SurfaceSelectionNavigationLoader()
         try await loader.load(
             """
