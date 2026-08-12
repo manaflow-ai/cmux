@@ -2931,7 +2931,7 @@
   "billingSuccess": {
     "metaTitle": "cmux Pro is active",
     "title": "cmux Pro is active",
-    "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
+    "body": "We created or upgraded your account with {email}. If this is a new account, open the verification email before signing in to cmux.",
     "emailLabel": "Purchase email",
     "whatUnlockedTitle": "What you unlocked",
     "openCmux": "Open cmux",

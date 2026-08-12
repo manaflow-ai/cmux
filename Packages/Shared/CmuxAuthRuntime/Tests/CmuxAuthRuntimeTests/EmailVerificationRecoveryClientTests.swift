@@ -15,14 +15,16 @@ import Testing
                     JSONSerialization.jsonObject(with: body) as? [String: String]
                 )
                 #expect(object == ["email": "buyer@example.com"])
+                let url = try #require(request.url)
+                let response = try #require(HTTPURLResponse(
+                    url: url,
+                    statusCode: 202,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
                 return (
                     Data(#"{"ok":true}"#.utf8),
-                    try #require(HTTPURLResponse(
-                        url: try #require(request.url),
-                        statusCode: 202,
-                        httpVersion: nil,
-                        headerFields: nil
-                    ))
+                    response
                 )
             }
         )

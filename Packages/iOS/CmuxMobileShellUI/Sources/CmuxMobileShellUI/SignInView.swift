@@ -14,7 +14,7 @@ import AppKit
 struct SignInView: View {
     private enum EmailEntryMode {
         case methods
-        case password
+        case emailVerification
         case code
     }
 
@@ -22,18 +22,16 @@ struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
     @State private var email = ""
-    @State private var password = ""
     @State private var code = ""
     @State private var emailEntryMode = EmailEntryMode.methods
     @State private var error: String?
     @State private var signingInProviders: Set<OAuthSignInProvider> = []
+    @State private var isRequestingEmailVerification = false
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
-    @State private var shouldAutofocusPassword = false
     private let errorPresentation = SignInErrorPresentation()
     private let emailCodeFailurePolicy = SignInEmailCodeFailurePolicy()
     @FocusState private var isEmailFocused: Bool
-    @FocusState private var isPasswordFocused: Bool
     @FocusState private var isCodeFocused: Bool
 
     init(usesStandaloneChrome: Bool = true) {
@@ -96,8 +94,8 @@ struct SignInView: View {
         switch emailEntryMode {
         case .code:
             codeEntryView
-        case .password:
-            passwordEntryView
+        case .emailVerification:
+            emailVerificationView
         case .methods:
             emailEntryView
         }
@@ -143,15 +141,6 @@ struct SignInView: View {
                     .mobileGlassProminentButton()
                     .accessibilityIdentifier("signin.emailCode")
 
-                    Button {
-                        enterPasswordSignIn()
-                    } label: {
-                        Text(L10n.string("mobile.signIn.usePassword", defaultValue: "Use password instead"))
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .disabled(isAuthInProgress)
-                    .accessibilityIdentifier("signin.usePassword")
                 }
 
                 if let error {
@@ -167,46 +156,28 @@ struct SignInView: View {
         }
     }
 
-    private var passwordEntryView: some View {
+    private var emailVerificationView: some View {
         authCard {
             VStack(spacing: 18) {
                 brandHeader
                 SignInAuthRestoreStatusView()
 
-                Text(L10n.string("mobile.signIn.passwordTitle", defaultValue: "Sign in with password"))
-                    .font(.headline)
-
-                VStack(spacing: 12) {
-                    GlassInputPill(height: 50, alignment: .leading) {
-                        TextField(L10n.string("mobile.signIn.emailPlaceholder", defaultValue: "Email address"), text: $email)
-                            .textFieldStyle(.plain)
-                            .mobileEmailTextInput()
-                            .textContentType(.username)
-                            .focused($isEmailFocused)
-                            .accessibilityIdentifier("Email")
-                    } onTap: {
-                        isEmailFocused = true
-                    }
-
-                    GlassInputPill(height: 50, alignment: .leading) {
-                        SecureField(
-                            L10n.string("mobile.signIn.passwordPlaceholder", defaultValue: "Password"),
-                            text: $password
+                VStack(spacing: 6) {
+                    Text(L10n.string("mobile.signIn.verificationTitle", defaultValue: "Verify your email"))
+                        .font(.headline)
+                    Text(
+                        String(
+                            format: L10n.string(
+                                "mobile.signIn.verificationBodyFormat",
+                                defaultValue: "We sent a verification link to %@. Open it, then return here."
+                            ),
+                            normalizedEmail
                         )
-                        .textFieldStyle(.plain)
-                        .mobilePasswordTextInput()
-                        .focused($isPasswordFocused)
-                        .submitLabel(.go)
-                        .onSubmit {
-                            guard canSubmitPassword else { return }
-                            Task {
-                                await signInWithPassword()
-                            }
-                        }
-                        .accessibilityIdentifier("signin.password")
-                    } onTap: {
-                        isPasswordFocused = true
-                    }
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if let error {
@@ -215,40 +186,48 @@ struct SignInView: View {
 
                 Button {
                     Task {
-                        await signInWithPassword()
+                        await sendCode(
+                            autofocusCodeOnSuccess: false,
+                            requestVerificationOnUnverifiedEmail: false
+                        )
                     }
                 } label: {
-                    Text(L10n.string("mobile.signIn.passwordTitle", defaultValue: "Sign in with password"))
+                    Text(L10n.string("mobile.signIn.verificationContinue", defaultValue: "I verified my email"))
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .contentShape(.capsule)
                         .mobileButtonLoading(authManager.isLoading, tint: .primary)
                 }
-                .disabled(!canSubmitPassword)
+                .disabled(isAuthInProgress)
                 .mobileGlassProminentButton()
-                .accessibilityIdentifier("signin.passwordButton")
+                .accessibilityIdentifier("signin.emailVerificationContinue")
 
                 Button {
-                    returnToSignInMethods()
+                    Task {
+                        await requestEmailVerification()
+                    }
                 } label: {
-                    Text(L10n.string("mobile.signIn.useAnotherMethod", defaultValue: "Use another sign-in method"))
+                    Text(L10n.string("mobile.signIn.verificationResend", defaultValue: "Resend verification email"))
+                        .mobileButtonLoading(isRequestingEmailVerification, tint: .secondary)
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .disabled(isAuthInProgress)
-                .accessibilityIdentifier("signin.useAnotherMethod")
+                .accessibilityIdentifier("signin.emailVerificationResend")
+
+                Button {
+                    returnToSignInMethods()
+                } label: {
+                    Text(L10n.string("mobile.signIn.useDifferentEmail", defaultValue: "Use a different email"))
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .disabled(isAuthInProgress)
+                .accessibilityIdentifier("signin.useDifferentEmail")
             }
         }
         .opacity(isAuthInProgress ? 0.6 : 1.0)
-        .onAppear {
-            if shouldAutofocusPassword {
-                isPasswordFocused = true
-                shouldAutofocusPassword = false
-            } else if shouldAutofocusEmail {
-                isEmailFocused = true
-                shouldAutofocusEmail = false
-            }
-        }
+        .accessibilityIdentifier("signin.emailVerification")
     }
 
     private var codeEntryView: some View {
@@ -336,23 +315,17 @@ struct SignInView: View {
     // While this is true the card dims (opacity 0.6) and inputs disable. There
     // is intentionally no in-app "cancel sign-in" affordance: during the only
     // long phase (the Apple/Google/GitHub system sheet, generous on purpose for
-    // password + 2FA) the system sheet sits above this view and carries its own
+    // provider credentials + 2FA) the system sheet sits above this view and carries its own
     // Cancel, and every coordinator phase is raced against a deadline
     // (AuthTimeouts), so a wedged flow always ends in a localized, retryable
     // AuthError and re-enables the card for retry. Do not reintroduce a manual
     // cancel button here; it was occluded during the system sheet anyway.
     private var isInteractiveAuthInProgress: Bool {
-        authManager.isLoading || !signingInProviders.isEmpty
+        authManager.isLoading || isRequestingEmailVerification || !signingInProviders.isEmpty
     }
 
     private var isAuthInProgress: Bool {
         isInteractiveAuthInProgress || authManager.isRestoringSession
-    }
-
-    private var canSubmitPassword: Bool {
-        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !password.isEmpty
-            && !isAuthInProgress
     }
 
     private func oauthButton(for provider: OAuthSignInProvider) -> some View {
@@ -370,7 +343,10 @@ struct SignInView: View {
         .accessibilityIdentifier(provider.accessibilityIdentifier)
     }
 
-    private func sendCode(autofocusCodeOnSuccess: Bool) async {
+    private func sendCode(
+        autofocusCodeOnSuccess: Bool,
+        requestVerificationOnUnverifiedEmail: Bool = true
+    ) async {
         error = nil
         analytics.capture("ios_sign_in_started", ["method": .string("email_code")])
         do {
@@ -388,8 +364,18 @@ struct SignInView: View {
                 return
             }
             shouldAutofocusCode = false
-            if emailCodeFailurePolicy.action(for: error) == .showOriginalMethodSignIn {
-                enterPasswordSignIn(errorMessage: detailedErrorMessage(error))
+            if emailCodeFailurePolicy.action(for: error) == .requestEmailVerification {
+                if requestVerificationOnUnverifiedEmail {
+                    await requestEmailVerification()
+                } else {
+                    withAnimation(.snappy(duration: 0.18)) {
+                        emailEntryMode = .emailVerification
+                        self.error = L10n.string(
+                            "mobile.signIn.verificationPending",
+                            defaultValue: "That email is not verified yet. Open the verification link, then try again."
+                        )
+                    }
+                }
             } else {
                 self.error = detailedErrorMessage(error)
             }
@@ -400,48 +386,39 @@ struct SignInView: View {
         }
     }
 
-    private func signInWithPassword() async {
+    private func requestEmailVerification() async {
+        guard !isRequestingEmailVerification else { return }
         error = nil
-        analytics.capture("ios_sign_in_started", ["method": .string("email_password")])
+        isEmailFocused = false
+        isRequestingEmailVerification = true
+        defer { isRequestingEmailVerification = false }
+        analytics.capture("ios_email_verification_requested", [:])
         do {
-            try await authManager.signInWithPassword(
-                email: email.trimmingCharacters(in: .whitespacesAndNewlines),
-                password: password
-            )
+            try await authManager.requestEmailVerification(for: normalizedEmail)
+            withAnimation(.snappy(duration: 0.18)) {
+                emailEntryMode = .emailVerification
+            }
         } catch {
             if case AuthError.cancelled = error {
-                analytics.capture("ios_sign_in_cancelled", ["method": .string("email_password")])
                 return
             }
             self.error = detailedErrorMessage(error)
-            analytics.capture("ios_sign_in_failed", [
-                "method": .string("email_password"),
+            analytics.capture("ios_email_verification_request_failed", [
                 "failure_reason": .string(signInFailureReason(error)),
             ])
         }
     }
 
-    private func enterPasswordSignIn(errorMessage: String? = nil) {
-        let hasEmail = !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        isEmailFocused = false
-        password = ""
+    private func returnToSignInMethods() {
         withAnimation(.snappy(duration: 0.18)) {
-            shouldAutofocusPassword = hasEmail
-            shouldAutofocusEmail = !hasEmail
-            emailEntryMode = .password
-            error = errorMessage
+            shouldAutofocusEmail = false
+            emailEntryMode = .methods
+            error = nil
         }
     }
 
-    private func returnToSignInMethods() {
-        let autofocusEmailOnReturn = isPasswordFocused
-        isPasswordFocused = false
-        withAnimation(.snappy(duration: 0.18)) {
-            shouldAutofocusEmail = autofocusEmailOnReturn
-            emailEntryMode = .methods
-            password = ""
-            error = nil
-        }
+    private var normalizedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func verifyCode() async {

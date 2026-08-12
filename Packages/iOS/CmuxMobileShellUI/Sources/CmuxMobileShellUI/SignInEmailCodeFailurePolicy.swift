@@ -3,7 +3,7 @@ import StackAuth
 
 struct SignInEmailCodeFailurePolicy {
     enum Action: Equatable {
-        case showOriginalMethodSignIn
+        case requestEmailVerification
         case showError
     }
 
@@ -13,7 +13,7 @@ struct SignInEmailCodeFailurePolicy {
               wouldWorkIfEmailWasVerified(stackError.details) else {
             return .showError
         }
-        return .showOriginalMethodSignIn
+        return .requestEmailVerification
     }
 
     private func wouldWorkIfEmailWasVerified(_ details: [String: Any]?) -> Bool {

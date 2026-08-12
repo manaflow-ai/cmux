@@ -69,19 +69,19 @@
         }
       }
     },
-    "auth.error.email_requires_original_method": {
+    "auth.error.email_requires_verification": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This account can’t use email codes yet. Enter your password, or use your original sign-in method."
+            "value": "Verify this email before requesting a sign-in code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアカウントではまだメールコードを使用できません。パスワードを入力するか、最初に使用したサインイン方法を選んでください。"
+            "value": "サインインコードをリクエストする前に、このメールアドレスを確認してください。"
           }
         }
       }
@@ -9113,40 +9113,6 @@
         }
       }
     },
-    "mobile.signIn.passwordPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Password"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスワード"
-          }
-        }
-      }
-    },
-    "mobile.signIn.passwordTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign in with password"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスワードでサインイン"
-          }
-        }
-      }
-    },
     "mobile.signIn.restoring": {
       "extractionState": "manual",
       "localizations": {
@@ -9266,23 +9232,6 @@
         }
       }
     },
-    "mobile.signIn.useAnotherMethod": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use another sign-in method"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別のサインイン方法を使用"
-          }
-        }
-      }
-    },
     "mobile.signIn.useDifferentEmail": {
       "extractionState": "manual",
       "localizations": {
@@ -9300,19 +9249,87 @@
         }
       }
     },
-    "mobile.signIn.usePassword": {
+    "mobile.signIn.verificationBodyFormat": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use password instead"
+            "value": "We sent a verification link to %@. Open it, then return here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "代わりにパスワードを使用"
+            "value": "%@ に確認リンクを送信しました。リンクを開いてから、ここに戻ってください。"
+          }
+        }
+      }
+    },
+    "mobile.signIn.verificationContinue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I verified my email"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールを確認しました"
+          }
+        }
+      }
+    },
+    "mobile.signIn.verificationPending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That email is not verified yet. Open the verification link, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメールアドレスはまだ確認されていません。確認リンクを開いてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.signIn.verificationResend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resend verification email"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認メールを再送信"
+          }
+        }
+      }
+    },
+    "mobile.signIn.verificationTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verify your email"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールアドレスを確認"
           }
         }
       }

@@ -45,7 +45,7 @@ import Testing
 
         #expect(
             SignInEmailCodeFailurePolicy().action(for: error)
-                != .showOriginalMethodSignIn
+                == .requestEmailVerification
         )
         #expect(presentation.failureReason(for: error) == "email_unverified")
         #expect(!presentation.message(for: error).localizedCaseInsensitiveContains("password"))
