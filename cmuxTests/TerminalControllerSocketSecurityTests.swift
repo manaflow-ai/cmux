@@ -846,6 +846,51 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(v1Replies, ["ERROR: Terminal surface not found"])
     }
 
+    @Test func testSurfaceReadSelectionIsDiscoverableAndServicedOnTheWorkerLane() async throws {
+        let socketPath = makeSocketPath("v2-read-selection-worker")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let capabilitiesEnvelope = try await sendV2RequestAsync(
+            method: "system.capabilities",
+            params: [:],
+            to: socketPath
+        )
+        let capabilities = try XCTUnwrap(capabilitiesEnvelope["result"] as? [String: Any])
+        let methods = try XCTUnwrap(capabilities["methods"] as? [String])
+        XCTAssertTrue(methods.contains("surface.read_selection"))
+
+        let inline = TerminalController.shared.handleSocketLine(
+            #"{"id":"rs-main","method":"surface.read_selection","params":{}}"#
+        )
+        XCTAssertTrue(inline.contains("invalid_dispatch"), inline)
+        XCTAssertTrue(inline.contains("surface.read_selection must run off the main thread"), inline)
+
+        let envelope = try await sendV2RequestAsync(
+            method: "surface.read_selection",
+            params: ["workspace_id": workspace.id.uuidString],
+            to: socketPath
+        )
+        XCTAssertEqual(envelope["ok"] as? Bool, false)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "unavailable")
+        XCTAssertEqual(error["message"] as? String, "Failed to read terminal selection")
+    }
+
     @Test func testV1SetStatusIsServicedOnWorkerLaneWhileMainThreadIsBlocked() throws {
         let socketPath = makeSocketPath("v1-status-worker")
         let manager = TabManager()

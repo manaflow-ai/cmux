@@ -10,6 +10,10 @@ struct CLIExplicitSurfaceRoutingTests {
             expectedMethod: "surface.read_text"
         )
         try assertExplicitSurfaceCommand(
+            arguments: ["read-selection", "--surface", Self.targetSurfaceRef],
+            expectedMethod: "surface.read_selection"
+        )
+        try assertExplicitSurfaceCommand(
             arguments: ["send", "--surface", Self.targetSurfaceRef, "hello"],
             expectedMethod: "surface.send_text",
             expectedText: "hello"
@@ -343,6 +347,14 @@ struct CLIExplicitSurfaceRoutingTests {
             switch method {
             case "surface.read_text":
                 return Self.v2Response(id: id, ok: true, result: ["text": "agent screen\n"])
+            case "surface.read_selection":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "has_selection": true,
+                    "kind": "filepreview",
+                    "text": "selected source",
+                    "file_path": "/tmp/example.swift",
+                    "line_range": ["start": 2, "end": 3],
+                ])
             case "surface.send_text", "surface.send_key":
                 return Self.v2Response(id: id, ok: true, result: ["surface_id": Self.targetSurfaceRef])
             default:
