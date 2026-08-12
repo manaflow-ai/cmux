@@ -59,6 +59,47 @@ struct VaultNativeDragSourceTests {
         #expect(startedEntries.map(\.title) == [first.title, second.title])
     }
 
+    @Test("Repeated click sequences can still initiate a native drag", arguments: [1, 2, 3])
+    func repeatedClickSequenceCanInitiateNativeDrag(clickCount: Int) throws {
+        let entry = Self.makeEntry(title: "Repeated click \(clickCount)")
+        let row = try #require(SessionIndexRowSnapshot.rows(for: [entry]).first)
+        let regions = SessionDragRegionStore()
+        regions.update(row, frame: NSRect(x: 0, y: 0, width: 240, height: 28))
+
+        var startedEntry: SessionEntry?
+        let monitor = SessionDragMonitorView(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 40),
+            regions: regions
+        ) { candidate, _, _, _, _ in
+            startedEntry = candidate
+            return true
+        }
+        let window = NSWindow(
+            contentRect: monitor.bounds,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = monitor
+        defer { window.orderOut(nil) }
+
+        let start = NSPoint(x: 40, y: 14)
+        _ = monitor.handleEvent(try Self.mouseEvent(
+            type: .leftMouseDown,
+            location: monitor.convert(start, to: nil),
+            window: window,
+            clickCount: clickCount
+        ))
+        _ = monitor.handleEvent(try Self.mouseEvent(
+            type: .leftMouseDragged,
+            location: monitor.convert(NSPoint(x: start.x + 8, y: start.y), to: nil),
+            window: window,
+            clickCount: clickCount
+        ))
+
+        #expect(startedEntry == entry)
+    }
+
     @Test("A completed native drag releases ownership before the next duplicate drag")
     func completedDragReleasesOwnershipForNextDuplicate() throws {
         let registry = SessionDragRegistry()
@@ -124,19 +165,22 @@ struct VaultNativeDragSourceTests {
     private static func mouseEvent(
         type: NSEvent.EventType,
         location: NSPoint,
-        window: NSWindow
+        window: NSWindow,
+        clickCount: Int = 1
     ) throws -> NSEvent {
         try mouseEvent(
             type: type,
             location: location,
-            windowNumber: window.windowNumber
+            windowNumber: window.windowNumber,
+            clickCount: clickCount
         )
     }
 
     private static func mouseEvent(
         type: NSEvent.EventType,
         location: NSPoint,
-        windowNumber: Int
+        windowNumber: Int,
+        clickCount: Int = 1
     ) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(
             with: type,
@@ -146,7 +190,7 @@ struct VaultNativeDragSourceTests {
             windowNumber: windowNumber,
             context: nil,
             eventNumber: 0,
-            clickCount: 1,
+            clickCount: clickCount,
             pressure: 1
         ))
     }
