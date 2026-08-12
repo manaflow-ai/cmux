@@ -131,6 +131,9 @@ func TestConfigureAgentEnvironmentClearsRejectedRoutingIdentity(t *testing.T) {
 		"COLORTERM",
 		"CMUX_AGENT_LAUNCH_TEST_BIN",
 		"CMUX_AGENT_LAUNCH_TEST_TERM",
+		"CLAUDE_CODE_SANDBOXED",
+		"CMUX_CLAUDE_TEAMS_SANDBOXED",
+		claudeTeamsRespawnEnvironmentKey,
 	} {
 		t.Setenv(key, os.Getenv(key))
 	}

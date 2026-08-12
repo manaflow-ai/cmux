@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -1754,17 +1755,38 @@ func tmuxRespawnStartCommand(command string, prependEnv []tmuxEnvPair) string {
 }
 
 // tmuxClaudeTeamsRespawnEnvironment re-supplies the environment a
-// claude-teams teammate pane must start with. CLAUDE_CODE_SANDBOXED
-// short-circuits Claude Code's interactive trust prompt, which a teammate
-// pane can never answer. It is only set when the claude-teams launcher
-// recorded the user's explicit opt-in (CMUX_CLAUDE_TEAMS_SANDBOXED=1),
-// propagated to this process by the tmux shim. Mirrors the Swift
-// tmuxClaudeTeamsRespawnEnvironment; see that for the full rationale.
+// claude-teams teammate pane must start with. The pane is spawned by the
+// relay rather than by the launcher, so it does not inherit the launcher's
+// PATH; runClaudeTeamsRelay records that PATH in the respawn transport and
+// this replays it, keeping teammate executable discovery identical to the
+// lead's. CLAUDE_CODE_SANDBOXED short-circuits Claude Code's interactive
+// trust prompt, which a teammate pane can never answer. It is only set when
+// the claude-teams launcher recorded the user's explicit opt-in
+// (CMUX_CLAUDE_TEAMS_SANDBOXED=1), propagated to this process by the tmux
+// shim. Narrower than the Swift tmuxClaudeTeamsRespawnEnvironment, which also
+// replays AgentLaunchEnvironmentPolicy.safeEnvironmentKeys; this replays PATH
+// only.
 func tmuxClaudeTeamsRespawnEnvironment() []tmuxEnvPair {
-	if strings.TrimSpace(os.Getenv("CMUX_CLAUDE_TEAMS_SANDBOXED")) != "1" {
+	environment := decodeClaudeTeamsRespawnEnvironment(os.Getenv(claudeTeamsRespawnEnvironmentKey))
+	if strings.TrimSpace(os.Getenv("CMUX_CLAUDE_TEAMS_SANDBOXED")) == "1" {
+		if environment == nil {
+			environment = map[string]string{}
+		}
+		environment["CLAUDE_CODE_SANDBOXED"] = "1"
+	}
+	if len(environment) == 0 {
 		return nil
 	}
-	return []tmuxEnvPair{{key: "CLAUDE_CODE_SANDBOXED", value: "1"}}
+	keys := make([]string, 0, len(environment))
+	for key := range environment {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	pairs := make([]tmuxEnvPair, 0, len(keys))
+	for _, key := range keys {
+		pairs = append(pairs, tmuxEnvPair{key: key, value: environment[key]})
+	}
+	return pairs
 }
 
 func tmuxSendKeys(rc *rpcContext, args []string) error {

@@ -417,6 +417,8 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 		"TERM", "CMUX_SOCKET_PATH", "TERM_PROGRAM",
 		"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID", "CMUX_PANE_ID",
 		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "COLORTERM",
+		"CLAUDE_CODE_SANDBOXED", "CMUX_CLAUDE_TEAMS_SANDBOXED",
+		claudeTeamsRespawnEnvironmentKey,
 	}
 	saved := make(map[string]string)
 	for _, k := range envKeys {
