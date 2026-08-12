@@ -75,7 +75,6 @@ nonisolated struct WebSurfaceSelectionReader {
 
       let retainedSelection = empty();
       let retainedDocument = null;
-      let lastObservedSelection = empty();
       const clear = (sourceDocument = null) => {
         if (sourceDocument && retainedDocument !== sourceDocument) return;
         retainedSelection = empty();
@@ -90,25 +89,15 @@ nonisolated struct WebSurfaceSelectionReader {
         if (live.blocks_fallback) {
           clear();
         } else if (live.has_selection) {
-          lastObservedSelection = selected(live.text);
           retain(live);
         } else if (clearWhenEmpty) {
           clear();
         }
       };
-      const read = () => {
-        const live = readLiveSelection(window);
-        if (live.blocks_fallback) {
-          clear();
-          return empty();
-        }
-        if (live.has_selection) {
-          lastObservedSelection = selected(live.text);
-          retain(live);
-          return retainedSelection;
-        }
-        return retainedSelection;
-      };
+      // Socket reads are observers. Re-querying WebKit here would create a
+      // second mutation path that can erase the event-owned snapshot after
+      // native focus moves to a neighboring surface.
+      const read = () => retainedSelection;
 
       const trackedDocuments = new WeakSet();
       const documentObservers = new WeakMap();
@@ -195,11 +184,7 @@ nonisolated struct WebSurfaceSelectionReader {
         }, true);
       };
 
-      const diagnostics = () => ({
-        last_observed_text: lastObservedSelection.text,
-        retained_text: retainedSelection.text
-      });
-      globalThis.__cmuxSurfaceSelectionRuntime = { read, diagnostics };
+      globalThis.__cmuxSurfaceSelectionRuntime = { read };
       installDocument(document);
       capture(window);
       return true;
