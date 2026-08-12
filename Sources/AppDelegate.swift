@@ -3129,6 +3129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var seeded = false
         var resolved = false
         var expectedPath: String?
+        var wrappedGridColumnCount: Int?
         var lastHandledCommandID: String?
         var observers: [NSObjectProtocol] = []
 
@@ -3194,9 +3195,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   metrics.cell_width.isFinite, metrics.cell_width > 0,
                   metrics.cell_height.isFinite, metrics.cell_height > 0,
                   metrics.padding_left.isFinite, metrics.padding_left >= 0,
-                  metrics.padding_top.isFinite, metrics.padding_top >= 0 else { return nil }
+                  metrics.padding_top.isFinite, metrics.padding_top >= 0,
+                  let cols = wrappedGridColumnCount,
+                  Int(metrics.columns) == cols else { return nil }
             let rows = max(Int(metrics.rows), 1)
-            let cols = max(Int(metrics.columns), 1)
             let cellWidth = CGFloat(metrics.cell_width)
             let cellHeight = CGFloat(metrics.cell_height)
             guard expectedPath.count > cols else {
@@ -3329,6 +3331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return
                 }
                 let cols = Int(gridMetrics.columns)
+                wrappedGridColumnCount = cols
                 // Exact repro shape from issue #8810: a single trailing
                 // character spills onto the next physical row (the
                 // `TMLlaborator` / `y` split), so the fixture path lands
