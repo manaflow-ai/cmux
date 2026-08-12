@@ -122,13 +122,11 @@ final class AgentApprovalNotificationCoordinator {
     func resolve(surfaceID: UUID, approvalID: AgentApprovalCorrelationID) {
         let timestamp = now()
         pruneTombstones(at: timestamp)
+        exactResolutionTombstones[
+            ResolutionKey(surfaceID: surfaceID, value: approvalID.rawValue)
+        ] = timestamp + tombstoneLifetime
         guard var state = panes[surfaceID],
-              state.candidates.values.contains(where: { $0.approvalID == approvalID }) else {
-            exactResolutionTombstones[
-                ResolutionKey(surfaceID: surfaceID, value: approvalID.rawValue)
-            ] = timestamp + tombstoneLifetime
-            return
-        }
+              state.candidates.values.contains(where: { $0.approvalID == approvalID }) else { return }
         // One correlation id names one logical request; duplicate hook
         // deliveries must not keep its pane notification alive.
         state.candidates = state.candidates.filter { $0.value.approvalID != approvalID }

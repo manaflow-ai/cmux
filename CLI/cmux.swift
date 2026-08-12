@@ -35127,10 +35127,33 @@ export default CMUXSessionRestore;
             print(compactedFeedOutput)
             return
         }
-        let sessionId = firstString(
+        let rawSessionId = firstString(
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
-        ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+        )
+        let sessionId = rawSessionId
+            ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+        let rawTranscriptPath = firstString(
+            in: stdinObj,
+            keys: ["transcript_path", "transcriptPath"]
+        )
+        let mappedTranscriptPath: String? = {
+            guard source == "codex",
+                  classification.notifiesNativeApprovalPrompt,
+                  rawTranscriptPath == nil,
+                  let rawSessionId,
+                  let def = Self.agentDef(named: source) else {
+                return nil
+            }
+            let store = ClaudeHookSessionStore(processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(
+                    sessionStoreSuffix: def.sessionStoreSuffix,
+                    env: env
+                )],
+                uniquingKeysWith: { _, new in new }
+            ))
+            return (try? store.lookup(sessionId: rawSessionId))?.transcriptPath
+        }()
         let approvalIdentity = source == "codex"
             ? CodexApprovalNotificationIdentity.make(
                 rawObject: stdinObj,
@@ -35141,10 +35164,7 @@ export default CMUXSessionRestore;
             && classification.notifiesNativeApprovalPrompt
             && CodexApprovalNotificationPolicy().isAutoReviewed(
                 rawObject: stdinObj,
-                transcriptPath: firstString(
-                    in: stdinObj,
-                    keys: ["transcript_path", "transcriptPath"]
-                ),
+                transcriptPath: rawTranscriptPath ?? mappedTranscriptPath,
                 readRolloutLines: { path, maxBytes in
                     readRecentTextFileLines(path: path, maxBytes: maxBytes)
                 }
