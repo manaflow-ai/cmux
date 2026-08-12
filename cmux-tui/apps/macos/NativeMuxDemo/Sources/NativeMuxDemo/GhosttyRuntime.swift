@@ -39,13 +39,25 @@ private func loadNativeGhosttyConfigurationFromDisk() -> NativeGhosttyLoadedConf
 }
 
 func loadNativeGhosttyConfiguration<Result: Sendable>(
-  using loader: @escaping @Sendable () -> Result
-) async -> Result {
-  let task = Task.detached(priority: .userInitiated, operation: loader)
+  using loader: @escaping @Sendable () -> Result?
+) async -> Result? {
+  let result = AsyncStream<Result?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+  let task = Task.detached(priority: .userInitiated) {
+    guard !Task.isCancelled else {
+      result.continuation.finish()
+      return
+    }
+    result.continuation.yield(loader())
+    result.continuation.finish()
+  }
   return await withTaskCancellationHandler {
-    await task.value
+    for await value in result.stream {
+      return value
+    }
+    return nil
   } onCancel: {
     task.cancel()
+    result.continuation.finish()
   }
 }
 

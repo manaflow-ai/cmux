@@ -10,13 +10,16 @@ final class GhosttyTerminalInputRelay: @unchecked Sendable {
   private let continuation: AsyncStream<QueuedTerminalInput>.Continuation
   private let dropContinuation: AsyncStream<Void>.Continuation
   private let epochGate: OpaquePointer
+  private let maximumQueuedBytes: Int
 
   init(
     continuation: AsyncStream<QueuedTerminalInput>.Continuation,
-    dropContinuation: AsyncStream<Void>.Continuation
+    dropContinuation: AsyncStream<Void>.Continuation,
+    maximumQueuedBytes: Int = Int(CMUX_FRONTEND_TERMINAL_INPUT_QUEUE_MAX_BYTES_VALUE)
   ) {
     self.continuation = continuation
     self.dropContinuation = dropContinuation
+    self.maximumQueuedBytes = max(0, maximumQueuedBytes)
     guard let epochGate = cmux_frontend_input_epoch_gate_new() else {
       preconditionFailure("The terminal input epoch gate could not be created.")
     }
@@ -34,17 +37,36 @@ final class GhosttyTerminalInputRelay: @unchecked Sendable {
 
   @discardableResult
   func send(_ input: TerminalInput) -> Bool {
-    let epoch = cmux_frontend_input_epoch_gate_load(epochGate)
-    switch continuation.yield(QueuedTerminalInput(input: input, epoch: epoch)) {
-    case .enqueued:
-      return true
-    case .dropped, .terminated:
-      dropContinuation.yield()
-      return false
-    @unknown default:
+    let byteCount = input.queuedByteCount
+    guard cmux_frontend_input_epoch_gate_try_reserve_bytes(
+      epochGate,
+      byteCount,
+      maximumQueuedBytes
+    ) else {
       dropContinuation.yield()
       return false
     }
+    let epoch = cmux_frontend_input_epoch_gate_load(epochGate)
+    switch continuation.yield(QueuedTerminalInput(
+      input: input,
+      epoch: epoch,
+      byteCount: byteCount
+    )) {
+    case .enqueued:
+      return true
+    case .dropped, .terminated:
+      cmux_frontend_input_epoch_gate_release_bytes(epochGate, byteCount)
+      dropContinuation.yield()
+      return false
+    @unknown default:
+      cmux_frontend_input_epoch_gate_release_bytes(epochGate, byteCount)
+      dropContinuation.yield()
+      return false
+    }
+  }
+
+  func didDequeue(_ input: QueuedTerminalInput) {
+    cmux_frontend_input_epoch_gate_release_bytes(epochGate, input.byteCount)
   }
 
   func beginEpoch(_ epoch: UInt64) {

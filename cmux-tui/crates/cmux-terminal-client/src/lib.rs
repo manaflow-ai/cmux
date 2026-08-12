@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::ffi::{CStr, c_char, c_void};
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
 
@@ -39,9 +39,14 @@ const TERMINAL_RECONNECT_INITIAL_DELAY: StdDuration = StdDuration::from_millis(2
 const TERMINAL_RECONNECT_MAX_DELAY: StdDuration = StdDuration::from_secs(4);
 const MAX_NATIVE_RENDER_EVENT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_NATIVE_RENDER_EVENTS: usize = 4096;
+const MAX_TERMINAL_COMMAND_QUEUE_BYTES: usize = 8 * 1024 * 1024;
 
 #[unsafe(no_mangle)]
 pub static CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE: usize = MAX_FRAME_PAYLOAD;
+
+#[unsafe(no_mangle)]
+pub static CMUX_FRONTEND_TERMINAL_INPUT_QUEUE_MAX_BYTES_VALUE: usize =
+    MAX_TERMINAL_COMMAND_QUEUE_BYTES;
 
 const MAX_NATIVE_RENDER_BYTES_EVENT_BYTES: usize = 64 * 1024;
 
@@ -433,6 +438,7 @@ struct ActiveTerminal {
     streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
     closed: Arc<AtomicBool>,
     command_sender: tokio::sync::mpsc::Sender<TerminalCommand>,
+    command_queue_bytes: Arc<AtomicUsize>,
     resize_delivery: Arc<ResizeDelivery>,
     receiver_task: tokio::task::JoinHandle<()>,
     command_task: tokio::task::JoinHandle<()>,
@@ -445,6 +451,48 @@ struct TerminalCommand {
     input_epoch: u64,
     requires_ready: bool,
     payload: Bytes,
+}
+
+fn try_reserve_bytes(bytes: &AtomicUsize, amount: usize, maximum: usize) -> bool {
+    bytes
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            current.checked_add(amount).filter(|next| *next <= maximum)
+        })
+        .is_ok()
+}
+
+fn release_bytes(bytes: &AtomicUsize, amount: usize) {
+    let _ = bytes.fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+        Some(current.saturating_sub(amount))
+    });
+}
+
+fn try_enqueue_terminal_command(
+    sender: &tokio::sync::mpsc::Sender<TerminalCommand>,
+    queued_bytes: &AtomicUsize,
+    command: TerminalCommand,
+    maximum_bytes: usize,
+) -> bool {
+    let command_bytes = command.payload.len();
+    if !try_reserve_bytes(queued_bytes, command_bytes, maximum_bytes) {
+        return false;
+    }
+    if sender.try_send(command).is_err() {
+        release_bytes(queued_bytes, command_bytes);
+        return false;
+    }
+    true
+}
+
+struct TerminalCommandByteLease {
+    queued_bytes: Arc<AtomicUsize>,
+    bytes: usize,
+}
+
+impl Drop for TerminalCommandByteLease {
+    fn drop(&mut self) {
+        release_bytes(&self.queued_bytes, self.bytes);
+    }
 }
 
 fn terminal_command_is_current(
@@ -692,6 +740,11 @@ impl ClientState {
         self.bootstrap_committed = false;
         self.ready = false;
         self.advance_input_epoch();
+        if let Some(events) = self.native_render_events.as_mut() {
+            events.clear();
+        }
+        self.native_render_event_bytes =
+            self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
     }
 
     fn advance_input_epoch(&mut self) {
@@ -1080,15 +1133,17 @@ fn enqueue_active_terminal(
         state.input_epoch
     };
     let Some(stream) = terminal.streams.borrow().clone() else { return false };
-    terminal
-        .command_sender
-        .try_send(TerminalCommand {
+    try_enqueue_terminal_command(
+        &terminal.command_sender,
+        &terminal.command_queue_bytes,
+        TerminalCommand {
             stream_id: stream.id(),
             input_epoch,
             requires_ready,
             payload: Bytes::from(encoded),
-        })
-        .is_ok()
+        },
+        MAX_TERMINAL_COMMAND_QUEUE_BYTES,
+    )
 }
 
 #[cfg(feature = "text-renderer")]
@@ -1367,33 +1422,39 @@ async fn receive_frames(
                 }
                 match decoder.push(&chunk.payload) {
                     Ok(frames) => {
-                        let mut outcome = None;
-                        for frame in frames {
-                            let applied = state.lock().unwrap().apply(frame);
+                        let outcome = if frames.is_empty() {
+                            None
+                        } else {
+                            let outcome = {
+                                let mut state = state.lock().unwrap();
+                                let mut outcome = None;
+                                for frame in frames {
+                                    match state.apply(frame) {
+                                        Ok(FrameEffect::Continue) => {}
+                                        Ok(FrameEffect::Restart) => {
+                                            outcome = Some(StreamOutcome::Restart);
+                                            break;
+                                        }
+                                        Ok(FrameEffect::Stop) => {
+                                            outcome = Some(StreamOutcome::Stop);
+                                            break;
+                                        }
+                                        Err(error) => {
+                                            state.fail_closed_for_stream_restart();
+                                            state.status = error;
+                                            outcome = Some(StreamOutcome::Restart);
+                                            break;
+                                        }
+                                    }
+                                }
+                                outcome
+                            };
                             updates.notify();
-                            match applied {
-                                Ok(FrameEffect::Continue) => {}
-                                Ok(FrameEffect::Restart) => {
-                                    outcome = Some(StreamOutcome::Restart);
-                                    break;
-                                }
-                                Ok(FrameEffect::Stop) => {
-                                    outcome = Some(StreamOutcome::Stop);
-                                    break;
-                                }
-                                Err(error) => {
-                                    set_restart_status(&state, &updates, error);
-                                    let _ = finish_decoder(&decoder, &state, &updates);
-                                    return StreamOutcome::Restart;
-                                }
-                            }
-                        }
+                            outcome
+                        };
                         if let Some(outcome) = outcome {
                             let _ = finish_decoder(&decoder, &state, &updates);
-                            return match outcome {
-                                StreamOutcome::Restart => StreamOutcome::Restart,
-                                StreamOutcome::Stop => StreamOutcome::Stop,
-                            };
+                            return outcome;
                         }
                     }
                     Err(error) => {
@@ -1623,6 +1684,8 @@ fn start_terminal_tasks(
         updates.clone(),
     ));
     let (command_sender, mut commands) = tokio::sync::mpsc::channel::<TerminalCommand>(256);
+    let command_queue_bytes = Arc::new(AtomicUsize::new(0));
+    let command_task_queue_bytes = command_queue_bytes.clone();
     let command_state = state.clone();
     let command_updates = updates.clone();
     let command_closed = closed.clone();
@@ -1630,6 +1693,10 @@ fn start_terminal_tasks(
     let command_send_lock = send_lock.clone();
     let command_task = runtime.spawn(async move {
         while let Some(command) = commands.recv().await {
+            let _command_byte_lease = TerminalCommandByteLease {
+                queued_bytes: command_task_queue_bytes.clone(),
+                bytes: command.payload.len(),
+            };
             if command_closed.load(Ordering::Acquire) {
                 return;
             }
@@ -1669,6 +1736,7 @@ fn start_terminal_tasks(
         streams,
         closed,
         command_sender,
+        command_queue_bytes,
         resize_delivery,
         receiver_task,
         command_task,
@@ -2425,6 +2493,10 @@ mod tests {
     #[test]
     fn c_copy_limit_matches_the_protocol_payload_limit() {
         assert_eq!(CMUX_TERMINAL_CLIENT_COPY_MAX_BYTES_VALUE, MAX_FRAME_PAYLOAD);
+        assert_eq!(
+            CMUX_FRONTEND_TERMINAL_INPUT_QUEUE_MAX_BYTES_VALUE,
+            MAX_TERMINAL_COMMAND_QUEUE_BYTES
+        );
     }
 
     fn test_terminal_id() -> TerminalPublicId {
@@ -2553,6 +2625,8 @@ mod tests {
         assert_eq!(events.back().unwrap().payload, b"ab");
         state.fail_closed_for_stream_restart();
         assert_eq!(state.input_epoch, 2);
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        assert_eq!(state.native_render_event_bytes, 0);
         state.prepare_handshake(test_terminal_id()).unwrap();
         assert!(state.native_render_events.as_ref().unwrap().is_empty());
         assert_eq!(state.native_render_event_bytes, 0);
@@ -2627,6 +2701,19 @@ mod tests {
         // SAFETY: the test registers a live AtomicU64 for the callback lifetime.
         let count = unsafe { &*(context.cast::<AtomicU64>()) };
         count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    struct ReadyObservation {
+        state: Arc<Mutex<ClientState>>,
+        saw_ready: AtomicBool,
+    }
+
+    unsafe extern "C" fn observe_ready(context: *mut c_void) {
+        // SAFETY: the test registers a live ReadyObservation for the callback lifetime.
+        let observation = unsafe { &*(context.cast::<ReadyObservation>()) };
+        if observation.state.lock().unwrap().ready {
+            observation.saw_ready.store(true, Ordering::Release);
+        }
     }
 
     #[test]
@@ -2927,6 +3014,33 @@ mod tests {
             assert_eq!(receiver.recv().await.unwrap(), first);
             assert_eq!(receiver.recv().await.unwrap(), second);
         });
+    }
+
+    #[test]
+    fn command_queue_byte_budget_rejects_and_releases_payloads() {
+        let runtime = Runtime::new().unwrap();
+        let (sender, mut receiver) = mpsc::channel::<TerminalCommand>(2);
+        let queued_bytes = Arc::new(AtomicUsize::new(0));
+        let command = |payload: &'static [u8]| TerminalCommand {
+            stream_id: 7,
+            input_epoch: 11,
+            requires_ready: true,
+            payload: Bytes::from_static(payload),
+        };
+
+        assert!(try_enqueue_terminal_command(&sender, &queued_bytes, command(b"four"), 5));
+        assert_eq!(queued_bytes.load(Ordering::Acquire), 4);
+        assert!(!try_enqueue_terminal_command(&sender, &queued_bytes, command(b"two"), 5));
+        assert_eq!(queued_bytes.load(Ordering::Acquire), 4);
+
+        let received = runtime.block_on(receiver.recv()).unwrap();
+        let lease = TerminalCommandByteLease {
+            queued_bytes: queued_bytes.clone(),
+            bytes: received.payload.len(),
+        };
+        drop(lease);
+        assert_eq!(queued_bytes.load(Ordering::Acquire), 0);
+        assert!(try_enqueue_terminal_command(&sender, &queued_bytes, command(b"12345"), 5));
     }
 
     #[test]
@@ -3299,10 +3413,20 @@ mod tests {
             let state = Arc::new(Mutex::new(
                 ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap(),
             ));
+            state.lock().unwrap().enable_native_render_events();
+            let updates = Arc::new(ClientUpdates::default());
+            let observation = ReadyObservation {
+                state: state.clone(),
+                saw_ready: AtomicBool::new(false),
+            };
+            let observation_context = (&observation as *const ReadyObservation)
+                .cast_mut()
+                .cast::<c_void>();
+            updates.set_callback(Some(observe_ready), observation_context);
             let receiver = tokio::spawn(receive_frames(
                 stream,
                 state.clone(),
-                Arc::new(ClientUpdates::default()),
+                updates.clone(),
             ));
 
             let boundary = 10;
@@ -3332,6 +3456,11 @@ mod tests {
             incoming.stream.send_on(Lane::Interactive, Bytes::from(chunk)).await.unwrap();
 
             assert_eq!(receiver.await.unwrap(), StreamOutcome::Restart);
+            updates.set_callback(None, std::ptr::null_mut());
+            assert!(
+                !observation.saw_ready.load(Ordering::Acquire),
+                "a Ready callback escaped before the same batch failed closed"
+            );
             {
                 let mut state = state.lock().unwrap();
                 state.materialize_frame().unwrap();
@@ -3339,6 +3468,7 @@ mod tests {
                 assert!(!state.ready);
                 assert!(!state.bootstrap_committed);
                 assert!(!state.frame_text.contains("must-not-apply"));
+                assert!(state.native_render_events.as_ref().unwrap().is_empty());
             }
             let _ = incoming.stream.close().await;
             client.shutdown().await;

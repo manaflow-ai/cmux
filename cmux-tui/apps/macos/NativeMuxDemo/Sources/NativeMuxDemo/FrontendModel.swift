@@ -220,6 +220,21 @@ func frontendConnectionIsAdmitted(
     !isConnecting && !isDisconnecting && !isShuttingDown
 }
 
+func frontendSnapshotForFocusReconciliation(
+    fetched: ResourceSnapshot,
+    streamed: ResourceSnapshot?
+) -> ResourceSnapshot {
+    guard let streamed else { return fetched }
+    guard streamed.cursor.generation == fetched.cursor.generation else {
+        return streamed
+    }
+    guard let streamedRevision = UInt64(streamed.cursor.revision),
+          let fetchedRevision = UInt64(fetched.cursor.revision) else {
+        return streamed.cursor.revision == fetched.cursor.revision ? fetched : streamed
+    }
+    return fetchedRevision > streamedRevision ? fetched : streamed
+}
+
 @MainActor
 @Observable
 final class FrontendModel {
@@ -238,6 +253,7 @@ final class FrontendModel {
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
+    @ObservationIgnored private var shutdownTask: Task<Void, Never>?
     @ObservationIgnored private var terminalControllers: [String: NativeTerminalModel] = [:]
     @ObservationIgnored private var terminalTitles: [String: TerminalTitleOwner] = [:]
     @ObservationIgnored private var terminalRetirementTasks: [UUID: Task<Void, Never>] = [:]
@@ -912,20 +928,22 @@ final class FrontendModel {
                 sessionID: sessionID
             )
             guard focusMutations.owns(requestID) else { return }
-            guard resourceGeneration.matches(generation) else {
-                _ = focusMutations.finish(requestID)
-                return
-            }
-            selectedWorkspaceID = next.workspaces.first { $0.focused }?.id
-                ?? next.workspaces.first?.id
+            let authoritative = resourceGeneration.matches(generation)
+                ? next
+                : frontendSnapshotForFocusReconciliation(
+                    fetched: next,
+                    streamed: resourceState
+                )
+            selectedWorkspaceID = authoritative.workspaces.first { $0.focused }?.id
+                ?? authoritative.workspaces.first?.id
             if let selectedWorkspaceID {
-                let screens = next.screens(in: selectedWorkspaceID)
+                let screens = authoritative.screens(in: selectedWorkspaceID)
                 selectedScreenID = screens.first { $0.focused }?.id ?? screens.first?.id
             } else {
                 selectedScreenID = nil
             }
             _ = focusMutations.finish(requestID)
-            applySnapshot(next)
+            applySnapshot(authoritative)
         } catch {
             guard focusMutations.finish(requestID) else { return }
             recordAndPresent(error)
@@ -1220,14 +1238,25 @@ final class FrontendModel {
     }
 
     func shutdown() {
-        Task { @MainActor in
-            await shutdownAndWait()
-        }
+        _ = beginShutdown()
     }
 
     func shutdownAndWait() async {
-        guard !isShuttingDown else { return }
+        await beginShutdown().value
+    }
+
+    private func beginShutdown() -> Task<Void, Never> {
+        if let shutdownTask { return shutdownTask }
         isShuttingDown = true
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.performShutdown()
+        }
+        shutdownTask = task
+        return task
+    }
+
+    private func performShutdown() async {
         let connection = connectTask
         connectTask = nil
         connection?.cancel()

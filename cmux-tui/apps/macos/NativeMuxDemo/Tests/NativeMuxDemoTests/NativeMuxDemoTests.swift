@@ -52,6 +52,28 @@ private func nativeResetPayload() -> Data {
     return payload
 }
 
+private func focusSnapshot(
+    generation: String = "generation-a",
+    revision: String,
+    focusedWorkspaceID: String
+) throws -> ResourceSnapshot {
+    let data = Data(
+        #"""
+        {
+          "machine":{"id":"machine-a","name":null},
+          "session":{"id":"session-a","name":null},
+          "workspaces":[
+            {"id":"workspace-a","name":"A","index":0,"focused":\#(focusedWorkspaceID == "workspace-a")},
+            {"id":"workspace-b","name":"B","index":1,"focused":\#(focusedWorkspaceID == "workspace-b")}
+          ],
+          "screens":[],"panes":[],"tabs":[],"terminals":[],"browsers":[],
+          "cursor":{"generation":"\#(generation)","revision":"\#(revision)"}
+        }
+        """#.utf8
+    )
+    return try JSONDecoder().decode(ResourceSnapshot.self, from: data)
+}
+
 @Test
 func decodesAnUnplacedExitedTerminal() throws {
     let data = Data(
@@ -551,6 +573,47 @@ func focusMutationAdmissionWaitsForControllerRetirement() {
     ))
 }
 
+@Test
+func focusReconciliationUsesTheNewestAuthoritativeSnapshot() throws {
+    let fetchedBeforeUpdate = try focusSnapshot(
+        revision: "10",
+        focusedWorkspaceID: "workspace-a"
+    )
+    let streamedUpdate = try focusSnapshot(
+        revision: "11",
+        focusedWorkspaceID: "workspace-b"
+    )
+    let newestStreamed = frontendSnapshotForFocusReconciliation(
+        fetched: fetchedBeforeUpdate,
+        streamed: streamedUpdate
+    )
+    #expect(newestStreamed.cursor.revision == "11")
+    #expect(newestStreamed.workspaces.first(where: { $0.focused })?.id == "workspace-b")
+
+    let fetchedAfterUpdate = try focusSnapshot(
+        revision: "12",
+        focusedWorkspaceID: "workspace-a"
+    )
+    let newestFetched = frontendSnapshotForFocusReconciliation(
+        fetched: fetchedAfterUpdate,
+        streamed: streamedUpdate
+    )
+    #expect(newestFetched.cursor.revision == "12")
+    #expect(newestFetched.workspaces.first(where: { $0.focused })?.id == "workspace-a")
+
+    let replacementGeneration = try focusSnapshot(
+        generation: "generation-b",
+        revision: "1",
+        focusedWorkspaceID: "workspace-b"
+    )
+    let newestGeneration = frontendSnapshotForFocusReconciliation(
+        fetched: fetchedAfterUpdate,
+        streamed: replacementGeneration
+    )
+    #expect(newestGeneration.cursor.generation == "generation-b")
+    #expect(newestGeneration.workspaces.first(where: { $0.focused })?.id == "workspace-b")
+}
+
 @Test @MainActor
 func terminalTitleLookupStreamsOnlyTheSelectedOwner() async throws {
     let selected = TerminalTitleOwner(terminalID: "terminal-a", title: "before")
@@ -734,6 +797,39 @@ func terminalInputRelayReportsBoundedBufferDrops() async {
 
     input.continuation.finish()
     #expect(!relay.send(Data("after-finish".utf8)))
+}
+
+@Test
+func terminalInputRelayEnforcesAnAggregateByteBudget() async {
+    let input = AsyncStream<QueuedTerminalInput>.makeStream()
+    let drops = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let relay = GhosttyTerminalInputRelay(
+        continuation: input.continuation,
+        dropContinuation: drops.continuation,
+        maximumQueuedBytes: 5
+    )
+    defer {
+        input.continuation.finish()
+        drops.continuation.finish()
+    }
+
+    #expect(relay.send(Data("four".utf8)))
+    #expect(!relay.send(Data("two".utf8)))
+    var iterator = input.stream.makeAsyncIterator()
+    guard let first = await iterator.next() else {
+        Issue.record("The byte-bounded input queue lost its accepted item.")
+        return
+    }
+    #expect(first.byteCount == 4)
+    relay.didDequeue(first)
+
+    #expect(relay.send(.paste("12345")))
+    guard let second = await iterator.next() else {
+        Issue.record("The byte budget was not released after dequeue.")
+        return
+    }
+    #expect(second.byteCount == 5)
+    relay.didDequeue(second)
 }
 
 @Test
@@ -1327,6 +1423,29 @@ func ghosttyConfigurationLoaderLeavesTheMainThread() async {
 
     #expect(value == 42)
     #expect(events.snapshot == ["worker"])
+}
+
+@Test
+func ghosttyConfigurationCancellationDoesNotWaitForFileLoading() async {
+    let started = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let finished = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let release = DispatchSemaphore(value: 0)
+    let load = Task {
+        await loadNativeGhosttyConfiguration {
+            started.continuation.yield()
+            defer { finished.continuation.yield() }
+            release.wait()
+            return 42
+        }
+    }
+    for await _ in started.stream { break }
+
+    load.cancel()
+    let value = await load.value
+    #expect(value == nil)
+
+    release.signal()
+    for await _ in finished.stream { break }
 }
 
 @Test @MainActor

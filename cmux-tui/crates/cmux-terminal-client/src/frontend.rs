@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -48,12 +48,16 @@ const QUEUE_STATE_COMPLETED: u8 = 4;
 #[repr(C)]
 pub struct CmuxFrontendInputEpochGate {
     epoch: AtomicU64,
+    queued_bytes: AtomicUsize,
 }
 
 /// Creates a thread-safe epoch gate for one native input queue.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_frontend_input_epoch_gate_new() -> *mut CmuxFrontendInputEpochGate {
-    Box::into_raw(Box::new(CmuxFrontendInputEpochGate { epoch: AtomicU64::new(0) }))
+    Box::into_raw(Box::new(CmuxFrontendInputEpochGate {
+        epoch: AtomicU64::new(0),
+        queued_bytes: AtomicUsize::new(0),
+    }))
 }
 
 /// Stores the transport epoch currently owned by the renderer.
@@ -80,6 +84,35 @@ pub unsafe extern "C" fn cmux_frontend_input_epoch_gate_load(
     gate: *const CmuxFrontendInputEpochGate,
 ) -> u64 {
     (unsafe { gate.as_ref() }).map_or(0, |gate| gate.epoch.load(Ordering::Acquire))
+}
+
+/// Reserves bytes before one native input enters the async queue.
+///
+/// # Safety
+///
+/// `gate` must be null or a live pointer returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_input_epoch_gate_try_reserve_bytes(
+    gate: *const CmuxFrontendInputEpochGate,
+    bytes: usize,
+    maximum_bytes: usize,
+) -> bool {
+    let Some(gate) = (unsafe { gate.as_ref() }) else { return false };
+    super::try_reserve_bytes(&gate.queued_bytes, bytes, maximum_bytes)
+}
+
+/// Releases bytes after one native input leaves the async queue.
+///
+/// # Safety
+///
+/// `gate` must be null or a live pointer returned by the matching constructor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_input_epoch_gate_release_bytes(
+    gate: *const CmuxFrontendInputEpochGate,
+    bytes: usize,
+) {
+    let Some(gate) = (unsafe { gate.as_ref() }) else { return };
+    super::release_bytes(&gate.queued_bytes, bytes);
 }
 
 /// Frees one input epoch gate. A null pointer is ignored.
@@ -1599,6 +1632,11 @@ mod tests {
         assert_eq!(unsafe { cmux_frontend_input_epoch_gate_load(gate) }, 0);
         unsafe { cmux_frontend_input_epoch_gate_store(gate, 42) };
         assert_eq!(unsafe { cmux_frontend_input_epoch_gate_load(gate) }, 42);
+        assert!(unsafe { cmux_frontend_input_epoch_gate_try_reserve_bytes(gate, 4, 5) });
+        assert!(!unsafe { cmux_frontend_input_epoch_gate_try_reserve_bytes(gate, 2, 5) });
+        unsafe { cmux_frontend_input_epoch_gate_release_bytes(gate, 4) };
+        assert!(unsafe { cmux_frontend_input_epoch_gate_try_reserve_bytes(gate, 5, 5) });
+        unsafe { cmux_frontend_input_epoch_gate_release_bytes(gate, 5) };
         unsafe { cmux_frontend_input_epoch_gate_free(gate) };
     }
 

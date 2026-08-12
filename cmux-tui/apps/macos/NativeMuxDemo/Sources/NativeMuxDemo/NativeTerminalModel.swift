@@ -5,11 +5,23 @@ enum TerminalInput: Sendable {
   case bytes(Data)
   case paste(String)
   case key(chord: String, repeat: Bool)
+
+  var queuedByteCount: Int {
+    switch self {
+    case .bytes(let data):
+      data.count
+    case .paste(let text):
+      text.utf8.count
+    case .key(let chord, _):
+      chord.utf8.count
+    }
+  }
 }
 
 struct QueuedTerminalInput: Sendable {
   let input: TerminalInput
   let epoch: UInt64
+  let byteCount: Int
 }
 
 struct TerminalGeometry: Equatable, Sendable {
@@ -183,12 +195,20 @@ final class NativeTerminalModel {
     let stream = inputStream
     inputTask = Task { [weak self] in
       for await queuedInput in stream {
-        guard !Task.isCancelled, let self, !isShuttingDown else { return }
-        guard let handle, isAttached else { continue }
+        guard let self else { return }
+        guard !Task.isCancelled, !isShuttingDown else {
+          inputRelay.didDequeue(queuedInput)
+          return
+        }
+        guard let handle, isAttached else {
+          inputRelay.didDequeue(queuedInput)
+          continue
+        }
         let accepted = await handle.submit(
           queuedInput.input,
           inputEpoch: queuedInput.epoch
         )
+        inputRelay.didDequeue(queuedInput)
         guard !Task.isCancelled, !isShuttingDown,
           let activeHandle = self.handle, activeHandle === handle
         else { continue }

@@ -76,7 +76,19 @@ void cmux_frontend_input_epoch_gate_store(
     uint64_t epoch);
 uint64_t cmux_frontend_input_epoch_gate_load(
     const CmuxFrontendInputEpochGate *gate);
+bool cmux_frontend_input_epoch_gate_try_reserve_bytes(
+    const CmuxFrontendInputEpochGate *gate,
+    size_t bytes,
+    size_t maximum_bytes);
+void cmux_frontend_input_epoch_gate_release_bytes(
+    const CmuxFrontendInputEpochGate *gate,
+    size_t bytes);
 void cmux_frontend_input_epoch_gate_free(CmuxFrontendInputEpochGate *gate);
+
+// Each native input queue and its Rust transport queue use this independent
+// aggregate byte ceiling in addition to their item-count bounds.
+#define CMUX_FRONTEND_TERMINAL_INPUT_QUEUE_MAX_BYTES (8u * 1024u * 1024u)
+extern const size_t CMUX_FRONTEND_TERMINAL_INPUT_QUEUE_MAX_BYTES_VALUE;
 
 // Native frontend API. One enrolled client owns resource control plus any
 // number of terminal renderer attachments. Disconnect every terminal before
