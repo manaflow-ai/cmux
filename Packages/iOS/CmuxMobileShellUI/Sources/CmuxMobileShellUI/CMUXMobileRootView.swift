@@ -953,7 +953,12 @@ struct CMUXMobileRootView: View {
 
     private var allowsManualPairing: Bool {
         #if os(iOS)
-        (observedConnectionMethod ?? connectionMethodStore?.method) == .tailscale
+        // The pairing-required signal is derived from the source-of-truth
+        // method store. It can become true before the observation stream has
+        // delivered its next value after the migration sheet closes, so use it
+        // to keep the recovery scanner available during that transition.
+        store.tailscalePairingRequired
+            || (observedConnectionMethod ?? connectionMethodStore?.method) == .tailscale
         #else
         true
         #endif
