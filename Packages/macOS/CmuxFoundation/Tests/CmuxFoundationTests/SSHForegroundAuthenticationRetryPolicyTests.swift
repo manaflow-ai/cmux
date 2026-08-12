@@ -3626,6 +3626,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             shellPath: shellPath
         )
 
+        if result.status != 0 {
+            for (index, line) in command.split(separator: "\n", omittingEmptySubsequences: false).enumerated()
+                where (1775...1805).contains(index + 1) {
+                print("CMUX_QUEUE_SCRIPT_LINE_\(index + 1):\(line)")
+            }
+        }
+
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
