@@ -117,7 +117,12 @@ if [[ "$remote_commit" != "$commit" ]]; then
   exit 1
 fi
 
-request_id="${commit:0:12}-$(date +%s)-$$"
+random_id="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+if [[ ! "$random_id" =~ ^[0-9a-f]{32}$ ]]; then
+  echo "error: could not generate a unique hosted verification request ID" >&2
+  exit 1
+fi
+request_id="${commit:0:12}-$random_id"
 run_title="cmux-tui $mode $request_id @ $commit"
 
 echo "Dispatching $mode verification for $commit"

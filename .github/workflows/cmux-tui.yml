@@ -260,7 +260,7 @@ jobs:
               --errors-for-leak-kinds=definite \
               --suppressions="$RUNNER_TEMP/ring.supp" \
               --track-origins=yes \
-              -- "$bin" --test-threads=1
+              -- "$bin" --include-ignored --test-threads=1
           done < target/valgrind-test-binaries.txt
 
   valgrind-leak-check:
