@@ -13,10 +13,7 @@ use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use cmux_tui_core::release::ReleaseIdentity;
-use cmux_tui_core::server::PROTOCOL_VERSION;
 use command::{CommandPlan, ParsedCommand};
-use serde_json::json;
 
 const PUBLIC_SCOPES: &[&str] = &[
     "machine",
@@ -83,9 +80,6 @@ pub fn is_public_scope(value: &str) -> bool {
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
-    if let Some(result) = run_server_lifecycle_if_requested(args) {
-        return result;
-    }
     match parse(args) {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
@@ -608,166 +602,6 @@ USAGE
 `raw operation` uses cmux.protocol/2. `raw command` is an unsafe internal
 escape for the legacy control protocol and provides no compatibility promise.
 ";
-
-fn run_server_lifecycle_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command) = match parse_globals(args) {
-        Ok(parsed) => parsed,
-        Err((error, output)) => {
-            if args.iter().any(|value| value == "server") {
-                return Some(print_usage_error(error, output));
-            }
-            return None;
-        }
-    };
-    if command.first().map(String::as_str) != Some("server") {
-        return None;
-    }
-    let actions = &command[1..];
-    if actions.iter().any(|value| matches!(value.as_str(), "-h" | "--help" | "help")) {
-        let messages = &crate::localization::catalog().server;
-        let mut stdout = io::stdout().lock();
-        let _ = stdout.write_all(messages.help.as_bytes());
-        let _ = stdout.flush();
-        return Some(0);
-    }
-    Some(run_server_lifecycle(&global, actions))
-}
-
-fn run_server_lifecycle(global: &GlobalArgs, actions: &[String]) -> i32 {
-    let messages = &crate::localization::catalog().server;
-    let action = match actions {
-        [action] if matches!(action.as_str(), "status" | "stop") => action.as_str(),
-        [] => {
-            eprintln!("cmux: {}", messages.missing_action);
-            return 2;
-        }
-        [action] => {
-            eprintln!("cmux: {} {action:?}", messages.unknown_action);
-            return 2;
-        }
-        _ => {
-            eprintln!("cmux: {} {actions:?}", messages.unknown_action);
-            return 2;
-        }
-    };
-    if global.machine.is_some() {
-        eprintln!("cmux: {}", messages.machine_scope_unsupported);
-        return 2;
-    }
-    let socket_path = resolve_server_socket(global);
-    let lifecycle = match crate::server_lifecycle::ServerLifecycle::connect(socket_path) {
-        Ok(lifecycle) => lifecycle,
-        Err(error) => {
-            eprintln!("{error}");
-            return 3;
-        }
-    };
-    match action {
-        "status" => print_server_status(global.output, lifecycle.probe()),
-        "stop" => {
-            eprintln!("cmux: {}", messages.stopping_exits_panes);
-            match lifecycle.stop() {
-                Ok(()) => {
-                    match global.output {
-                        OutputMode::Json | OutputMode::JsonLines => {
-                            println!("{}", json!({"stopped": true}));
-                        }
-                        OutputMode::Human => println!("{}", messages.stopped),
-                        OutputMode::Quiet => {}
-                    }
-                    0
-                }
-                Err(error) => {
-                    eprintln!("{error}");
-                    1
-                }
-            }
-        }
-        _ => unreachable!("server action was validated before connecting"),
-    }
-}
-
-fn print_server_status(output: OutputMode, probe: &crate::server_lifecycle::ServerProbe) -> i32 {
-    let messages = &crate::localization::catalog().server;
-    let server = &probe.identity;
-    let client = ReleaseIdentity::current(PROTOCOL_VERSION);
-    let mismatches = probe.mismatches();
-    let compatible = mismatches.is_empty();
-    match output {
-        OutputMode::Json | OutputMode::JsonLines => {
-            let mismatch_reasons =
-                mismatches.iter().map(|mismatch| mismatch.code()).collect::<Vec<_>>();
-            let value = json!({
-                "running": true,
-                "compatible": compatible,
-                "mismatch_reasons": mismatch_reasons,
-                "server": {
-                    "version": server.release.version,
-                    "protocol": server.release.protocol,
-                    "shutdown_cleanup": {
-                        "pending": server.shutdown_cleanup.pending,
-                        "retrying": server.shutdown_cleanup.retrying,
-                        "degraded": server.shutdown_cleanup.degraded,
-                    },
-                },
-                "client": {"version": client.version, "protocol": client.protocol},
-            });
-            let mut stdout = io::stdout();
-            match serde_json::to_writer(&mut stdout, &value)
-                .map_err(io::Error::other)
-                .and_then(|_| stdout.write_all(b"\n"))
-            {
-                Ok(()) => 0,
-                Err(error) => {
-                    eprintln!("stdout error: {error}");
-                    3
-                }
-            }
-        }
-        OutputMode::Quiet => 0,
-        OutputMode::Human => {
-            println!(
-                "{}: v{} {} {}",
-                messages.server_label,
-                server.release.version,
-                messages.protocol_label,
-                server.release.protocol,
-            );
-            println!(
-                "{}: v{} {} {}",
-                messages.client_label, client.version, messages.protocol_label, client.protocol,
-            );
-            println!(
-                "{}: {}",
-                messages.status_label,
-                if compatible { messages.compatible } else { messages.incompatible },
-            );
-            if !mismatches.is_empty() {
-                let reasons = mismatches
-                    .into_iter()
-                    .map(|mismatch| mismatch.message(messages))
-                    .collect::<Vec<_>>()
-                    .join(messages.reason_separator);
-                println!("{}: {}", messages.reason_label, reasons);
-            }
-            if server.shutdown_cleanup.pending != 0 {
-                let state = if server.shutdown_cleanup.degraded {
-                    messages.cleanup_degraded
-                } else {
-                    messages.cleanup_retrying
-                };
-                println!(
-                    "{}: {} ({}: {})",
-                    messages.cleanup_label,
-                    state,
-                    messages.cleanup_pending_label,
-                    server.shutdown_cleanup.pending,
-                );
-            }
-            0
-        }
-    }
-}
 
 fn resolve_server_socket(global: &GlobalArgs) -> PathBuf {
     resolve_server_socket_with(global, |name| std::env::var_os(name).map(PathBuf::from))

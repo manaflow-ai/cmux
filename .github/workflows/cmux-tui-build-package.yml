@@ -578,6 +578,7 @@ jobs:
     permissions:
       contents: read
     env:
+      BINARY_VERSION: ${{ inputs.version }}
       NPM_VERSION: ${{ inputs.version }}
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
@@ -748,9 +749,18 @@ jobs:
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
           python3 -m venv /tmp/cmux-tui-wheel-smoke
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
+          /tmp/cmux-tui-wheel-smoke/bin/python - <<'PY'
+          import importlib.metadata
+          import os
+
+          expected = os.environ["PYPI_VERSION"]
+          actual = importlib.metadata.version("cmux")
+          if actual != expected:
+              raise SystemExit(f"installed wheel version {actual!r} != {expected!r}")
+          PY
           python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
             --binary /tmp/cmux-tui-wheel-smoke/bin/cmux \
-            --version "$PYPI_VERSION" \
+            --version "$BINARY_VERSION" \
             --build-commit "$(git rev-parse HEAD)" \
             --ghostty-commit "$(git rev-parse HEAD:ghostty)"
 

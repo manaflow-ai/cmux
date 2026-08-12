@@ -2745,6 +2745,10 @@ fn run_server(
 
     #[cfg(debug_assertions)]
     if !args.headless && std::env::var_os("CMUX_TUI_TEST_BLOCK_INTERACTIVE_DRIVER").is_some() {
+        // This hook models a driver that stops after the mux has completed
+        // shutdown-owner publication. A lifecycle request must still be able
+        // to close those owners and force this blocked process to exit.
+        mux.mark_server_lifecycle_ready();
         loop {
             std::thread::park();
         }
