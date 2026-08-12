@@ -35,7 +35,7 @@ import Testing
         }
     }
 
-    @Test func unverifiedExistingEmailRoutesToOriginalMethodSignIn() {
+    @Test func unverifiedExistingEmailDoesNotRequireAPassword() {
         let presentation = SignInErrorPresentation()
         let error = StackAuthError(
             code: "USER_EMAIL_ALREADY_EXISTS",
@@ -45,13 +45,10 @@ import Testing
 
         #expect(
             SignInEmailCodeFailurePolicy().action(for: error)
-                == .showOriginalMethodSignIn
+                != .showOriginalMethodSignIn
         )
         #expect(presentation.failureReason(for: error) == "email_unverified")
-        #expect(
-            presentation.message(for: error)
-                == "This account can’t use email codes yet. Enter your password, or use your original sign-in method."
-        )
+        #expect(!presentation.message(for: error).localizedCaseInsensitiveContains("password"))
     }
 
     @Test func genericExistingEmailErrorRemainsAnError() {
