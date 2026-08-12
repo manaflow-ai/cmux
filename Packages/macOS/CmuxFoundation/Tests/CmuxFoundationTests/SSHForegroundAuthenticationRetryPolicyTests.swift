@@ -3671,6 +3671,71 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test func recoveryCompletionFreesClaimedSegmentBeforeRetryAppend() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-recovery-completion-capacity-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_recovery_prepare || exit 99
+        recovery_root="$CMUX_SSH_AUTH_RECOVERY_ROOT"
+        printf '0\\n' > "$recovery_root/read.index"
+        printf '7\\n' > "$recovery_root/write.index"
+        index=0
+        while [ "$index" -le 7 ]; do
+          : > "$recovery_root/queue.$index"
+          line=0
+          while [ "$line" -lt 8 ]; do
+            printf '%s\\n' "$TMPDIR/cmux-ssh-auth-group.full-$index-$line" >> "$recovery_root/queue.$index"
+            line=$((line + 1))
+          done
+          index=$((index + 1))
+        done
+        retry_group="$TMPDIR/cmux-ssh-auth-group.retry"
+        (umask 077; mkdir "$retry_group") || exit 98
+        printf 'owner\\n' > "$recovery_root/queue.0.claim"
+        printf '%s\\n' "$retry_group" > "$recovery_root/queue.0.retry"
+        CMUX_SSH_AUTH_RECOVERY_SEGMENT="$recovery_root/queue.0"
+        CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX=0
+        CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD=owner
+        export CMUX_SSH_AUTH_RECOVERY_SEGMENT CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD
+        cmux_ssh_auth_recovery_complete_segment || exit 97
+        test "$(cat "$recovery_root/read.index")" = 1 || exit 96
+        test -s "$recovery_root/queue.8" || exit 95
+        grep -Fqx -- "$retry_group" "$recovery_root/queue.8" || exit 94
+        """
+
+        let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test func exitedCleanupOwnerIsAbandonedAfterIdentityReadFailure() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-cleanup-owner-exited-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(
+            at: groupDirectory.appendingPathComponent("cleanup.lock"),
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        : > "$CMUX_TEST_GROUP/cancel"
+        printf '99999999|1|K_1_1\\n' > "$CMUX_TEST_GROUP/cleanup.owner"
+        cmux_ssh_auth_stable_identity() { return 1; }
+        cmux_ssh_auth_group_cleanup_is_abandoned "$CMUX_TEST_GROUP"
+        """
+        let result = try runShellCommand(command, environment: ["CMUX_TEST_GROUP": groupDirectory.path])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func recoveryLockRemainsHeldUntilDescriptorCloses() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

@@ -516,7 +516,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if [ ! -s "$cmux_ssh_auth_cleanup_record_file" ]; then return 0; fi
           cmux_ssh_auth_parse_recorded_process "$cmux_ssh_auth_cleanup_record_file" || return 1
           if ! cmux_ssh_auth_cleanup_observed_identity=$(cmux_ssh_auth_stable_identity \
-            "$CMUX_SSH_AUTH_RECORDED_PID"); then return 1; fi
+            "$CMUX_SSH_AUTH_RECORDED_PID"); then
+            if /bin/kill -0 "$CMUX_SSH_AUTH_RECORDED_PID" 2>/dev/null; then
+              return 1
+            fi
+            return 0
+          fi
           [ "$cmux_ssh_auth_cleanup_observed_identity" != \
             "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
         }
@@ -1531,6 +1536,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_recovery_unlock
             return 1
           fi
+          # Release the claimed read segment before appending retry records.
+          # The append path must be able to advance the write window when all
+          # eight queue segments are occupied.
+          /bin/rm -f -- "$CMUX_SSH_AUTH_RECOVERY_SEGMENT" \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim" \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim.new" 2>/dev/null || {
+              cmux_ssh_auth_recovery_unlock
+              return 1
+            }
           for cmux_ssh_auth_recovery_requeue_file in \
             "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.priority" \
             "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"; do
@@ -1548,10 +1562,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 }
             done < "$cmux_ssh_auth_recovery_requeue_file"
           done
-          /bin/rm -f -- "$CMUX_SSH_AUTH_RECOVERY_SEGMENT" \
-            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim" \
-            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim.new" \
-            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.priority" \
+          /bin/rm -f -- "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.priority" \
             "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry" 2>/dev/null || true
           cmux_ssh_auth_recovery_next_read=$((CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX + 1))
           if ! cmux_ssh_auth_recovery_write_index_locked \
