@@ -226,7 +226,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var cachedSplitDividerRegions: [DividerRegion]?
-    private weak var cachedSplitDividerRootView: NSView?
+    private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
     private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
@@ -1034,23 +1034,15 @@ final class WindowBrowserHostView: NSView {
         return (pageFrame, inspectorFrame)
     }
     private func splitDividerRegions() -> [DividerRegion] {
-        guard let rootView = dividerSearchRootView() else {
-            invalidateSplitDividerRegionCache()
-            return []
-        }
-        if let regions = cachedSplitDividerRegions,
-           cachedSplitDividerRootView === rootView,
-           splitDividerCacheInvalidator.isHierarchyCurrent(for: rootView),
-           PortalSplitDividerRegion.allLive(regions) {
-            return regions
-        }
+        guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
+        let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
+        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
         let collected = PortalSplitDividerRegion.collect(in: rootView, hostView: self)
         cachedSplitDividerRegions = collected.regions
-        cachedSplitDividerRootView = rootView
+        cachedSplitDividerRootSubviewIds = rootSubviewIds
         splitDividerCacheInvalidator.observe(
-            rootView: rootView,
             geometryViews: collected.geometryObservedViews,
-            hierarchyNodes: collected.hierarchyNodes
+            structureViews: collected.structureObservedViews
         ) { [weak self] in
             guard let self else { return }
             self.invalidateSplitDividerRegionCache()
@@ -1061,7 +1053,7 @@ final class WindowBrowserHostView: NSView {
 
     private func invalidateSplitDividerRegionCache() {
         cachedSplitDividerRegions = nil
-        cachedSplitDividerRootView = nil
+        cachedSplitDividerRootSubviewIds = nil
         splitDividerCacheInvalidator.invalidate()
     }
 
@@ -1758,18 +1750,6 @@ final class WindowBrowserSlotView: NSView {
         } else if overlayContainer.subviews.last !== dropZoneOverlayView {
             overlayContainer.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: nil)
         }
-
-        var previousPriority = Int.min
-        var needsReordering = false
-        for subview in subviews {
-            let priority = interactionLayerPriority(of: subview)
-            if priority < previousPriority {
-                needsReordering = true
-                break
-            }
-            previousPriority = priority
-        }
-        guard needsReordering else { return }
 
         let context = Unmanaged.passUnretained(self).toOpaque()
         sortSubviews({ lhs, rhs, context in
