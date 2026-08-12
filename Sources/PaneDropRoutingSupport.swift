@@ -2,6 +2,14 @@ import AppKit
 import Bonsplit
 import Foundation
 
+/// One process-wide capability registry so every surface that exchanges tabs
+/// (workspaces, the Dock) can resolve drags that began in another controller,
+/// matching the 0.64.22 behavior where any destination could decode the drag.
+@MainActor
+enum BonsplitTabDragSharing {
+    static let transferRegistry = TabDragTransferRegistry()
+}
+
 struct PaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
