@@ -13,12 +13,12 @@ final class CommandPaletteFocusRestoreCoordinator {
     }
 
     func clearIfTargetNoLongerMatchesCurrentFocus(
-        selectedWorkspaceId: UUID?,
+        currentHost: PanelHost?,
         focusedPanelId: UUID?,
         targetPanelExists: Bool
     ) -> Bool {
         guard let pendingTarget else { return false }
-        guard selectedWorkspaceId == nil || selectedWorkspaceId == pendingTarget.workspaceId else {
+        guard currentHost == nil || currentHost == pendingTarget.host else {
             clear()
             return true
         }

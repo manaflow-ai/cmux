@@ -1,7 +1,9 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAgentChat
 import CmuxAppKitSupportUI
+import CmuxBrowser
 import CmuxCore
 import CmuxFoundation
 import CmuxNotifications
@@ -56,6 +58,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     @ObservationIgnored weak var notificationStore: TerminalNotificationStore?
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
+    /// Dock-owned manual unread state. Unlike notification-derived unread state,
+    /// this must survive session snapshots and live moves between split hosts.
+    @ObservationIgnored var manualUnreadPanelIds: Set<UUID> = []
     /// Reverse index for O(1) panel-owned tab lookups and alias promotion.
     @ObservationIgnored private var panelSurfaceMappings: [UUID: PanelSurfaceMapping] = [:]
     private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?
@@ -80,7 +85,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
-    @ObservationIgnored let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
+    @ObservationIgnored let terminalStartupRestoreCoordinator: TerminalStartupRestoreCoordinator
+    var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator {
+        terminalStartupRestoreCoordinator.lifecycle
+    }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     /// Authoritative agent-hook identity for a Dock panel. The effective
     /// surface binding may temporarily become a process-detected tmux binding,
@@ -286,6 +294,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
+        agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         closedItemHistoryStore: ClosedItemHistoryStore? = nil
     ) {
@@ -298,6 +307,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
+            workspaceID: workspaceId,
+            lifecycle: RestoredAgentLifecycleCoordinator(),
+            resumeIntentRecorder: agentChatResumeIntentRecorder
+        )
         self.terminalWorkingDirectoryResolver = terminalWorkingDirectoryResolver
         self.closedItemHistoryStore =
             closedItemHistoryStore
@@ -312,6 +326,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
+        self.bonsplitController.contextMenuShortcuts = Workspace.buildContextMenuShortcuts()
         self.bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
             guard source == .closeButton else { return }
             self?.tabCloseButtonCloseDockTabIds.insert(tabId)
@@ -522,11 +537,21 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        chromeVisibility: BrowserChromeVisibility = .visible,
+        preloadInitialNavigationInBackground: Bool = false,
+        transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool? = nil,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
+        let resolvedBrowserProfileID = kind == .browser
+            ? resolvedNewBrowserProfileID(
+                preferredProfileID: preferredProfileID,
+                sourcePanelId: source
+            )
+            : nil
         guard let panel = makePanel(
             kind: kind,
             command: command,
@@ -542,8 +567,13 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 sourcePanelId: source
             ),
             tmuxStartCommand: tmuxStartCommand,
-            preferredProfileID: preferredProfileID,
+            preferredProfileID: resolvedBrowserProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            chromeVisibility: chromeVisibility,
+            preloadInitialNavigationInBackground:
+                preloadInitialNavigationInBackground,
+            transparentBackground: transparentBackground,
+            bypassRemoteProxy: bypassRemoteProxy,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
@@ -579,12 +609,22 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         tmuxStartCommand: String? = nil,
         initialDividerPosition: CGFloat? = nil,
         preferredProfileID: UUID? = nil,
+        chromeVisibility: BrowserChromeVisibility = .visible,
+        preloadInitialNavigationInBackground: Bool = false,
+        transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool? = nil,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId)
+        let resolvedBrowserProfileID = kind == .browser
+            ? resolvedNewBrowserProfileID(
+                preferredProfileID: preferredProfileID,
+                sourcePanelId: source
+            )
+            : nil
         guard let panel = makePanel(
             kind: kind,
             command: command,
@@ -600,7 +640,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 sourcePanelId: source
             ),
             tmuxStartCommand: tmuxStartCommand,
-            preferredProfileID: preferredProfileID,
+            preferredProfileID: resolvedBrowserProfileID,
+            chromeVisibility: chromeVisibility,
+            preloadInitialNavigationInBackground:
+                preloadInitialNavigationInBackground,
+            transparentBackground: transparentBackground,
+            bypassRemoteProxy: bypassRemoteProxy,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
@@ -850,6 +895,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        chromeVisibility: BrowserChromeVisibility = .visible,
+        preloadInitialNavigationInBackground: Bool = false,
+        transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool? = nil,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> (any Panel)? {
@@ -878,6 +927,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 initialRequest: initialRequest,
                 preferredProfileID: preferredProfileID,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                chromeVisibility: chromeVisibility,
+                preloadInitialNavigationInBackground:
+                    preloadInitialNavigationInBackground,
+                transparentBackground: transparentBackground,
+                bypassRemoteProxy: bypassRemoteProxy,
                 websiteDataStore: websiteDataStore
             )
         }
@@ -898,7 +952,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             )
         case .browser:
             guard browserAvailabilityProvider() else { return nil }
-            return makeBrowserPanel(url: def.url.flatMap { URL(string: $0) })
+            return makeBrowserPanel(
+                url: def.url.flatMap { URL(string: $0) },
+                chromeVisibility: def.showsBrowserChrome ? .visible : .chromeless
+            )
         }
     }
 
@@ -977,41 +1034,46 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         }
         installAttentionRouting(for: panel)
         if let browser = panel as? BrowserPanel {
-            let cancellable = Publishers.CombineLatest4(
+            let browserTabState = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
+                browser.$currentURL.removeDuplicates(),
                 browser.$isLoading.removeDuplicates(),
-                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 }),
-                browser.$isMuted.removeDuplicates()
+                browser.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
             )
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak browser] _ in
-                guard let self, let browser, let tabId = self.surfaceId(forPanelId: browser.id),
-                      let existing = self.bonsplitController.tab(tabId) else { return }
-                // Only push fields that actually changed. CombineLatest4 fires on
-                // ANY of the four publishers, so an `isLoading` flicker during a
-                // page load would otherwise re-publish the (unchanged) title and
-                // favicon, mutating the @Observable BonsplitController and
-                // re-rendering the Dock tree for nothing. Mirrors the main area's
-                // guarded path in Workspace.installBrowserPanelSubscription.
-                let resolvedTitle = browser.displayTitle
-                let favicon = browser.faviconPNGData
-                let titleUpdate: String? =
-                    existing.hasCustomTitle || existing.title == resolvedTitle
-                    ? nil
-                    : resolvedTitle
-                let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
-                let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
-                let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
-                guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
-                self.bonsplitController.updateTab(
-                    tabId,
-                    title: titleUpdate,
-                    iconImageData: faviconUpdate,
-                    isLoading: loadingUpdate,
-                    isAudioMuted: mutedUpdate
-                )
-            }
+            let cancellable = browserTabState
+                .combineLatest(browser.$isMuted.removeDuplicates())
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak browser] _ in
+                    guard let self, let browser else { return }
+                    self.publishBrowserOpenTabSuggestion(for: browser)
+                    guard let tabId = self.surfaceId(forPanelId: browser.id),
+                          let existing = self.bonsplitController.tab(tabId) else { return }
+                    // Only push fields that actually changed. The combined stream
+                    // fires for any observed field, so an `isLoading` flicker during a
+                    // page load would otherwise re-publish the (unchanged) title and
+                    // favicon, mutating the @Observable BonsplitController and
+                    // re-rendering the Dock tree for nothing. Mirrors the main area's
+                    // guarded path in Workspace.installBrowserPanelSubscription.
+                    let resolvedTitle = browser.displayTitle
+                    let favicon = browser.faviconPNGData
+                    let titleUpdate: String? =
+                        existing.hasCustomTitle || existing.title == resolvedTitle
+                        ? nil
+                        : resolvedTitle
+                    let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
+                    let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
+                    let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
+                    guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
+                    self.bonsplitController.updateTab(
+                        tabId,
+                        title: titleUpdate,
+                        iconImageData: faviconUpdate,
+                        isLoading: loadingUpdate,
+                        isAudioMuted: mutedUpdate
+                    )
+                }
             panelCancellables[panel.id] = cancellable
+            publishBrowserOpenTabSuggestion(for: browser)
         } else if let filePreview = panel as? FilePreviewPanel {
             panelCancellables.removeValue(forKey: panel.id)
             filePreview.bindTabMetadata(to: self)

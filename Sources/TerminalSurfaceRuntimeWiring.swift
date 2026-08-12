@@ -28,11 +28,16 @@ extension GhosttyApp: TerminalEngineHosting {
 /// Creates the concrete `GhosttyNSView` + `GhosttySurfaceScrollView` pair the
 /// surface model historically constructed in its initializer.
 struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
+    let imageTransferPreparation: TerminalImageTransferPreparationService
+
     @MainActor
     func makeSurfaceViews(
         initialFrame: NSRect
     ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
-        let view = GhosttyNSView(frame: initialFrame)
+        let view = GhosttyNSView(
+            frame: initialFrame,
+            imageTransferPreparation: imageTransferPreparation
+        )
         return (view, GhosttySurfaceScrollView(surfaceView: view))
     }
 }

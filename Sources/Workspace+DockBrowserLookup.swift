@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxCore
 import CmuxPanes
 import WebKit
@@ -74,7 +75,8 @@ extension Workspace {
 
     static func openDockBrowserLinkInNewTabIfNeeded(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
         guard let app = AppDelegate.shared else { return false }
-        if let dock = app.windowDockContainingPanel(panel.id),
+        if let target = app.browserActionTarget(for: panel),
+           let dock = app.dock(resolving: target),
            dock.browserPanel(for: panel.id) === panel,
            let paneId = dock.paneId(forPanelId: panel.id) {
             return dock.newSurface(
@@ -115,27 +117,60 @@ extension AppDelegate {
 }
 
 extension DockSplitStore {
+    /// Applies the same browser-profile inheritance policy as a main-area
+    /// workspace: an explicit profile wins, then the source browser's profile,
+    /// then `BrowserPanel` falls back to the app's effective last-used profile.
+    func resolvedNewBrowserProfileID(
+        preferredProfileID: UUID?,
+        sourcePanelId: UUID?
+    ) -> UUID? {
+        if let preferredProfileID,
+           BrowserProfileStore.shared.profileDefinition(
+               id: preferredProfileID
+           ) != nil {
+            return preferredProfileID
+        }
+        if let sourcePanelId,
+           let sourceBrowser = browserPanel(for: sourcePanelId),
+           BrowserProfileStore.shared.profileDefinition(
+               id: sourceBrowser.profileID
+           ) != nil {
+            return sourceBrowser.profileID
+        }
+        return nil
+    }
+
     /// Builds a Dock browser panel with the workspace's remote-browser settings.
     func makeBrowserPanel(
         url: URL?,
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        chromeVisibility: BrowserChromeVisibility = .visible,
+        preloadInitialNavigationInBackground: Bool = false,
         transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
+        let resolvedBypassRemoteProxy =
+            bypassRemoteProxy ?? settings.bypassRemoteProxy
         let panel = BrowserPanel(
             workspaceId: workspaceId,
             profileID: preferredProfileID,
             initialURL: url,
             initialRequest: initialRequest,
+            preloadInitialNavigationInBackground:
+                preloadInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            chromeVisibility: chromeVisibility,
             transparentBackground: transparentBackground,
             proxyEndpoint: settings.proxyEndpoint,
-            bypassRemoteProxy: settings.bypassRemoteProxy,
+            bypassRemoteProxy: resolvedBypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
+            remoteWebsiteDataStoreIdentifier: resolvedBypassRemoteProxy
+                ? nil
+                : settings.remoteWebsiteDataStoreIdentifier,
             websiteDataStore: websiteDataStore
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
