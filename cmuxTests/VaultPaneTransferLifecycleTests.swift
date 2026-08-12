@@ -28,102 +28,62 @@ struct VaultPaneTransferLifecycleTests {
         DockDropCase(targetKind: .browser, placement: .right),
     ]
 
-    @Test("A native Vault source publishes the live capability before browser hit testing")
-    func nativeSourcePublishesLiveCapabilityForBrowserPortal() async throws {
-        try await AppContextSerialGate.withExclusiveAppContext {
-            let fixture = try VaultPaneAppFixture()
-            defer { fixture.tearDown() }
+    @Test("Every repeated Vault row publishes a live capability to the shared pane registry")
+    func repeatedVaultSourcesPublishSharedPaneCapabilities() throws {
+        let sessionRegistry = SessionDragRegistry()
+        let paneTransferRegistry = TabDragTransferRegistry()
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+        defer { dragPasteboard.clearContents() }
 
-            let registry = fixture.appDelegate.sessionDragRegistry
-            let staleEntry = Self.makeEntry(sessionID: "stale-portal-capability")
-            let staleDragID = registry.register(staleEntry)
-            let stalePasteboard = try dropHarness.vaultPasteboard(
-                entry: staleEntry,
-                dragID: staleDragID
-            )
-            let transferType = DragOverlayRoutingPolicy.bonsplitTabTransferType
-            let staleData = try #require(stalePasteboard.data(forType: transferType))
-            registry.discard(id: staleDragID)
+        var activeSource: SessionDragSessionSource?
+        let coordinator = SessionDragCoordinator(
+            startDraggingSession: { _, _, _, source in
+                activeSource = source
+            }
+        )
+        let frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        let sourceView = NSView(frame: frame)
+        let sourceEvent = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 20, y: 12),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let duplicate = Self.makeEntry(sessionID: "shared-capability-duplicate")
+        let entries = [
+            duplicate,
+            duplicate,
+            Self.makeEntry(sessionID: "shared-capability-distinct"),
+        ]
 
-            let dragPasteboard = NSPasteboard(name: .drag)
-            dragPasteboard.clearContents()
-            #expect(dragPasteboard.setData(staleData, forType: transferType))
-            defer { dragPasteboard.clearContents() }
-
-            let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-            let window = NSWindow(
-                contentRect: frame,
-                styleMask: [.titled, .closable],
-                backing: .buffered,
-                defer: false
-            )
-            defer { window.orderOut(nil) }
-            let root = try #require(window.contentView)
-            let host = WindowBrowserHostView(frame: root.bounds)
-            root.addSubview(host)
-            let slot = WindowBrowserSlotView(frame: host.bounds)
-            host.addSubview(slot)
-            let targetPanelID = try #require(fixture.workspace.focusedPanelId)
-            let targetPane = try #require(
-                fixture.workspace.paneId(forPanelId: targetPanelID)
-            )
-            slot.setPaneDropContext(PaneDropContext(
-                workspaceId: fixture.workspace.id,
-                panelId: targetPanelID,
-                paneId: targetPane
-            ))
-            host.layoutSubtreeIfNeeded()
-            slot.layoutSubtreeIfNeeded()
-
-            var activeSource: SessionDragSessionSource?
-            let coordinator = SessionDragCoordinator(
-                startDraggingSession: { _, _, _, source in
-                    activeSource = source
-                }
-            )
-            let sourceView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-            let activeEntry = Self.makeEntry(sessionID: "live-portal-capability")
-            let sourceEvent = try dropHarness.mouseEvent(
-                type: .leftMouseDown,
-                location: NSPoint(x: 20, y: 12),
-                window: window
-            )
+        for entry in entries {
             #expect(coordinator.beginSessionDrag(
-                activeEntry,
-                registry: registry,
+                entry,
+                registry: sessionRegistry,
+                tabDragTransferRegistry: paneTransferRegistry,
                 from: sourceView,
                 event: sourceEvent,
-                frame: sourceView.bounds,
-                image: NSImage(size: sourceView.bounds.size)
+                frame: frame,
+                image: NSImage(size: frame.size)
             ))
             let source = try #require(activeSource)
-            defer { source.finishDrag() }
-
-            let pointInSlot = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
-            let pointInHost = host.convert(pointInSlot, from: slot)
-            let pointerEvent = try dropHarness.mouseEvent(
-                type: .leftMouseDragged,
-                location: host.convert(pointInHost, to: nil),
-                window: window
+            let transfer = try #require(
+                paneTransferRegistry.resolve(from: dragPasteboard)
             )
-            let hit = host.performHitTest(
-                at: pointInHost,
-                currentEvent: pointerEvent,
-                dragPasteboard: dragPasteboard
-            )
+            #expect(transfer.tab.id.uuid == source.dragID)
+            #expect(transfer.tab.title == entry.displayTitle)
+            #expect(sessionRegistry.entry(id: source.dragID) == entry)
 
-            #expect(hit is BrowserPaneDropTargetView)
-            let transfer = try #require(PaneDragTransfer.decode(from: dragPasteboard))
-            #expect(transfer.tabId == source.dragID)
-            guard case .vaultSession(let resolvedEntry)? = PaneTransferSourceResolver(
-                vaultSessionRegistry: { registry },
-                filePreview: { _ in nil },
-                surfaceIsLive: { _ in false }
-            ).source(for: transfer) else {
-                Issue.record("Expected the live drag pasteboard to resolve the active Vault session")
-                return
-            }
-            #expect(resolvedEntry == activeEntry)
+            source.finishDrag()
+            #expect(sessionRegistry.entry(id: source.dragID) == nil)
+            #expect(paneTransferRegistry.resolve(from: dragPasteboard) == nil)
+            activeSource = nil
         }
     }
 
