@@ -15666,7 +15666,7 @@ struct TabItemView: View, Equatable {
                     }
                 }
             }
-            .padding(.top, latestNotificationText == nil ? 1 : 2)
+            .padding(.top, latestNotificationText == nil || showsAgentActivity ? 1 : 2)
             .safeHelp(workspaceSnapshot.remoteStateHelpText)
         }
     }
@@ -15701,8 +15701,12 @@ struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let latestNotificationSubtitle = latestNotificationText
-        let conversationMessageSubtitle = SidebarAgentActivitySummary().conversationSubtitle(
+        let agentActivitySummary = SidebarAgentActivitySummary()
+        let latestNotificationSubtitle = agentActivitySummary.notificationSubtitle(
+            showsAgentActivity: showsAgentActivity,
+            message: latestNotificationText
+        )
+        let conversationMessageSubtitle = agentActivitySummary.conversationSubtitle(
             showsAgentActivity: showsAgentActivity,
             hidesAllDetails: settings.hidesAllDetails,
             iMessageModeEnabled: settings.iMessageModeEnabled,

@@ -516,14 +516,19 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
 
-        let conversationSubtitle = SidebarAgentActivitySummary().conversationSubtitle(
+        let agentActivitySummary = SidebarAgentActivitySummary()
+        let notificationSubtitle = agentActivitySummary.notificationSubtitle(
+            showsAgentActivity: model.showsAgentActivity,
+            message: model.latestNotificationText
+        )
+        let conversationSubtitle = agentActivitySummary.conversationSubtitle(
             showsAgentActivity: model.showsAgentActivity,
             hidesAllDetails: settings.hidesAllDetails,
             iMessageModeEnabled: settings.iMessageModeEnabled,
             message: snapshot.latestConversationMessage
         )
-        let effectiveSubtitle = model.latestNotificationText ?? conversationSubtitle
-        let subtitleLineLimit = model.latestNotificationText == nil ? 2 : settings.notificationMessageLineLimit
+        let effectiveSubtitle = notificationSubtitle ?? conversationSubtitle
+        let subtitleLineLimit = notificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
         subtitleView.isHidden = effectiveSubtitle == nil
         if let effectiveSubtitle {
             subtitleView.maximumNumberOfLines = subtitleLineLimit
@@ -1225,7 +1230,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 
         if !remoteTargetView.isHidden {
-            y += model.latestNotificationText == nil ? 1 : 2
+            y += model.latestNotificationText == nil || model.showsAgentActivity ? 1 : 2
             y += spacing
             let statusSize = remoteStatusView.isHidden ? .zero : remoteStatusView.sidebarNaturalCellSize
             let reconnectSize = remoteReconnectButton.isHidden ? .zero : remoteReconnectButton.intrinsicContentSize

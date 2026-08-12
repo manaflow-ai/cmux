@@ -88,4 +88,11 @@ struct SidebarAgentActivitySummary {
         let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
     }
+
+    func notificationSubtitle(
+        showsAgentActivity: Bool,
+        message: String?
+    ) -> String? {
+        showsAgentActivity ? nil : message
+    }
 }
