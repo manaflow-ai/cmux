@@ -162,7 +162,7 @@ struct WorkspaceShellView: View {
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
     var showSettings: () -> Void = {}
-    var deviceTreePresentation = MobileChildSheetPresentation()
+    var showComputers: () -> Void = {}
     var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -316,10 +316,19 @@ struct WorkspaceShellView: View {
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
-                guard !isPresented else { return }
-                consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
+                store.recordAppEvent(
+                    isPresented ? .searchPresented : .searchDismissed,
+                    detail: .searchScope(diagnosticSearchScope)
+                )
+                if !isPresented {
+                    consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
+                }
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
+                store.recordAppEvent(
+                    .primaryTabSelected,
+                    detail: .primaryTab(diagnosticPrimaryTab(newValue))
+                )
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
                     workspaceSearchNavigationPath = []
@@ -338,6 +347,10 @@ struct WorkspaceShellView: View {
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
             .onAppear {
+                store.recordAppEvent(
+                    .primaryTabSelected,
+                    detail: .primaryTab(diagnosticPrimaryTab(selectedPrimaryTab))
+                )
                 updateRootToolbarMachineSnapshots(presentation.toolbarMachineSnapshots)
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
@@ -346,20 +359,6 @@ struct WorkspaceShellView: View {
             }
             .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
                 notificationFeedProjection.update(items: items)
-            }
-            .sheet(
-                isPresented: deviceTreePresentation.isPresented,
-                onDismiss: deviceTreePresentation.didDismiss
-            ) {
-                DeviceTreeView(
-                    store: store,
-                    selectWorkspace: { id in
-                        transitionPrimaryTab(to: .workspaces) {
-                            selectWorkspace(id)
-                        }
-                    },
-                    showAddDevice: showAddDevice
-                )
             }
         }
         #else
@@ -686,6 +685,7 @@ struct WorkspaceShellView: View {
             signOut: signOut,
             reconnect: store.tailscalePairingRequired ? nil : reconnectClosure,
             showAddDevice: showAddDevice,
+            showComputers: showComputers,
             showPairingScanner: showPairingScanner,
             store: store,
             renameWorkspace: renameWorkspaceClosure,
@@ -716,7 +716,7 @@ struct WorkspaceShellView: View {
     private var rootToolbarContent: some ToolbarContent {
         WorkspaceRootToolbarLiveContent(
             openSettings: showSettings,
-            openDevices: { deviceTreePresentation.present() },
+            openDevices: showComputers,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
@@ -982,12 +982,32 @@ struct WorkspaceShellView: View {
     /// the top instead of the search tab's bottom control. Popping back lands
     /// on the still-filtered results with the bottom search control collapsed.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
+        store.recordAppEvent(
+            .searchResultSelected,
+            correlationID: id.rawValue,
+            detail: .searchScope(.workspaces)
+        )
         pendingCompactCreateNavigationWorkspaceIDs = nil
         primarySearchCoordinator.deactivateCurrentSearch()
         searchSelectionReturnsToWorkspaces = true
         store.selectedWorkspaceID = id
         if workspaceSearchNavigationPath.last != id {
             workspaceSearchNavigationPath = [id]
+        }
+    }
+
+    private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
+        switch tab {
+        case .workspaces: .workspaces
+        case .notifications: .notifications
+        case .search: .search
+        }
+    }
+
+    private var diagnosticSearchScope: DiagnosticSearchScope {
+        switch primarySearchCoordinator.scope {
+        case .workspaces: .workspaces
+        case .notifications: .notifications
         }
     }
 
