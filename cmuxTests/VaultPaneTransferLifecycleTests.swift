@@ -27,6 +27,10 @@ struct VaultPaneTransferLifecycleTests {
         DockDropCase(targetKind: .browser, placement: .center),
         DockDropCase(targetKind: .browser, placement: .right),
     ]
+    private nonisolated static let paneTargetKinds: [TargetKind] = [
+        .terminal,
+        .browser,
+    ]
 
     @Test("Every repeated Vault row publishes a live capability to the shared pane registry")
     func repeatedVaultSourcesPublishSharedPaneCapabilities() throws {
@@ -150,9 +154,70 @@ struct VaultPaneTransferLifecycleTests {
                 dragPasteboard: drag.pasteboard
             )
 
-            #expect(dragHit == nil)
-            #expect(mouseUpHit == nil)
+            #expect(dragHit is BrowserPaneDropTargetView)
+            #expect(mouseUpHit is BrowserPaneDropTargetView)
             #expect(drag.resolvedTransfer?.tab.id.uuid == drag.dragID)
+        }
+    }
+
+    @Test(
+        "Shared pane router accepts Vault capabilities for every pane kind",
+        arguments: paneTargetKinds
+    )
+    private func paneRouterAcceptsVaultCapability(_ targetKind: TargetKind) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+
+            let initialPanelID = try #require(fixture.workspace.focusedPanelId)
+            let initialPane = try #require(
+                fixture.workspace.paneId(forPanelId: initialPanelID)
+            )
+            let targetPanelID: UUID
+            switch targetKind {
+            case .terminal:
+                targetPanelID = initialPanelID
+            case .browser:
+                targetPanelID = try #require(fixture.workspace.newBrowserSurface(
+                    inPane: initialPane,
+                    url: URL(string: "about:blank"),
+                    focus: true,
+                    creationPolicy: .restoration,
+                    allowsExternalBrowserFallback: false
+                ))
+            }
+            let targetPane = try #require(
+                fixture.workspace.paneId(forPanelId: targetPanelID)
+            )
+            let context = PaneDropContext(
+                workspaceId: fixture.workspace.id,
+                panelId: targetPanelID,
+                paneId: targetPane
+            )
+            let entry = Self.makeEntry(sessionID: "router-\(targetKind)")
+            let drag = try dropHarness.beginVaultDrag(
+                entry: entry,
+                sessionRegistry: fixture.appDelegate.sessionDragRegistry,
+                tabDragTransferRegistry: fixture.appDelegate.tabDragTransferRegistry
+            )
+            defer { drag.finish() }
+
+            let router = PaneTransferDropRouter()
+            router.begin(context: context)
+            defer { router.clear() }
+            guard case .accepted(let plan) = router.resolve(
+                pasteboard: drag.pasteboard,
+                context: context,
+                proposedZone: .center
+            ) else {
+                Issue.record("Shared pane router rejected a live Vault capability")
+                return
+            }
+
+            #expect(plan.context == context)
+            #expect(plan.transfer.tabId == drag.dragID)
+            #expect(plan.source == .vaultSession(entry))
+            #expect(plan.zone == .center)
         }
     }
 

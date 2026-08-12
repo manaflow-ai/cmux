@@ -226,7 +226,7 @@ struct VaultPaneDropRoutingTests {
             dragPasteboard: drag.pasteboard
         )
 
-        #expect(hit == nil)
+        #expect(hit is BrowserPaneDropTargetView)
         #expect(drag.resolvedTransfer?.tab.id.uuid == drag.dragID)
     }
 
