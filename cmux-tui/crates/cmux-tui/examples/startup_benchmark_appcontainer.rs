@@ -591,6 +591,16 @@ pub(super) fn run_broker(values: &[String]) -> Result<()> {
             ));
         }
     };
+    let process_token = match prepare_broker_process_token() {
+        Ok(process_token) => process_token,
+        Err(error) => {
+            return Err(record_broker_failure(
+                &expected_nonce,
+                BrokerFailureStage::ConfigValidate,
+                error.context("prepare account broker token before config validation"),
+            ));
+        }
+    };
     if let Err(error) = validate_config(&config, &expected_nonce) {
         return Err(record_broker_failure(
             &expected_nonce,
@@ -598,7 +608,7 @@ pub(super) fn run_broker(values: &[String]) -> Result<()> {
             error,
         ));
     }
-    let evidence = match launch_appcontainer_product(&config) {
+    let evidence = match launch_appcontainer_product(&config, process_token.0) {
         Ok(evidence) => evidence,
         Err(error) => {
             return Err(record_broker_failure(
@@ -1049,24 +1059,47 @@ enum NonceObjectAccess {
 struct OwnedSecurityDescriptor(windows_sys::Win32::Security::PSECURITY_DESCRIPTOR);
 
 impl OwnedSecurityDescriptor {
-    fn for_nonce_object(
+    fn validate_nonce_sids(
         runner_sid: &str,
         account_sid: &str,
         appcontainer_sid: &str,
-        access: NonceObjectAccess,
-    ) -> Result<Self> {
+    ) -> Result<()> {
         for (name, sid) in
             [("runner", runner_sid), ("account", account_sid), ("AppContainer", appcontainer_sid)]
         {
             OwnedSid::from_string(sid)
                 .with_context(|| format!("validate {name} SID for nonce-owned object"))?;
         }
+        Ok(())
+    }
+
+    fn for_nonce_directory(
+        runner_sid: &str,
+        account_sid: &str,
+        appcontainer_sid: &str,
+        access: NonceObjectAccess,
+    ) -> Result<Self> {
+        Self::validate_nonce_sids(runner_sid, account_sid, appcontainer_sid)?;
         let access = match access {
             NonceObjectAccess::ReadExecute => "GRGX",
             NonceObjectAccess::Full => "GA",
         };
         let sddl = format!(
             "D:P(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GA;;;{runner_sid})(A;OICI;{access};;;{account_sid})(A;OICI;{access};;;{appcontainer_sid})S:(ML;OICI;NW;;;LW)"
+        );
+        Self::from_sddl(&sddl)
+    }
+
+    fn for_nonce_read_execute_file(
+        runner_sid: &str,
+        account_sid: &str,
+        appcontainer_sid: &str,
+    ) -> Result<Self> {
+        Self::validate_nonce_sids(runner_sid, account_sid, appcontainer_sid)?;
+        // A leaf file has direct, file-specific ACEs. It has no inheritance flags because it
+        // cannot own child objects. FR+FX supplies read attributes, data, execute, and synchronize.
+        let sddl = format!(
+            "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{runner_sid})(A;;FRFX;;;{account_sid})(A;;FRFX;;;{appcontainer_sid})S:(ML;;NW;;;LW)"
         );
         Self::from_sddl(&sddl)
     }
@@ -1118,7 +1151,7 @@ impl OwnedNonceDirectory {
         if path.exists() {
             bail!("nonce-owned AppContainer directory already existed: {}", path.display());
         }
-        let descriptor = OwnedSecurityDescriptor::for_nonce_object(
+        let descriptor = OwnedSecurityDescriptor::for_nonce_directory(
             runner_sid,
             account_sid,
             appcontainer_sid,
@@ -1315,8 +1348,7 @@ fn run_account_broker(
     Ok(BrokerRunOutput { outcome, stdout, stderr })
 }
 
-fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> {
-    let appcontainer_sid = OwnedSid::from_string(&config.appcontainer_sid)?;
+fn prepare_broker_process_token() -> Result<OwnedHandle> {
     let mut process_token = null_mut();
     // SAFETY: process token storage is writable. This is the trusted account-owned broker token.
     check(
@@ -1332,8 +1364,16 @@ fn launch_appcontainer_product(config: &BrokerConfig) -> Result<BrokerEvidence> 
     let process_token = OwnedHandle(process_token);
     disable_all_privileges(process_token.0)?;
     enable_privilege(process_token.0, "SeChangeNotifyPrivilege")?;
+    Ok(process_token)
+}
+
+fn launch_appcontainer_product(
+    config: &BrokerConfig,
+    process_token: HANDLE,
+) -> Result<BrokerEvidence> {
+    let appcontainer_sid = OwnedSid::from_string(&config.appcontainer_sid)?;
     let pre_launch_token =
-        pre_launch_token_evidence(process_token.0, &config.account_authentication_id)?;
+        pre_launch_token_evidence(process_token, &config.account_authentication_id)?;
     pre_launch_token.validate()?;
     let broker_staging_write_denied = fs::write(
         config.staging_root.join(format!("broker-denied-{}.txt", &config.nonce[..16])),
@@ -2480,11 +2520,10 @@ fn copy_new_regular_file(
         bail!("AppContainer staged source was not one regular file");
     }
     let mut source = File::open(source)?;
-    let descriptor = OwnedSecurityDescriptor::for_nonce_object(
+    let descriptor = OwnedSecurityDescriptor::for_nonce_read_execute_file(
         runner_sid,
         account_sid,
         appcontainer_sid,
-        NonceObjectAccess::ReadExecute,
     )?;
     let attributes = SECURITY_ATTRIBUTES {
         nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())?,
