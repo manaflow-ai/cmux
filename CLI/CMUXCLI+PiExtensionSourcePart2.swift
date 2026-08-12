@@ -27,7 +27,16 @@ async function sendHook(
     context,
   );
   if (result.ok) rememberSurfaceTarget(dispatcher, sessionId, result);
-  return result.ok;
+  if (!result.ok && !result.surfaceUnavailable) {
+    warn(context, "cmux hook command failed", {
+      subcommand,
+      status: result.status,
+      stderr_available: result.stderr.trim().length > 0,
+      error_available: result.error !== undefined,
+    });
+  }
+  // Return true when skipped (surfaceUnavailable) to match CMUX_PI_HOOKS_DISABLED semantics
+  return result.ok || result.surfaceUnavailable;
 }
 
 const resolvedSurfaceTargets = new WeakMap<PiCmuxCommandDispatcher, Map<string, string[]>>();
