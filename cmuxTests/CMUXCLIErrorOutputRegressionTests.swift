@@ -1215,7 +1215,11 @@ import Testing
                 "prepared_arguments": ["/usr/bin/true"],
             ],
         ])
-        let socketPath = "/tmp/cmux-restore-startup-\(UUID().uuidString.prefix(8)).sock"
+        let fixtureDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-restore-startup-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        let socketPath = fixtureDirectory.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let debugLogPath = fixtureDirectory.appendingPathComponent("cli.log", isDirectory: false).path
         var startupSocketFD = try bindUnavailableUnixSocket(at: socketPath)
         var responder: UnixSocketResponder?
         defer {
@@ -1224,6 +1228,7 @@ import Testing
             }
             responder?.stop()
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: fixtureDirectory)
         }
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
@@ -1231,6 +1236,7 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_DEBUG_LOG"] = debugLogPath
         environment["CMUX_SURFACE_ID"] = surfaceID
 
         let result = runProcess(
@@ -1243,14 +1249,18 @@ import Testing
             environment: environment,
             timeout: 5,
             afterLaunch: {
-                // The old restore path only retried connects for 350ms. Keep
-                // the listener unavailable beyond that window so this test
-                // proves restore waits for the startup lifecycle instead of
-                // returning the generic "still opening" error immediately.
-                usleep(700_000)
+                // The CLI emits this diagnostic at the readiness boundary. Wait
+                // for that explicit milestone before making the same socket inode
+                // listen; this avoids turning the regression into a wall-clock race.
+                guard self.waitForFileContentsUsingKqueue(
+                    URL(fileURLWithPath: debugLogPath),
+                    containing: "socket.connect.wait.entered",
+                    timeout: 3
+                ) else {
+                    return
+                }
                 close(startupSocketFD)
                 startupSocketFD = -1
-                unlink(socketPath)
                 responder = try? UnixSocketResponder(
                     path: socketPath,
                     responses: [currentWorkspaceResponse, identifyResponse, recordResponse]
@@ -3226,6 +3236,55 @@ import Testing
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(savedErrno))
         }
         return descriptor
+    }
+
+    /// Waits for a child-written marker using the directory's vnode events.
+    ///
+    /// The initial content check handles a write that wins the race with kqueue
+    /// registration; subsequent writes wake the event wait without polling or
+    /// sleeping the test thread.
+    private func waitForFileContentsUsingKqueue(
+        _ url: URL,
+        containing expected: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let directoryURL = url.deletingLastPathComponent()
+        let queue = kqueue()
+        guard queue >= 0 else { return false }
+        defer { close(queue) }
+
+        let directoryFD = open(directoryURL.path, O_EVTONLY)
+        guard directoryFD >= 0 else { return false }
+        defer { close(directoryFD) }
+
+        var event = kevent(
+            ident: UInt(directoryFD),
+            filter: Int16(EVFILT_VNODE),
+            flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+            fflags: UInt32(NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB | NOTE_EXTEND | NOTE_LINK),
+            data: 0,
+            udata: nil
+        )
+        guard kevent(queue, &event, 1, nil, 0, nil) == 0 else { return false }
+
+        let deadline = Date.now.addingTimeInterval(max(timeout, 0))
+        while true {
+            if let contents = try? String(contentsOf: url, encoding: .utf8),
+               contents.contains(expected) {
+                return true
+            }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            var timeoutSpec = timespec(
+                tv_sec: Int(remaining),
+                tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
+            )
+            var triggeredEvent = kevent()
+            let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
+            if result < 0, errno != EINTR {
+                return false
+            }
+        }
     }
 
     /// Points the stable last-socket-path marker inside `home` at a path of the test's own.

@@ -209,7 +209,10 @@ public struct SocketControlSettings {
         isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry,
-        stableDefaultSocketCanBeReclaimed: (String) -> Bool = { _ in true }
+        // Reclaimability is authoritative transport state. Callers that do not
+        // provide a lock/liveness probe must fail closed rather than claiming a
+        // stable path they cannot prove is safe to replace.
+        stableDefaultSocketCanBeReclaimed: (String) -> Bool = { _ in false }
     ) -> String {
         guard !isDebugBuild,
               normalizedBundleIdentifier(bundleIdentifier) == "com.cmuxterm.app",

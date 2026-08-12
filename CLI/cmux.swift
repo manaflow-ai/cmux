@@ -14,15 +14,30 @@ import Security
 #endif
 
 struct CLIError: Error, CustomStringConvertible {
+    enum SocketFailureKind: Equatable {
+        case pathMissing
+        case pathInspectionFailed
+        case pathTypeConflict
+        case pathOwnershipConflict
+        case startupTimeout
+    }
+
     let message: String
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
+    let socketFailureKind: SocketFailureKind?
 
-    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
+    init(
+        message: String,
+        exitCode: Int32 = 1,
+        v2Code: String? = nil,
+        socketFailureKind: SocketFailureKind? = nil
+    ) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
+        self.socketFailureKind = socketFailureKind
     }
 
     var description: String { message }
@@ -2130,13 +2145,25 @@ final class SocketClient {
         // Verify socket is owned by the current user to prevent fake-socket attacks.
         var st = stat()
         guard stat(path, &st) == 0 else {
-            throw CLIError(message: "Socket not found at \(path)")
+            let failureKind: CLIError.SocketFailureKind = errno == ENOENT
+                ? .pathMissing
+                : .pathInspectionFailed
+            throw CLIError(
+                message: "Socket not found at \(path)",
+                socketFailureKind: failureKind
+            )
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-            throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
+            throw CLIError(
+                message: "Path exists at \(path) but is not a Unix socket",
+                socketFailureKind: .pathTypeConflict
+            )
         }
         guard st.st_uid == getuid() else {
-            throw CLIError(message: "Socket at \(path) is not owned by the current user — refusing to connect")
+            throw CLIError(
+                message: "Socket at \(path) is not owned by the current user — refusing to connect",
+                socketFailureKind: .pathOwnershipConflict
+            )
         }
 
         socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -2673,92 +2700,127 @@ final class SocketClient {
     }
 
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
-        let client = SocketClient(path: path)
-        if (try? client.connect()) != nil {
-            if client.relayEndpoint != nil {
-                client.close()
+        try waitForConnectableSocket(resolvePath: { path }, timeout: timeout)
+    }
+
+    /// Waits for a socket selected by `resolvePath` to become connectable.
+    ///
+    /// The resolver is evaluated before every probe so a startup fallback path
+    /// can become authoritative while the preferred path is still stale. A
+    /// kqueue watches the selected path's parent directory and supplies the
+    /// readiness signal; bounded timeouts provide backoff when a listener keeps
+    /// the same inode and no directory event is emitted.
+    static func waitForConnectableSocket(
+        resolvePath: () -> String,
+        timeout: TimeInterval
+    ) throws -> SocketClient {
+        let normalizedTimeout = timeout.isFinite ? max(timeout, 0) : 0
+        let deadline = Date.now.addingTimeInterval(normalizedTimeout)
+        let eventQueue = kqueue()
+        guard eventQueue >= 0 else {
+            throw startupSocketTimeout(path: resolvePath())
+        }
+        defer { close(eventQueue) }
+
+        var watchedDirectoryFD: Int32 = -1
+        var watchedDirectoryPath: String?
+        defer {
+            if watchedDirectoryFD >= 0 {
+                close(watchedDirectoryFD)
             }
-            return client
         }
 
-        guard let watchDirectory = existingWatchDirectory(forPath: path) else {
-            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
-        }
-        let watchFD = open(watchDirectory, O_EVTONLY)
-        guard watchFD >= 0 else {
-            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
-        }
+        var retryDelay: TimeInterval = 0.025
+        var lastPath = resolvePath()
+        while true {
+            let currentPath = resolvePath()
+            lastPath = currentPath
+            let client = SocketClient(path: currentPath)
+            do {
+                try client.connectWithoutRetry()
+                if client.relayEndpoint != nil {
+                    client.close()
+                }
+                return client
+            } catch {
+                client.close()
+                guard shouldRetrySocketStartup(error) else {
+                    throw error
+                }
+            }
 
-        let queue = DispatchQueue(label: "com.cmux.cli.socket-watch.\(UUID().uuidString)")
-        let semaphore = DispatchSemaphore(value: 0)
-        var connected = false
-        var retryDelayMilliseconds = 25
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: watchFD,
-            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
-            queue: queue
-        )
-        let retryTimer = DispatchSource.makeTimerSource(queue: queue)
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw startupSocketTimeout(path: lastPath)
+            }
 
-        func scheduleRetry() {
-            guard !connected else { return }
-            let delay = retryDelayMilliseconds
-            retryDelayMilliseconds = min(retryDelayMilliseconds * 2, 500)
-            retryTimer.schedule(
-                deadline: .now() + .milliseconds(delay),
-                repeating: .never,
-                leeway: .milliseconds(10)
+            if let directory = existingWatchDirectory(forPath: currentPath),
+               directory != watchedDirectoryPath {
+                if watchedDirectoryFD >= 0 {
+                    close(watchedDirectoryFD)
+                    watchedDirectoryFD = -1
+                }
+                watchedDirectoryFD = registerSocketDirectory(directory, queue: eventQueue) ?? -1
+                watchedDirectoryPath = watchedDirectoryFD >= 0 ? directory : nil
+            }
+
+            waitForSocketDirectoryEvent(
+                eventQueue,
+                timeout: min(retryDelay, remaining)
             )
+            retryDelay = min(retryDelay * 2, 0.5)
         }
+    }
 
-        func attemptConnect() {
-            guard !connected else { return }
-            // The initial connect above already covers the short fast path.
-            // Subsequent attempts are single nonblocking probes driven by the
-            // directory signal and bounded exponential timer, so a listener
-            // that calls listen(2) without replacing its inode is observed too.
-            if (try? client.connectWithoutRetry()) != nil {
-                connected = true
-                semaphore.signal()
-            } else {
-                scheduleRetry()
+    private static func shouldRetrySocketStartup(_ error: Error) -> Bool {
+        if shouldRetryConnect(error) {
+            return true
+        }
+        return (error as? CLIError)?.socketFailureKind == .pathMissing
+    }
+
+    static func isSocketStartupTimeout(_ error: Error) -> Bool {
+        (error as? CLIError)?.socketFailureKind == .startupTimeout
+    }
+
+    private static func startupSocketTimeout(path: String) -> CLIError {
+        CLIError(
+            message: "cmux app did not start in time (socket not found at \(path))",
+            socketFailureKind: .startupTimeout
+        )
+    }
+
+    private static func registerSocketDirectory(_ path: String, queue: Int32) -> Int32? {
+        let descriptor = open(path, O_EVTONLY)
+        guard descriptor >= 0 else { return nil }
+        var event = kevent(
+            ident: UInt(descriptor),
+            filter: Int16(EVFILT_VNODE),
+            flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+            fflags: UInt32(NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB | NOTE_EXTEND | NOTE_LINK),
+            data: 0,
+            udata: nil
+        )
+        guard kevent(queue, &event, 1, nil, 0, nil) == 0 else {
+            close(descriptor)
+            return nil
+        }
+        return descriptor
+    }
+
+    private static func waitForSocketDirectoryEvent(_ queue: Int32, timeout: TimeInterval) {
+        guard timeout > 0 else { return }
+        var timeoutSpec = timespec(
+            tv_sec: Int(timeout),
+            tv_nsec: Int((timeout - floor(timeout)) * 1_000_000_000)
+        )
+        while true {
+            var triggeredEvent = kevent()
+            let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
+            if result >= 0 || errno != EINTR {
+                return
             }
         }
-
-        source.setEventHandler {
-            attemptConnect()
-        }
-        source.setCancelHandler {
-            Darwin.close(watchFD)
-        }
-        retryTimer.setEventHandler {
-            attemptConnect()
-        }
-        source.resume()
-        retryTimer.resume()
-        queue.async {
-            attemptConnect()
-        }
-
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            // Serialize teardown with the watcher queue. A timer or directory
-            // event may be inside connectWithoutRetry(); closing the client
-            // from this thread would otherwise race that attempt and recycle
-            // its descriptor underneath it.
-            queue.sync {
-                connected = true
-                source.cancel()
-                retryTimer.cancel()
-                client.close()
-            }
-            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
-        }
-
-        queue.sync {
-            source.cancel()
-            retryTimer.cancel()
-        }
-        return client
     }
 
     static func waitForFilesystemPath(_ path: String, timeout: TimeInterval) throws {
@@ -3636,7 +3698,7 @@ struct CMUXCLI {
             socketPath: socketPath,
             processEnv: processEnv
         )
-        let resolvedSocketPath = CLISocketPathResolver.resolve(
+        var resolvedSocketPath = CLISocketPathResolver.resolve(
             requestedPath: socketPath,
             source: socketPathSource,
             environment: processEnv,
@@ -3886,6 +3948,7 @@ struct CMUXCLI {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             if command == "restore", explicitSocketPath == nil {
+                cliDebugLog("socket.connect.wait.entered path=\(resolvedSocketPath)")
                 cliTelemetry.breadcrumb(
                     "socket.connect.wait",
                     data: [
@@ -3896,15 +3959,26 @@ struct CMUXCLI {
                 )
                 do {
                     client = try SocketClient.waitForConnectableSocket(
-                        path: resolvedSocketPath,
+                        resolvePath: {
+                            CLISocketPathResolver.resolve(
+                                requestedPath: socketPath,
+                                source: socketPathSource,
+                                environment: processEnv,
+                                bundleIdentifier: cliBundleIdentifier
+                            )
+                        },
                         timeout: Self.restoreSocketStartupTimeoutSeconds
                     )
+                    resolvedSocketPath = client.socketPath
                     cliTelemetry.breadcrumb(
                         "socket.connect.wait.success",
-                        data: ["path": resolvedSocketPath]
+                        data: ["path": client.socketPath]
                     )
                 } catch {
                     cliTelemetry.captureError(stage: "socket_startup_wait", error: error)
+                    guard SocketClient.isSocketStartupTimeout(error) else {
+                        throw error
+                    }
                     throw loggedRestoreError(
                         stage: "socket.startup",
                         detail: String(reflecting: error),

@@ -217,4 +217,16 @@ import CmuxSettings
         #expect(didProbeReclaimability)
         #expect(path == SocketControlSettings.stableDefaultSocketPath)
     }
+
+    @Test func initialStableLaunchFailsClosedWithoutReclaimabilityProbe() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) }
+        )
+
+        #expect(path == SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
 }
