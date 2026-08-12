@@ -2199,6 +2199,7 @@ impl OrderedSession {
         self.inner.begin_shutdown();
     }
 
+    #[cfg(test)]
     fn daemon_shutdown_requested(&self) -> bool {
         self.inner.daemon_shutdown_requested()
     }
@@ -8614,6 +8615,7 @@ impl App {
         }
     }
 
+    #[cfg(test)]
     fn owner_shutdown_requested(&self) -> bool {
         self.owner_mux.as_ref().is_some_and(|mux| mux.daemon_shutdown_requested())
     }

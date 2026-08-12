@@ -2771,13 +2771,13 @@ fn run_server(
             run_headless(&mux, &socket_path, || false)
         }
     } else if let Some(runtime) = machine_runtime {
-        run_machine_client(runtime, mux.clone())
+        run_machine_client(runtime, mux)
     } else {
         match RemoteSession::connect(&socket_path)
             .context("connect the interactive client to its session server")
         {
             Ok(remote) => {
-                run_tui_with_owner(Session::Remote(remote), args.session, None, Some(mux.clone()))
+                run_tui_with_owner(Session::Remote(remote), args.session, None, Some(mux))
             }
             Err(error) => Err(error),
         }

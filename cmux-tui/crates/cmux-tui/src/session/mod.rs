@@ -485,6 +485,7 @@ impl Session {
         }
     }
 
+    #[cfg(test)]
     pub fn daemon_shutdown_requested(&self) -> bool {
         match self {
             Session::Local(mux) => mux.daemon_shutdown_requested(),

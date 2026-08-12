@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn stopped_owner_reload_replays_its_known_failure_receipt() {
         let mux = Mux::new_for_test("session-reload-failure", SurfaceOptions::default());
-        mux.shutdown();
+        mux.shutdown().unwrap();
         let reload = || {
             dispatch(
                 &mux,
