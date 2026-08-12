@@ -500,6 +500,14 @@ struct WorkspaceListView: View {
             workspacesByID: currentWorkspacesByID
         )
             .modifier(WorkspaceListBarUnderlap())
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if connectionChrome == .tailscalePairingRequired,
+                   let showPairingScanner {
+                    MobileTailscalePairingRequiredBanner(
+                        scanPairingCode: showPairingScanner
+                    )
+                }
+            }
         #else
         let baseList = List {
             switch connectionChrome {
@@ -511,6 +519,16 @@ struct WorkspaceListView: View {
                             connectionError: store.connectionError,
                             signOut: signOut,
                             rendersInline: true
+                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.hidden)
+                    }
+                }
+            case .tailscalePairingRequired:
+                if let showPairingScanner {
+                    Section {
+                        MobileTailscalePairingRequiredBanner(
+                            scanPairingCode: showPairingScanner
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
@@ -884,6 +902,7 @@ struct WorkspaceListView: View {
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             connectionStatus: connectionStatus,
+            tailscalePairingRequired: store?.tailscalePairingRequired ?? false,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         )

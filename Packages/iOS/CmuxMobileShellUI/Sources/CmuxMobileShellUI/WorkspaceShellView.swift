@@ -664,7 +664,7 @@ struct WorkspaceShellView: View {
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
             signOut: signOut,
-            reconnect: reconnectClosure,
+            reconnect: store.tailscalePairingRequired ? nil : reconnectClosure,
             showAddDevice: showAddDevice,
             showPairingScanner: showPairingScanner,
             store: store,
@@ -700,7 +700,7 @@ struct WorkspaceShellView: View {
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
-            reconnect: reconnectClosure
+            reconnect: store.tailscalePairingRequired ? nil : reconnectClosure
         )
     }
 
@@ -715,6 +715,7 @@ struct WorkspaceShellView: View {
             connectionRecoveryFailed: store.connectionRecoveryFailed,
             isRecoveringConnection: store.isRecoveringConnection,
             connectionStatus: listConnectionStatus,
+            tailscalePairingRequired: store.tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         ).statusLine

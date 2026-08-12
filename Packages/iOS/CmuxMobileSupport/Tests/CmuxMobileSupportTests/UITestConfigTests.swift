@@ -75,11 +75,26 @@ import Testing
         #expect(configuration?.presentsShellSettingsBeforeMigration == false)
         #expect(configuration?.initialModalHost == nil)
         #expect(configuration?.readinessGate == nil)
+        #expect(configuration?.persistedConnectionMethod == nil)
+        #expect(configuration?.legacyResolution == nil)
         #expect(configuration?.showsLayoutProbe == false)
         #expect(
             configuration?.defaultsSuiteName
                 == "dev.cmux.uitest.autoConnectMigration.migration-run"
         )
+    }
+
+    @Test func autoConnectMigrationFixtureParsesPersistedUpgradeState() {
+        let configuration = AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "migration-run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_PERSISTED_METHOD": " automatic ",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_V1_RESOLUTION": " ineligible ",
+        ])
+
+        #expect(configuration?.persistedConnectionMethod == .automatic)
+        #expect(configuration?.legacyResolution == .ineligible)
     }
 
     @Test func autoConnectMigrationFixtureRequiresExplicitLayoutProbeOptIn() {
@@ -190,9 +205,15 @@ import Testing
         ]) == nil)
         #expect(AutoConnectMigrationUITestConfiguration(environment: [
             "CMUX_UITEST_MOCK_DATA": "1",
-            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
-            "CMUX_UITEST_AUTOCONNECT_MIGRATION_CONNECTION_METHOD": "unknown",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_PERSISTED_METHOD": "invalid",
+        ]) == nil)
+        #expect(AutoConnectMigrationUITestConfiguration(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "eligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": "run",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_V1_RESOLUTION": "invalid",
         ]) == nil)
     }
     #endif
