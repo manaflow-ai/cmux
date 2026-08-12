@@ -1995,10 +1995,11 @@ mod tests {
                 b"stale".to_vec(),
             ));
             state.fail_closed_for_stream_restart();
-            state.prepare_handshake(
-                TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap(),
-            )
-            .unwrap();
+            state
+                .prepare_handshake(
+                    TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap(),
+                )
+                .unwrap();
             assert!(state.push_native_render_event(
                 NativeRenderEventKind::Reset,
                 100,

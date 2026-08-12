@@ -747,10 +747,8 @@ impl ClientState {
         if let Some(events) = self.native_render_events.as_mut() {
             if kind == NativeRenderEventKind::Exit {
                 events.clear();
-                self.native_render_event_bytes = self
-                    .native_render_event_lease
-                    .as_ref()
-                    .map_or(0, |event| event.payload.len());
+                self.native_render_event_bytes =
+                    self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
             }
             self.native_render_control_event = Some(event);
         }
@@ -1746,10 +1744,8 @@ fn start_terminal_tasks(
     let resize_streams = streams.subscribe();
     let resize_delivery = Arc::new(ResizeDelivery::default());
     let send_lock = Arc::new(tokio::sync::Mutex::new(()));
-    let coordinator = TerminalStreamCoordinator {
-        streams: streams.clone(),
-        send_lock: send_lock.clone(),
-    };
+    let coordinator =
+        TerminalStreamCoordinator { streams: streams.clone(), send_lock: send_lock.clone() };
     {
         let mut state = state.lock().unwrap();
         state.resize_delivery = Some(resize_delivery.clone());
