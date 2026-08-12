@@ -69,7 +69,7 @@ extension CMUXCLI {
                 value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }),
                 let index = UInt64(value)
             else {
-                return 0
+                return nil
             }
             return index
         } catch {
