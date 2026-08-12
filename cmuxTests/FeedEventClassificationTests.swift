@@ -420,6 +420,21 @@ struct FeedEventClassificationTests {
         #expect(!policy.isAutoReviewed(rawObject: rawObject, transcriptPath: "/empty") { _, _ in [] })
     }
 
+    @Test func codexUserReviewSkipsRolloutRead() {
+        let policy = CodexApprovalNotificationPolicy()
+        var readCount = 0
+        let isAutoReviewed = policy.isAutoReviewed(
+            rawObject: ["approvals_reviewer": "user"],
+            transcriptPath: "/should-not-be-opened"
+        ) { _, _ in
+            readCount += 1
+            return [#"{"type":"turn_context","payload":{"approvals_reviewer":"auto_review"}}"#]
+        }
+
+        #expect(!isAutoReviewed)
+        #expect(readCount == 0)
+    }
+
     @Test func codexReviewerDoesNotLeakFromAnOlderKnownTurn() {
         let rawObject: [String: Any] = [
             "session_id": "codex-session",

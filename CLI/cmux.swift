@@ -35180,7 +35180,14 @@ export default CMUXSessionRestore;
             ))
             return (try? store.lookup(sessionId: rawSessionId))?.transcriptPath
         }()
-        let approvalIdentity = source == "codex"
+        // Identity derivation canonicalizes the tool input and computes two
+        // SHA-256 digests.  Most feed events are ordinary telemetry and can
+        // never touch the native approval banner, so avoid that work unless
+        // this event actually raises or resolves one.
+        let needsApprovalCorrelation = source == "codex"
+            && (classification.notifiesNativeApprovalPrompt
+                || classification.clearsNativeApprovalPrompt)
+        let approvalIdentity = needsApprovalCorrelation
             ? CodexApprovalNotificationIdentity.make(
                 rawObject: stdinObj,
                 fallbackSessionID: sessionId

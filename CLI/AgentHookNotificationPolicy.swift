@@ -119,6 +119,14 @@ struct CodexApprovalNotificationPolicy: Sendable {
         transcriptPath: String?,
         readRolloutLines: (_ path: String, _ maxBytes: UInt64) -> [String]?
     ) -> Bool {
+        // An explicit user reviewer is authoritative and can never result in
+        // auto-review.  Resolve that cheap in-memory case before opening and
+        // parsing the rollout tail.  Keep the auto-review side fail-closed:
+        // it still requires a readable transcript as proof of the effective
+        // turn context.
+        if reviewRoute(rawObject: rawObject, rolloutLines: []) == .user {
+            return false
+        }
         guard let transcriptPath = transcriptPath?.trimmingCharacters(in: .whitespacesAndNewlines),
               !transcriptPath.isEmpty,
               let rolloutLines = readRolloutLines(transcriptPath, Self.rolloutTailBytes),
