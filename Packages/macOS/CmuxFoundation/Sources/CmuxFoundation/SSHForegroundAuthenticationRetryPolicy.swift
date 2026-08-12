@@ -266,18 +266,18 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               $deadline_active = 1;
             }
             my $pid = 0 + $raw_pid;
-            my $buffer = "\0" x 184;
+            my $buffer = "\0" x 136;
             # Darwin SYS_proc_info(2), PROC_INFO_CALL_PIDINFO(2),
-            # PROC_PIDTBSDINFO(3). proc_bsdinfo is 184 bytes on supported
-            # macOS SDKs: pbi_pgid is at 148, and start time is at 168/176.
-            my $size = syscall(336, 2, $pid, 3, 0, $buffer, 184);
-            exit 1 unless $size == 184;
+            # PROC_PIDTBSDINFO(3). proc_bsdinfo is 136 bytes on supported
+            # macOS SDKs: pbi_pgid is at 100, and start time is at 120/128.
+            my $size = syscall(336, 2, $pid, 3, 0, $buffer, 136);
+            exit 1 unless $size == 136;
             my $status = unpack("L<", substr($buffer, 4, 4));
             my $observed_pid = unpack("L<", substr($buffer, 12, 4));
             my $parent = unpack("L<", substr($buffer, 16, 4));
-            my $group = unpack("L<", substr($buffer, 148, 4));
-            my $seconds = unpack("Q<", substr($buffer, 168, 8));
-            my $microseconds = unpack("Q<", substr($buffer, 176, 8));
+            my $group = unpack("L<", substr($buffer, 100, 4));
+            my $seconds = unpack("Q<", substr($buffer, 120, 8));
+            my $microseconds = unpack("Q<", substr($buffer, 128, 8));
             alarm(0) if $deadline_active;
             exit 1 if $observed_pid != $pid || $group == 0 ||
               $seconds == 0 || $microseconds >= 1_000_000 || $status == 5;
@@ -456,14 +456,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               my $raw_pid = shift;
               exit 1 unless defined($raw_pid) && $raw_pid =~ /\A[1-9][0-9]*\z/;
               my $pid = 0 + $raw_pid;
-            my $buffer = "\0" x 184;
-            my $size = syscall(336, 2, $pid, 3, 0, $buffer, 184);
-            exit 1 unless $size == 184;
-            my $status = unpack("L<", substr($buffer, 4, 4));
-            my $observed_pid = unpack("L<", substr($buffer, 12, 4));
-            my $group = unpack("L<", substr($buffer, 148, 4));
-            my $seconds = unpack("Q<", substr($buffer, 168, 8));
-            my $microseconds = unpack("Q<", substr($buffer, 176, 8));
+              my $buffer = "\0" x 136;
+              my $size = syscall(336, 2, $pid, 3, 0, $buffer, 136);
+              exit 1 unless $size == 136;
+              my $status = unpack("L<", substr($buffer, 4, 4));
+              my $observed_pid = unpack("L<", substr($buffer, 12, 4));
+              my $group = unpack("L<", substr($buffer, 100, 4));
+              my $seconds = unpack("Q<", substr($buffer, 120, 8));
+              my $microseconds = unpack("Q<", substr($buffer, 128, 8));
               exit 1 if $observed_pid != $pid || $group == 0 ||
                 $seconds == 0 || $microseconds >= 1_000_000 || $status == 5;
               print "$group|K_${seconds}_${microseconds}\n";

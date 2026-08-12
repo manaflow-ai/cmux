@@ -106,15 +106,15 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
             my $read_info = sub {
               my ($pid) = @_;
-              my $buffer = "\0" x 184;
-              my $size = syscall(336, 2, $pid, 3, 0, $buffer, 184);
-              return undef unless $size == 184;
+              my $buffer = "\0" x 136;
+              my $size = syscall(336, 2, $pid, 3, 0, $buffer, 136);
+              return undef unless $size == 136;
               my $status = unpack("L<", substr($buffer, 4, 4));
               my $observed_pid = unpack("L<", substr($buffer, 12, 4));
               my $parent = unpack("L<", substr($buffer, 16, 4));
-              my $group = unpack("L<", substr($buffer, 148, 4));
-              my $seconds = unpack("Q<", substr($buffer, 168, 8));
-              my $microseconds = unpack("Q<", substr($buffer, 176, 8));
+              my $group = unpack("L<", substr($buffer, 100, 4));
+              my $seconds = unpack("Q<", substr($buffer, 120, 8));
+              my $microseconds = unpack("Q<", substr($buffer, 128, 8));
               return undef if $observed_pid != $pid || $group == 0 || $seconds == 0 ||
                 $microseconds >= 1_000_000;
               return {
