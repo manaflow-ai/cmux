@@ -625,6 +625,16 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.routeGated",
                 defaultValue: "Connection Attempt Held"
             )
+        case .some(.payloadTooLarge):
+            DiagnosticEventPresentation().displayName(.payloadTooLarge)
+        case .some(.resourceLimitReached):
+            DiagnosticEventPresentation().displayName(.resourceLimitReached)
+        case .some(.attachmentCountLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentCountLimitReached)
+        case .some(.attachmentAggregateSizeLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentAggregateSizeLimitReached)
+        case .some(.localStateUnavailable):
+            DiagnosticEventPresentation().displayName(.localStateUnavailable)
         case .some(.cancelled):
             String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")
         case .some(.unknown):

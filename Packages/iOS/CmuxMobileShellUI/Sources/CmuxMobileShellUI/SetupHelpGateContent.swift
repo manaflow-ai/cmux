@@ -40,7 +40,8 @@ struct SetupHelpGateContent {
                     The computer then appears on this phone automatically. \
                     To pair through Tailscale, install Tailscale on both devices \
                     and connect them to the same Tailscale network. \
-                    Then open Tailscale Pairing in cmux on the computer to show the QR and scan it here.
+                    On cmux 0.64.17, choose Connect iPhone/iPad and scan its Pair iPhone code. \
+                    On newer versions, open Tailscale Pairing and scan its code here.
                     """
                 ),
                 link: nil,

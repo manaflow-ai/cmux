@@ -215,6 +215,7 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// `a` is 1 on success else 0, and `c` is the panel correlation ID of the
     /// created panel (absent on failure).
     case browserPanelCreateResolved = 59
+
     // MARK: Simulator streaming and control
 
     /// A phone-controlled Simulator stream lifecycle edge. `surface` is a
@@ -242,32 +243,20 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// when known.
     case simulatorOwnershipChanged = 64
 
-    /// One direct dial plan was assembled before any connect attempt. `a` is
-    /// the public path hint count and `b` is the private fallback path hint
-    /// count. A plan with both counts zero proves no dial packet was sent
-    /// for the attempt.
-    case transportDialPlanBuilt = 65
-    /// Configured private addresses were joined with the target Mac's
-    /// broker-registered UDP port for one dial. `a` is the join state
-    /// (``DiagnosticPrivateAddressJoinState``), `b` is the configured
-    /// address count, and `c` is the resulting dialable hint count.
-    case transportPrivateAddressJoin = 66
-    /// Account-private LAN discovery resolved for one dial. `a` is the
-    /// outcome (``DiagnosticLANDiscoveryOutcome``) and `b` is the resolved
-    /// hint count.
-    case transportLANDiscovery = 67
-    /// One direct dial leg connected. `a` is the leg
-    /// (``DiagnosticDirectDialLeg``).
-    case transportDialLegSucceeded = 68
-    /// One direct dial leg failed before a connection existed. `a` is the
-    /// leg (``DiagnosticDirectDialLeg``) and `b` is the classified
-    /// ``DiagnosticFailureKind``.
-    case transportDialLegFailed = 69
-    /// The Mac's account-private LAN advertisement changed publication
-    /// state. `a` is the state (``DiagnosticLANPublicationState``) and `b`
-    /// is the synchronization reason (0 applied, 1 listener setting
-    /// disabled, 2 runtime context unavailable).
-    case lanPublicationState = 70
+    // MARK: App-wide feature observability
+
+    /// One privacy-safe iOS feature boundary event. `a` is
+    /// ``DiagnosticAppEventKind``; `b`, when present, is a
+    /// ``DiagnosticFailureKind``; `c`, when present, is a bounded count or
+    /// magnitude documented by that event kind; `ms`, when present, is elapsed
+    /// time; and `surface`, when present, is a process-local correlation handle.
+    ///
+    /// This is the app-wide vocabulary for user actions and feature outcomes
+    /// that do not belong to the transport, browser-frame, or Simulator hot
+    /// paths. Event kinds are fixed enums, never caller-provided strings, so the
+    /// durable Release log cannot capture terminal contents, credentials,
+    /// account identifiers, file paths, URLs, workspace titles, or error text.
+    case appFeatureAction = 65
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.
@@ -290,5 +279,11 @@ public extension DiagnosticEventCode {
         default:
             false
         }
+    }
+
+    /// Whether this event belongs to app-wide iOS feature observability rather
+    /// than the network or frame-stream planes.
+    var isAppFeatureDiagnosticEvent: Bool {
+        self == .appFeatureAction
     }
 }

@@ -20,9 +20,14 @@ struct CMUXMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(ToastCenter.self) private var toasts
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     /// Optional so previews and hosts without the app root still render.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
+    /// Optional environment models do not reliably invalidate this root when a
+    /// child sheet mutates them. Mirror the store's existing change stream so
+    /// capability closures are rebuilt for the newly selected method.
+    @State private var observedConnectionMethod: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -47,6 +52,9 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var injectedAttachTask: Task<Void, Never>?
     @State private var injectedAttachTaskAttempt: MobileStartupConnectionCoordinator.Attempt?
+    @State private var authRevalidationTask: Task<Void, Never>?
+    @State private var openURLTask: Task<Void, Never>?
+    @State private var openURLTaskToken: UUID?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -257,8 +265,21 @@ struct CMUXMobileRootView: View {
             presentAutoConnectMigrationIfEligible()
             #endif
         }
+        .task(id: connectionMethodStore.map(ObjectIdentifier.init)) {
+            guard let connectionMethodStore else {
+                observedConnectionMethod = nil
+                return
+            }
+            for await method in connectionMethodStore.changes() {
+                observedConnectionMethod = method
+            }
+        }
         .onDisappear {
             cancelInjectedAttachTask(retryLaunchRoute: true)
+            authRevalidationTask?.cancel()
+            authRevalidationTask = nil
+            cancelOpenURLTask(failure: .cancelled)
+            clearAttachTicketAuthenticationIfNeeded()
         }
         #if os(iOS)
         // A notification tap can arrive before the workspace (or terminal) it
@@ -271,6 +292,7 @@ struct CMUXMobileRootView: View {
         }
         #endif
         .onChange(of: authManager.resolvedTeamID) { _, _ in
+            diagnosticLog?.recordAppEvent(.authTeamChanged)
             // The effective team can change because the user selected one or
             // because launch-time team loading resolved the cached account's
             // default. Re-scope both transitions so a reconnect that began with
@@ -289,7 +311,29 @@ struct CMUXMobileRootView: View {
                 // Re-check the Stack session on resume so one that died while
                 // backgrounded routes to the sign-in page instead of waiting for a
                 // failed connect to surface a confusing host-side message.
-                Task { await authManager.revalidateSession() }
+                if (authManager.isAuthenticated || authManager.isRestoringSession),
+                   authRevalidationTask == nil {
+                    diagnosticLog?.recordAppEvent(.authRevalidationStarted)
+                    authRevalidationTask = Task { @MainActor in
+                        await authManager.revalidateSession()
+                        if Task.isCancelled {
+                            diagnosticLog?.recordAppEvent(
+                                .authRevalidationFailed,
+                                failure: .cancelled
+                            )
+                        } else {
+                            diagnosticLog?.recordAppEvent(
+                                authManager.isAuthenticated
+                                    ? .authRevalidationSucceeded
+                                    : .authRevalidationFailed,
+                                failure: authManager.isAuthenticated
+                                    ? nil
+                                    : .authorizationFailed
+                            )
+                        }
+                        authRevalidationTask = nil
+                    }
+                }
             } else {
                 store.suspendForegroundRefresh()
             }
@@ -298,8 +342,20 @@ struct CMUXMobileRootView: View {
             presentAutoConnectMigrationIfEligible()
             #endif
         }
+        .onChange(of: tailscaleStatusMonitor?.status, initial: true) { _, status in
+            let value: Int = switch status {
+            case .some(.active):
+                1
+            case .some(.inactiveOrNotInstalled):
+                0
+            case .some(.unknown), .none:
+                2
+            }
+            diagnosticLog?.recordAppEvent(.tailscaleStatusChanged, count: value)
+        }
         .onOpenURL { url in
             let rawURL = url.absoluteString
+            diagnosticLog?.recordAppEvent(.appOpenURLReceived)
             if MobileRootAuthGate.isAttachURL(url) {
                 connectAttachURL(rawURL)
                 return
@@ -307,11 +363,10 @@ struct CMUXMobileRootView: View {
 
             guard isAuthenticated else {
                 pendingAttachURL = rawURL
+                diagnosticLog?.recordAppEvent(.appOpenURLDeferredForAuthentication)
                 return
             }
-            Task {
-                await store.connectPairingURL(rawURL)
-            }
+            startOpenURLConnection(rawURL)
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
@@ -419,8 +474,8 @@ struct CMUXMobileRootView: View {
                 // auto-presents the pairing sheet since there is nothing to list).
                 DisconnectedWorkspaceShellView(
                     hasKnownPairedMac: store.hasKnownPairedMac,
-                    showAddDevice: showAddDevice,
-                    showPairingScanner: showPairingScanner,
+                    showAddDevice: addComputerAction,
+                    showPairingScanner: pairingScannerAction,
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
@@ -442,8 +497,8 @@ struct CMUXMobileRootView: View {
                     store: store,
                     isRestoringStoredMac: isRestoringStoredMac,
                     signOut: signOut,
-                    showAddDevice: showAddDevice,
-                    showPairingScanner: showPairingScanner,
+                    showAddDevice: addComputerAction,
+                    showPairingScanner: pairingScannerAction,
                     showSettings: showSettings,
                     deviceTreePresentation: childSheetPresentation(
                         for: .workspaceDeviceTree
@@ -524,18 +579,18 @@ struct CMUXMobileRootView: View {
         switch rootPresentation.presentation {
         case .autoConnectMigrationIntroduction:
             MobileAutoConnectMigrationSheet(
-                continueWithAutoConnect: {
-                    handleRootPresentation(.continueWithAutoConnect)
+                useAutoConnect: {
+                    handleRootPresentation(.useAutoConnect)
                 },
-                openConnectionSettings: {
-                    handleRootPresentation(.openConnectionSettings)
+                setUpTailscale: {
+                    handleRootPresentation(.setUpTailscale(
+                        hasUsableAuthorization: store.hasUsableTailscaleAuthorization
+                    ))
                 },
                 showsLayoutProbe: showsAutoConnectMigrationLayoutProbe
             )
         case .settings:
             settingsSheet(initialFocus: nil)
-        case .connectionSettings:
-            settingsSheet(initialFocus: .connectionMethod)
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
         case .child, .dismissingChild, nil:
@@ -556,7 +611,7 @@ struct CMUXMobileRootView: View {
     private func settingsSheet(initialFocus: MobileSettingsFocus?) -> some View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
-            startPairingScanner: showPairingScanner,
+            startPairingScanner: pairingScannerAction,
             signOut: signOut,
             store: store,
             initialFocus: initialFocus,
@@ -621,10 +676,33 @@ struct CMUXMobileRootView: View {
 
     /// Applies one root presentation action and performs its domain side effect.
     private func handleRootPresentation(_ action: MobileRootPresentationState.Action) {
-        switch rootPresentation.apply(action) {
+        let previousPresentation = rootPresentation.presentation
+        let effect = rootPresentation.apply(action)
+        if previousPresentation != rootPresentation.presentation {
+            switch action {
+            case .presentAutoConnectMigrationIfIdle:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationPresented)
+            case .useAutoConnect:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationAccepted)
+            case .setUpTailscale:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationDismissed)
+            case .sheetDidRequestDismissal
+                where previousPresentation == .autoConnectMigrationIntroduction:
+                diagnosticLog?.recordAppEvent(.autoConnectMigrationDismissed)
+            default:
+                break
+            }
+        }
+        switch effect {
         case .none:
             break
         case .acknowledgeAutoConnectMigration:
+            autoConnectMigrationStore?.acknowledge()
+        case .useAutoConnect:
+            connectionMethodStore?.method = .automatic
+            autoConnectMigrationStore?.acknowledge()
+        case .setUpTailscale:
+            connectionMethodStore?.method = .tailscale
             autoConnectMigrationStore?.acknowledge()
         case .finishPairing:
             finishPairingPresentation()
@@ -735,7 +813,7 @@ struct CMUXMobileRootView: View {
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
-            onStartFallbackPairing: showOnboardingPairingScanner,
+            onStartTailscalePairing: showOnboardingPairingScanner,
             onComplete: completeOnboarding
         )
         #else
@@ -758,7 +836,7 @@ struct CMUXMobileRootView: View {
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},
-            onStartFallbackPairing: showOnboardingPairingScanner,
+            onStartTailscalePairing: showOnboardingPairingScanner,
             onComplete: completeOnboarding
         )
         #else
@@ -881,19 +959,60 @@ struct CMUXMobileRootView: View {
     }
 
     private func showAddDevice() {
-        presentAddDevice(.manual)
+        guard currentlyAllowsManualPairing else { return }
+        presentPairing(.manual)
     }
 
     private func showPairingScanner() {
-        presentAddDevice(.scanner(entry: .settingsReplay))
+        guard currentlyAllowsManualPairing else { return }
+        presentPairing(.scanner(entry: .settingsReplay))
     }
 
     private func showOnboardingPairingScanner() {
-        presentAddDevice(.scanner(entry: .onboardingFallback))
+        guard currentlyAllowsManualPairing else { return }
+        presentPairing(.scanner(entry: .onboardingFallback))
     }
 
-    /// Routes every add-device entrypoint through the platform's root presenter.
-    private func presentAddDevice(_ presentation: PairingPresentation) {
+    /// An external attach ticket can require compatibility approval under any
+    /// connection method. Its presentation contains no manual pairing controls.
+    private func showAttachVersionApproval() {
+        presentPairing(.versionApproval)
+    }
+
+    /// Manual host and pairing-code authorization create Tailscale routes, so
+    /// every ordinary Add Computer entrypoint shares this availability gate.
+    private var addComputerAction: (() -> Void)? {
+        guard allowsManualPairing else { return nil }
+        return showAddDevice
+    }
+
+    /// Scanner entrypoints use the same gate as the manual pairing form.
+    private var pairingScannerAction: (() -> Void)? {
+        guard allowsManualPairing else { return nil }
+        return showPairingScanner
+    }
+
+    private var allowsManualPairing: Bool {
+        #if os(iOS)
+        (observedConnectionMethod ?? connectionMethodStore?.method) == .tailscale
+        #else
+        true
+        #endif
+    }
+
+    /// Re-check the source of truth when an already-rendered action fires. This
+    /// closes the brief transition where the observation task has not consumed
+    /// a newly selected method yet.
+    private var currentlyAllowsManualPairing: Bool {
+        #if os(iOS)
+        connectionMethodStore?.method == .tailscale
+        #else
+        true
+        #endif
+    }
+
+    /// Routes pairing and attach approval through the platform's root presenter.
+    private func presentPairing(_ presentation: PairingPresentation) {
         #if os(iOS)
         addDeviceSheetDetent = .large
         handleRootPresentation(.presentPairing(presentation))
@@ -911,20 +1030,15 @@ struct CMUXMobileRootView: View {
     private func connectAttachURL(_ rawURL: String) {
         guard !authManager.isRestoringSession else {
             pendingAttachURL = rawURL
+            diagnosticLog?.recordAppEvent(.appOpenURLDeferredForAuthentication)
             return
         }
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
-        Task {
-            let result = await store.connectPairingURLResult(rawURL)
-            if result == .needsUserApproval {
-                showAddDevice()
-            }
-            clearAttachTicketAuthentication(after: result)
-            if result == .failed, store.connectionState != .connected {
-                reconnectStoredMacIfNeeded()
-            }
-        }
+        startOpenURLConnection(
+            rawURL,
+            followUp: .finishAttachTicketAuthentication
+        )
     }
 
     @discardableResult
@@ -938,18 +1052,74 @@ struct CMUXMobileRootView: View {
         }
         guard isAuthenticated else { return false }
         pendingAttachURL = nil
-        Task {
-            await store.connectPairingURL(rawURL)
-            if store.connectionState != .connected {
-                reconnectStoredMacIfNeeded()
-            }
-        }
+        startOpenURLConnection(rawURL, followUp: .reconnectIfDisconnected)
         return true
     }
 
     private func isRawAttachURL(_ rawURL: String) -> Bool {
         guard let url = URL(string: rawURL) else { return false }
         return MobileRootAuthGate.isAttachURL(url)
+    }
+
+    private func startOpenURLConnection(
+        _ rawURL: String,
+        followUp: OpenURLConnectionFollowUp = .none
+    ) {
+        cancelOpenURLTask(failure: .superseded)
+        let token = UUID()
+        openURLTaskToken = token
+        openURLTask = Task { @MainActor in
+            let result = await store.connectPairingURLResult(rawURL)
+            guard !Task.isCancelled, openURLTaskToken == token else { return }
+            let failure: DiagnosticFailureKind? = switch result {
+            case .connected:
+                nil
+            case .failed:
+                .connectionClosed
+            case .needsUserApproval:
+                .policyUnavailable
+            case .superseded:
+                .superseded
+            }
+            diagnosticLog?.recordAppEvent(
+                result.didConnect ? .appOpenURLHandled : .appOpenURLRejected,
+                failure: failure
+            )
+            switch followUp {
+            case .none:
+                break
+            case .finishAttachTicketAuthentication:
+                if result == .needsUserApproval {
+                    showAttachVersionApproval()
+                }
+                clearAttachTicketAuthentication(after: result)
+                if result == .failed, store.connectionState != .connected {
+                    reconnectStoredMacIfNeeded()
+                }
+            case .reconnectIfDisconnected:
+                if store.connectionState != .connected {
+                    reconnectStoredMacIfNeeded()
+                }
+            }
+            guard openURLTaskToken == token else { return }
+            openURLTask = nil
+            openURLTaskToken = nil
+        }
+    }
+
+    /// Follow-up owned by the stored open-URL task after its connection result.
+    private enum OpenURLConnectionFollowUp {
+        case none
+        case finishAttachTicketAuthentication
+        case reconnectIfDisconnected
+    }
+
+    private func cancelOpenURLTask(failure: DiagnosticFailureKind) {
+        guard openURLTask != nil else { return }
+        diagnosticLog?.recordAppEvent(.appOpenURLRejected, failure: failure)
+        openURLTaskToken = nil
+        openURLTask?.cancel()
+        openURLTask = nil
     }
 
     private func cancelPairing() {
@@ -998,6 +1168,7 @@ struct CMUXMobileRootView: View {
 
     private func signOut() {
         cancelInjectedAttachTask()
+        diagnosticLog?.recordAppEvent(.authSignOutStarted)
         Task {
             // Local shell teardown first so the whole UI lands signed out
             // immediately; authManager.signOut clears the local session up
@@ -1014,6 +1185,10 @@ struct CMUXMobileRootView: View {
             store.signOut()
             let serverTeardown = signOutHook.begin()
             await authManager.signOut(onSignedOut: serverTeardown)
+            diagnosticLog?.recordAppEvent(
+                authManager.isAuthenticated ? .authSignOutFailed : .authSignOutSucceeded,
+                failure: authManager.isAuthenticated ? .protocolViolation : nil
+            )
         }
     }
 
@@ -1058,7 +1233,7 @@ struct CMUXMobileRootView: View {
                 return
             }
             if completion.result == .needsUserApproval {
-                showAddDevice()
+                showAttachVersionApproval()
             }
             clearInjectedAttachTask(ifCurrent: startupAttempt)
             if completion.shouldReconnectStoredMac {

@@ -101,7 +101,7 @@ void wait_for_receive_timeouts(
 
 std::string identify_response(
     std::uint64_t id,
-    std::uint32_t protocol = 11,
+    std::uint32_t protocol = 12,
     std::initializer_list<std::string_view> capabilities = {}) {
     cmux::raw::Json::Array encoded_capabilities;
     encoded_capabilities.reserve(capabilities.size());
@@ -149,13 +149,13 @@ TEST("ClientCore sends command envelopes and returns typed JSON data") {
         wait_for_send(state);
         std::lock_guard lock(state->mutex);
         state->incoming.emplace_back(
-            R"({"id":1,"ok":true,"data":{"protocol":11,"large":18446744073709551615}})");
+            R"({"id":1,"ok":true,"data":{"protocol":12,"large":18446744073709551615}})");
         state->ready.notify_all();
     });
     auto response = client.value().request("identify");
     server.join();
     CHECK(response);
-    CHECK_EQ(response.value().find("protocol")->as_uint64().value(), 11U);
+    CHECK_EQ(response.value().find("protocol")->as_uint64().value(), 12U);
     CHECK_EQ(
         response.value().find("large")->as_uint64().value(),
         std::numeric_limits<std::uint64_t>::max());
@@ -322,7 +322,7 @@ TEST("ClientCore caches explicit identify for subsequent typed commands") {
     enqueue(state, identify_response(1));
     enqueue(
         state,
-        R"({"id":2,"ok":true,"data":{"ok":true,"protocol":11,"version":"test"}})");
+        R"({"id":2,"ok":true,"data":{"ok":true,"protocol":12,"version":"test"}})");
 
     auto identified = client.value().request("identify");
     CHECK(identified);
@@ -401,7 +401,7 @@ TEST("Client denies every provider-authority method before transport write") {
     enqueue(state, identify_response(1));
     enqueue(
         state,
-        R"({"id":2,"ok":true,"data":{"ok":true,"protocol":11,"version":"test"}})");
+        R"({"id":2,"ok":true,"data":{"ok":true,"protocol":12,"version":"test"}})");
     auto ping = client.ping();
     CHECK(ping);
     std::lock_guard lock(state->mutex);

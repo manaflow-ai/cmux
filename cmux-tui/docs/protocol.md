@@ -1,12 +1,12 @@
-# Raw control protocol v11
+# Raw control protocol v12
 
 This is the private implementation interface for cmux frontends and
 compatibility adapters. New applications should use
 [`cmux.protocol/2`](../spec/resource-api-v2.md), the
 [noun-first CLI](../spec/cli.md), or a [handwritten SDK](../spec/bindings.md).
-High-level packages expose protocol v11 only through their `raw` namespace.
+High-level packages expose protocol v12 only through their `raw` namespace.
 
-As of protocol v11, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+As of protocol v12, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
 Remote clients can carry the same JSON-lines stream through `cmux relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
 
@@ -23,7 +23,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":11,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":12,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape. The second example is a failed `clear-history` request:
@@ -153,7 +153,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v11. It rejects protocol-v10 servers because v11 changes terminal placement nullability, terminal identity nullability, lifecycle typing, typed terminal exit records, and renderer minting responses. Protocol-v11 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
+The remote TUI requires protocol v12. It rejects protocol-v11 servers because v12 adds lifecycle readiness to the strict identify response. Protocol v11 changed terminal placement nullability, terminal identity nullability, lifecycle typing, typed terminal exit records, and renderer minting responses. Protocol-v12 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
 
 Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server. Protocol v10 requires `surface` on every `set-client-sizing` request and moves `size_participating` into each `list-clients.sizes` entry.
 

@@ -270,7 +270,7 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
-    func hidingRetiresNativeReorderSession() async {
+    func hidingClearsReorderIndicator() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let workspaceIds = (0..<6).map { _ in UUID() }
@@ -310,11 +310,9 @@ struct SidebarWorkspaceTableSuspensionTests {
         container.tableView.layoutSubtreeIfNeeded()
 
         #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
-        #expect(controller.isReorderDropSessionActive)
 
         controller.setPresentationActive(false, workspaceIds: workspaceIds)
 
-        #expect(!controller.isReorderDropSessionActive)
         #expect(indicatorClears == 1)
     }
 

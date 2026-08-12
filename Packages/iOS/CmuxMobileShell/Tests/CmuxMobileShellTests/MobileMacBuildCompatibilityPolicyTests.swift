@@ -30,6 +30,59 @@ import Testing
         #expect(!policy.allows(instanceTag: nil))
     }
 
+    @Test func officialAllowsOnlyAuthorizedLegacy06417WithoutAnInstanceTag() {
+        let policy = MobileMacBuildCompatibilityPolicy.official
+
+        #expect(policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+        #expect(!policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
+        #expect(!policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.18",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+        #expect(!policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: nil,
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+        #expect(!policy.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.17-beta",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+    }
+
+    @Test func legacyExceptionNeverWeakensTaggedOrDevelopmentIdentity() {
+        let official = MobileMacBuildCompatibilityPolicy.official
+        let development = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "tsauth"
+        )
+
+        #expect(official.allowsAuthenticatedHost(
+            instanceTag: "default",
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: false
+        ))
+        #expect(!official.allowsAuthenticatedHost(
+            instanceTag: "other",
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+        #expect(!development.allowsAuthenticatedHost(
+            instanceTag: nil,
+            macAppVersion: "0.64.17",
+            usesLocallyAuthorizedTailscaleRoute: true
+        ))
+    }
+
     @Test func scopedStoreHidesAndRejectsIncompatibleRows() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

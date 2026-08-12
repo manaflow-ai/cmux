@@ -436,7 +436,7 @@ private final class FileExternalOpenMenuActionTarget: NSObject {
     }
 }
 
-struct FilePreviewDragEntry {
+struct FilePreviewDragEntry: Equatable {
     let filePath: String
     let displayTitle: String
 }
@@ -997,6 +997,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     var fileChangeWatcher: FileWatcher?
     var fileChangeTask: Task<Void, Never>?
     var fileChangeReloadTask: Task<Void, Never>?
+    /// The one container currently projecting this panel's tab metadata.
+    weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?
     var lastObservedFileState: FilePreviewFileState?
     var isClosed = false
     weak var textView: NSTextView?
@@ -1063,12 +1065,18 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         isClosed = true
+        unbindTabMetadata()
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
         modeLoadCoordinator.cancel()
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
+    }
+
+    /// Retargets container-scoped identity after a live panel transfer.
+    func updateWorkspaceId(_ workspaceId: UUID) {
+        self.workspaceId = workspaceId
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -1165,7 +1173,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func updateTextContent(_ nextContent: String) {
         guard textContent != nextContent else { return }
         textContent = nextContent
-        isDirty = nextContent != originalTextContent
+        setTabMetadataDirtyState(nextContent != originalTextContent)
     }
 
     /// Re-resolves and reloads the current path. Toolbar actions and filesystem
@@ -1237,7 +1245,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             textLoadCoordinator.cancel()
         }
         previewMode = mode
-        displayIcon = FilePreviewKindResolver.iconName(for: mode)
+        setTabMetadataDisplayIcon(FilePreviewKindResolver.iconName(for: mode))
         focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
         nativeViewSessions.closeInactive(except: mode)
         return prepareContentForPreviewMode()
@@ -1271,21 +1279,21 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             }
             textContent = ""
             originalTextContent = ""
-            isDirty = false
+            setTabMetadataDirtyState(false)
             isFileUnavailable = true
             return
         case .loaded(let content, let encoding):
             if !replacingDirtyContent && isDirty {
                 originalTextContent = content
                 textEncoding = encoding
-                isDirty = textContent != originalTextContent
+                setTabMetadataDirtyState(textContent != originalTextContent)
                 isFileUnavailable = false
                 return
             }
             textContent = content
             originalTextContent = content
             textEncoding = encoding
-            isDirty = false
+            setTabMetadataDirtyState(false)
             isFileUnavailable = false
         }
     }
@@ -1297,7 +1305,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
             textContent = currentContent
-            isDirty = false
+            setTabMetadataDirtyState(false)
             return nil
         }
 
@@ -1319,7 +1327,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             switch result {
             case .saved:
                 self.originalTextContent = currentContent
-                self.isDirty = self.textContent != currentContent
+                self.setTabMetadataDirtyState(self.textContent != currentContent)
                 self.isFileUnavailable = false
                 reconciliationTask = self.reloadFromDisk()
             case .failed(let fileExists):
@@ -1328,6 +1336,20 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             }
             await reconciliationTask?.value
         }
+    }
+
+    /// Updates dirty state and emits only when the tab-facing value changes.
+    private func setTabMetadataDirtyState(_ nextValue: Bool) {
+        guard isDirty != nextValue else { return }
+        isDirty = nextValue
+        publishTabMetadataUpdate()
+    }
+
+    /// Updates the display icon and emits only when the tab-facing value changes.
+    private func setTabMetadataDisplayIcon(_ nextValue: String?) {
+        guard displayIcon != nextValue else { return }
+        displayIcon = nextValue
+        publishTabMetadataUpdate()
     }
 
     private static func defaultFocusIntent(for mode: FilePreviewMode) -> FilePreviewPanelFocusIntent {

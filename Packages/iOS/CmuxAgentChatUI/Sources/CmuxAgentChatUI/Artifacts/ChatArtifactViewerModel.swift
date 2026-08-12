@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import Foundation
 import Observation
@@ -49,6 +50,7 @@ final class ChatArtifactViewerModel {
         loader: ChatArtifactLoader,
         quickLookCanPreview: @MainActor (URL) -> Bool = { _ in false }
     ) async {
+        loader.recordDiagnostic(.artifactOpened)
         await removeTemporaryFile()
         reset(for: path)
         var stat: ChatArtifactStat?
@@ -69,6 +71,9 @@ final class ChatArtifactViewerModel {
                 state = loadedStat.showsFolder(
                     supportsDirectoryBrowsing: loader.supportsDirectoryBrowsing
                 ) ? .folder : .binary(stat: loadedStat)
+                if state == .folder {
+                    loader.recordDiagnostic(.artifactFolderOpened)
+                }
                 return
             }
 
@@ -135,6 +140,7 @@ final class ChatArtifactViewerModel {
                 ) {
                     if quickLookCanPreview(fileURL) {
                         state = .quickLook(fileURL: fileURL)
+                        loader.recordDiagnostic(.artifactQuickLookOpened)
                     } else {
                         await removeTemporaryFile()
                         state = .binary(stat: loadedStat)
@@ -146,14 +152,20 @@ final class ChatArtifactViewerModel {
                 break
             }
         } catch is CancellationError {
+            loader.recordDiagnostic(.artifactStreamInterrupted, failure: .cancelled)
             return
         } catch is UTF8ChunkAssemblerError {
             guard path == activePath, let stat else { return }
             textChunks = []
             state = .binary(stat: stat)
+            loader.recordDiagnostic(.artifactPreviewFailed, failure: .protocolViolation)
         } catch {
             guard !Task.isCancelled, path == activePath else { return }
             state = Self.state(for: error, stat: stat)
+            loader.recordDiagnostic(
+                .artifactPreviewFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
         }
     }
 

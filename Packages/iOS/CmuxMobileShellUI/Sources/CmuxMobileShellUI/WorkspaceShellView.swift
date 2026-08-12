@@ -296,10 +296,19 @@ struct WorkspaceShellView: View {
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
-                guard !isPresented else { return }
-                consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
+                store.recordAppEvent(
+                    isPresented ? .searchPresented : .searchDismissed,
+                    detail: .searchScope(diagnosticSearchScope)
+                )
+                if !isPresented {
+                    consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
+                }
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
+                store.recordAppEvent(
+                    .primaryTabSelected,
+                    detail: .primaryTab(diagnosticPrimaryTab(newValue))
+                )
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
                     workspaceSearchNavigationPath = []
@@ -318,6 +327,10 @@ struct WorkspaceShellView: View {
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
             .onAppear {
+                store.recordAppEvent(
+                    .primaryTabSelected,
+                    detail: .primaryTab(diagnosticPrimaryTab(selectedPrimaryTab))
+                )
                 updateRootToolbarMachineSnapshots(presentation.toolbarMachineSnapshots)
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
@@ -664,7 +677,7 @@ struct WorkspaceShellView: View {
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
             signOut: signOut,
-            reconnect: reconnectClosure,
+            reconnect: store.tailscalePairingRequired ? nil : reconnectClosure,
             showAddDevice: showAddDevice,
             showPairingScanner: showPairingScanner,
             store: store,
@@ -700,7 +713,7 @@ struct WorkspaceShellView: View {
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
-            reconnect: reconnectClosure
+            reconnect: store.tailscalePairingRequired ? nil : reconnectClosure
         )
     }
 
@@ -715,6 +728,7 @@ struct WorkspaceShellView: View {
             connectionRecoveryFailed: store.connectionRecoveryFailed,
             isRecoveringConnection: store.isRecoveringConnection,
             connectionStatus: listConnectionStatus,
+            tailscalePairingRequired: store.tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         ).statusLine
@@ -953,12 +967,32 @@ struct WorkspaceShellView: View {
     /// the top instead of the search tab's bottom control. Popping back lands
     /// on the still-filtered results with the bottom search control collapsed.
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
+        store.recordAppEvent(
+            .searchResultSelected,
+            correlationID: id.rawValue,
+            detail: .searchScope(.workspaces)
+        )
         pendingCompactCreateNavigationWorkspaceIDs = nil
         primarySearchCoordinator.deactivateCurrentSearch()
         searchSelectionReturnsToWorkspaces = true
         store.selectedWorkspaceID = id
         if workspaceSearchNavigationPath.last != id {
             workspaceSearchNavigationPath = [id]
+        }
+    }
+
+    private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
+        switch tab {
+        case .workspaces: .workspaces
+        case .notifications: .notifications
+        case .search: .search
+        }
+    }
+
+    private var diagnosticSearchScope: DiagnosticSearchScope {
+        switch primarySearchCoordinator.scope {
+        case .workspaces: .workspaces
+        case .notifications: .notifications
         }
     }
 

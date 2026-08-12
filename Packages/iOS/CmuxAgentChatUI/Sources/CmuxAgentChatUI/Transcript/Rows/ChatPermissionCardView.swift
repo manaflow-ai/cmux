@@ -114,7 +114,7 @@ public struct ChatPermissionCardView: View {
         #if os(iOS)
         MobileHapticFeedback().impact(style: .medium)
         #endif
-        actions.answerOption(index)
+        actions.answerPermission(index)
     }
 
     private func receipt(resolution: ChatPermissionRequest.Resolution) -> some View {
