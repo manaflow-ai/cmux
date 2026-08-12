@@ -3415,19 +3415,12 @@ mod tests {
             ));
             state.lock().unwrap().enable_native_render_events();
             let updates = Arc::new(ClientUpdates::default());
-            let observation = ReadyObservation {
-                state: state.clone(),
-                saw_ready: AtomicBool::new(false),
-            };
-            let observation_context = (&observation as *const ReadyObservation)
-                .cast_mut()
-                .cast::<c_void>();
+            let observation =
+                ReadyObservation { state: state.clone(), saw_ready: AtomicBool::new(false) };
+            let observation_context =
+                (&observation as *const ReadyObservation).cast_mut().cast::<c_void>();
             updates.set_callback(Some(observe_ready), observation_context);
-            let receiver = tokio::spawn(receive_frames(
-                stream,
-                state.clone(),
-                updates.clone(),
-            ));
+            let receiver = tokio::spawn(receive_frames(stream, state.clone(), updates.clone()));
 
             let boundary = 10;
             let frames = [
