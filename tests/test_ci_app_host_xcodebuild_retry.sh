@@ -13,7 +13,50 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${CFFIXED_USER_HOME:-<unset>}" \
     "${XDG_CONFIG_HOME:-<unset>}" \
     >> "$CMUX_CAPTURE_XCODEBUILD_PARENT_ENV"
-  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+  attempt_lease="${TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE:-}"
+  attempt_lease_state=missing
+  if [ -f "$attempt_lease" ]; then
+    if [ "${CMUX_MOCK_INHERIT_ATTEMPT_LEASE:-0}" = "1" ]; then
+      attempt_lease_state=inherited
+    else
+      for inherited_descriptor in /dev/fd/*; do
+        case "${inherited_descriptor##*/}" in 0|1|2) continue ;; esac
+        if [ "$inherited_descriptor" -ef "$attempt_lease" ]; then
+          attempt_lease_state=inherited
+          break
+        fi
+      done
+    fi
+    if [ "$attempt_lease_state" != "inherited" ]; then
+      if /usr/bin/python3 -c '
+import fcntl
+import os
+import sys
+
+try:
+    descriptor = os.open(sys.argv[1], os.O_RDWR)
+except OSError:
+    raise SystemExit(2)
+try:
+    fcntl.lockf(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    raise SystemExit(1)
+except OSError:
+    raise SystemExit(2)
+raise SystemExit(0)
+' "$attempt_lease"; then
+        attempt_lease_status=0
+      else
+        attempt_lease_status=$?
+      fi
+      case "$attempt_lease_status" in
+        0) attempt_lease_state=unlocked ;;
+        1) attempt_lease_state=locked ;;
+        *) attempt_lease_state=probe-failed ;;
+      esac
+    fi
+  fi
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
     "${TEST_RUNNER_HOME:-<unset>}" \
     "${TEST_RUNNER_CFFIXED_USER_HOME:-<unset>}" \
     "${TEST_RUNNER_XDG_CONFIG_HOME:-<unset>}" \
@@ -23,6 +66,8 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_KEY:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR:-<unset>}" \
+    "${TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE:-<unset>}" \
+    "$attempt_lease_state" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
   config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
   config_category=default
@@ -30,6 +75,7 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   emit_config_evidence=1
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
+    input-alias-success) config_home="${CMUX_APP_HOST_HOME}" ;;
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
     published-default-alias) config_home="$CMUX_APP_HOST_HOME" ;;
@@ -69,6 +115,7 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "input-alias-success" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
@@ -100,6 +147,47 @@ trap cleanup EXIT
 
 ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/xcodebuild"
 ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/fake-lsof"
+
+run_fake_lease_probe() {
+  local fixture="$1"
+  local lease_path="$2"
+  local inherit_lease="${3:-0}"
+  local capture_prefix="$TMP_DIR/$fixture"
+  : > "$capture_prefix-args.log"
+  : > "$capture_prefix-test-runner.log"
+  : > "$capture_prefix-parent.log"
+  : > "$capture_prefix-home.log"
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$capture_prefix-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$capture_prefix-test-runner.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$capture_prefix-parent.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$capture_prefix-home.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=success \
+  CMUX_MOCK_INHERIT_ATTEMPT_LEASE="$inherit_lease" \
+  TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE="$lease_path" \
+    "$TMP_DIR/xcodebuild" test > "$capture_prefix-output.log" 2>&1
+  LEASE_PROBE_STATE="$(awk -F '|' 'END { print $11 }' "$capture_prefix-home.log")"
+}
+
+inherited_probe_lease="$TMP_DIR/inherited-probe.lease"
+: > "$inherited_probe_lease"
+chmod 600 "$inherited_probe_lease"
+run_fake_lease_probe inherited-probe "$inherited_probe_lease" 1
+inherited_probe_state="$LEASE_PROBE_STATE"
+
+failed_probe_lease="$TMP_DIR/failed-probe.lease"
+: > "$failed_probe_lease"
+chmod 000 "$failed_probe_lease"
+run_fake_lease_probe failed-probe "$failed_probe_lease"
+failed_probe_state="$LEASE_PROBE_STATE"
+chmod 600 "$failed_probe_lease"
+
+if [ "$inherited_probe_state" != "inherited" ] \
+  || [ "$failed_probe_state" != "probe-failed" ]; then
+  echo "FAIL: lease probe must distinguish inherited=$inherited_probe_state and failed=$failed_probe_state"
+  exit 1
+fi
+
 BASH32_BIN_DIR="$TMP_DIR/bash32-bin"
 mkdir -p "$BASH32_BIN_DIR"
 ln -s /bin/bash "$BASH32_BIN_DIR/bash"
@@ -299,7 +387,7 @@ isolated_runner_count="$(awk -F '|' \
   -v xdg="$RESOLVED_APP_HOST_XDG_CONFIG_HOME" \
   -v key="$CMUX_APP_HOST_KEY" \
   -v receipts="$CMUX_APP_HOST_RECEIPT_DIR" '
-  $1 == home && $2 == home && $3 == xdg && $4 == "" && $5 == "1" && $6 == home && $7 == xdg && $8 == key && $9 == receipts {
+  $1 == home && $2 == home && $3 == xdg && $4 == "" && $5 == "1" && $6 == home && $7 == xdg && $8 == key && $9 == receipts && $10 ~ ("^" receipts "/app-host-attempt-[0-9]+-[0-9]+\\.lease$") && $11 == "locked" {
     count += 1
   }
   END { print count + 0 }
@@ -307,6 +395,38 @@ isolated_runner_count="$(awk -F '|' \
 if [ "$isolated_runner_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-home-env.log"
   echo "FAIL: every xcodebuild invocation must pass isolated homes through TEST_RUNNER_ variables"
+  exit 1
+fi
+distinct_attempt_lease_count="$(awk -F '|' '{ print $10 }' \
+  "$TMP_DIR/test-runner-home-env.log" | sort -u | wc -l | tr -d ' ')"
+if [ "$distinct_attempt_lease_count" -ne "$invocation_count" ]; then
+  cat "$TMP_DIR/test-runner-home-env.log"
+  echo "FAIL: every xcodebuild retry must use a distinct attempt lease"
+  exit 1
+fi
+
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/input-alias-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/input-alias-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/input-alias-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/input-alias-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=input-alias-success \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/input-alias-output.log" 2>&1
+input_alias_status=$?
+set -e
+
+if [ "$input_alias_status" -ne 0 ]; then
+  cat "$TMP_DIR/input-alias-output.log"
+  echo "FAIL: wrapper must accept the authenticated /tmp app-host alias"
   exit 1
 fi
 

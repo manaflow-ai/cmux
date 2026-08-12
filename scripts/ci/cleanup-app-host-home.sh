@@ -156,7 +156,7 @@ esac
 
 # The process helper cross-checks every receipt against lsof's executable vnode
 # and fails if a live target in this DerivedData tree lacks a receipt.
-cmux_terminate_verified_app_hosts \
+cmux_wait_for_verified_app_hosts_exit \
   "$app_host_receipt_dir" "$app_host_key" "$derived_data_path"
 
 rm -rf -- "$app_host_home"

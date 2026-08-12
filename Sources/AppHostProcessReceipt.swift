@@ -4,20 +4,28 @@ import Foundation
 enum AppHostProcessReceipt {
     static func writeIfRequired() {
         _ = retainedReceiptDescriptor
+        _ = retainedLeaseDescriptor
     }
 
     /// The open descriptor is the process-incarnation proof. Keeping it alive
     /// until process exit prevents a reused PID at the same executable path
     /// from inheriting authority from a durable receipt.
-    private static let retainedReceiptDescriptor: Int32 = createIfRequired()
+    private static let retainedAuthority = createIfRequired()
+    private static let retainedReceiptDescriptor = retainedAuthority.receipt
+    private static let retainedLeaseDescriptor = retainedAuthority.lease
 
-    private static func createIfRequired() -> Int32 {
+    private static func createIfRequired() -> (receipt: Int32, lease: Int32) {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1" else { return -1 }
+        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1" else {
+            return (-1, -1)
+        }
         guard
             let receiptDirectory = environment["CMUX_APP_HOST_RECEIPT_DIR"],
             !receiptDirectory.isEmpty,
             !receiptDirectory.contains(where: { $0.isNewline }),
+            let leasePath = environment["CMUX_APP_HOST_ATTEMPT_LEASE"],
+            !leasePath.isEmpty,
+            !leasePath.contains(where: { $0.isNewline }),
             let key = environment["CMUX_APP_HOST_KEY"],
             key.utf8.count == 12,
             key.utf8.allSatisfy({ (48 ... 57).contains($0) || (97 ... 102).contains($0) }),
@@ -43,6 +51,36 @@ enum AppHostProcessReceipt {
                 fail("receipt directory changed identity")
             }
 
+            let leaseURL = URL(fileURLWithPath: leasePath, isDirectory: false)
+            guard leaseURL.deletingLastPathComponent().standardizedFileURL.path == directoryURL.standardizedFileURL.path,
+                  leaseURL.lastPathComponent.hasPrefix("app-host-attempt-"),
+                  leaseURL.lastPathComponent.hasSuffix(".lease")
+            else {
+                fail("attempt lease is outside the receipt directory")
+            }
+            let leaseDescriptor = leaseURL.path.withCString {
+                Darwin.open($0, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+            }
+            guard leaseDescriptor >= 0 else {
+                fail("attempt lease could not be opened safely")
+            }
+            var leaseMetadata = stat()
+            guard Darwin.fstat(leaseDescriptor, &leaseMetadata) == 0,
+                  (leaseMetadata.st_mode & S_IFMT) == S_IFREG,
+                  (leaseMetadata.st_mode & 0o777) == (S_IRUSR | S_IWUSR),
+                  leaseMetadata.st_uid == getuid()
+            else {
+                Darwin.close(leaseDescriptor)
+                fail("attempt lease identity is invalid")
+            }
+            if setAttemptLeaseLock(leaseDescriptor, blocking: false) == 0 {
+                Darwin.close(leaseDescriptor)
+                fail("attempt lease has no live holder")
+            }
+            guard errno == EACCES || errno == EAGAIN else {
+                Darwin.close(leaseDescriptor)
+                fail("attempt lease state could not be verified")
+            }
             let pid = getpid()
             let receiptURL = directoryURL.appendingPathComponent("app-host-\(pid).receipt", isDirectory: false)
             var descriptor: Int32 = -1
@@ -74,7 +112,7 @@ enum AppHostProcessReceipt {
                 discardTemporaryReceipt(descriptor, at: temporaryURL)
                 fail("receipt permissions could not be restricted")
             }
-            let receipt = "version=2\nkey=\(key)\npid=\(pid)\nexecutable=\(executablePath)\nreceipt_fd=\(descriptor)\n"
+            let receipt = "version=3\nkey=\(key)\npid=\(pid)\nexecutable=\(executablePath)\nreceipt_fd=\(descriptor)\nlease=\(leasePath)\nlease_fd=\(leaseDescriptor)\n"
             let receiptData = Data(receipt.utf8)
             let wroteReceipt = receiptData.withUnsafeBytes { bytes -> Bool in
                 guard let baseAddress = bytes.baseAddress else { return true }
@@ -108,9 +146,34 @@ enum AppHostProcessReceipt {
                 discardTemporaryReceipt(descriptor, at: temporaryURL)
                 fail("receipt file could not be published atomically")
             }
-            return descriptor
+            watchAttemptLease(leaseDescriptor)
+            return (descriptor, leaseDescriptor)
         } catch {
             fail(error.localizedDescription)
+        }
+    }
+
+    nonisolated private static func setAttemptLeaseLock(_ descriptor: Int32, blocking: Bool) -> Int32 {
+        var lock = flock()
+        lock.l_start = 0
+        lock.l_len = 0
+        lock.l_pid = 0
+        lock.l_type = Int16(F_WRLCK)
+        lock.l_whence = Int16(SEEK_SET)
+        return Darwin.fcntl(descriptor, blocking ? F_SETLKW : F_SETLK, &lock)
+    }
+
+    nonisolated private static func watchAttemptLease(_ descriptor: Int32) {
+        Thread.detachNewThread {
+            while setAttemptLeaseLock(descriptor, blocking: true) != 0 {
+                if errno == EINTR {
+                    continue
+                }
+                fputs("FAIL: app-host attempt lease watcher failed\n", stderr)
+                fflush(stderr)
+                Darwin._exit(70)
+            }
+            Darwin._exit(0)
         }
     }
 
