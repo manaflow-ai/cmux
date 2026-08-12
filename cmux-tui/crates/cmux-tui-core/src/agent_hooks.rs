@@ -20,7 +20,7 @@ const REDACTED_AGENT_VALUE: &str = "[redacted]";
 const AGENT_SESSION_SUBJECT_FORMAT: &[u8] = b"cmux.agent-session.v1\0";
 const PROPERTIES_INFO_ID_PATH: &[&str] = &["properties", "info", "id"];
 const EVENT_PROPERTIES_INFO_ID_PATH: &[&str] = &["event", "properties", "info", "id"];
-const AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
+const EXPLICIT_AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
     &["session_id"],
     &["sessionId"],
     &["sessionID"],
@@ -29,10 +29,8 @@ const AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
     &["session", "id"],
     &["properties", "sessionID"],
     &["properties", "sessionId"],
-    PROPERTIES_INFO_ID_PATH,
     &["event", "properties", "sessionID"],
     &["event", "properties", "sessionId"],
-    EVENT_PROPERTIES_INFO_ID_PATH,
     &["event", "properties", "info", "sessionID"],
     &["event", "properties", "info", "sessionId"],
     &["event", "session_id"],
@@ -42,6 +40,8 @@ const AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
     &["context", "sessionId"],
     &["context", "thread", "id"],
 ];
+const AMBIGUOUS_AGENT_SESSION_ID_PATHS: &[&[&str]] =
+    &[PROPERTIES_INFO_ID_PATH, EVENT_PROPERTIES_INFO_ID_PATH];
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -731,8 +731,20 @@ fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
 }
 
 fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<Option<&str>> {
+    let explicit =
+        validate_agent_session_identifier_paths(native, EXPLICIT_AGENT_SESSION_ID_PATHS)?;
+    if explicit.is_some() {
+        return Ok(explicit);
+    }
+    validate_agent_session_identifier_paths(native, AMBIGUOUS_AGENT_SESSION_ID_PATHS)
+}
+
+fn validate_agent_session_identifier_paths<'a>(
+    native: &'a Value,
+    paths: &[&[&str]],
+) -> anyhow::Result<Option<&'a str>> {
     let mut session_identifier: Option<&str> = None;
-    for path in AGENT_SESSION_ID_PATHS {
+    for path in paths {
         let Some(value) = agent_session_identifier_at_path(native, path) else {
             continue;
         };
