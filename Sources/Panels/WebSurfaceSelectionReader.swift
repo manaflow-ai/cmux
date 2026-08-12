@@ -75,6 +75,7 @@ nonisolated struct WebSurfaceSelectionReader {
 
       let retainedSelection = empty();
       let retainedDocument = null;
+      let lastObservedSelection = empty();
       const clear = (sourceDocument = null) => {
         if (sourceDocument && retainedDocument !== sourceDocument) return;
         retainedSelection = empty();
@@ -89,6 +90,7 @@ nonisolated struct WebSurfaceSelectionReader {
         if (live.blocks_fallback) {
           clear();
         } else if (live.has_selection) {
+          lastObservedSelection = selected(live.text);
           retain(live);
         } else if (clearWhenEmpty) {
           clear();
@@ -101,6 +103,7 @@ nonisolated struct WebSurfaceSelectionReader {
           return empty();
         }
         if (live.has_selection) {
+          lastObservedSelection = selected(live.text);
           retain(live);
           return retainedSelection;
         }
@@ -192,7 +195,11 @@ nonisolated struct WebSurfaceSelectionReader {
         }, true);
       };
 
-      globalThis.__cmuxSurfaceSelectionRuntime = { read };
+      const diagnostics = () => ({
+        last_observed_text: lastObservedSelection.text,
+        retained_text: retainedSelection.text
+      });
+      globalThis.__cmuxSurfaceSelectionRuntime = { read, diagnostics };
       installDocument(document);
       capture(window);
       return true;

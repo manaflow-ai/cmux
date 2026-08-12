@@ -178,6 +178,19 @@ struct SurfaceSelectionTests {
             contentWorld: .page
         )
         #expect(preparedBrowserSelection as? String == "selected browser words")
+        let browserTrackerState = try await panel.webView.evaluateJavaScript(
+            """
+            (() => {
+              const state = globalThis.__cmuxSurfaceSelectionRuntime?.diagnostics?.();
+              return `${state?.last_observed_text || ''}|${state?.retained_text || ''}`;
+            })()
+            """,
+            contentWorld: .page
+        )
+        #expect(
+            browserTrackerState as? String
+                == "selected browser words|selected browser words"
+        )
 
         let browserFirstResponder = window.firstResponder
         let browserSnapshot = try snapshot(from: await panel.readSurfaceSelection())
