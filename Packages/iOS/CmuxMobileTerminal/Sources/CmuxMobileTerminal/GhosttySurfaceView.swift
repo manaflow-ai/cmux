@@ -75,21 +75,24 @@ private struct KeyboardNotificationTransitionLifecycle {
     }
 
     private struct Leg {
-        let beginOverlap: CGFloat
-        let endOverlap: CGFloat
+        let beginFrame: CGRect
+        let endFrame: CGRect
         let generation: UInt64
 
-        func matches(beginOverlap: CGFloat, endOverlap: CGFloat) -> Bool {
-            approximatelyEqual(self.beginOverlap, beginOverlap)
-                && approximatelyEqual(self.endOverlap, endOverlap)
+        func matches(beginFrame: CGRect, endFrame: CGRect) -> Bool {
+            approximatelyEqual(self.beginFrame, beginFrame)
+                && approximatelyEqual(self.endFrame, endFrame)
         }
 
-        func matches(endOverlap: CGFloat) -> Bool {
-            approximatelyEqual(self.endOverlap, endOverlap)
+        func matches(endFrame: CGRect) -> Bool {
+            approximatelyEqual(self.endFrame, endFrame)
         }
 
-        private func approximatelyEqual(_ lhs: CGFloat, _ rhs: CGFloat) -> Bool {
-            abs(lhs - rhs) <= 1
+        private func approximatelyEqual(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+            abs(lhs.minX - rhs.minX) <= 1
+                && abs(lhs.minY - rhs.minY) <= 1
+                && abs(lhs.width - rhs.width) <= 1
+                && abs(lhs.height - rhs.height) <= 1
         }
     }
 
@@ -98,19 +101,24 @@ private struct KeyboardNotificationTransitionLifecycle {
     private var latestLeg: Leg?
     private var recentLegs: [Leg] = []
 
+    mutating func reset() {
+        latestLeg = nil
+        recentLegs.removeAll(keepingCapacity: true)
+    }
+
     mutating func resolve(
         phase: Phase,
-        beginOverlap: CGFloat,
-        endOverlap: CGFloat
+        beginFrame: CGRect,
+        endFrame: CGRect
     ) -> Decision {
         switch phase {
         case .will:
-            let leg = recordLeg(beginOverlap: beginOverlap, endOverlap: endOverlap)
+            let leg = recordLeg(beginFrame: beginFrame, endFrame: endFrame)
             return .animate(generation: leg.generation)
 
         case .did:
             if let matchingLeg = recentLegs.last(where: {
-                $0.matches(beginOverlap: beginOverlap, endOverlap: endOverlap)
+                $0.matches(beginFrame: beginFrame, endFrame: endFrame)
             }) {
                 guard matchingLeg.generation == latestLeg?.generation else {
                     return .ignoreStale(generation: matchingLeg.generation)
@@ -118,12 +126,12 @@ private struct KeyboardNotificationTransitionLifecycle {
                 return .settle(generation: matchingLeg.generation)
             }
 
-            if let latestLeg, latestLeg.matches(endOverlap: endOverlap) {
+            if let latestLeg, latestLeg.matches(endFrame: endFrame) {
                 return .settle(generation: latestLeg.generation)
             }
 
             if let staleLeg = recentLegs.last(where: {
-                $0.generation != latestLeg?.generation && $0.matches(endOverlap: endOverlap)
+                $0.generation != latestLeg?.generation && $0.matches(endFrame: endFrame)
             }) {
                 return .ignoreStale(generation: staleLeg.generation)
             }
@@ -136,16 +144,16 @@ private struct KeyboardNotificationTransitionLifecycle {
             guard recentLegs.isEmpty else {
                 return .ignoreStale(generation: latestLeg?.generation ?? generation)
             }
-            let leg = recordLeg(beginOverlap: beginOverlap, endOverlap: endOverlap)
+            let leg = recordLeg(beginFrame: beginFrame, endFrame: endFrame)
             return .converge(generation: leg.generation)
         }
     }
 
-    private mutating func recordLeg(beginOverlap: CGFloat, endOverlap: CGFloat) -> Leg {
+    private mutating func recordLeg(beginFrame: CGRect, endFrame: CGRect) -> Leg {
         generation &+= 1
         let leg = Leg(
-            beginOverlap: beginOverlap,
-            endOverlap: endOverlap,
+            beginFrame: beginFrame,
+            endFrame: endFrame,
             generation: generation
         )
         latestLeg = leg
@@ -1125,16 +1133,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let notificationDecision: KeyboardNotificationTransitionLifecycle.Decision?
         if keyboardDockGeometrySource == .keyboardNotifications {
             let owner = bottomDockHostView ?? self
+            // NotificationCenter keeps this observer alive while SwiftUI can
+            // transiently remove the surface from its window. There is no
+            // meaningful overlap coordinate system while detached, so do not
+            // record a lifecycle leg that would misclassify the first
+            // post-attach completion.
+            guard owner.window != nil else { return }
             let phase: KeyboardNotificationTransitionLifecycle.Phase = notification.name
                 == UIResponder.keyboardDidChangeFrameNotification ? .did : .will
-            let beginOverlap = transition.beginOverlap(in: owner)
-            let endOverlap = transition.overlap(in: owner)
             let decision = keyboardNotificationTransitionLifecycle.resolve(
                 phase: phase,
-                beginOverlap: beginOverlap,
-                endOverlap: endOverlap
+                beginFrame: transition.beginFrame,
+                endFrame: transition.endFrame
             )
             notificationDecision = decision
+            let beginOverlap = transition.beginOverlap(in: owner)
+            let endOverlap = transition.overlap(in: owner)
             log.debug(
                 "keyboard.transition phase=\(phase.rawValue, privacy: .public) decision=\(decision.debugName, privacy: .public) generation=\(decision.generation) begin=\(Double(beginOverlap)) end=\(Double(endOverlap)) duration=\(transition.duration) curve=\(transition.animationOptions.rawValue)"
             )
@@ -1201,7 +1215,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // The matching `will` already installed the model target and owns
                 // its UIView animation. Reapplying `did` with zero duration would
                 // replace live presentation motion during successive toggles.
-                setNeedsGeometrySync()
+                settleNotificationDrivenKeyboardTransition(transition)
             case .ignoreStale, nil:
                 break
             }
@@ -1253,6 +1267,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.layoutZoomOverlay()
             self.setNeedsGeometrySync()
         }
+    }
+
+    /// Commits a matching completion without restarting its animation. The
+    /// owner can resize between UIKit's will/did pair (rotation, split view,
+    /// or a transient SwiftUI host move), so refresh the model only when the
+    /// settled overlap actually changed. A normal did therefore leaves the
+    /// presentation layer untouched, while a real owner resize converges to
+    /// the new coordinate-space target.
+    private func settleNotificationDrivenKeyboardTransition(
+        _ transition: MobileKeyboardTransition
+    ) {
+        let owner = bottomDockHostView ?? self
+        let settledOverlap = transition.overlap(in: owner)
+        if abs(settledOverlap - keyboardHeight) > 0.25 {
+            keyboardHeight = settledOverlap
+            updateNotificationDrivenDockConstraint()
+            UIView.performWithoutAnimation {
+                owner.layoutIfNeeded()
+            }
+        }
+        setNeedsGeometrySync()
     }
 
     /// Keep the renderer clipped to the dock's live presentation during animation.
@@ -3135,6 +3170,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         needsAnotherRender = false
         inputSession.send(.surfaceDetached)
         bottomDockTransitionObserved = false
+        // Invalidate both pending UIView completions and any notification legs
+        // captured before this surface left its window. A later did notification
+        // must converge against the newly attached geometry instead of settling
+        // an obsolete transition.
+        keyboardNotificationTransitionGeneration &+= 1
+        keyboardNotificationTransitionLifecycle.reset()
         stopDisplayLink()
         setFocus(false)
         #if DEBUG
