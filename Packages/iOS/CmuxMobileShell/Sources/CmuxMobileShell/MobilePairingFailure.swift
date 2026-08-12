@@ -24,6 +24,9 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// cellular). Caught by the reachability preflight before any connect, so it
     /// fails fast instead of waiting out the per-route timeouts.
     case offline
+    /// Tailscale could not prove that the selected route is currently bound to
+    /// the exact endpoint this device authorized locally.
+    case tailscaleUnavailable
     /// Could not route to a selected legacy host address. Iroh routes carry no
     /// host here because their EndpointID is resolved by the transport layer.
     case hostUnreachable(host: String?, port: Int?)
@@ -108,6 +111,7 @@ extension MobilePairingFailureCategory {
     public var analyticsReason: String {
         switch self {
         case .offline: return "offline"
+        case .tailscaleUnavailable: return "tailscale_unavailable"
         case .hostUnreachable: return "host_unreachable"
         case .listenerNotRunning: return "listener_not_running"
         case .localNetworkBlocked: return "local_network_blocked"
@@ -154,6 +158,11 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.fail.offline",
                 defaultValue: "This device looks offline. Connect to Wi-Fi or cellular, then try again."
+            )
+        case .tailscaleUnavailable:
+            return L10n.string(
+                "mobile.pairing.tailscaleUnavailable",
+                defaultValue: "Tailscale is not ready for this connection."
             )
         case let .hostUnreachable(host, port):
             return Self.hostPortMessage(
@@ -257,7 +266,7 @@ extension MobilePairingFailureCategory {
         case .invalidCode:
             return L10n.string(
                 "mobile.pairing.invalidCode",
-                defaultValue: "This isn't a cmux pairing QR. Scan the code shown in Tailscale Pairing on your Mac."
+                defaultValue: "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Tailscale Pairing."
             )
         case .unrecognizedVersion:
             return L10n.string(
@@ -269,7 +278,8 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.loopbackRejected",
                 defaultValue: """
                 This code points at the Mac itself (localhost), so your iPhone can't use it. \
-                Open Tailscale Pairing on the Mac and scan a fresh code.
+                On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. \
+                Then scan a fresh code.
                 """
             )
         case .macUpdateRequired:
@@ -318,6 +328,11 @@ extension MobilePairingFailureCategory {
         switch self {
         case .offline:
             return nil
+        case .tailscaleUnavailable:
+            return L10n.string(
+                "mobile.pairing.guidance.tailscaleUnavailable",
+                defaultValue: "Open Tailscale on both devices, confirm they use the same network, then scan a fresh Pair iPhone code from the Mac."
+            )
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
                 "mobile.pairing.guidance.reachability",
@@ -359,7 +374,7 @@ extension MobilePairingFailureCategory {
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
-                defaultValue: "Open Tailscale Pairing on your Mac and scan a fresh QR or link."
+                defaultValue: "On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. Then scan a fresh QR or link."
             )
         case .unrecognizedVersion:
             return L10n.string(
@@ -419,7 +434,7 @@ extension MobilePairingFailureCategory {
             case .receiveFailed, .sendFailed:
                 return .connectionDropped(host: host, port: port)
             case .tailscaleAuthorizationUnavailable:
-                return .hostUnreachable(host: host, port: port)
+                return .tailscaleUnavailable
             case .authorizationIntentRequired, .unsupportedAuthorizationMode:
                 return .unsupportedRoute
             case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
@@ -431,7 +446,7 @@ extension MobilePairingFailureCategory {
 
         if let connectionError = error as? MobileShellConnectionError {
             switch connectionError {
-            case .requestTimedOut, .connectAttemptGated:
+            case .requestTimedOut:
                 return .handshakeTimedOut(host: host, port: port)
             case .connectAttemptGated:
                 // Another attempt owns this route: the Mac did not time out,

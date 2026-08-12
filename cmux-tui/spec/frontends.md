@@ -1,6 +1,6 @@
 # Build a cmux-tui Frontend
 
-This guide covers the private protocol-v11 frontend interface. Applications
+This guide covers the private protocol-v12 frontend interface. Applications
 and extensions should use [`cmux.protocol/2`](resource-api-v2.md) and its typed
 terminal, browser, sidebar, and session streams.
 
@@ -24,16 +24,16 @@ Only then send protocol requests. See [`transports.md`](transports.md#authentica
 
 ## 2. Identify And Select Capabilities
 
-Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 11` before enabling protocol-v11 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
+Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 12` before enabling protocol-v12 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":11,"capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1"],"session":"main","pid":12345}}
-{"id":2,"cmd":"set-client-info","kind":"frontend","capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1"]}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1"],"session":"main","pid":12345}}
+{"id":2,"cmd":"set-client-info","kind":"frontend","capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1"]}
 {"id":2,"ok":true,"data":{}}
 ```
 
-Require `protocol == 11` for the complete flow in this guide, including terminal lifecycle results and per-surface client sizing. Stack layouts and `new-pane` remain available on protocol 9. Stable split ids and `set-split-ratio` remain available on protocol 8. Render mode, `read-scrollback`, bracketed-paste handling, and lifecycle deltas remain available on protocol 7. A frontend may fall back to protocol-v6 byte attach; it must not send newer fields to an older server.
+Require `protocol == 12` for the complete flow in this guide, including lifecycle readiness, terminal lifecycle results, and per-surface client sizing. Stack layouts and `new-pane` remain available on protocol 9. Stable split ids and `set-split-ratio` remain available on protocol 8. Render mode, `read-scrollback`, bracketed-paste handling, and lifecycle deltas remain available on protocol 7. A frontend may fall back to protocol-v6 byte attach; it must not send newer fields to an older server.
 
 Echo every optional capability the frontend will use through
 `set-client-info`. Capability state belongs to this connection. Lease-capable
@@ -161,7 +161,7 @@ Each line is one WebSocket text frame. `C>` is client-to-server and `S>` is serv
 ```text
 C> {"auth":{"token":"secret"}}
 C> {"id":1,"cmd":"identify"}
-S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":11,"session":"main","pid":12345}}
+S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":12,"session":"main","pid":12345}}
 C> {"id":2,"cmd":"subscribe","tree_events":"deltas"}
 S> {"id":2,"ok":true,"data":{}}
 C> {"id":3,"cmd":"list-workspaces"}

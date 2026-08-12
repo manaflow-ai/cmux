@@ -1,6 +1,6 @@
 # Event Contract
 
-This file specifies private protocol-v11 events for cmux frontends and raw SDK
+This file specifies private protocol-v12 events for cmux frontends and raw SDK
 adapters. Application code should use the typed streams in
 [`cmux.protocol/2`](resource-api-v2.md).
 

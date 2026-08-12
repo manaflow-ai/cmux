@@ -907,6 +907,59 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
+    func testWorkspaceTerminalFontSizeResetRepeatDoesNotAcceptTerminalInput() {
+        withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId,
+                  let panel = workspace.terminalPanel(for: panelId),
+                  let repeatedEvent = makeKeyDownEvent(
+                    key: "0",
+                    modifiers: [.command, .control],
+                    keyCode: 29,
+                    windowNumber: window.windowNumber,
+                    isARepeat: true
+                  ) else {
+                XCTFail("Expected a terminal and repeated Cmd+Ctrl+0 event")
+                return
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            XCTAssertTrue(window.makeFirstResponder(panel.hostedView.surfaceView))
+            var acceptedInputCount = 0
+            let previousOnExplicitInput = panel.surface.onExplicitInput
+            panel.surface.onExplicitInput = {
+                acceptedInputCount += 1
+                previousOnExplicitInput?()
+            }
+            defer { panel.surface.onExplicitInput = previousOnExplicitInput }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEvent))
+#else
+            XCTFail("Workspace font-size shortcut hooks require DEBUG")
+            return
+#endif
+
+            XCTAssertEqual(
+                acceptedInputCount,
+                0,
+                "A consumed reset key-repeat must not masquerade as accepted terminal input"
+            )
+        }
+    }
+
+    @Test
     func testWorkspaceTerminalFontSizeRepeatDrainBoundsOneTurn() {
         withTemporaryShortcut(action: .decreaseWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
@@ -4919,7 +4972,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTFail("Expected an unvisited terminal")
             return
         }
-        weak let weakRemovablePanel = removablePanel
+        weak var weakRemovablePanel = removablePanel
         workspace.panels.removeValue(forKey: removablePanelId)
         removablePanel = nil
 
