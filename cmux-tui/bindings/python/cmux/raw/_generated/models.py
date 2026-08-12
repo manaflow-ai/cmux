@@ -515,6 +515,7 @@ class IdentifyResult:
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
+    lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

@@ -84,6 +84,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToFeed,
              .switchRightSidebarToDock,
              .nextSidebarTab, .prevSidebarTab,
+             .nextSidebarTabInGroup, .prevSidebarTabInGroup,
              .moveWorkspaceUp, .moveWorkspaceDown,
              .selectWorkspaceByNumber,
              .renameWorkspace, .editWorkspaceDescription,
@@ -203,13 +204,20 @@ extension AppDelegate {
         ) else {
             return false
         }
-        return store.newSplit(
+        guard let panelId = store.newSplit(
             kind: kind,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             sourcePanelId: store.focusedPanelId,
             focus: true
-        ) != nil
+        ) else {
+            return false
+        }
+        if kind == .browser,
+           let browser = store.browserPanel(for: panelId) {
+            _ = focusBrowserAddressBar(in: browser)
+        }
+        return true
     }
 
     /// Executes a semantic surface/focus command when the Dock owns keyboard

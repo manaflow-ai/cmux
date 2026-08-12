@@ -415,6 +415,7 @@ struct MobileSettingsView: View {
                         macStatus: store?.phonePushMacStatus,
                         supportsMacSettings: store?.supportsPhonePushSettings == true,
                         supportsMacTest: store?.supportsPhonePushTest == true,
+                        canConnectMac: startPairingScanner != nil,
                         onPhoneEnabledChange: updatePhonePushEnabled,
                         onRepair: repairPhonePush,
                         onMacMutation: updateMacPhonePush,
@@ -554,7 +555,7 @@ struct MobileSettingsView: View {
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
-                    onStartFallbackPairing: {
+                    onStartTailscalePairing: {
                         showingOnboarding = false
                         startPairingScanner?()
                     },

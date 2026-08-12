@@ -3525,6 +3525,7 @@ struct CMUXCLI {
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
+        if command == "__ssh-terminal-exit-prompt" { runSSHTerminalExitPrompt(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
@@ -12412,9 +12413,9 @@ struct CMUXCLI {
             restore()
         }
 
-        func restore() {
+        func restore(flushInput: Bool = false) {
             guard !restored else { return }
-            tcsetattr(STDIN_FILENO, TCSANOW, &original)
+            tcsetattr(STDIN_FILENO, flushInput ? TCSAFLUSH : TCSANOW, &original)
             restored = true
         }
     }
@@ -12451,7 +12452,7 @@ struct CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(response, mode: idFormat)))
             if !errors.isEmpty {
-                throw CLIError(message: sshSessionListFailureMessage(errors))
+                throw CLIError(message: sshSessionListFailureMessage())
             }
             return
         }
@@ -12476,21 +12477,16 @@ struct CMUXCLI {
             print("\(workspacePrefix)\(sessionID) attachments=\(attachments.count) size=\(effectiveCols)x\(effectiveRows) scrollback_bytes=\(scrollbackBytes)")
         }
         if !errors.isEmpty {
-            throw CLIError(message: sshSessionListFailureMessage(errors))
+            throw CLIError(message: sshSessionListFailureMessage())
         }
     }
 
-    func sshSessionListFailureMessage(_ errors: [[String: Any]]) -> String {
-        let count = errors.count
-        let summary = "ssh-session-list failed for \(count) remote workspace\(count == 1 ? "" : "s")"
-        let details = errors.map { error in
-            let workspace = debugString(error["workspace_ref"])
-                ?? debugString(error["workspace_id"])
-                ?? "workspace:?"
-            let message = userFacingRemotePTYErrorMessage(error["error"])
-            return "- \(workspace): \(message)"
-        }
-        return ([summary] + details).joined(separator: "\n")
+    func sshSessionListFailureMessage() -> String {
+        return String(
+            localized: "cli.sshSessionList.remoteStateUnavailable",
+            defaultValue: "Remote PTY session state is unavailable for one or more workspaces.",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        )
     }
 
     private func runSSHSessionCleanup(
@@ -12860,24 +12856,36 @@ struct CMUXCLI {
         var bridgeReachedReady = false
         var sessionLostWillRespawn = false
         var wrapperWillRetrySameSurface = false
+        var preserveLifecycleForRecovery = false
         var noProgressRetryExhausted = false
+        var reconciliationConfirmedSessionEnded = false
         var attachFinished = false
         var attachmentToken = ""
         var readinessDelivery: Task<Void, Never>?
         func reconcileBridgeEnd(
             intentionalOnly: Bool,
-            sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning
+            sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning,
+            reconciliationUnavailableExitCode: SSHPTYAttachExitCode = .retryableTransient
         ) throws -> Bool {
             do {
                 return try reconcileSSHPTYBridgeEnd(
                     client: client, workspaceId: workspaceId, surfaceID: surfaceID,
                     sessionID: sessionID,
                     lifecycleID: lifecycleID,
+                    reconciliationConfirmedSessionEnded: &reconciliationConfirmedSessionEnded,
                     intentionalOnly: intentionalOnly,
-                    sessionRunningExitCode: sessionRunningExitCode
+                    sessionRunningExitCode: sessionRunningExitCode,
+                    reconciliationUnavailableExitCode: reconciliationUnavailableExitCode
                 )
             } catch let error as CLIError {
+                if reconciliationConfirmedSessionEnded {
+                    preserveLifecycleForRecovery = false
+                    wrapperWillRetrySameSurface = false
+                }
                 if let exitCode = SSHPTYAttachExitCode(rawValue: error.exitCode) {
+                    if exitCode == .bridgeClosedSessionRunning || exitCode == .retryableTransient {
+                        preserveLifecycleForRecovery = true
+                    }
                     if sshPTYAttachWrapperWillRetry(exitCode) {
                         wrapperWillRetrySameSurface = true
                     } else if exitCode == .bridgeClosedWithoutProgress {
@@ -12898,10 +12906,15 @@ struct CMUXCLI {
                     lifecycleID: lifecycleID,
                     attachmentID: attachmentID,
                     attachmentToken: attachmentToken,
-                    retireLifecycle: !sessionLostWillRespawn && !wrapperWillRetrySameSurface,
-                    clearLocalSurface: (!bridgeReachedReady || noProgressRetryExhausted)
-                        && !sessionLostWillRespawn
-                        && !wrapperWillRetrySameSurface
+                    retireLifecycle: reconciliationConfirmedSessionEnded
+                        || (!sessionLostWillRespawn
+                            && !wrapperWillRetrySameSurface
+                            && !preserveLifecycleForRecovery),
+                    clearLocalSurface: reconciliationConfirmedSessionEnded
+                        || ((!bridgeReachedReady || noProgressRetryExhausted)
+                            && !sessionLostWillRespawn
+                            && !wrapperWillRetrySameSurface
+                            && !preserveLifecycleForRecovery)
                 )
             }
         }
@@ -12942,23 +12955,19 @@ struct CMUXCLI {
                 wrapperWillRetrySameSurface = true
             }
             if closedGeneration {
-                if (try? reconcileBridgeEnd(intentionalOnly: true)) == true {
+                if try reconcileBridgeEnd(intentionalOnly: true) {
                     attachFinished = true
                     return
                 }
-                cleanupFailedSSHPTYAttach(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceID: surfaceID,
-                    sessionID: sessionID,
-                    lifecycleID: lifecycleID,
-                    attachmentID: attachmentID,
-                    attachmentToken: attachmentToken,
-                    retireLifecycle: true,
-                    clearLocalSurface: true
+                preserveLifecycleForRecovery = true
+                let recoveryExitCode = SSHPTYAttachExitCode.retryableTransient
+                if sshPTYAttachWrapperWillRetry(recoveryExitCode) {
+                    wrapperWillRetrySameSurface = true
+                }
+                throw CLIError(
+                    message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))",
+                    exitCode: recoveryExitCode
                 )
-                attachFinished = true
-                return
             }
             if exitCode.isWrapperRetryable {
                 if try reconcileBridgeEnd(intentionalOnly: true) {
@@ -13050,8 +13059,9 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
+        let filtersReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
         let rawMode = TerminalRawMode()
-        defer { rawMode?.restore() }
+        defer { rawMode?.restore(flushInput: filtersReconnectInput) }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
             explicitPassword: explicitPassword,
@@ -13075,7 +13085,7 @@ struct CMUXCLI {
         do {
             reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
                 fd: fd,
-                filterEnabled: requireExisting && command == nil && isatty(STDIN_FILENO) == 1,
+                filterEnabled: filtersReconnectInput,
                 beforeForwardingInput: { [resizeMonitor] in
                     await resizeMonitor.resizeBeforeInputIfNeeded()
                 }
@@ -13085,6 +13095,19 @@ struct CMUXCLI {
         }
         var reconnectInputFilterStopRequested = false
         var outputProgress = SSHPTYAttachOutputProgress(replayBytes: bridgeReplayBytes)
+        func finishBridgeClosedNormally() throws {
+            resizeMonitor.cancel()
+            readinessDelivery?.cancel()
+            _ = try reconcileBridgeEnd(
+                intentionalOnly: false,
+                sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
+                    receivedLiveOutput: outputProgress.receivedLiveOutput,
+                    readyUptime: bridgeReadyUptime
+                ),
+                reconciliationUnavailableExitCode: .bridgeClosedSessionRunning
+            )
+            attachFinished = true
+        }
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
@@ -13094,29 +13117,11 @@ struct CMUXCLI {
                 reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
-                resizeMonitor.cancel()
-                readinessDelivery?.cancel()
-                _ = try reconcileBridgeEnd(
-                    intentionalOnly: false,
-                    sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
-                        receivedLiveOutput: outputProgress.receivedLiveOutput,
-                        readyUptime: bridgeReadyUptime
-                    )
-                )
-                attachFinished = true
+                try finishBridgeClosedNormally()
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
-                    resizeMonitor.cancel()
-                    readinessDelivery?.cancel()
-                    _ = try reconcileBridgeEnd(
-                        intentionalOnly: false,
-                        sessionRunningExitCode: sshPTYAttachBridgeClosedExitCode(
-                            receivedLiveOutput: outputProgress.receivedLiveOutput,
-                            readyUptime: bridgeReadyUptime
-                        )
-                    )
-                    attachFinished = true
+                    try finishBridgeClosedNormally()
                     return
                 }
                 throw CLIError(message: "ssh-pty-attach: bridge read failed")
@@ -20750,6 +20755,15 @@ struct CMUXCLI {
         launchContext: TmuxCompatLaunchContext?, commandArgs: [String]
     ) {
         clearInheritedClaudeLaunchEnvironment()
+        defer {
+            let launcherEnvironment = ProcessInfo.processInfo.environment
+            let transport = ClaudeTeamsRespawnEnvironmentTransport()
+            if let encoded = transport.encodedValue(from: launcherEnvironment) {
+                setenv(ClaudeTeamsRespawnEnvironmentTransport.environmentKey, encoded, 1)
+            } else {
+                unsetenv(ClaudeTeamsRespawnEnvironmentTransport.environmentKey)
+            }
+        }
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
             shimDirectory: shimDirectory,
@@ -20834,15 +20848,17 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
-        if !claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs),
+        let launchesAgentSession = !claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs)
+        if launchesAgentSession,
            normalizedTmuxTarget(launchContext?.surfaceId) == nil {
             throw CLIError(message: managedTerminalRequiredMessage(displayName: "Claude Teams"))
         }
-        let shimDirectory = try createClaudeTeamsShimDirectory(
+        let shimPlan = try createClaudeTeamsShimPlan(
             processEnvironment: launcherEnvironment,
             commandArgs: commandArgs,
             launchContext: launchContext
         )
+        let shimDirectory = shimPlan.directory
         // Check custom path from Settings > Automation > Claude Code first.
         // Never fall back to a cmux-bundled provider binary.
         guard let claudeExecutablePath = resolveClaudeExecutable(
@@ -20870,7 +20886,10 @@ struct CMUXCLI {
             launchContext: launchContext, commandArgs: commandArgs
         )
 
-        let launchPath = claudeExecutablePath
+        let managedClaudeWrapperURL = launchesAgentSession
+            ? shimPlan.managedClaudeWrapperURL
+            : nil
+        let launchPath = managedClaudeWrapperURL?.path ?? claudeExecutablePath
         let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
@@ -20878,6 +20897,15 @@ struct CMUXCLI {
             arguments: [executablePath, "claude-teams"] + launchArguments,
             workingDirectory: launcherEnvironment["PWD"]
         )
+        if managedClaudeWrapperURL != nil {
+            // The validated per-surface wrapper injects hooks/session identity.
+            // It consumes this one-shot marker while preserving the Teams launch
+            // capture above; teammate wrappers do not inherit the marker and
+            // therefore record ordinary Claude launches.
+            setenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH", "1", 1)
+        } else {
+            unsetenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH")
+        }
         var argv = ([launchPath] + claudeTeamsExecArguments(commandArgs: commandArgs)).map { strdup($0) }
         defer {
             for item in argv {

@@ -341,6 +341,34 @@ pub(crate) struct KittyImageBudgetReservation {
     committed: bool,
 }
 
+#[cfg(unix)]
+pub(crate) struct PendingTerminalHostBinding {
+    mux: Weak<Mux>,
+    surface_id: SurfaceId,
+    identity: TerminalHostIdentity,
+}
+
+#[cfg(unix)]
+impl Drop for PendingTerminalHostBinding {
+    fn drop(&mut self) {
+        let Some(mux) = self.mux.upgrade() else { return };
+        let mut pending = mux.pending_terminal_hosts.lock().unwrap();
+        if pending.get(&self.surface_id) == Some(&self.identity) {
+            pending.remove(&self.surface_id);
+        }
+    }
+}
+
+#[cfg(unix)]
+struct PendingTerminalHostRelease(Arc<Surface>);
+
+#[cfg(unix)]
+impl Drop for PendingTerminalHostRelease {
+    fn drop(&mut self) {
+        self.0.release_pending_terminal_host_binding();
+    }
+}
+
 impl KittyImageBudgetReservation {
     pub(crate) fn initial_limits(&self) -> KittyGraphicsLimits {
         self.initial_limits
@@ -1837,6 +1865,32 @@ impl Drop for TerminalExitStateQueryGuard<'_> {
 }
 
 /// The multiplexer. Shared by frontends and the control socket server.
+#[derive(Default)]
+struct ConfigReloadState {
+    requested: u64,
+    applied: u64,
+}
+
+/// Describes why an owner did not confirm a requested configuration reload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigReloadError {
+    /// The owner stopped before it could apply the request.
+    OwnerStopped,
+    /// The owner did not confirm the request before the failure deadline.
+    TimedOut,
+}
+
+impl fmt::Display for ConfigReloadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::OwnerStopped => "configuration reload owner stopped before applying the request",
+            Self::TimedOut => "configuration reload owner did not apply the request",
+        })
+    }
+}
+
+impl std::error::Error for ConfigReloadError {}
+
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
@@ -1845,6 +1899,8 @@ pub struct Mux {
     session_public_id: SessionPublicId,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
+    config_reload: Mutex<ConfigReloadState>,
+    config_reload_changed: Condvar,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
@@ -1882,6 +1938,7 @@ pub struct Mux {
         Mutex<Option<TerminalSpawnAfterCellPixelSnapshotHook>>,
     #[cfg(test)]
     terminal_create_after_terminal_reservation: Mutex<Option<TerminalReservationHook>>,
+    pending_terminal_hosts: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     #[cfg(test)]
     viewport_split_after_spawn: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -1948,10 +2005,7 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
-    /// Fences the interval between accepting a browser daemon-handoff request
-    /// and queueing its acknowledgement. ClientRegistry consults this under
-    /// its own lock so a new native-browser owner cannot race the shutdown.
-    pub(crate) daemon_handoff_pending: AtomicBool,
+    server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -2199,6 +2253,8 @@ impl Mux {
             session_public_id,
             state: Mutex::new(state),
             subscribers: MuxEventBroadcaster::default(),
+            config_reload: Mutex::new(ConfigReloadState::default()),
+            config_reload_changed: Condvar::new(),
             next_id: AtomicU64::new(next_id),
             next_notification_id: AtomicU64::new(next_notification_id),
             next_active_at: AtomicU64::new(1),
@@ -2235,6 +2291,7 @@ impl Mux {
             terminal_spawn_after_cell_pixel_snapshot: Mutex::new(None),
             #[cfg(test)]
             terminal_create_after_terminal_reservation: Mutex::new(None),
+            pending_terminal_hosts: Mutex::new(HashMap::new()),
             reserved_in_process_terminals: Mutex::new(HashMap::new()),
             #[cfg(test)]
             viewport_split_after_spawn: Mutex::new(None),
@@ -2309,7 +2366,7 @@ impl Mux {
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
             ),
-            daemon_handoff_pending: AtomicBool::new(false),
+            server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
             surface_operation_admission: Arc::new(
@@ -2824,6 +2881,7 @@ impl Mux {
         incarnation: &str,
         surface: Arc<Surface>,
     ) -> anyhow::Result<()> {
+        let _pending_host_release = PendingTerminalHostRelease(surface.clone());
         if surface.is_dead() {
             self.persist_terminal_exit(
                 terminal_id,
@@ -5357,6 +5415,53 @@ impl Mux {
         self.subscribers.subscribe()
     }
 
+    pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_config_reload()
+    }
+
+    /// Request one owner config reload and wait until the owner applies it.
+    pub fn request_config_reload(&self) -> Result<(), ConfigReloadError> {
+        const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
+
+        let request = {
+            let mut state = self.config_reload.lock().unwrap();
+            state.requested = state.requested.saturating_add(1);
+            state.requested
+        };
+        self.emit(MuxEvent::ConfigReloadRequested);
+
+        let deadline = Instant::now() + APPLY_TIMEOUT;
+        let mut state = self.config_reload.lock().unwrap();
+        while state.applied < request {
+            if self.shutting_down.load(Ordering::Acquire) {
+                return Err(ConfigReloadError::OwnerStopped);
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(ConfigReloadError::TimedOut);
+            };
+            let (next, timeout) =
+                self.config_reload_changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout.timed_out() && state.applied < request {
+                return Err(ConfigReloadError::TimedOut);
+            }
+        }
+        Ok(())
+    }
+
+    /// Capture the newest request that the owner is about to apply.
+    pub fn begin_config_reload_application(&self) -> u64 {
+        self.config_reload.lock().unwrap().requested
+    }
+
+    /// Publish completion after the owner applies the captured request.
+    pub fn complete_config_reload_application(&self, request: u64) {
+        let mut state = self.config_reload.lock().unwrap();
+        state.applied = state.applied.max(request);
+        drop(state);
+        self.config_reload_changed.notify_all();
+    }
+
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
         self.subscribers.subscribe_attached_surface(surface)
     }
@@ -5546,6 +5651,75 @@ impl Mux {
         Ok(result)
     }
 
+    #[cfg(unix)]
+    pub(crate) fn register_pending_terminal_host(
+        self: &Arc<Self>,
+        surface_id: SurfaceId,
+        identity: TerminalHostIdentity,
+    ) -> anyhow::Result<PendingTerminalHostBinding> {
+        let registry = self.workspace_registry.lock().unwrap();
+        let terminal = registry
+            .terminal_record(&identity.terminal_id)?
+            .ok_or_else(|| anyhow::anyhow!("pending terminal host is not registered"))?;
+        match terminal.lifecycle {
+            TerminalLifecycle::Launching => anyhow::ensure!(
+                terminal.incarnation.is_none(),
+                "launching terminal has an unexpected durable incarnation"
+            ),
+            TerminalLifecycle::Adopting => anyhow::ensure!(
+                terminal.incarnation.as_deref() == Some(identity.incarnation.as_str()),
+                "adopting terminal does not match the pending host incarnation"
+            ),
+            _ => anyhow::bail!("terminal is not awaiting host topology publication"),
+        }
+        drop(registry);
+
+        let mut pending = self.pending_terminal_hosts.lock().unwrap();
+        anyhow::ensure!(
+            !pending.contains_key(&surface_id),
+            "surface already has a pending terminal host"
+        );
+        pending.insert(surface_id, identity.clone());
+        Ok(PendingTerminalHostBinding { mux: Arc::downgrade(self), surface_id, identity })
+    }
+
+    /// A hosted reader can lose and restore its admin stream before its
+    /// runtime enters the topology. Accept only the exact surface and host
+    /// incarnation that the launch or adoption path stored before the reader
+    /// started. Registered runtimes still use the strict state checks below.
+    fn pending_terminal_host_callback_matches(
+        &self,
+        state: &State,
+        surface_id: SurfaceId,
+        surface_registered: bool,
+        terminal: &RegistryTerminal,
+        identity: &TerminalHostIdentity,
+    ) -> bool {
+        let expected = self.pending_terminal_hosts.lock().unwrap().get(&surface_id).cloned();
+        let Some(expected) = expected else { return false };
+        !surface_registered
+            && expected == *identity
+            && terminal.terminal_id == expected.terminal_id
+            && !state.terminal_catalog.values().any(|candidate| {
+                candidate
+                    .terminal_host_identity()
+                    .is_some_and(|current| current.terminal_id == identity.terminal_id)
+            })
+            && matches!(
+                terminal.lifecycle,
+                TerminalLifecycle::Launching
+                    | TerminalLifecycle::Adopting
+                    | TerminalLifecycle::Running
+            )
+            && match terminal.lifecycle {
+                TerminalLifecycle::Launching => terminal.incarnation.is_none(),
+                TerminalLifecycle::Adopting | TerminalLifecycle::Running => {
+                    terminal.incarnation.as_deref() == Some(expected.incarnation.as_str())
+                }
+                _ => false,
+            }
+    }
+
     /// A broken admin stream is not evidence that the per-terminal process
     /// died. The surface keeps its tab and reconnects the same incarnation;
     /// this callback only exposes the transient lifecycle to frontends.
@@ -5558,20 +5732,29 @@ impl Mux {
             return false;
         }
         let mut registry = self.workspace_registry.lock().unwrap();
-        let state = self.state.lock().unwrap();
-        let identity_matches = state
-            .surfaces
-            .get(&surface_id)
-            .or_else(|| state.terminal_runtime_by_id(surface_id))
-            .and_then(|surface| surface.terminal_host_identity())
-            .is_some_and(|current| current == *identity);
-        drop(state);
-        if !identity_matches {
-            return false;
-        }
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
+        let state = self.state.lock().unwrap();
+        let surface =
+            state.surfaces.get(&surface_id).or_else(|| state.terminal_runtime_by_id(surface_id));
+        let identity_matches = surface
+            .and_then(|surface| surface.terminal_host_identity())
+            .is_some_and(|current| current == *identity);
+        let topology_pending = self.pending_terminal_host_callback_matches(
+            &state,
+            surface_id,
+            surface.is_some(),
+            &terminal,
+            identity,
+        );
+        drop(state);
+        if topology_pending {
+            return true;
+        }
+        if !identity_matches {
+            return false;
+        }
         if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
             || matches!(
                 terminal.lifecycle,
@@ -5616,6 +5799,9 @@ impl Mux {
             return false;
         }
         let mut registry = self.workspace_registry.lock().unwrap();
+        let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
+            return false;
+        };
         let state = self.state.lock().unwrap();
         let surface = state
             .surfaces
@@ -5626,13 +5812,20 @@ impl Mux {
             .as_ref()
             .and_then(|surface| surface.terminal_host_identity())
             .is_some_and(|current| current == *identity);
+        let topology_pending = self.pending_terminal_host_callback_matches(
+            &state,
+            surface_id,
+            surface.is_some(),
+            &terminal,
+            identity,
+        );
         drop(state);
+        if topology_pending {
+            return true;
+        }
         if !identity_matches {
             return false;
         }
-        let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
-            return false;
-        };
         if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
             || matches!(
                 terminal.lifecycle,
@@ -5959,6 +6152,7 @@ impl Mux {
                     return Err(error);
                 }
             };
+            let _pending_host_release = PendingTerminalHostRelease(surface.clone());
             let identity = surface
                 .terminal_host_identity()
                 .ok_or_else(|| anyhow::anyhow!("reserved terminal did not return host identity"))?;
@@ -8330,6 +8524,7 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.config_reload_changed.notify_all();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
@@ -8373,10 +8568,20 @@ impl Mux {
         }
     }
 
+    /// Publish that every owner needed by canonical server lifecycle commands
+    /// is installed. Ordinary control clients may connect before this point.
+    pub fn mark_server_lifecycle_ready(&self) {
+        self.server_lifecycle_ready.store(true, Ordering::Release);
+    }
+
+    pub fn server_lifecycle_ready(&self) -> bool {
+        self.server_lifecycle_ready.load(Ordering::Acquire)
+    }
+
     /// Validate the target daemon and atomically reserve its handoff. Unless
-    /// forced, this proves no other native browser owns the mux. New owner
-    /// announcements are rejected until the response is queued or the
-    /// reservation is cancelled.
+    /// forced, this proves no other native browser owns the mux. New control
+    /// clients and native-browser ownership changes are rejected until the
+    /// reservation is cancelled or shutdown completes.
     pub(crate) fn begin_daemon_handoff(
         &self,
         requesting_client: u64,
@@ -8392,16 +8597,20 @@ impl Mux {
                 anyhow::bail!("daemon generation changed; identify again");
             }
         }
-        self.control_clients.begin_daemon_handoff(
-            requesting_client,
-            &self.daemon_handoff_pending,
-            request.force,
-        )?;
+        self.control_clients.begin_daemon_handoff(requesting_client, request.force)?;
         Ok(actual_identity)
     }
 
-    pub fn cancel_daemon_handoff(&self) {
-        self.daemon_handoff_pending.store(false, Ordering::Release);
+    pub(crate) fn commit_daemon_handoff_after_ack(
+        &self,
+        requesting_client: u64,
+        acknowledge: impl FnOnce() -> std::io::Result<()>,
+    ) -> anyhow::Result<()> {
+        self.control_clients.commit_daemon_handoff_after_ack(requesting_client, acknowledge)
+    }
+
+    pub fn cancel_daemon_handoff(&self, requesting_client: u64) {
+        self.control_clients.cancel_daemon_handoff(requesting_client);
     }
 
     /// Ask the owning frontend loop to leave through the normal daemon
@@ -8827,10 +9036,17 @@ impl Mux {
         let runtime_id = surface.terminal_runtime_id().unwrap_or(surface.id);
         {
             let mut budget = self.kitty_image_budget.lock().unwrap();
-            if let Some(entry) = budget.entries.get_mut(&runtime_id) {
-                entry.removing = true;
+            let removed_current_surface = budget
+                .entries
+                .get(&runtime_id)
+                .and_then(|entry| entry.surface.as_ref())
+                .and_then(Weak::upgrade)
+                .is_some_and(|registered| std::ptr::eq(registered.as_ref(), surface));
+            if removed_current_surface {
+                budget.entries.remove(&runtime_id);
+                budget.blocked_surfaces.remove(&runtime_id);
+                Self::rebalance_kitty_image_budget_owners(&mut budget);
             }
-            budget.blocked_surfaces.remove(&runtime_id);
         }
         self.kitty_image_budget_changed.notify_all();
         self.start_kitty_image_budget_worker();
@@ -18175,7 +18391,13 @@ mod tests {
         assert!(after["notifications"].as_array().unwrap().contains(&notification_value));
         assert!(after["agents"].as_array().unwrap().contains(&agent_value));
         assert!(after["frontend_projections"].as_array().unwrap().contains(&projection_value));
-        assert_eq!(after["terminals"], serde_json::json!([]));
+        let terminals = after["terminals"].as_array().unwrap();
+        assert_eq!(terminals.len(), 1);
+        let terminal = &terminals[0];
+        assert_eq!(terminal["id"], terminal_public_id.as_str());
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["exit"]["outcome"]["kind"], "unknown");
+        assert_eq!(terminal["exit"]["outcome"]["reason"], "missing-host-record");
         assert_eq!(reopened.resource_surface_for_terminal(&terminal_public_id), None);
         let exited =
             reopened.wait_for_terminal_exit(&terminal_public_id, Some(Duration::ZERO)).unwrap();
@@ -18931,11 +19153,11 @@ mod tests {
         );
 
         *mux.kitty_image_budget_operation.lock().unwrap() = None;
-        assert!(mux.close_surface(replacement.id).unwrap());
+        close_terminal_runtime_for_test(&mux, &replacement);
         for surface in survivors {
-            assert!(mux.close_surface(surface.id).unwrap());
+            close_terminal_runtime_for_test(&mux, &surface);
         }
-        assert!(mux.close_surface(first.id).unwrap());
+        close_terminal_runtime_for_test(&mux, &first);
         wait_for_kitty_image_budget(&mux);
     }
 
@@ -24428,10 +24650,10 @@ mod tests {
         drop(mux);
 
         let reopened = Mux::open_persistent("recover-exited", options, &root).unwrap();
-        let exited = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
-        assert_eq!(exited.surface, None);
-        assert_eq!(exited.terminal.lifecycle, TerminalLifecycle::Exited);
-        assert_eq!(exited.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
+        let tombstoned = reopened.resolve_terminal(TERMINAL).unwrap().unwrap();
+        assert_eq!(tombstoned.surface, None);
+        assert_eq!(tombstoned.terminal.lifecycle, TerminalLifecycle::Tombstoned);
+        assert_eq!(tombstoned.terminal.exit.unwrap()["outcome"]["reason"], "persisted-exit");
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
@@ -24721,6 +24943,8 @@ mod tests {
             )
             .unwrap();
         }
+        let _pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
 
         assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
         assert!(mux.terminal_host_reconnected(
@@ -24764,6 +24988,219 @@ mod tests {
                 .lifecycle,
             TerminalLifecycle::Adopting
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_rejects_callback_for_wrong_surface() {
+        const TERMINAL: &str = "00000000000040008000000000000013";
+        const INCARNATION: &str = "10000000000040008000000000000013";
+        const PENDING_SURFACE: SurfaceId = 4243;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001113".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+        let _pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
+
+        assert!(!mux.terminal_host_connection_lost(PENDING_SURFACE + 1, &identity));
+        assert!(!mux.terminal_host_reconnected(
+            PENDING_SURFACE + 1,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_accepts_running_host_before_surface_publication() {
+        const TERMINAL: &str = "00000000000040008000000000000016";
+        const INCARNATION: &str = "10000000000040008000000000000016";
+        const PENDING_SURFACE: SurfaceId = 4246;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001116".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+        let _pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
+        mux.transition_terminal_lifecycle(
+            "terminal-ready",
+            "test-running-before-surface-publication",
+            TERMINAL,
+            TerminalLifecycle::Running,
+            Some(INCARNATION),
+            None,
+        )
+        .unwrap();
+
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(TERMINAL)
+                .unwrap()
+                .unwrap()
+                .lifecycle,
+            TerminalLifecycle::Running
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_rejects_callback_from_old_incarnation() {
+        const TERMINAL: &str = "00000000000040008000000000000014";
+        const INCARNATION: &str = "10000000000040008000000000000014";
+        const OLD_INCARNATION: &str = "10000000000040008000000000000004";
+        const PENDING_SURFACE: SurfaceId = 4244;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001114".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        let old_identity = TerminalHostIdentity {
+            terminal_id: TERMINAL.into(),
+            incarnation: OLD_INCARNATION.into(),
+        };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+        let pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
+
+        assert!(!mux.terminal_host_connection_lost(PENDING_SURFACE, &old_identity));
+        assert!(!mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &old_identity,
+            KittyGraphicsLimits::disabled(),
+        ));
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        drop(pending);
+        assert!(!mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_topology_rejects_multiple_different_callbacks() {
+        const TERMINAL: &str = "00000000000040008000000000000015";
+        const INCARNATION: &str = "10000000000040008000000000000015";
+        const PENDING_SURFACE: SurfaceId = 4245;
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000001115".into()), None)
+            .unwrap();
+        let identity =
+            TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() };
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            commit_terminal_transition(
+                &mut registry,
+                "terminal-reserved",
+                "reserve-terminal",
+                &RegistryTerminal {
+                    terminal_id: TERMINAL.into(),
+                    workspace_key: workspace.key,
+                    incarnation: None,
+                    lifecycle: TerminalLifecycle::Launching,
+                    launch_spec: serde_json::json!({}),
+                    exit: None,
+                },
+            )
+            .unwrap();
+        }
+        let _pending =
+            mux.register_pending_terminal_host(PENDING_SURFACE, identity.clone()).unwrap();
+        let callbacks = [
+            (
+                PENDING_SURFACE,
+                TerminalHostIdentity {
+                    terminal_id: TERMINAL.into(),
+                    incarnation: "10000000000040008000000000000005".into(),
+                },
+            ),
+            (
+                PENDING_SURFACE,
+                TerminalHostIdentity {
+                    terminal_id: "00000000000040008000000000000005".into(),
+                    incarnation: INCARNATION.into(),
+                },
+            ),
+            (PENDING_SURFACE + 1, identity.clone()),
+        ];
+
+        for (surface_id, callback) in callbacks {
+            assert!(!mux.terminal_host_connection_lost(surface_id, &callback));
+            assert!(!mux.terminal_host_reconnected(
+                surface_id,
+                &callback,
+                KittyGraphicsLimits::disabled(),
+            ));
+        }
+        assert!(mux.terminal_host_connection_lost(PENDING_SURFACE, &identity));
+        assert!(mux.terminal_host_reconnected(
+            PENDING_SURFACE,
+            &identity,
+            KittyGraphicsLimits::disabled(),
+        ));
     }
 
     #[test]
