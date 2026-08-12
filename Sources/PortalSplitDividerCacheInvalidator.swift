@@ -9,26 +9,32 @@ private typealias PortalSubviewComparator = @convention(c) (
 
 private extension NSView {
     @objc(cmux_portalAddSubview:)
-    func cmux_portalAddSubview(_ subview: NSView) {
-        PortalViewHierarchyMutationTracker.prepareForInsertion(
-            parentView: self,
-            insertedView: subview,
-            previousWindow: subview.window
-        )
+    func cmux_portalAddSubview(_ subview: NSView?) {
+        // SwiftUI's private display-list updater can pass nil through this
+        // Objective-C boundary despite AppKit's nonoptional Swift import.
+        if let subview {
+            PortalViewHierarchyMutationTracker.prepareForInsertion(
+                parentView: self,
+                insertedView: subview,
+                previousWindow: subview.window
+            )
+        }
         cmux_portalAddSubview(subview)
     }
 
     @objc(cmux_portalAddSubview:positioned:relativeTo:)
     func cmux_portalAddSubview(
-        _ subview: NSView,
+        _ subview: NSView?,
         positioned place: NSWindow.OrderingMode,
         relativeTo otherView: NSView?
     ) {
-        PortalViewHierarchyMutationTracker.prepareForInsertion(
-            parentView: self,
-            insertedView: subview,
-            previousWindow: subview.window
-        )
+        if let subview {
+            PortalViewHierarchyMutationTracker.prepareForInsertion(
+                parentView: self,
+                insertedView: subview,
+                previousWindow: subview.window
+            )
+        }
         cmux_portalAddSubview(subview, positioned: place, relativeTo: otherView)
     }
 
