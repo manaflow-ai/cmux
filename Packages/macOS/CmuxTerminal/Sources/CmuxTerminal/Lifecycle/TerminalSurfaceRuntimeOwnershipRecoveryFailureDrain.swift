@@ -37,6 +37,12 @@ internal final class TerminalSurfaceRuntimeOwnershipRecoveryFailureDrain:
     guard !failures.isEmpty else { return }
     var startGate: TerminalSurfaceRuntimeTeardownStartGate?
     state.withLockUnchecked { state in
+      if state.nextFailureIndex < state.failures.count {
+        state.failures = state.failures[state.nextFailureIndex...].filter {
+          admission.ownsStalledCloseFailure($0)
+        }
+        state.nextFailureIndex = 0
+      }
       let pendingCount = state.failures.count - state.nextFailureIndex
       precondition(
         pendingCount + failures.count <= maximumFailureCount,
