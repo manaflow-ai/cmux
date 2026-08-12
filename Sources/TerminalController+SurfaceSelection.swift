@@ -5,6 +5,11 @@ extension TerminalController {
     /// Routes one live selection read through the panel abstraction. AppKit,
     /// Ghostty, and WebKit stay on the main actor; only the immutable capture
     /// crosses back to the socket worker for payload construction and encoding.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func v2SurfaceReadSelection(
         params: [String: JSONValue]
     ) async -> V2CallResult {
@@ -63,6 +68,30 @@ extension TerminalController {
 
         v2RefreshKnownRefs()
         let params = typedParams.mapValues(\.foundationObject)
+        let selectorKeys = [
+            "window_id",
+            "group_id",
+            "workspace_id",
+            "surface_id",
+            "terminal_id",
+            "tab_id",
+            "pane_id",
+        ]
+        if let invalidSelector = selectorKeys.first(where: {
+            v2HasNonNullParam(params, $0) && v2UUID(params, $0) == nil
+        }) {
+            return failure(
+                code: "invalid_params",
+                message: String(
+                    format: String(
+                        localized: "socket.surfaceSelection.invalidSelector",
+                        defaultValue: "Invalid selector for `%@`."
+                    ),
+                    invalidSelector
+                ),
+                data: ["selector": invalidSelector]
+            )
+        }
         let routing = ControlRoutingSelectors(
             hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
             windowID: v2UUID(params, "window_id"),
@@ -78,7 +107,17 @@ extension TerminalController {
                 code: "unavailable",
                 message: String(
                     localized: "socket.surfaceSelection.tabManagerUnavailable",
-                    defaultValue: "TabManager is not available."
+                    defaultValue: "Selection reading is currently unavailable."
+                )
+            )
+        }
+        if let groupID = routing.groupID,
+           !tabManager.workspaceGroups.contains(where: { $0.id == groupID }) {
+            return failure(
+                code: "not_found",
+                message: String(
+                    localized: "socket.surfaceSelection.workspaceNotFound",
+                    defaultValue: "Workspace not found."
                 )
             )
         }
@@ -190,11 +229,8 @@ extension TerminalController {
             return failure(
                 code: "not_supported",
                 message: String(
-                    format: String(
-                        localized: "socket.surfaceSelection.unsupported",
-                        defaultValue: "Surface kind `%@` does not support selection reads."
-                    ),
-                    panel.panelType.rawValue
+                    localized: "socket.surfaceSelection.unsupported",
+                    defaultValue: "This surface does not support selection reads."
                 ),
                 data: [
                     "surface_id": surfaceID.uuidString,
@@ -205,11 +241,8 @@ extension TerminalController {
             return failure(
                 code: "unavailable",
                 message: String(
-                    format: String(
-                        localized: "socket.surfaceSelection.unavailable",
-                        defaultValue: "Failed to read %@ selection"
-                    ),
-                    panel.panelType.rawValue
+                    localized: "socket.surfaceSelection.unavailable",
+                    defaultValue: "Selection reading is currently unavailable."
                 ),
                 data: [
                     "surface_id": surfaceID.uuidString,

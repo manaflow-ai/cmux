@@ -15,11 +15,11 @@
         "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux read-selection [flags]\n\n選択可能なサーフェスからアクティブな選択範囲を読み取ります。通常出力にはソースコンテキストが含まれ、--json は完全なレスポンスを返します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n\n例:\n  cmux read-selection --surface surface:2\n  cmux read-selection --surface surface:2 --json" } }
       }
     },
-    "cli.readSelection.error.noActiveSelection": {
+    "cli.readSelection.output.noActiveSelection": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@: no active selection" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@: アクティブな選択範囲がありません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Has selection: false" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択範囲あり: false" } }
       }
     },
     "cli.readSelection.error.readScreenConflict": {
@@ -92,6 +92,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "フォーカスされているサーフェスがありません。" } }
       }
     },
+    "socket.surfaceSelection.invalidSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid selector for `%@`." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "`%@` のセレクターが無効です。" } }
+      }
+    },
     "socket.surfaceSelection.surfaceNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -102,22 +109,22 @@
     "socket.surfaceSelection.tabManagerUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "TabManager is not available." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "TabManager を利用できません。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Selection reading is currently unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、選択範囲を読み取れません。" } }
       }
     },
     "socket.surfaceSelection.unavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Failed to read %@ selection" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ の選択範囲を読み取れませんでした" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Selection reading is currently unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、選択範囲を読み取れません。" } }
       }
     },
     "socket.surfaceSelection.unsupported": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Surface kind `%@` does not support selection reads." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "サーフェスの種類 `%@` は選択範囲の読み取りに対応していません。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "This surface does not support selection reads." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このサーフェスは選択範囲の読み取りに対応していません。" } }
       }
     },
     "socket.surfaceSelection.workspaceNotFound": {

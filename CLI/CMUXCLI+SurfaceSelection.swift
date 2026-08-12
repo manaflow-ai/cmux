@@ -72,13 +72,18 @@ extension CMUXCLI {
             return
         }
         guard (payload["has_selection"] as? Bool) == true else {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.readSelection.error.noActiveSelection",
-                    defaultValue: "%@: no active selection"
-                ),
-                commandName
+            if includeContextInPlainOutput {
+                let metadata = surfaceSelectionMetadataLines(payload)
+                if !metadata.isEmpty {
+                    print(metadata.joined(separator: "\n"))
+                    print("")
+                }
+            }
+            print(String(
+                localized: "cli.readSelection.output.noActiveSelection",
+                defaultValue: "Has selection: false"
             ))
+            return
         }
 
         let text = (payload["text"] as? String) ?? ""

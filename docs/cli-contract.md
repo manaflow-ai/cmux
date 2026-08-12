@@ -228,10 +228,10 @@ input selections are never exposed. Non-text file preview modes do not claim
 selection support.
 
 `cmux read-selection` prints available kind, file, line, or URL context followed
-by the selected text. Plain output exits nonzero when there is no selection;
-`cmux read-selection --json` preserves the successful
-`has_selection: false` response for scripts. `cmux read-screen --selection`
-uses the same socket path but prints only the text, and cannot be combined with
+by the selected text. A supported surface with no selection still exits zero and
+prints the explicit `Has selection: false` marker. `cmux read-selection --json`
+preserves the complete response for scripts. `cmux read-screen --selection`
+uses the same socket path but omits source metadata, and cannot be combined with
 `--scrollback` or `--lines`.
 
 Examples:

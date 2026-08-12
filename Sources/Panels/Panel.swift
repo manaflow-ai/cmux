@@ -362,6 +362,7 @@ extension Panel {
     public var displayIcon: String? { nil }
     public var isDirty: Bool { false }
 
+    /// Captures the panel's current selection without changing focus or state.
     public func readSurfaceSelection() async -> SurfaceSelectionReadResult {
         .unsupported
     }

@@ -139,12 +139,38 @@ struct CLIExplicitSurfaceRoutingTests {
         ))
         #expect(output["has_selection"] as? Bool == false)
         #expect(output["kind"] as? String == "browser")
+        #expect(output["text"] as? String == "")
+        #expect(output["base64"] as? String == "")
         #expect(output["url"] as? String == "https://example.test/document")
+        #expect(output["workspace_id"] as? String == Self.callerWorkspaceId)
+        #expect(output["workspace_ref"] as? String == "workspace:1")
+        #expect(output["surface_id"] as? String == Self.callerSurfaceId)
         #expect(output["surface_ref"] as? String == "surface:1")
         #expect(requests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
     }
 
-    @Test func readScreenSelectionAliasIsTextOnlyAndFailsWithoutASelection() throws {
+    @Test func plainSelectionReadsSucceedWithAnExplicitNoSelectionMarker() throws {
+        let payload: [String: Any] = [
+            "has_selection": false,
+            "kind": "browser",
+            "text": "",
+            "base64": "",
+            "url": "https://example.test/document",
+        ]
+        let (result, requests) = try runSelectionCommand(
+            name: "plain-empty",
+            arguments: ["read-selection", "--surface", Self.targetSurfaceRef],
+            payload: payload
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stdout.contains("Kind: browser"))
+        #expect(result.stdout.contains("URL: https://example.test/document"))
+        #expect(result.stdout.hasSuffix("Has selection: false\n"))
+        #expect(requests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
+    }
+
+    @Test func readScreenSelectionAliasIsTextOnlyAndSucceedsWithoutASelection() throws {
         let (selectedResult, selectedRequests) = try runSelectionCommand(
             name: "alias",
             arguments: ["read-screen", "--surface", Self.targetSurfaceRef, "--selection"],
@@ -164,7 +190,8 @@ struct CLIExplicitSurfaceRoutingTests {
                 "base64": "",
             ]
         )
-        #expect(emptyResult.status != 0)
+        #expect(emptyResult.status == 0, Comment(rawValue: emptyResult.stderr + emptyResult.stdout))
+        #expect(emptyResult.stdout == "Has selection: false\n")
         #expect(emptyRequests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
     }
 

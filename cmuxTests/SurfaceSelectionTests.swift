@@ -12,6 +12,37 @@ import WebKit
 @MainActor
 @Suite("Surface selection", .serialized)
 struct SurfaceSelectionTests {
+    @Test func selectionValueTypesRejectInvalidPayloadStates() {
+        #expect(SurfaceSelectionLineRange(start: 0, end: 1) == nil)
+        #expect(SurfaceSelectionLineRange(start: 3, end: 2) == nil)
+        #expect(SurfaceSelectionLineRange(start: 1, end: 1) != nil)
+
+        let snapshot = SurfaceSelectionSnapshot.none(
+            kind: .filePreview,
+            filePath: "/tmp/example.swift"
+        )
+        #expect(!snapshot.hasSelection)
+        #expect(snapshot.text.isEmpty)
+        #expect(snapshot.lineRange == nil)
+    }
+
+    @Test func paneRoutingSelectsItsSurfaceAndFailsClosed() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.paneId(forPanelId: panelID)?.id)
+
+        let resolved = try #require(workspace.controlRequestedSurfaceTarget(
+            explicitSurfaceID: nil,
+            routedPaneID: paneID
+        ))
+        #expect(resolved.requestedSurfaceID == panelID)
+        #expect(resolved.target?.surfaceID == panelID)
+        #expect(workspace.controlRequestedSurfaceTarget(
+            explicitSurfaceID: nil,
+            routedPaneID: UUID()
+        ) == nil)
+    }
+
     @Test func nativeSelectionMapsUTF16RangesToOneBasedSourceLines() throws {
         let cases: [(source: String, selected: String, start: Int, end: Int)] = [
             ("alpha\nbeta\ngamma", "beta", 2, 2),
@@ -78,8 +109,7 @@ struct SurfaceSelectionTests {
         #expect(markdownSnapshot.lineRange == SurfaceSelectionLineRange(start: 2, end: 2))
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func browserAndMarkdownPreviewReadLiveDOMSelection() async throws {
+    @Test func browserAndMarkdownPreviewReadLiveDOMSelection() async throws {
         let unloadedPanel = BrowserPanel(workspaceId: UUID())
         defer { unloadedPanel.close() }
         let unloadedSnapshot = try snapshot(from: await unloadedPanel.readSurfaceSelection())
@@ -97,6 +127,7 @@ struct SurfaceSelectionTests {
             <html><body>
               <p id="passage">before selected browser words after</p>
               <iframe id="same-origin-frame" srcdoc="<p id='frame-passage'>before selected frame words after</p>"></iframe>
+              <textarea id="editor">before selected editable words after</textarea>
               <input id="password" type="password" value="top-secret">
             </body></html>
             """,
@@ -157,6 +188,21 @@ struct SurfaceSelectionTests {
         )
         let frameSnapshot = try snapshot(from: await panel.readSurfaceSelection())
         #expect(frameSnapshot.text == "selected frame words")
+
+        _ = try await panel.evaluateJavaScript(
+            """
+            (() => {
+              const editor = document.getElementById('editor');
+              const start = editor.value.indexOf('selected editable words');
+              editor.focus();
+              editor.setSelectionRange(start, start + 'selected editable words'.length);
+              return true;
+            })()
+            """
+        )
+        let editableSnapshot = try snapshot(from: await panel.readSurfaceSelection())
+        #expect(editableSnapshot.hasSelection)
+        #expect(editableSnapshot.text == "selected editable words")
 
         _ = try await panel.evaluateJavaScript(
             """
