@@ -1589,6 +1589,148 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             [ -s "$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_pending_read" ]
         }
 
+        cmux_ssh_schedule_delayed_auth_group_recovery() {
+          case "${CMUX_SSH_AUTH_RECOVERY_RETENTION_RECHECK_SECONDS:-86400}" in
+            1|60|300|3600|86400)
+              cmux_ssh_auth_recovery_delay_seconds="${CMUX_SSH_AUTH_RECOVERY_RETENTION_RECHECK_SECONDS:-86400}"
+              ;;
+            *) cmux_ssh_auth_recovery_delay_seconds=86400 ;;
+          esac
+          cmux_ssh_auth_recovery_lock || return 0
+          cmux_ssh_auth_recovery_delay_lock="$cmux_ssh_auth_recovery_root/delay.lock"
+          if [ -L "$cmux_ssh_auth_recovery_delay_lock" ]; then
+            cmux_ssh_auth_recovery_unlock
+            return 0
+          fi
+          if [ -d "$cmux_ssh_auth_recovery_delay_lock" ]; then
+            if cmux_ssh_auth_recorded_process_is_live \
+                "$cmux_ssh_auth_recovery_delay_lock/owner" || \
+              cmux_ssh_auth_recorded_process_is_live \
+                "$cmux_ssh_auth_recovery_delay_lock/publisher"; then
+              cmux_ssh_auth_recovery_unlock
+              return 0
+            fi
+            cmux_ssh_auth_reclaim_stale_reaper_lock \
+              "$cmux_ssh_auth_recovery_delay_lock" || {
+                cmux_ssh_auth_recovery_unlock
+                return 0
+              }
+          fi
+          (umask 077; /bin/mkdir "$cmux_ssh_auth_recovery_delay_lock") \
+            2>/dev/null || {
+              cmux_ssh_auth_recovery_unlock
+              return 0
+            }
+          cmux_ssh_auth_recovery_delay_generation=$(/usr/bin/uuidgen \
+            2>/dev/null | /usr/bin/awk '{ gsub(/-/, ""); print }')
+          case "$cmux_ssh_auth_recovery_delay_generation" in
+            ????????????????????????????????)
+              case "$cmux_ssh_auth_recovery_delay_generation" in
+                *[!A-Fa-f0-9]*) cmux_ssh_auth_recovery_delay_generation= ;;
+              esac
+              ;;
+            *) cmux_ssh_auth_recovery_delay_generation= ;;
+          esac
+          if [ -z "$cmux_ssh_auth_recovery_delay_generation" ] || ! \
+            printf '%s\n' "$cmux_ssh_auth_recovery_delay_generation" \
+              > "$cmux_ssh_auth_recovery_delay_lock/generation.new" 2>/dev/null || ! \
+            /bin/mv -f -- \
+              "$cmux_ssh_auth_recovery_delay_lock/generation.new" \
+              "$cmux_ssh_auth_recovery_delay_lock/generation" 2>/dev/null || ! \
+            cmux_ssh_auth_publish_current_worker \
+              "$cmux_ssh_auth_recovery_delay_lock/publisher"; then
+            /bin/rm -f -- "$cmux_ssh_auth_recovery_delay_lock/generation" \
+              "$cmux_ssh_auth_recovery_delay_lock/generation.new" \
+              "$cmux_ssh_auth_recovery_delay_lock/publisher" \
+              "$cmux_ssh_auth_recovery_delay_lock/publisher.new" 2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_recovery_delay_lock" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 0
+          fi
+          (
+            exec 9>&-
+            trap - EXIT HUP INT TERM
+            cmux_ssh_auth_recovery_delay_ready=0
+            if cmux_ssh_auth_recovery_lock; then
+              if cmux_ssh_auth_reaper_generation_is_current \
+                  "$cmux_ssh_auth_recovery_delay_lock" \
+                  "$cmux_ssh_auth_recovery_delay_generation" && \
+                cmux_ssh_auth_reaper_owner_matches_generation \
+                  "$cmux_ssh_auth_recovery_delay_lock" \
+                  "$cmux_ssh_auth_recovery_delay_generation"; then
+                cmux_ssh_auth_recovery_delay_ready=1
+              fi
+              cmux_ssh_auth_recovery_unlock
+            fi
+            if [ "$cmux_ssh_auth_recovery_delay_ready" != 1 ]; then exit 0; fi
+            /bin/sleep "$cmux_ssh_auth_recovery_delay_seconds"
+            cmux_ssh_auth_recovery_delay_ready=0
+            if cmux_ssh_auth_recovery_lock; then
+              if cmux_ssh_auth_reaper_generation_is_current \
+                  "$cmux_ssh_auth_recovery_delay_lock" \
+                  "$cmux_ssh_auth_recovery_delay_generation" && \
+                cmux_ssh_auth_reaper_owner_matches_generation \
+                  "$cmux_ssh_auth_recovery_delay_lock" \
+                  "$cmux_ssh_auth_recovery_delay_generation"; then
+                /bin/rm -f -- "$cmux_ssh_auth_recovery_delay_lock/owner" \
+                  "$cmux_ssh_auth_recovery_delay_lock/owner.new" \
+                  "$cmux_ssh_auth_recovery_delay_lock/publisher" \
+                  "$cmux_ssh_auth_recovery_delay_lock/publisher.new" \
+                  "$cmux_ssh_auth_recovery_delay_lock/generation" \
+                  "$cmux_ssh_auth_recovery_delay_lock/generation.new" \
+                  2>/dev/null || true
+                if /bin/rmdir "$cmux_ssh_auth_recovery_delay_lock" \
+                  2>/dev/null; then
+                  cmux_ssh_auth_recovery_delay_ready=1
+                fi
+              fi
+              cmux_ssh_auth_recovery_unlock
+            fi
+            if [ "$cmux_ssh_auth_recovery_delay_ready" = 1 ]; then
+              cmux_ssh_schedule_failed_auth_group_recovery
+            fi
+          ) </dev/null >/dev/null 2>&1 &
+          cmux_ssh_auth_recovery_delay_pid=$!
+          cmux_ssh_auth_recovery_delay_identity=$(cmux_ssh_auth_stable_identity \
+            "$cmux_ssh_auth_recovery_delay_pid")
+          cmux_ssh_auth_recovery_delay_owner="reaper-v1|$cmux_ssh_auth_recovery_delay_generation|$cmux_ssh_auth_recovery_delay_pid|$cmux_ssh_auth_recovery_delay_identity"
+          cmux_ssh_auth_recovery_delay_failed=0
+          if [ -z "$cmux_ssh_auth_recovery_delay_identity" ] || ! \
+            cmux_ssh_auth_reaper_generation_is_current \
+              "$cmux_ssh_auth_recovery_delay_lock" \
+              "$cmux_ssh_auth_recovery_delay_generation" || ! \
+            printf '%s\n' "$cmux_ssh_auth_recovery_delay_owner" \
+              > "$cmux_ssh_auth_recovery_delay_lock/owner.new" 2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_recovery_delay_lock/owner.new" \
+              "$cmux_ssh_auth_recovery_delay_lock/owner" 2>/dev/null || ! \
+            cmux_ssh_auth_reaper_owner_matches_generation \
+              "$cmux_ssh_auth_recovery_delay_lock" \
+              "$cmux_ssh_auth_recovery_delay_generation"; then
+            cmux_ssh_auth_recovery_delay_failed=1
+          fi
+          if [ "$cmux_ssh_auth_recovery_delay_failed" = 1 ]; then
+            if [ -n "$cmux_ssh_auth_recovery_delay_identity" ]; then
+              cmux_ssh_auth_kill_worker_if_identity_matches \
+                "$cmux_ssh_auth_recovery_delay_pid" \
+                "$cmux_ssh_auth_recovery_delay_identity" || true
+            fi
+            /bin/rm -f -- "$cmux_ssh_auth_recovery_delay_lock/owner" \
+              "$cmux_ssh_auth_recovery_delay_lock/owner.new" \
+              "$cmux_ssh_auth_recovery_delay_lock/publisher" \
+              "$cmux_ssh_auth_recovery_delay_lock/publisher.new" \
+              "$cmux_ssh_auth_recovery_delay_lock/generation" \
+              "$cmux_ssh_auth_recovery_delay_lock/generation.new" \
+              2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_recovery_delay_lock" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 0
+          fi
+          /bin/rm -f -- "$cmux_ssh_auth_recovery_delay_lock/publisher" \
+            "$cmux_ssh_auth_recovery_delay_lock/publisher.new" 2>/dev/null || true
+          cmux_ssh_auth_recovery_unlock
+          return 0
+        }
+
         cmux_ssh_schedule_failed_auth_group_recovery() {
           if ! command -v cmux_ssh_resume_failed_auth_group_reapers \
             >/dev/null 2>&1; then return 0; fi
@@ -1712,6 +1854,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_resume_failed_auth_group_reapers \
                 </dev/null >/dev/null 2>&1
               cmux_ssh_auth_recovery_sweep_reschedule=0
+              cmux_ssh_auth_recovery_sweep_schedule_delayed=0
               cmux_ssh_auth_recovery_sweep_released=0
               if cmux_ssh_auth_recovery_lock; then
                 if cmux_ssh_auth_reaper_generation_is_current \
@@ -1746,6 +1889,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                         2>/dev/null || true
                       if /bin/rmdir "$cmux_ssh_auth_recovery_sweep_lock" \
                         2>/dev/null; then
+                        cmux_ssh_auth_recovery_sweep_schedule_delayed=1
                         cmux_ssh_auth_recovery_sweep_released=1
                       fi
                     else
@@ -1789,6 +1933,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               fi
               if [ "$cmux_ssh_auth_recovery_sweep_released" = 1 ]; then
                 trap - EXIT HUP INT TERM
+              fi
+              if [ "$cmux_ssh_auth_recovery_sweep_schedule_delayed" = 1 ]; then
+                cmux_ssh_schedule_delayed_auth_group_recovery
               fi
               break
             done
