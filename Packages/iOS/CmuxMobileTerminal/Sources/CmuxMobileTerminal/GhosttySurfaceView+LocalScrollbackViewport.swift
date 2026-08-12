@@ -23,12 +23,16 @@ extension GhosttySurfaceView {
         }
         pendingLocalViewportRow = nil
         let token = makeSurfaceOperationID()
+        let interactionGeneration = viewportRestoreGate.withLock {
+            $0.interactionGeneration
+        }
         localViewportState.inFlight = .init(token: token, row: row)
         let operation = LocalScrollbackViewportOperation(
             surface: surface,
             generation: surfaceGeneration,
             row: row,
-            token: token
+            token: token,
+            interactionGeneration: interactionGeneration
         )
         outputQueue.async { [weak self] in
             var before = ghostty_surface_scrollbar_s()
@@ -45,6 +49,14 @@ extension GhosttySurfaceView {
                 guard self.surface == operation.surface,
                       self.surfaceGeneration == operation.generation,
                       self.localViewportState.inFlight?.token == operation.token else {
+                    return
+                }
+                let currentInteractionGeneration = self.viewportRestoreGate.withLock {
+                    $0.interactionGeneration
+                }
+                guard currentInteractionGeneration == operation.interactionGeneration else {
+                    self.localViewportState.inFlight = nil
+                    self.pumpLocalScrollbackViewport()
                     return
                 }
                 guard applied else {
@@ -130,5 +142,6 @@ private nonisolated struct LocalScrollbackViewportOperation: @unchecked Sendable
     let generation: UInt64
     let row: UInt64
     let token: UInt64
+    let interactionGeneration: UInt64
 }
 #endif

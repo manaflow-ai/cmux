@@ -4,28 +4,41 @@
 /// bytes. A preserving transaction suppresses those provisional callbacks and
 /// publishes only the authoritative boundary captured after viewport restore.
 nonisolated struct ScrollBoundaryCallbackGate: Sendable {
-    private var activeTransactionID: UInt64?
+    private struct ActiveTransaction: Sendable {
+        let id: UInt64
+        let interactionGeneration: UInt64
+    }
 
-    mutating func begin(transactionID: UInt64) {
-        activeTransactionID = transactionID
+    private var activeTransaction: ActiveTransaction?
+
+    mutating func begin(transactionID: UInt64, interactionGeneration: UInt64) {
+        activeTransaction = ActiveTransaction(
+            id: transactionID,
+            interactionGeneration: interactionGeneration
+        )
     }
 
     mutating func observe(_ boundary: TerminalScrollBoundary) -> TerminalScrollBoundary? {
-        guard activeTransactionID == nil else { return nil }
+        guard activeTransaction == nil else { return nil }
         return boundary
     }
 
     mutating func commit(
         transactionID: UInt64,
+        currentInteractionGeneration: UInt64,
         boundary: TerminalScrollBoundary
     ) -> TerminalScrollBoundary? {
-        guard activeTransactionID == transactionID else { return nil }
-        activeTransactionID = nil
+        guard let activeTransaction,
+              activeTransaction.id == transactionID else { return nil }
+        self.activeTransaction = nil
+        guard activeTransaction.interactionGeneration == currentInteractionGeneration else {
+            return nil
+        }
         return boundary
     }
 
     mutating func cancel(transactionID: UInt64) {
-        guard activeTransactionID == transactionID else { return }
-        activeTransactionID = nil
+        guard activeTransaction?.id == transactionID else { return }
+        activeTransaction = nil
     }
 }

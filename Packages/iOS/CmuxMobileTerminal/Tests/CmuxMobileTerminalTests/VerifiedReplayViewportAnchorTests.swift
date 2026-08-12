@@ -24,9 +24,9 @@ struct VerifiedReplayViewportAnchorTests {
         )
 
         #expect(gate.observe(historical) == historical)
-        gate.begin(transactionID: 7)
+        gate.begin(transactionID: 7, interactionGeneration: 3)
         #expect(gate.observe(provisionalBottom) == nil)
-        #expect(gate.commit(transactionID: 7, boundary: restored) == restored)
+        #expect(gate.commit(transactionID: 7, currentInteractionGeneration: 3, boundary: restored) == restored)
         #expect(gate.observe(restored) == restored)
     }
 
@@ -39,10 +39,20 @@ struct VerifiedReplayViewportAnchorTests {
             visibleRows: 40
         )
 
-        gate.begin(transactionID: 8)
-        #expect(gate.commit(transactionID: 7, boundary: boundary) == nil)
+        gate.begin(transactionID: 8, interactionGeneration: 4)
+        #expect(gate.commit(transactionID: 7, currentInteractionGeneration: 4, boundary: boundary) == nil)
         #expect(gate.observe(boundary) == nil)
-        #expect(gate.commit(transactionID: 8, boundary: boundary) == boundary)
+        #expect(gate.commit(transactionID: 8, currentInteractionGeneration: 4, boundary: boundary) == boundary)
+    }
+
+    @Test("newer pixel-scroll intent rejects an older output boundary")
+    func newerInteractionRejectsOutputBoundary() {
+        var gate = ScrollBoundaryCallbackGate()
+        let boundary = TerminalScrollBoundary(totalRows: 400, viewportOffsetRows: 120, visibleRows: 40)
+
+        gate.begin(transactionID: 9, interactionGeneration: 10)
+        #expect(gate.commit(transactionID: 9, currentInteractionGeneration: 11, boundary: boundary) == nil)
+        #expect(gate.observe(boundary) == boundary)
     }
 
     @Test("visible-row flicker does not accumulate across replay cycles")

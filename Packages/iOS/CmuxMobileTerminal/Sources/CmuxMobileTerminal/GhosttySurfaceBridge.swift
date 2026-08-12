@@ -40,19 +40,27 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         surfaceView = nil
     }
 
-    func beginScrollBoundaryTransaction(id: UInt64) {
+    func beginScrollBoundaryTransaction(id: UInt64, interactionGeneration: UInt64) {
         lock.lock()
-        scrollBoundaryGate.begin(transactionID: id)
+        scrollBoundaryGate.begin(
+            transactionID: id,
+            interactionGeneration: interactionGeneration
+        )
         lock.unlock()
     }
 
     func commitScrollBoundaryTransaction(
         id: UInt64,
+        currentInteractionGeneration: UInt64,
         boundary: TerminalScrollBoundary
     ) -> TerminalScrollBoundary? {
         lock.lock()
         defer { lock.unlock() }
-        return scrollBoundaryGate.commit(transactionID: id, boundary: boundary)
+        return scrollBoundaryGate.commit(
+            transactionID: id,
+            currentInteractionGeneration: currentInteractionGeneration,
+            boundary: boundary
+        )
     }
 
     func cancelScrollBoundaryTransaction(id: UInt64) {

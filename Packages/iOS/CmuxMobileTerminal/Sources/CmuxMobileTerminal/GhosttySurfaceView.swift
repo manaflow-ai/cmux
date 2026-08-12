@@ -2594,8 +2594,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let workQueue = outputQueue
         let scrollBoundaryTransactionID = preservesViewport ? makeSurfaceOperationID() : nil
         let currentBridge = bridge
+        let outputInteractionGeneration = viewportRestoreGate.withLock {
+            $0.interactionGeneration
+        }
         if let scrollBoundaryTransactionID {
-            currentBridge.beginScrollBoundaryTransaction(id: scrollBoundaryTransactionID)
+            currentBridge.beginScrollBoundaryTransaction(
+                id: scrollBoundaryTransactionID,
+                interactionGeneration: outputInteractionGeneration
+            )
         }
         workQueue.async { [weak self] in
             var preOutputScrollbar = ghostty_surface_scrollbar_s()
@@ -2618,7 +2624,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
             var committedScrollbar = ghostty_surface_scrollbar_s()
-            if let viewportAnchor {
+            let interactionStillOwnsViewport = viewportRestoreGate.withLock {
+                $0.interactionGeneration == outputInteractionGeneration
+            }
+            if interactionStillOwnsViewport, let viewportAnchor {
                 var postOutputScrollbar = ghostty_surface_scrollbar_s()
                 if ghostty_surface_scrollbar(surface, &postOutputScrollbar),
                    let targetTopRow = viewportAnchor.targetTopRow(
@@ -2661,8 +2670,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 let publishedBoundary: TerminalScrollBoundary?
                 if let scrollBoundaryTransactionID, let committedBoundary {
+                    let currentInteractionGeneration = viewportRestoreGate.withLock {
+                        $0.interactionGeneration
+                    }
                     publishedBoundary = currentBridge.commitScrollBoundaryTransaction(
                         id: scrollBoundaryTransactionID,
+                        currentInteractionGeneration: currentInteractionGeneration,
                         boundary: committedBoundary
                     )
                 } else {
