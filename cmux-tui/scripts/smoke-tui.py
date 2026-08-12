@@ -240,6 +240,29 @@ def drain(seconds):
             except OSError:
                 break
 
+def wait_for_active_screen(predicate, description, seconds=15):
+    deadline = time.monotonic() + seconds
+    last = []
+    while True:
+        last = tree()
+        screen = next(
+            (
+                screen
+                for workspace in last
+                if workspace.get("active")
+                for screen in workspace.get("screens", [])
+                if screen.get("active")
+            ),
+            None,
+        )
+        if screen is not None and predicate(screen):
+            return screen
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AssertionError(f"{description}; last workspace tree: {last}")
+        drain(min(0.2, remaining))
+
 def wait_screen_contains(surface_id, needle, seconds=15):
     deadline = time.time() + seconds
     last = ""
@@ -540,8 +563,12 @@ drain(0.4)
 # omnibar. The dead CDP endpoint keeps this Chrome-free and fast.
 before_tabs = len(panes[0]["tabs"])
 os.write(fd, b"\x02B")
-drain(0.8)
-screen0 = active_screen(tree()[0])
+screen0 = wait_for_active_screen(
+    lambda screen: bool(screen.get("panes"))
+    and len(screen["panes"][0]["tabs"]) == before_tabs + 1
+    and screen["panes"][0]["tabs"][-1]["kind"] == "browser",
+    "browser tab was not published as active",
+)
 tabs = screen0["panes"][0]["tabs"]
 assert len(tabs) == before_tabs + 1, screen0
 assert tabs[-1]["kind"] == "browser", tabs
@@ -551,11 +578,14 @@ text = render_text_snapshot(output)
 assert "example.com" in text, text[-800:]
 os.write(fd, b"\x1b")
 drain(0.5)
-# Close the browser TAB. prefix-X since the tmux-alignment flip: x kills the
-# pane (which here is the only pane and would end the session), X the tab.
-os.write(fd, b"\x02X")
-drain(0.8)
-screen0 = active_screen(tree()[0])
+# Close the browser tab. Lowercase x owns CloseTab; uppercase X owns
+# ClosePane, which would remove this only pane and leave the screen empty.
+os.write(fd, b"\x02x")
+screen0 = wait_for_active_screen(
+    lambda screen: bool(screen.get("panes"))
+    and len(screen["panes"][0]["tabs"]) == before_tabs,
+    "browser tab close was not published",
+)
 assert len(screen0["panes"][0]["tabs"]) == before_tabs, screen0
 print("prefix-B browser omnibar focuses, Esc blurs, and close works ok")
 
