@@ -580,6 +580,13 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(pairingRequiredBanner.waitForExistence(timeout: 4))
         XCTAssertTrue(app.buttons["MobileTailscalePairingRequiredScan"].isHittable)
+        let dismissPairingRequiredBanner = app.buttons[
+            "MobileTailscalePairingRequiredDismiss"
+        ]
+        XCTAssertTrue(dismissPairingRequiredBanner.waitForExistence(timeout: 4))
+        XCTAssertTrue(dismissPairingRequiredBanner.isHittable)
+        dismissPairingRequiredBanner.tap()
+        XCTAssertTrue(pairingRequiredBanner.waitForNonExistence(timeout: 4))
         app.terminate()
 
         let relaunched = launchApp(mockData: true, environment: environment)
