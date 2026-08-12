@@ -155,9 +155,9 @@ struct SurfaceSelectionTests {
             in: panel.webView
         )
 
-        let preparedBrowserSelection = try await panel.evaluateJavaScript(
+        let preparedBrowserSelection = try await panel.webView.callAsyncJavaScript(
             """
-            (() => {
+            return await new Promise((resolve) => {
               const node = document.getElementById('passage').firstChild;
               const start = node.textContent.indexOf('selected browser words');
               const range = document.createRange();
@@ -165,11 +165,17 @@ struct SurfaceSelectionTests {
               range.setEnd(node, start + 'selected browser words'.length);
               const selection = window.getSelection();
               selection.removeAllRanges();
+              document.addEventListener(
+                'selectionchange',
+                () => resolve(selection.toString()),
+                { once: true, capture: true }
+              );
               selection.addRange(range);
-              document.dispatchEvent(new Event('selectionchange'));
-              return selection.toString();
-            })()
-            """
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
         )
         #expect(preparedBrowserSelection as? String == "selected browser words")
 
@@ -217,9 +223,9 @@ struct SurfaceSelectionTests {
         #expect(!clearedBrowserSnapshot.hasSelection)
         #expect(clearedBrowserSnapshot.text.isEmpty)
 
-        let preparedFrameSelection = try await panel.evaluateJavaScript(
+        let preparedFrameSelection = try await panel.webView.callAsyncJavaScript(
             """
-            (() => {
+            return await new Promise((resolve) => {
               window.getSelection().removeAllRanges();
               const frame = document.getElementById('same-origin-frame');
               const childWindow = frame.contentWindow;
@@ -230,29 +236,48 @@ struct SurfaceSelectionTests {
               range.setEnd(node, start + 'selected frame words'.length);
               const selection = childWindow.getSelection();
               selection.removeAllRanges();
+              childWindow.document.addEventListener(
+                'selectionchange',
+                () => {
+                  childWindow.focus();
+                  resolve(`${document.activeElement === frame}|${selection.toString()}`);
+                },
+                { once: true, capture: true }
+              );
               selection.addRange(range);
-              childWindow.focus();
-              childWindow.document.dispatchEvent(new Event('selectionchange'));
-              return `${document.activeElement === frame}|${selection.toString()}`;
-            })()
-            """
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
         )
         #expect(preparedFrameSelection as? String == "true|selected frame words")
         let frameSnapshot = try snapshot(from: await panel.readSurfaceSelection())
         #expect(frameSnapshot.text == "selected frame words")
 
-        let preparedEditableSelection = try await panel.evaluateJavaScript(
+        let preparedEditableSelection = try await panel.webView.callAsyncJavaScript(
             """
-            (() => {
+            return await new Promise((resolve) => {
               const editor = document.getElementById('editor');
               const start = editor.value.indexOf('selected editable words');
               editor.focus();
+              editor.addEventListener(
+                'select',
+                () => {
+                  const selected = editor.value.slice(
+                    editor.selectionStart,
+                    editor.selectionEnd
+                  );
+                  resolve(`${document.activeElement === editor}|${selected}`);
+                },
+                { once: true, capture: true }
+              );
               editor.setSelectionRange(start, start + 'selected editable words'.length);
-              editor.dispatchEvent(new Event('select', { bubbles: true }));
-              const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd);
-              return `${document.activeElement === editor}|${selected}`;
-            })()
-            """
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
         )
         #expect(preparedEditableSelection as? String == "true|selected editable words")
         let editableSnapshot = try snapshot(from: await panel.readSurfaceSelection())
