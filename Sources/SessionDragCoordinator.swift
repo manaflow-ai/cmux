@@ -56,7 +56,7 @@ final class SessionDragCoordinator {
         guard let pasteboardItem = SessionDragPayload(
             entry: entry,
             dragID: dragID
-        ).pasteboardItem() else {
+        ).pasteboardItem(publishingTo: NSPasteboard(name: .drag)) else {
             registry.discard(id: dragID)
             return false
         }

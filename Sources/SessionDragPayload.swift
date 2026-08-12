@@ -29,7 +29,10 @@ struct SessionDragPayload {
         let sourceProcessId: Int32
     }
 
-    func pasteboardItem() -> NSPasteboardItem? {
+    /// Builds the native drag item and, when requested, publishes the exact
+    /// same capability to the process drag pasteboard consulted by portal hit
+    /// testing before AppKit dispatches destination callbacks.
+    func pasteboardItem(publishingTo dragPasteboard: NSPasteboard? = nil) -> NSPasteboardItem? {
         let transfer = MirrorTabTransferData(
             tab: MirrorTabItem(
                 id: dragID,
@@ -54,6 +57,18 @@ struct SessionDragPayload {
         let item = NSPasteboardItem()
         guard item.setData(data, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) else {
             return nil
+        }
+        if let dragPasteboard {
+            dragPasteboard.declareTypes(
+                [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                owner: nil
+            )
+            guard dragPasteboard.setData(
+                data,
+                forType: DragOverlayRoutingPolicy.bonsplitTabTransferType
+            ) else {
+                return nil
+            }
         }
         return item
     }
