@@ -60,6 +60,29 @@ If the iPhone is unreachable at build time, the reload still completes: the sign
 
 Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
 
+## Hosted E2E dispatch
+
+Dispatch hosted UI/E2E runs through the validated wrapper. It checks every filter item against the local test sources and refuses to dispatch a filter that matches zero tests, which otherwise wastes a full dispatch+watch cycle before the run fails:
+
+```bash
+./scripts/dispatch-e2e.sh --ref <branch-or-sha> --filter "<Class or Class/method>[,more]" --watch
+```
+
+`--dry-run` validates and prints the `gh` command without dispatching; `--runner`, `--record-video`, `--timeout` (per-test seconds), and `--job-timeout` (minutes) pass through. Raw fallback:
+
+```bash
+gh workflow run test-e2e.yml --repo manaflow-ai/cmux -f ref=<branch-or-sha> -f test_filter="<Class or Class/method>"
+```
+
+## Agent time discipline
+
+Every poll slice pays a full model reasoning pass, so waiting is where agent hours disappear.
+
+- **Park on one blocking command per wait**: `gh run watch <id> --exit-status`, `./scripts/dispatch-e2e.sh --watch`, or `gh pr checks --watch`. Never 30-60s poll slices, sleep-and-recheck chains, or PTY heartbeat polls.
+- **One build dispatch per need.** The cloud reload waits internally for a builder slot; never cycle `RELOAD_CLOUD_BUILDER` or re-dispatch a build that is already queued.
+- **Batch fixes per rebuild.** Accumulate a dogfood round's fixes, preflight with focused tests, then do one tagged rebuild for the round. Never rebuild per one-line fix.
+- **Locked or offline iPhone: probe once, then queue.** One reachability probe, enqueue in the install queue, notify, and end the turn with "queued; unlock to receive". Never write unlock/ready watcher scripts or repeat devicectl probes.
+
 ## First pass, then dogfood
 
 A first pass ends when the change is implemented, the tagged build succeeded on the pushed HEAD, focused tests ran, and the PR is open (for `web/` PRs, also the live Vercel preview URL). Then hand off to the user. Do not sit in the main conversation watching CI or running speculative review passes after that point.
