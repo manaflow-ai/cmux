@@ -1288,7 +1288,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_recovery_unlock
             return "$cmux_ssh_auth_create_append_status"
           fi
-          if ! (umask 077; /bin/mkdir "$cmux_ssh_auth_create_dir") 2>/dev/null; then
+          if (umask 077; /bin/mkdir "$cmux_ssh_auth_create_dir") 2>/dev/null; then
+            :
+          else
             cmux_ssh_auth_recovery_unlock
             return 1
           fi
