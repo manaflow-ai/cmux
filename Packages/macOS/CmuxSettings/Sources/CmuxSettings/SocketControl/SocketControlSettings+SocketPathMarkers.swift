@@ -1,4 +1,4 @@
-public import Darwin
+import Darwin
 public import Foundation
 
 public extension SocketControlSettings {
@@ -34,7 +34,7 @@ public extension SocketControlSettings {
     ///   - bundleIdentifier: The running app's bundle identifier.
     ///   - environment: The process environment.
     ///   - fileManager: The file manager used to remove marker files.
-    public static func clearLastSocketPathIfMatching(
+    static func clearLastSocketPathIfMatching(
         _ path: String,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         environment: [String: String] = ProcessInfo.processInfo.environment,
