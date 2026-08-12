@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSidebar
 import CmuxTerminal
 
 @MainActor
@@ -201,7 +202,7 @@ final class MainWindowFocusController {
         if let host = rightSidebarHost, responder === host {
             return true
         }
-        if responder is FeedKeyboardFocusResponder {
+        if responder is CustomSidebarInputWebView || responder is FeedKeyboardFocusResponder {
             return true
         }
         if fileExplorerHost?.ownsKeyboardFocus(responder) == true ||
