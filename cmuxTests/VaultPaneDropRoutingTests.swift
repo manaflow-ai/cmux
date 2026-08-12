@@ -127,6 +127,78 @@ struct VaultPaneDropRoutingTests {
         }
     }
 
+    @Test("Every Vault row in one folder remains independently draggable when identities repeat")
+    private func repeatedFolderRowsRemainDraggable() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            workspace.teardownAllPanels()
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let initialPanelID = try #require(workspace.focusedPanelId)
+        let targetPane = try #require(workspace.paneId(forPanelId: initialPanelID))
+        let browser = try #require(workspace.newBrowserSurface(
+            inPane: targetPane,
+            url: URL(string: "about:blank"),
+            focus: true,
+            creationPolicy: .restoration,
+            allowsExternalBrowserFallback: false
+        ))
+        let context = PaneDropContext(
+            workspaceId: workspace.id,
+            panelId: browser.id,
+            paneId: targetPane
+        )
+
+        let duplicate = Self.makeEntry(
+            id: "codex:/tmp/repeated-folder/duplicate.jsonl",
+            sessionID: "repeated-folder-duplicate",
+            title: "Duplicate Vault row"
+        )
+        let entries = [
+            duplicate,
+            duplicate,
+            Self.makeEntry(
+                id: "codex:/tmp/repeated-folder/distinct.jsonl",
+                sessionID: "repeated-folder-distinct",
+                title: "Distinct Vault row"
+            ),
+        ]
+        let rows = SessionIndexRowSnapshot.rows(for: entries)
+
+        #expect(rows.map(\.entry) == entries)
+        #expect(Set(rows.map(\.id)).count == entries.count)
+
+        for row in rows {
+            let launch = try #require(row.entry.resumeLaunch)
+            let dragID = SessionDragRegistry.shared.register(row.entry)
+            let pasteboard = try vaultPasteboard(dragID: dragID)
+            let baselinePanelIDs = Set(workspace.panels.keys)
+
+            let handled = try performDrop(
+                targetKind: .browser,
+                placement: .center,
+                context: context,
+                pasteboard: pasteboard
+            )
+
+            #expect(handled)
+            #expect(SessionDragRegistry.shared.consume(id: dragID) == nil)
+            let createdPanelIDs = Set(workspace.panels.keys).subtracting(baselinePanelIDs)
+            #expect(createdPanelIDs.count == 1)
+            let createdPanelID = try #require(createdPanelIDs.first)
+            let terminal = try #require(workspace.terminalPanel(for: createdPanelID))
+            #expect(terminal.surface.debugInitialInputForTesting() == launch.initialInput)
+        }
+    }
+
     private func performDrop(
         targetKind: TargetKind,
         placement: Placement,
@@ -202,6 +274,30 @@ struct VaultPaneDropRoutingTests {
         pasteboard.clearContents()
         pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
         return pasteboard
+    }
+
+    private static func makeEntry(
+        id: String,
+        sessionID: String,
+        title: String
+    ) -> SessionEntry {
+        SessionEntry(
+            id: id,
+            agent: .codex,
+            sessionId: sessionID,
+            title: title,
+            cwd: "/tmp/repeated-folder",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_000),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
     }
 
     private final class MockDraggingInfo: NSObject, NSDraggingInfo {
