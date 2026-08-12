@@ -10,6 +10,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// Exit status used only when the fixed recovery queue has no free slot.
     static let recoveryQueueCapacityStatus = 75
 
+    /// One-second waits allowed while bounded recovery makes queue capacity.
+    static let recoveryQueueCapacityRetryLimit = 8
+
     static let groupStateFileNames = [
         "identity",
         "identity.new",
@@ -148,8 +151,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// preserve any entrypoint-specific pending signal. Recovery is scheduled
     /// only after the new directory is exported and present in the queue.
     ///
-    /// Queue capacity starts a signal-interruptible one-second recovery retry. It
-    /// does not consume an SSH authentication attempt or report an SSH failure.
+    /// Queue capacity starts up to eight signal-interruptible one-second recovery
+    /// retries. These retries do not consume SSH authentication attempts. If the
+    /// queue stays full, the caller's failure command ends startup instead of
+    /// waiting without a bound.
     ///
     /// - Parameters:
     ///   - failureCommand: Trusted shell commands for non-capacity group-creation failure.
@@ -162,12 +167,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     ) -> String {
         """
         cmux_ssh_auth_group_creation_status=0
+        cmux_ssh_auth_group_creation_retry=0
         while :; do
           CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir)
           cmux_ssh_auth_group_creation_status=$?
           if [ "$cmux_ssh_auth_group_creation_status" -eq 0 ]; then break; fi
           if [ "$cmux_ssh_auth_group_creation_status" -ne \(Self.recoveryQueueCapacityStatus) ]; then break; fi
+          if [ "$cmux_ssh_auth_group_creation_retry" -ge \(Self.recoveryQueueCapacityRetryLimit) ]; then break; fi
           cmux_ssh_schedule_failed_auth_group_recovery
+          cmux_ssh_auth_group_creation_retry=$((cmux_ssh_auth_group_creation_retry + 1))
           sleep 1
           if \(capacityRetryInterruptionCondition); then
             cmux_ssh_auth_group_creation_status=1
@@ -175,7 +183,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           fi
         done
         if [ "$cmux_ssh_auth_group_creation_status" -ne 0 ]; then \(failureCommand); fi
-        unset cmux_ssh_auth_group_creation_status
+        unset cmux_ssh_auth_group_creation_status cmux_ssh_auth_group_creation_retry
         export CMUX_SSH_AUTH_GROUP_DIR
         cmux_ssh_schedule_failed_auth_group_recovery
         """
