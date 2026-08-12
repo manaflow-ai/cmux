@@ -1,5 +1,5 @@
+import Foundation
 import Testing
-
 // `FeedEventClassifier` lives in `CLI/FeedEventClassifier.swift`, which is
 // compiled into both the `cmux-cli` target and this test target — so the pure
 // classification decision can be unit-tested directly, without `@testable`
