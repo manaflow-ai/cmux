@@ -1,5 +1,5 @@
 {
-  "name": "cmux",
+  "name": "cmux-sdk",
   "version": "1.0.0",
   "description": "Typed TypeScript resource client for cmux",
   "repository": {
@@ -8,6 +8,12 @@
     "directory": "cmux-tui/bindings/typescript"
   },
   "homepage": "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/bindings/typescript",
+  "license": "MIT",
+  "keywords": [
+    "cmux",
+    "terminal",
+    "sdk"
+  ],
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",

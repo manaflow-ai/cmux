@@ -1,6 +1,6 @@
 # cmux Rust SDK
 
-`cmux-client` exposes a handwritten blocking API for `cmux.protocol/1`. The
+`cmux-sdk` exposes a handwritten blocking API for `cmux.protocol/2`. The
 library crate is named `cmux` and supports Rust 1.88.
 
 ```rust
@@ -119,6 +119,6 @@ Verify:
 
 ```bash
 cd cmux-tui
-cargo test -p cmux-client --locked
+cargo test -p cmux-sdk --locked
 cargo test -p cmux-sidebar --locked
 ```

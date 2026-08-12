@@ -99,10 +99,12 @@ public actor CmxIrohClientRuntime {
     private var connectivityReconciliationOperation: ConnectivityReconciliationOperation?
     private var pendingConnectivityRevision: UInt64?
     var registrationRefreshPending = false
+    var registrationRefreshPendingRequiresDiscovery = false
     var registrationRefreshEnabled = false
     var liveDiscoveryGeneration: UInt64 = 0
     var authoritativeDiscovery: CmxIrohDiscoveryResponse?
     var localBinding: CmxIrohBrokerBinding?
+    var lastRegistrationRefreshState: CmxIrohRegistrationPublicationState?
     var registryContextProvider: CmxIrohRegistryContextProvider?
     var currentSnapshot = CmxIrohClientRuntimeSnapshot(
         state: .inactive,
@@ -401,7 +403,10 @@ public actor CmxIrohClientRuntime {
         var mayScheduleFreshRequest = registrationRefreshTask != nil
         var latestOutcome: CmxIrohLiveDiscoveryRefreshOutcome = .failed(.superseded)
         if registrationRefreshTask == nil {
-            scheduleRegistrationRefresh(revision: lifecycleRevision)
+            scheduleRegistrationRefresh(
+                revision: lifecycleRevision,
+                requiresDiscovery: true
+            )
         }
         var lastAwaitedTaskID: UUID?
         while lifecyclePhase == .active,
@@ -409,18 +414,24 @@ public actor CmxIrohClientRuntime {
               let refreshID = registrationRefreshTaskID,
               refreshID != lastAwaitedTaskID {
             lastAwaitedTaskID = refreshID
-            latestOutcome = try await refresh.value
+            let outcome = try await refresh.value
             guard lifecyclePhase == .active else {
                 return .failed(.endpointUnavailable)
             }
             if liveDiscoveryGeneration > priorGeneration { return .refreshed }
-            if registrationRefreshTaskID != nil {
-                mayScheduleFreshRequest = false
-                continue
-            }
+            // A `.refreshed` outcome without a generation advance is an
+            // unchanged-fingerprint no-op that never read the broker. It can
+            // neither satisfy this live discovery nor mask a real failure,
+            // and a coalesced successor may no-op the same way, so the right
+            // to schedule one authoritative refresh must survive successors.
+            if outcome != .refreshed { latestOutcome = outcome }
+            if registrationRefreshTaskID != nil { continue }
             guard mayScheduleFreshRequest else { return latestOutcome }
             mayScheduleFreshRequest = false
-            scheduleRegistrationRefresh(revision: lifecycleRevision)
+            scheduleRegistrationRefresh(
+                revision: lifecycleRevision,
+                requiresDiscovery: true
+            )
         }
         return lifecyclePhase == .active
             ? latestOutcome
@@ -461,6 +472,7 @@ public actor CmxIrohClientRuntime {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         registrationRefreshPending = false
+        registrationRefreshPendingRequiresDiscovery = false
         registrationRefreshEnabled = false
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .starting,
@@ -597,6 +609,7 @@ public actor CmxIrohClientRuntime {
             }
             try requireCurrent(revision)
             registrationRefreshPending = false
+            registrationRefreshPendingRequiresDiscovery = false
             registrationRefreshEnabled = true
             _ = try await refreshLiveDiscoveryThrowing()
             try requireCurrent(revision)

@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxBrowser
 import CmuxCore
 import Foundation
 import Bonsplit
@@ -206,10 +207,10 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
 
     init(selection: SidebarSelection) {
         switch selection {
-        case .tabs:
+        case .tabs, .notifications:
+            // Notifications moved from a window-level overlay to a pane tab.
+            // Never persist the retired overlay selection.
             self = .tabs
-        case .notifications:
-            self = .notifications
         }
     }
 
@@ -218,7 +219,8 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
         case .tabs:
             return .tabs
         case .notifications:
-            return .notifications
+            // Migrate snapshots written by builds that used the overlay.
+            return .tabs
         }
     }
 }
@@ -1563,6 +1565,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var pageZoom: Double
     var developerToolsVisible: Bool
     var isMuted: Bool
+    var chromeVisibility: BrowserChromeVisibility? = nil
     var omnibarVisible: Bool? = nil
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
@@ -1582,6 +1585,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         pageZoom: Double,
         developerToolsVisible: Bool,
         isMuted: Bool = false,
+        chromeVisibility: BrowserChromeVisibility? = nil,
         omnibarVisible: Bool? = nil,
         backHistoryURLStrings: [String]?,
         forwardHistoryURLStrings: [String]?,
@@ -1595,6 +1599,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         self.pageZoom = pageZoom
         self.developerToolsVisible = developerToolsVisible
         self.isMuted = isMuted
+        self.chromeVisibility = chromeVisibility
         self.omnibarVisible = omnibarVisible
         self.backHistoryURLStrings = backHistoryURLStrings
         self.forwardHistoryURLStrings = forwardHistoryURLStrings
@@ -1610,6 +1615,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case pageZoom
         case developerToolsVisible
         case isMuted
+        case chromeVisibility
         case omnibarVisible
         case backHistoryURLStrings
         case forwardHistoryURLStrings
@@ -1626,6 +1632,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         pageZoom = try container.decode(Double.self, forKey: .pageZoom)
         developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
         isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        chromeVisibility = try container.decodeIfPresent(BrowserChromeVisibility.self, forKey: .chromeVisibility)
         omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
         backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
         forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
@@ -1643,6 +1650,8 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
 /// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.
 struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
+/// Marker for the global notifications pane; its feed lives in the notification store.
+struct SessionNotificationsPanelSnapshot: Codable, Sendable {}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1694,6 +1703,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
+    var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 

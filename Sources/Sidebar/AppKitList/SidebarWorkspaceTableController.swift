@@ -24,6 +24,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var rows: [SidebarWorkspaceTableRowConfiguration] = []
     private var actions: SidebarWorkspaceTableActions?
     private var deferredRowClick: DeferredRowClick?
+    /// SwiftUI-side wake-up for a parked click. A deferred click only lands
+    /// through the next authoritative apply, and applies only happen when
+    /// the deliberately Equatable-gated sidebar body re-evaluates. The park
+    /// itself mutates no SwiftUI-tracked state, so without requesting an
+    /// apply an idle app never re-arms the rows and the click waits on
+    /// unrelated invalidation — historically an app deactivate/reactivate
+    /// (issue #9690).
+    var onDeferredRowClickAwaitingApply: (() -> Void)?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
@@ -188,7 +196,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         unreadObservation?.cancel()
         unreadSource = source
         applyUnreadSnapshot(source.snapshot)
-        unreadObservation = source.observeChanges(owner: self) { controller, snapshot in
+        unreadObservation = source.observeSummaryChanges(owner: self) { controller, snapshot in
             controller.applyUnreadSnapshot(snapshot)
         }
     }
@@ -314,6 +322,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             break
         }
         return []
+    }
+
+    private func retirePresentation(
+        from cell: NSView,
+        commitEdits: Bool
+    ) -> [@MainActor () -> Void] {
+        if let cell = cell as? SidebarWorkspaceRowTableCellView {
+            return cell.retirePresentation(commitEdits: commitEdits)
+        }
+        return detachPresentation(from: cell, commitEdits: commitEdits)
     }
 
     func apply(
@@ -565,6 +583,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // so preserve the completed click by stable row identity.
             previewSelection(row: row, modifiers: modifiers, hitView: nil)
             deferredRowClick = click
+            // Request the apply the replay depends on. Fired only from a
+            // physical click (never from a replay re-park), so a request per
+            // click is the ceiling and a pathological apply cannot loop.
+#if DEBUG
+            cmuxDebugLog("sidebar.table.applyRequest row=\(row)")
+#endif
+            onDeferredRowClickAwaitingApply?()
         case .invalid:
             deferredRowClick = nil
         }
@@ -700,7 +725,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Row retirement is the authoritative cleanup signal. A temporary
         // whole-table window reparent leaves its row views installed, while
         // an actual deletion/reload removes them through this callback.
-        let postUpdateActions = detachPresentation(from: cell, commitEdits: true)
+        let postUpdateActions = retirePresentation(from: cell, commitEdits: true)
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
     }
 

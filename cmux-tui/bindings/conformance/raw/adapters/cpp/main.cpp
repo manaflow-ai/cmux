@@ -116,12 +116,10 @@ raw::Result<raw::Json> nullable_literal(const raw::Json& request) {
     create.key = std::string("workspace-key");
     auto placement = client.create_terminal(create);
     if (!placement) return std::move(placement).error();
-    raw::Json lifecycle;
-    if (placement.value().lifecycle) {
-        lifecycle = *placement.value().lifecycle;
-    }
+    auto lifecycle = raw::encode_value(placement.value().lifecycle);
+    if (!lifecycle) return std::move(lifecycle).error();
     return raw::Json(raw::Json::Object{
-        {"lifecycle", std::move(lifecycle)},
+        {"lifecycle", std::move(lifecycle).value()},
     });
 }
 
@@ -496,7 +494,7 @@ raw::Result<raw::Json> real_flow(const raw::Json& request) {
     raw::Json::Array observed_json;
     for (const auto& name : observed) observed_json.emplace_back(name);
     return raw::Json(raw::Json::Object{
-        {"identified", identity.value().protocol == 10},
+        {"identified", identity.value().protocol == 12},
         {"workspace_created", workspace.value > 0},
         {"terminal_created", context->terminal_created},
         {"marker_sent", true},

@@ -9,8 +9,6 @@ import { readVaultJsonObject } from "../../../../../../services/vault/validation
 import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const EXPIRES_IN_SECONDS = 15 * 60;
@@ -110,7 +108,6 @@ export async function POST(request: Request): Promise<Response> {
     },
   );
 }
-
 function hashDeviceCode(deviceCode: string): string {
   return createHash("sha256").update(deviceCode).digest("hex");
 }

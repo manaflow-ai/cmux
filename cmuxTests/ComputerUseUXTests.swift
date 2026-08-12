@@ -2495,12 +2495,13 @@ struct ComputerUseUXTests {
         printf '%s' "${CMUX_COMPUTER_USE_MCP_DISABLED:-missing}" > "$CMUX_TEST_LOG"
         """.write(to: wrapperURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapperURL.path)
-        let shim = try #require(TerminalSurface.installClaudeCommandShimIfPossible(
-            wrapperURL: wrapperURL,
+        let shimSet = try #require(TerminalSurface.installAgentCommandShimsIfPossible(
+            wrapperDirectoryURL: binDirectory,
             surfaceId: UUID(),
             temporaryDirectory: shimRoot,
             computerUseSettingFileURL: settingURL
         ))
+        let shim = try #require(shimSet.shims.first { $0.commandName == "claude" })
 
         // Setting disabled -> shim forces the disable regardless of inherited env.
         try "0\n".write(to: settingURL, atomically: true, encoding: .utf8)

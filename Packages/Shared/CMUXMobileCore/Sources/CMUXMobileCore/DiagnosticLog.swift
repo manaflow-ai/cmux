@@ -13,10 +13,9 @@ internal import os
 /// non-droppable clear commands into the ring (the only diagnostic state,
 /// held by an inner `actor`), evicting the oldest events past ``capacity``.
 ///
-/// ``export()`` drains the ring into a compact blob: a one-line header carrying
-/// a wall-clock anchor and the build stamp, then one short row per event
-/// (`tNanos,code,surface,ms,a,b,c`, omitting absent fields). The blob is small
-/// by construction (bounded by ``capacity`` rows of integers).
+/// ``export()`` snapshots the ring into a plain-language timeline with UTC
+/// timestamps, readable event titles, and labeled values. The report is small
+/// by construction because it remains bounded by ``capacity`` events.
 ///
 /// Inject one instance from the app composition root; do not add a `.shared`
 /// singleton.
@@ -30,7 +29,7 @@ public final class DiagnosticLog: Sendable {
     /// The maximum number of retained events. Oldest are dropped past this.
     public let capacity: Int
 
-    /// The build-identity stamp written into the export header. Exposed so a
+    /// The build-identity stamp written into the report header. Exposed so a
     /// caller can also carry it as a top-level field when submitting a bundle.
     public let buildStamp: String
 
@@ -168,16 +167,16 @@ public final class DiagnosticLog: Sendable {
         ingress.record(event)
     }
 
-    /// Snapshot the currently-drained ring and format a compact export blob.
+    /// Snapshot the currently-drained ring and format a plain-language report.
     ///
     /// Reads whatever the drain task has already moved into the ring; it does not
     /// force a flush of events still in flight on the stream (the AsyncStream +
     /// drain design is eventually consistent, which is fine for a human-timed
     /// submit). The result is small by construction (bounded by ``capacity``
-    /// integer rows). Tests that need an exact post-record snapshot await
+    /// event lines). Tests that need an exact post-record snapshot await
     /// ``processedCount()`` first.
     ///
-    /// - Returns: The UTF-8 encoded compact blob.
+    /// - Returns: The UTF-8 encoded human-readable report.
     public func export() async -> Data {
         await store.export()
     }
@@ -502,7 +501,7 @@ public final class DiagnosticLog: Sendable {
         }
 
         func export() -> Data {
-            snapshot(generatedAt: Date()).compactExport()
+            snapshot(generatedAt: Date()).humanReadableExport()
         }
     }
 }

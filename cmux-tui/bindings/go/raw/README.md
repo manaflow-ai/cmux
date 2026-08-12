@@ -1,6 +1,6 @@
 # cmux Go SDK
 
-The Go SDK covers all 92 protocol-10 commands and 45 event shapes using only
+The Go SDK covers all 101 protocol-12 commands and 46 event shapes using only
 the Go standard library.
 
 ```go
@@ -109,10 +109,10 @@ Required nullable fields use `RequiredNullable[T]`. Construct them with
 `RequiredValue(value)` or `RequiredNull[T]()`. Decoding rejects a missing
 required nullable field, and encoding rejects an unset zero value. Optional
 non-nullable fields remain pointers; decoding rejects an explicit `null`.
-Nullable inline enums and literals have generated field-specific types, so
-`TerminalPlacement.Lifecycle` contains
-`RequiredNullable[TerminalPlacementLifecycle]` and only accepts
-`TerminalPlacementLifecycleRunning`.
+Nullable inline enums and literals have generated field-specific types.
+Referenced enums use their shared generated type, so
+`TerminalPlacement.Lifecycle` is a `TerminalLifecycle` and accepts every
+terminal lifecycle value, including `TerminalLifecycleExited`.
 
 This presence model is a deliberate 0.4 source change. Replace `&value` in
 optional nullable generated fields with `cmux.Value(value)`, and replace a
@@ -197,7 +197,7 @@ go vet ./...
 The complete live-server consumer is `cmd/e2e`. Set `CMUX_TUI_SOCKET` and run
 `go run ./cmd/e2e`.
 
-The generated protocol-10 surface replaces incomplete legacy models.
+The generated protocol-12 surface replaces incomplete legacy models.
 `SetClientSizing` now takes `SetClientSizingOptions`, workspace registry
 mutations return their authoritative result, and `Pane` exposes
 `AsLivePane`/`AsDeadPane` for its wire union. `NewClient`, `Identify`,

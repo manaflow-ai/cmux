@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
 import { stackServerApp } from "../../lib/stack";
 
-export const dynamic = "force-dynamic";
 
 type SignOutAndSignInDependencies = {
   projectId: string | undefined;

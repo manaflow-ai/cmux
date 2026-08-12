@@ -170,6 +170,25 @@ import Testing
         ).statusLine == nil)
     }
 
+    @Test func workspaceDetailReconnectIsUnavailableDuringReauthentication() {
+        var reconnectCount = 0
+        let blocked = WorkspaceDetailView.reconnectAction(
+            connectionRequiresReauth: true
+        ) {
+            reconnectCount += 1
+        }
+        #expect(blocked == nil)
+
+        let available = WorkspaceDetailView.reconnectAction(
+            connectionRequiresReauth: false
+        ) {
+            reconnectCount += 1
+        }
+        #expect(available != nil)
+        available?()
+        #expect(reconnectCount == 1)
+    }
+
     private func chrome(
         hasStore: Bool = true,
         connectionRequiresReauth: Bool = false,
