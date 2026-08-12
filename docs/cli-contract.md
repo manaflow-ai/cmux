@@ -240,7 +240,7 @@ Examples:
 cmux read-selection --surface surface:2
 cmux read-selection --surface surface:2 --json
 cmux read-screen --surface surface:2 --selection
-cmux rpc surface.read_selection '{"surface_id":"surface:2"}'
+cmux rpc surface.read_selection '{"surface_id":"83F4E6A4-5246-4DB8-A412-9CE7B059FA6C"}'
 ```
 
 ## Command Families
