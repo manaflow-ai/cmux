@@ -8,6 +8,11 @@ import Foundation
 @MainActor
 enum BonsplitTabDragSharing {
     static let transferRegistry = TabDragTransferRegistry()
+
+    /// Ends the originating Bonsplit drag after a destination accepts it.
+    static func finishAcceptedDrop(from pasteboard: NSPasteboard = NSPasteboard(name: .drag)) {
+        transferRegistry.finish(from: pasteboard)
+    }
 }
 
 struct PaneDropContext: Equatable {
