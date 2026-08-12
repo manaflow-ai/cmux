@@ -34,4 +34,29 @@ import Testing
             )
         }
     }
+
+    @Test func unverifiedExistingEmailRoutesToOriginalMethodSignIn() {
+        let error = StackAuthError(
+            code: "USER_EMAIL_ALREADY_EXISTS",
+            message: "email is unverified",
+            details: ["would_work_if_email_was_verified": true]
+        )
+
+        #expect(
+            SignInEmailCodeFailurePolicy().action(for: error)
+                == .showOriginalMethodSignIn
+        )
+    }
+
+    @Test func genericExistingEmailErrorRemainsAnError() {
+        let error = StackAuthError(
+            code: "USER_EMAIL_ALREADY_EXISTS",
+            message: "email already exists"
+        )
+
+        #expect(
+            SignInEmailCodeFailurePolicy().action(for: error)
+                == .showError
+        )
+    }
 }
