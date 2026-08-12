@@ -61,8 +61,8 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
-    /// Hides the Tailscale setup banner for the current shell session.
-    var isTailscalePairingBannerDismissed = false
+    /// Whether the root setup-prompt coordinator currently presents its banner.
+    var showsTailscalePairingBanner = false
     var dismissTailscalePairingBanner: () -> Void = {}
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
@@ -508,7 +508,6 @@ struct WorkspaceListView: View {
             .modifier(WorkspaceListBarUnderlap())
             .safeAreaInset(edge: .top, spacing: 0) {
                 if connectionChrome == .tailscalePairingRequired,
-                   !isTailscalePairingBannerDismissed,
                    let showPairingScanner {
                     MobileTailscalePairingRequiredBanner(
                         scanPairingCode: showPairingScanner,
@@ -533,7 +532,7 @@ struct WorkspaceListView: View {
                     }
                 }
             case .tailscalePairingRequired:
-                if !isTailscalePairingBannerDismissed, let showPairingScanner {
+                if let showPairingScanner {
                     Section {
                         MobileTailscalePairingRequiredBanner(
                             scanPairingCode: showPairingScanner,
@@ -917,7 +916,7 @@ struct WorkspaceListView: View {
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             connectionStatus: connectionStatus,
-            tailscalePairingRequired: store?.tailscalePairingRequired ?? false,
+            tailscalePairingRequired: showsTailscalePairingBanner,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         )

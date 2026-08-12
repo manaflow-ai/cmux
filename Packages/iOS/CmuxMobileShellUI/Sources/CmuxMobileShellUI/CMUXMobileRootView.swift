@@ -27,7 +27,7 @@ struct CMUXMobileRootView: View {
     /// Optional environment models do not reliably invalidate this root when a
     /// child sheet mutates them. Mirror the store's existing change stream so
     /// capability closures are rebuilt for the newly selected method.
-    @State private var observedConnectionMethod: MobileConnectionMethod?
+    @State private var connectionMethodObservationToken: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -46,10 +46,9 @@ struct CMUXMobileRootView: View {
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
     @State private var didExceedStartupRestoringGate = false
-    /// Session-only dismissal for the setup reminder. Pairing and Settings
-    /// remain available, and a fresh launch can remind the user again until the
-    /// required local authorization is complete.
-    @State private var isTailscalePairingBannerDismissed = false
+    /// One owner for the setup reminder's loading, required, and dismissed
+    /// presentation phases. Durable readiness remains in the shell store.
+    @State private var tailscaleSetupPrompt = MobileTailscaleSetupPromptState()
     #if os(macOS)
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
@@ -271,12 +270,15 @@ struct CMUXMobileRootView: View {
         }
         .task(id: connectionMethodStore.map(ObjectIdentifier.init)) {
             guard let connectionMethodStore else {
-                observedConnectionMethod = nil
+                connectionMethodObservationToken = nil
                 return
             }
             for await method in connectionMethodStore.changes() {
-                observedConnectionMethod = method
+                connectionMethodObservationToken = method
             }
+        }
+        .onChange(of: store.tailscaleSetupStatus, initial: true) { _, status in
+            tailscaleSetupPrompt.apply(.shellStatusChanged(status))
         }
         .onDisappear {
             cancelInjectedAttachTask(retryLaunchRoute: true)
@@ -400,7 +402,6 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
-                isTailscalePairingBannerDismissed = false
                 #if os(iOS)
                 handleRootPresentation(.dismissPairing)
                 #else
@@ -414,11 +415,6 @@ struct CMUXMobileRootView: View {
             #endif
         }
         #if os(iOS)
-        .onChange(of: store.tailscalePairingRequired) { _, isRequired in
-            if !isRequired {
-                isTailscalePairingBannerDismissed = false
-            }
-        }
         .onChange(of: authManager.currentUser?.id) { _, _ in
             // Account identity can in principle change without an
             // isAuthenticated or team edge; re-key the keep-alive so a stale
@@ -489,7 +485,7 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
-                    isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
+                    showsTailscalePairingBanner: tailscaleSetupPrompt.showsBanner,
                     dismissTailscalePairingBanner: dismissTailscalePairingBanner,
                     showSettings: showSettings,
                     setupHelpPresentation: childSheetPresentation(
@@ -511,7 +507,7 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
-                    isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
+                    showsTailscalePairingBanner: tailscaleSetupPrompt.showsBanner,
                     dismissTailscalePairingBanner: dismissTailscalePairingBanner,
                     showSettings: showSettings,
                     showComputers: showComputers,
@@ -528,7 +524,7 @@ struct CMUXMobileRootView: View {
     }
 
     private func dismissTailscalePairingBanner() {
-        isTailscalePairingBannerDismissed = true
+        tailscaleSetupPrompt.apply(.dismiss)
     }
 
     #if os(macOS)
@@ -749,8 +745,11 @@ struct CMUXMobileRootView: View {
         case .useAutoConnect:
             connectionMethodStore?.method = .automatic
             autoConnectMigrationStore?.acknowledge()
-        case .setUpTailscale:
+        case let .setUpTailscale(requiresPairing):
             connectionMethodStore?.method = .tailscale
+            tailscaleSetupPrompt.apply(
+                .selectedTailscale(requiresPairing: requiresPairing)
+            )
             autoConnectMigrationStore?.acknowledge()
         case .finishPairing:
             finishPairingPresentation()
@@ -1042,14 +1041,13 @@ struct CMUXMobileRootView: View {
 
     private var allowsManualPairing: Bool {
         #if os(iOS)
-        // The pairing-required signal is derived from the source-of-truth
-        // method store. It can become true before the observation stream has
-        // delivered its next value after the migration sheet closes, so use it
-        // to keep the recovery scanner available during that transition.
-        store.tailscalePairingRequired
-            || (observedConnectionMethod ?? connectionMethodStore?.method) == .tailscale
+        // The stream value is only an invalidation token. Read the authoritative
+        // store synchronously so the migration transition can expose pairing in
+        // the same render that selects Tailscale.
+        _ = connectionMethodObservationToken
+        return connectionMethodStore?.method == .tailscale
         #else
-        true
+        return true
         #endif
     }
 

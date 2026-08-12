@@ -73,7 +73,7 @@ struct MobileRootPresentationState: Equatable {
         case none
         case acknowledgeAutoConnectMigration
         case useAutoConnect
-        case setUpTailscale
+        case setUpTailscale(requiresPairing: Bool)
         case finishPairing
         case retryAutoConnectMigration
     }
@@ -127,7 +127,7 @@ struct MobileRootPresentationState: Equatable {
             presentation = hasUsableAuthorization
                 ? nil
                 : .pairing(.scanner(entry: .autoConnectMigration))
-            return .setUpTailscale
+            return .setUpTailscale(requiresPairing: !hasUsableAuthorization)
 
         case .presentSettings:
             guard presentation == nil else { return .none }

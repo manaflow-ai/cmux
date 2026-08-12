@@ -666,6 +666,7 @@ import Testing
 
         #expect(store.pairedMacLoadState == .notLoaded)
         #expect(!store.hasKnownPairedMac)
+        #expect(store.tailscaleSetupStatus == .pairingRequired)
         #expect(store.tailscalePairingRequired)
     }
 
@@ -689,8 +690,10 @@ import Testing
             pairingHintDefaults: pairingDefaults
         )
 
+        #expect(store.tailscaleSetupStatus == .loadingAuthorization)
         #expect(!store.tailscalePairingRequired)
         store.pairedMacLoadState = .failed
+        #expect(store.tailscaleSetupStatus == .pairingRequired)
         #expect(store.tailscalePairingRequired)
     }
 

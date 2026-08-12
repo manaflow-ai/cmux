@@ -1,4 +1,5 @@
 import Testing
+import CmuxMobileShell
 
 @testable import CmuxMobileShellUI
 
@@ -21,7 +22,8 @@ struct MobileRootPresentationStateTests {
 
         let scanner = PairingPresentation.scanner(entry: .autoConnectMigration)
         #expect(
-            state.apply(.setUpTailscale(hasUsableAuthorization: false)) == .setUpTailscale
+            state.apply(.setUpTailscale(hasUsableAuthorization: false))
+                == .setUpTailscale(requiresPairing: true)
         )
         #expect(state.presentation == .pairing(scanner))
         #expect(state.isRootSheetPresented)
@@ -32,9 +34,42 @@ struct MobileRootPresentationStateTests {
         state.apply(.presentAutoConnectMigrationIfIdle)
 
         #expect(
-            state.apply(.setUpTailscale(hasUsableAuthorization: true)) == .setUpTailscale
+            state.apply(.setUpTailscale(hasUsableAuthorization: true))
+                == .setUpTailscale(requiresPairing: false)
         )
         #expect(state.isIdle)
+    }
+
+    @Test func tailscalePromptLatchesMigrationRequirementAcrossShellLoading() {
+        var state = MobileTailscaleSetupPromptState()
+
+        state.apply(.selectedTailscale(requiresPairing: true))
+        #expect(state.showsBanner)
+
+        state.apply(.shellStatusChanged(.loadingAuthorization))
+        #expect(state.showsBanner)
+
+        state.apply(.dismiss)
+        #expect(!state.showsBanner)
+        #expect(state.presentation == .dismissed)
+
+        state.apply(.shellStatusChanged(.pairingRequired))
+        #expect(!state.showsBanner)
+        #expect(state.presentation == .dismissed)
+    }
+
+    @Test func tailscalePromptFollowsDurableReadinessAcrossLaunches() {
+        var state = MobileTailscaleSetupPromptState()
+
+        state.apply(.shellStatusChanged(.loadingAuthorization))
+        #expect(!state.showsBanner)
+
+        state.apply(.shellStatusChanged(.pairingRequired))
+        #expect(state.showsBanner)
+
+        state.apply(.shellStatusChanged(.authorized))
+        #expect(!state.showsBanner)
+        #expect(state.presentation == .followsShell)
     }
 
     @Test func interactiveIntroductionDismissalRequestsAcknowledgement() {

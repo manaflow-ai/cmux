@@ -20,7 +20,7 @@ struct WorkspaceShellHost: View {
     let signOut: @MainActor @Sendable () -> Void
     let showAddDevice: (() -> Void)?
     let showPairingScanner: (() -> Void)?
-    var isTailscalePairingBannerDismissed = false
+    var showsTailscalePairingBanner = false
     var dismissTailscalePairingBanner: () -> Void = {}
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
@@ -41,7 +41,7 @@ struct WorkspaceShellHost: View {
             retryInitialConnection: retry,
             showAddDevice: showAddDevice,
             showPairingScanner: showPairingScanner,
-            isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
+            showsTailscalePairingBanner: showsTailscalePairingBanner,
             dismissTailscalePairingBanner: dismissTailscalePairingBanner,
             showSettings: showSettings,
             showComputers: showComputers,

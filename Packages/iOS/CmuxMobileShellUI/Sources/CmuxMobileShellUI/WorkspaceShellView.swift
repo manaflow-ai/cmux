@@ -160,8 +160,8 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
-    /// Hides the Tailscale setup banner for the current shell session.
-    var isTailscalePairingBannerDismissed = false
+    /// Whether the root setup-prompt coordinator currently presents its banner.
+    var showsTailscalePairingBanner = false
     var dismissTailscalePairingBanner: () -> Void = {}
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
@@ -666,8 +666,8 @@ struct WorkspaceShellView: View {
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
             signOut: signOut,
-            reconnect: store.tailscalePairingRequired ? nil : reconnectClosure,
-            isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
+            reconnect: showsTailscalePairingBanner ? nil : reconnectClosure,
+            showsTailscalePairingBanner: showsTailscalePairingBanner,
             dismissTailscalePairingBanner: dismissTailscalePairingBanner,
             showAddDevice: showAddDevice,
             showComputers: showComputers,
@@ -705,7 +705,7 @@ struct WorkspaceShellView: View {
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
-            reconnect: store.tailscalePairingRequired ? nil : reconnectClosure
+            reconnect: showsTailscalePairingBanner ? nil : reconnectClosure
         )
     }
 
@@ -720,7 +720,7 @@ struct WorkspaceShellView: View {
             connectionRecoveryFailed: store.connectionRecoveryFailed,
             isRecoveringConnection: store.isRecoveringConnection,
             connectionStatus: listConnectionStatus,
-            tailscalePairingRequired: store.tailscalePairingRequired,
+            tailscalePairingRequired: showsTailscalePairingBanner,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         ).statusLine
