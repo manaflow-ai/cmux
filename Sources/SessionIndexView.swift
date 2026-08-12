@@ -371,7 +371,6 @@ struct IndexSectionView: View, Equatable {
     /// earlier `store` / `dragCoordinator` class references so rows can't
     /// observe the store.
     let actions: IndexSectionActions
-    @State private var sessionDragRegions = SessionDragRegionStore()
 
     /// Skip body re-eval when this view's inputs are unchanged. `actions` is
     /// not comparable (closures) but is expected to be stable (closures
@@ -397,6 +396,7 @@ struct IndexSectionView: View, Equatable {
                     SessionRow(
                         entry: row.entry,
                         isPreviewPresented: previewEntryId == row.entry.id,
+                        beginSessionDrag: actions.beginSessionDrag,
                         onPreview: { actions.onPreviewEntry(row.entry) },
                         onResume: actions.onResume
                     )
@@ -405,14 +405,12 @@ struct IndexSectionView: View, Equatable {
                         .onGeometryChange(for: CGRect.self) { proxy in
                             proxy.frame(in: .named(Self.popoverAnchorCoordinateSpace))
                         } action: { frame in
-                            sessionDragRegions.update(row, frame: frame)
                             onPopoverAnchorChange(
                                 .transcript(section: section.key, entry: row.entry.id),
                                 frame
                             )
                         }
                         .onDisappear {
-                            sessionDragRegions.remove(row.id)
                             onPopoverAnchorChange(
                                 .transcript(section: section.key, entry: row.entry.id),
                                 nil
@@ -426,12 +424,6 @@ struct IndexSectionView: View, Equatable {
             }
         }
         .opacity(isDragged ? 0.45 : 1.0)
-        .background(
-            SessionDragMonitor(
-                regions: sessionDragRegions,
-                beginDrag: actions.beginSessionDrag
-            )
-        )
         .coordinateSpace(name: Self.popoverAnchorCoordinateSpace)
     }
 
@@ -588,6 +580,7 @@ private struct SectionGapDropDelegate: DropDelegate {
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
     let isPreviewPresented: Bool
+    let beginSessionDrag: SessionDragBeginAction
     let onPreview: () -> Void
     let onResume: ((SessionEntry) -> Void)?
     @State private var isHovered: Bool = false
@@ -621,9 +614,11 @@ private struct SessionRow: View, Equatable {
         .background(rowBackground)
         .onHover { isHovered = $0 }
         .help(helpText)
-        .onTapGesture(count: 2) {
-            onPreview()
-        }
+        .overlay(SessionDragSource(
+            entry: entry,
+            beginDrag: beginSessionDrag,
+            onDoubleClick: onPreview
+        ))
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: onResume)
         }
@@ -1957,8 +1952,6 @@ private struct EscapeKeyCatcher: NSViewRepresentable {
 // MARK: - "Show more" popover with search
 
 struct SectionPopoverView: View {
-    private static let sessionDragCoordinateSpace = "session-popover-drag"
-
     let section: IndexSection
     /// Closure-typed search handle. The popover never holds a reference to
     /// `SessionIndexStore`; the parent view is the only owner.
@@ -1974,10 +1967,9 @@ struct SectionPopoverView: View {
     @State private var query: String = ""
     @FocusState private var searchFieldFocused: Bool
 
-    /// Rows currently rendered in the popover. In snapshot mode this is a
-    /// prefix of `fullSnapshot`; in typed-query mode it's the accumulated
-    /// pages from the store.
-    @State private var loaded: [SessionEntry] = []
+    /// Rows currently rendered in the popover. Presentation identities are
+    /// computed only when loaded data changes, never during a body update.
+    @State private var loadedRows: [SessionIndexRowSnapshot] = []
     @State private var hasMore: Bool = true
     @State private var isLoading: Bool = false
     @State private var activeQuery: String = ""
@@ -1990,8 +1982,6 @@ struct SectionPopoverView: View {
     /// only). When non-nil, `loadMore()` slices this array in memory
     /// instead of hitting the store.
     @State private var fullSnapshot: [SessionEntry]?
-    @State private var sessionDragRegions = SessionDragRegionStore()
-
     private static let pageSize = 100
 
     var body: some View {
@@ -2063,9 +2053,9 @@ struct SectionPopoverView: View {
             }
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if isLoading && loaded.isEmpty {
+                    if isLoading && loadedRows.isEmpty {
                         loadingRow
-                    } else if loaded.isEmpty {
+                    } else if loadedRows.isEmpty {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
                             .cmuxFont(size: 12)
@@ -2074,20 +2064,15 @@ struct SectionPopoverView: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        ForEach(SessionIndexRowSnapshot.rows(for: loaded)) { row in
-                            PopoverRow(entry: row.entry) {
+                        ForEach(loadedRows) { row in
+                            PopoverRow(
+                                entry: row.entry,
+                                beginSessionDrag: beginSessionDrag
+                            ) {
                                 onResume?(row.entry)
                                 onDismiss()
                             }
                             .equatable()
-                            .onGeometryChange(for: CGRect.self) { proxy in
-                                proxy.frame(in: .named(Self.sessionDragCoordinateSpace))
-                            } action: { frame in
-                                sessionDragRegions.update(row, frame: frame)
-                            }
-                            .onDisappear {
-                                sessionDragRegions.remove(row.id)
-                            }
                         }
                         if hasMore {
                             // Always visible while more pages exist. Serves
@@ -2118,15 +2103,8 @@ struct SectionPopoverView: View {
         // and squashed the top header padding.
         .frame(width: 360)
         .background(
-            SessionDragMonitor(
-                regions: sessionDragRegions,
-                beginDrag: beginSessionDrag
-            )
-        )
-        .background(
             EscapeKeyCatcher { onDismiss() }
         )
-        .coordinateSpace(name: Self.sessionDragCoordinateSpace)
         // Single SwiftUI-owned lifecycle for the initial load and every
         // query change. `.task(id: query)` auto-cancels on view disappear
         // AND on any `query` change, so we don't need onAppear +
@@ -2153,7 +2131,7 @@ struct SectionPopoverView: View {
                 // have while the full snapshot builds in parallel. On
                 // warm cache the snapshot returns immediately and the
                 // fast-path rows are replaced in the same tick.
-                loaded = section.entries
+                loadedRows = SessionIndexRowSnapshot.rows(for: section.entries)
                 hasMore = !section.entries.isEmpty
 
                 // Build-or-return the full directory snapshot. For
@@ -2174,9 +2152,11 @@ struct SectionPopoverView: View {
                     guard !Task.isCancelled else { return }
                     fullSnapshot = snapshot.entries
                     // Show the first page's worth immediately; loadMore
-                    // grows `loaded` from the snapshot on scroll.
+                    // grows `loadedRows` from the snapshot on scroll.
                     let initialWindow = min(Self.pageSize, snapshot.entries.count)
-                    loaded = Array(snapshot.entries.prefix(initialWindow))
+                    loadedRows = SessionIndexRowSnapshot.rows(
+                        for: snapshot.entries.prefix(initialWindow)
+                    )
                     hasMore = initialWindow < snapshot.entries.count
                     errorMessages = snapshot.errors
                     isLoading = false
@@ -2192,7 +2172,7 @@ struct SectionPopoverView: View {
             // keystrokes bump id: and SwiftUI cancels before the search
             // fires.
             fullSnapshot = nil
-            loaded = []
+            loadedRows = []
             hasMore = true
             isLoading = true
 
@@ -2229,7 +2209,7 @@ struct SectionPopoverView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Append the next page to `loaded`. Triggered by the sentinel row's
+    /// Append the next page to `loadedRows`. Triggered by the sentinel row's
     /// onAppear. In snapshot mode (empty-query directory scope) this is a
     /// pure in-memory array slice with zero store calls. In typed-query mode
     /// it fires a paged search. Explicitly cancels any earlier load-more
@@ -2239,8 +2219,8 @@ struct SectionPopoverView: View {
         guard !isLoading, hasMore else { return }
 
         if let snapshot = fullSnapshot {
-            let next = min(loaded.count + Self.pageSize, snapshot.count)
-            loaded = Array(snapshot.prefix(next))
+            let next = min(loadedRows.count + Self.pageSize, snapshot.count)
+            loadedRows = SessionIndexRowSnapshot.rows(for: snapshot.prefix(next))
             hasMore = next < snapshot.count
             return
         }
@@ -2249,7 +2229,7 @@ struct SectionPopoverView: View {
         let scope = sectionSearchScope
         let search = self.search
         let query = activeQuery
-        let offset = loaded.count
+        let offset = loadedRows.count
         tasks.replaceOnMainActor("loadMore") {
             let outcome = await search(query, scope, offset, Self.pageSize)
             guard !Task.isCancelled else { return }
@@ -2263,22 +2243,24 @@ struct SectionPopoverView: View {
     @MainActor
     private func applyOutcome(_ outcome: SessionIndexStore.SearchOutcome, append: Bool) {
         // `append` is only reached from the paged path (typed query or
-        // agent scope). In both cases `offset = loaded.count` is
+        // agent scope). In both cases `offset = loadedRows.count` is
         // monotonic against the store's ordering, so raw-append is
         // correct. The empty-query directory case uses the snapshot
         // path and never reaches here.
         //
         // Earlier revisions of this method dedup-filtered outcome.entries
         // on entry.id; with `hasMore = outcome.entries.count >=
-        // pageSize` and `offset = loaded.count`, filtering caused
-        // loaded.count to advance more slowly than the raw page size,
+        // pageSize` and `offset = loadedRows.count`, filtering caused
+        // loadedRows.count to advance more slowly than the raw page size,
         // which kept hasMore perpetually true and re-requested the
         // same window. Removing the dedup makes the cursor match the
         // page boundaries the store actually returns.
         if append {
-            loaded.append(contentsOf: outcome.entries)
+            loadedRows = SessionIndexRowSnapshot.rows(
+                for: Array(loadedRows.lazy.map(\.entry)) + outcome.entries
+            )
         } else {
-            loaded = outcome.entries
+            loadedRows = SessionIndexRowSnapshot.rows(for: outcome.entries)
         }
         hasMore = outcome.entries.count >= Self.pageSize
         errorMessages = outcome.errors
@@ -2314,6 +2296,7 @@ struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    let beginSessionDrag: SessionDragBeginAction
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
@@ -2369,7 +2352,11 @@ private struct PopoverRow: View, Equatable {
         .contentShape(Rectangle())
         .background(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         .onHover { isHovered = $0 }
-        .onTapGesture(count: 2) { onActivate() }
+        .overlay(SessionDragSource(
+            entry: entry,
+            beginDrag: beginSessionDrag,
+            onDoubleClick: onActivate
+        ))
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })

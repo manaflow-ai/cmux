@@ -15,11 +15,6 @@ final class SessionDragRegistry {
 
     private var state: State = .idle
 
-    var activeDragID: UUID? {
-        guard case .active(let id, _) = state else { return nil }
-        return id
-    }
-
     func register(_ entry: SessionEntry) -> UUID {
         let id = UUID()
         // AppKit permits only one process-local drag at a time. Replacing an
