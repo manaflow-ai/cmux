@@ -13274,6 +13274,8 @@ extension GhosttyNSView: NSTextInputClient {
             }
         }
         flushBufferedText()
+    }
+
     private func sendCommittedTextChunk(_ text: String) {
         guard !text.isEmpty else { return }
         if deferRuntimeInputDuringClipboardRead(
