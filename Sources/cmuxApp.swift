@@ -195,11 +195,7 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        guard let tabDragTransferRegistry = AppDelegate.shared?.tabDragTransferRegistry else {
-            preconditionFailure("NSApplicationDelegateAdaptor must initialize AppDelegate before cmuxApp")
-        }
         let tabManager = TabManager(
-            tabDragTransferRegistry: tabDragTransferRegistry,
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )

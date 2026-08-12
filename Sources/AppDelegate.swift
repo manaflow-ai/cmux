@@ -561,7 +561,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
-    let tabDragTransferRegistry = TabDragTransferRegistry()
+    private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
+    var tabDragTransferRegistry: TabDragTransferRegistry {
+        if let tabDragTransferRegistryStorage {
+            return tabDragTransferRegistryStorage
+        }
+        let registry = TabDragTransferRegistry()
+        tabDragTransferRegistryStorage = registry
+        return registry
+    }
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
@@ -2298,8 +2306,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
+        if let tabDragTransferRegistryStorage {
+            precondition(
+                tabDragTransferRegistryStorage === tabManager.tabDragTransferRegistry,
+                "AppDelegate pane-transfer registry must match the initial TabManager"
+            )
+        }
+        tabDragTransferRegistryStorage = tabManager.tabDragTransferRegistry
         // SwiftUI constructs the initial TabManager before this delegate is
-        // available; adopt its coordinator so every later window shares it.
+        // available; adopt its coordinators so every later window shares them.
         pullRequestProbeService = tabManager.pullRequestProbeService
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
