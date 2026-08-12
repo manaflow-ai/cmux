@@ -156,6 +156,89 @@ struct VaultPaneTransferLifecycleTests {
         }
     }
 
+    @Test("Every repeated Vault row survives prior drag cleanup")
+    func repeatedVaultRowsSurvivePriorDragCleanup() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try AppFixture()
+            defer { fixture.tearDown() }
+
+            let initialPanelID = try #require(fixture.workspace.focusedPanelId)
+            let targetPane = try #require(fixture.workspace.paneId(forPanelId: initialPanelID))
+            let browser = try #require(fixture.workspace.newBrowserSurface(
+                inPane: targetPane,
+                url: URL(string: "about:blank"),
+                focus: true,
+                creationPolicy: .restoration,
+                allowsExternalBrowserFallback: false
+            ))
+            let context = PaneDropContext(
+                workspaceId: fixture.workspace.id,
+                panelId: browser.id,
+                paneId: targetPane
+            )
+
+            let duplicate = Self.makeEntry(sessionID: "repeated-folder-duplicate")
+            let rows = SessionIndexRowSnapshot.rows(for: [
+                duplicate,
+                duplicate,
+                Self.makeEntry(sessionID: "repeated-folder-distinct"),
+            ])
+            #expect(Set(rows.map(\.id)).count == rows.count)
+
+            let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+            let window = NSWindow(
+                contentRect: frame,
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer { window.orderOut(nil) }
+            let root = try #require(window.contentView)
+            let host = WindowBrowserHostView(frame: root.bounds)
+            root.addSubview(host)
+            let slot = WindowBrowserSlotView(frame: host.bounds)
+            host.addSubview(slot)
+            slot.setPaneDropContext(context)
+            host.layoutSubtreeIfNeeded()
+            slot.layoutSubtreeIfNeeded()
+            let point = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
+            let target = try #require(slot.paneDropTargetForDrop(at: point))
+
+            for (index, row) in rows.enumerated() {
+                let dragID = SessionDragRegistry.shared.register(row.entry)
+                defer { SessionDragRegistry.shared.discard(id: dragID) }
+                let pasteboard = try Self.vaultPasteboard(dragID: dragID)
+                let dragInfo = MockDraggingInfo(
+                    window: window,
+                    location: slot.convert(point, to: nil),
+                    pasteboard: pasteboard,
+                    sequenceNumber: index + 1
+                )
+                let baselinePanelIDs = Set(fixture.workspace.panels.keys)
+
+                #expect(target.draggingEntered(dragInfo) == .move)
+                if index == 0 {
+                    // Model release-time cleanup after the target already accepted
+                    // the drag. Execution must use that resolved plan, not re-read
+                    // mutable process-wide drag state.
+                    SessionDragRegistry.shared.discard(id: dragID)
+                }
+                #expect(target.prepareForDragOperation(dragInfo))
+                #expect(target.performDragOperation(dragInfo))
+
+                let createdPanelIDs = Set(fixture.workspace.panels.keys)
+                    .subtracting(baselinePanelIDs)
+                #expect(createdPanelIDs.count == 1)
+                let createdPanelID = try #require(createdPanelIDs.first)
+                let terminal = try #require(fixture.workspace.terminalPanel(for: createdPanelID))
+                #expect(
+                    terminal.surface.debugInitialInputForTesting()
+                        == row.entry.resumeLaunch?.initialInput
+                )
+            }
+        }
+    }
+
     private static func performDrop(
         targetKind: TargetKind,
         placement: Placement,
@@ -304,17 +387,23 @@ struct VaultPaneTransferLifecycleTests {
         let draggedImage: NSImage? = nil
         nonisolated(unsafe) let draggingPasteboard: NSPasteboard
         nonisolated(unsafe) let draggingSource: Any? = nil
-        let draggingSequenceNumber = 1
+        let draggingSequenceNumber: Int
         var draggingFormation: NSDraggingFormation = .default
         var animatesToDestination = false
         var numberOfValidItemsForDrop = 1
         let springLoadingHighlight: NSSpringLoadingHighlight = .none
 
-        init(window: NSWindow, location: NSPoint, pasteboard: NSPasteboard) {
+        init(
+            window: NSWindow,
+            location: NSPoint,
+            pasteboard: NSPasteboard,
+            sequenceNumber: Int = 1
+        ) {
             draggingDestinationWindow = window
             draggingLocation = location
             draggedImageLocation = location
             draggingPasteboard = pasteboard
+            draggingSequenceNumber = sequenceNumber
         }
 
         func slideDraggedImage(to screenPoint: NSPoint) {}
