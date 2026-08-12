@@ -7,6 +7,7 @@ struct SessionDragPayload {
     let dragID: UUID
 
     /// Creates a lease in the pane registry shared by every eligible target.
+    @MainActor
     func register(
         with registry: TabDragTransferRegistry
     ) -> TabDragTransferRegistration? {
