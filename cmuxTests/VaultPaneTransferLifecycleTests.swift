@@ -27,7 +27,7 @@ struct VaultPaneTransferLifecycleTests {
         let placement: Placement
     }
 
-    private static let dockDropCases = [
+    private nonisolated static let dockDropCases = [
         DockDropCase(targetKind: .terminal, placement: .center),
         DockDropCase(targetKind: .terminal, placement: .right),
         DockDropCase(targetKind: .browser, placement: .center),
@@ -101,7 +101,7 @@ struct VaultPaneTransferLifecycleTests {
         "Dock terminal and browser targets accept Vault sessions with shared placement",
         arguments: dockDropCases
     )
-    func dockTargetsAcceptVaultSessions(_ dropCase: DockDropCase) async throws {
+    private func dockTargetsAcceptVaultSessions(_ dropCase: DockDropCase) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try AppFixture()
             defer { fixture.tearDown() }
@@ -362,7 +362,7 @@ struct VaultPaneTransferLifecycleTests {
         ))
     }
 
-    private final class AppFixture {
+    @MainActor private final class AppFixture {
         let previousAppDelegate: AppDelegate?
         let appDelegate: AppDelegate
         let manager: TabManager
@@ -376,7 +376,8 @@ struct VaultPaneTransferLifecycleTests {
             AppDelegate.shared = appDelegate
             appDelegate.tabManager = manager
             windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-            workspace = try #require(manager.selectedWorkspace)
+            let selectedWorkspace = manager.selectedWorkspace
+            workspace = try #require(selectedWorkspace)
         }
 
         func tearDown() {

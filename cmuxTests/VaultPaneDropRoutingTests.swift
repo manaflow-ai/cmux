@@ -27,7 +27,7 @@ struct VaultPaneDropRoutingTests {
         let placement: Placement
     }
 
-    private static let dropCases = [
+    private nonisolated static let dropCases = [
         DropCase(targetKind: .terminal, placement: .center),
         DropCase(targetKind: .terminal, placement: .right),
         DropCase(targetKind: .browser, placement: .center),
