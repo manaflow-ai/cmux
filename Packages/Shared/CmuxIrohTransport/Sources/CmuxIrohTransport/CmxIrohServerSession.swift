@@ -16,6 +16,8 @@ public actor CmxIrohServerSession {
     private let streamHeaderClock: any CmxIrohRelayClock
     private let streamHeaderTimeout: TimeInterval
     private var controlStream: CmxIrohBidirectionalStream?
+    private var parentCloseTask: Task<Void, Never>?
+    private var postCloseCleanupTask: Task<Void, Never>?
     private var controlReceiveBuffer = Data()
     private var admittedPeer: CmxIrohAdmittedPeer?
     private var onlineAdmissionLease: CmxIrohOnlineAdmissionLease?
@@ -255,7 +257,6 @@ public actor CmxIrohServerSession {
 
     /// Closes the session while retaining the host-side failure that initiated the close.
     func close(failure: DiagnosticFailureKind) async {
-        guard !closed else { return }
         if explicitCloseFailure == nil {
             explicitCloseFailure = failure
         }
@@ -276,17 +277,38 @@ public actor CmxIrohServerSession {
     }
 
     private func closeConnection() async {
+        if let parentCloseTask {
+            await parentCloseTask.value
+            return
+        }
         guard !closed else { return }
         closed = true
-        if let controlStream {
-            await controlStream.sendStream.reset(errorCode: 0)
-            await controlStream.receiveStream.stop(errorCode: 0)
-        }
-        await connection.close(errorCode: 0, reason: "server_closed")
+        let controlStreamToClose = controlStream
         self.controlStream = nil
         admittedPeer = nil
         onlineAdmissionLease = nil
         controlReceiveBuffer.removeAll(keepingCapacity: false)
+
+        // Whole-session retirement closes the parent first. A read or write in
+        // Iroh FFI can own its stream mutex indefinitely, while parent close is
+        // local and wakes every child operation.
+        let connection = connection
+        let parentCloseTask = Task {
+            await connection.close(errorCode: 0, reason: "server_closed")
+        }
+        self.parentCloseTask = parentCloseTask
+        postCloseCleanupTask = Task {
+            await parentCloseTask.value
+            if let controlStreamToClose {
+                await controlStreamToClose.sendStream.reset(errorCode: 0)
+                await controlStreamToClose.receiveStream.stop(errorCode: 0)
+            }
+        }
+        await parentCloseTask.value
+    }
+
+    func waitForPostCloseCleanup() async {
+        await postCloseCleanupTask?.value
     }
 
     private func admittedControlStream() throws -> CmxIrohBidirectionalStream {

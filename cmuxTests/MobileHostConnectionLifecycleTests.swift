@@ -13,6 +13,47 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test func testHostReleasesRegistryBeforeBlockedEventStreamCleanup() async {
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        let connectionID = UUID()
+        let transport = GatedMobileHostByteTransport()
+        let independentWriter = GatedCloseMobileHostIndependentEventWriter()
+        let closeRecorder = MobileHostConnectionCloseRecorder()
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: transport,
+            independentEventWriter: independentWriter,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                registry.remove(id: id)
+                await closeRecorder.record(id)
+            }
+        )
+        #expect(registry.insert(
+            session,
+            id: connectionID,
+            authorization: .stackBearer,
+            limit: 2
+        ))
+
+        let close = Task {
+            await session.close(reason: "retire")
+        }
+        await independentWriter.waitUntilCloseStarted()
+
+        #expect(await transport.observedCloseCount() == 1)
+        #expect(await closeRecorder.recordedIDs() == [connectionID])
+        #expect(registry.count == 0)
+
+        await independentWriter.releaseClose()
+        await close.value
+    }
+
     @Test func testMobileHostConnectionRunOwnsTransportUntilRemoteClose() async {
         let connectionID = UUID()
         let transport = GatedMobileHostByteTransport()
@@ -733,6 +774,41 @@ private actor GatedMobileHostByteTransport: CmxByteTransport {
         receiveCancellationObserved = true
         receiveContinuation?.resume(returning: nil)
         receiveContinuation = nil
+    }
+}
+
+private actor GatedCloseMobileHostIndependentEventWriter:
+    MobileHostIndependentEventWriting
+{
+    private let closeStartedStream: AsyncStream<Void>
+    private let closeStartedContinuation: AsyncStream<Void>.Continuation
+    private var closeWaiter: CheckedContinuation<Void, Never>?
+
+    init() {
+        let pair = AsyncStream<Void>.makeStream()
+        closeStartedStream = pair.stream
+        closeStartedContinuation = pair.continuation
+    }
+
+    func probe(_: Data) async -> Bool { true }
+    func send(_: Data) async throws {}
+    func reset() async {}
+
+    func close() async {
+        closeStartedContinuation.yield()
+        await withCheckedContinuation { continuation in
+            closeWaiter = continuation
+        }
+    }
+
+    func waitUntilCloseStarted() async {
+        var iterator = closeStartedStream.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+
+    func releaseClose() {
+        closeWaiter?.resume()
+        closeWaiter = nil
     }
 }
 

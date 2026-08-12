@@ -477,6 +477,45 @@ struct CmxConnectivityEngineTests {
     }
 
     @Test
+    func closingTransportDuringAdmissionRetiresThePendingOwner() async throws {
+        let blockedAdmission = GatedAdmissionReceiveStream(
+            buffer: CmxIrohAdmissionAckCodec()
+                .encodeFrame(.acceptedRelayOnly)
+        )
+        let rig = try await Self.admittedPeerRig(
+            responses: [
+                Self.peerRouteResponse(
+                    revision: 9,
+                    lastSeenAt: "2026-07-30T00:00:00Z"
+                ),
+            ],
+            dialableConnections: 2,
+            firstAdmissionReceiveStream: blockedAdmission
+        )
+        let retiring = CmxConnectivityByteTransport(
+            request: rig.request,
+            engine: rig.engine
+        )
+        let blockedConnect = Task { try await retiring.connect() }
+        await blockedAdmission.waitUntilBlocked()
+
+        await retiring.close()
+
+        #expect(await rig.connections[0].observedCloseCallCount() == 1)
+        let replacement = CmxConnectivityByteTransport(
+            request: rig.request,
+            engine: rig.engine
+        )
+        try await replacement.connect()
+        #expect(await rig.connections[1].observedBidirectionalStreamOpenCount() == 1)
+
+        await replacement.close()
+        await blockedAdmission.release()
+        _ = await blockedConnect.result
+        await rig.engine.stop()
+    }
+
+    @Test
     func olderRouteRevisionInstallCannotRollBackANewerInstall() async throws {
         let rig = try await Self.admittedPeerRig(responses: [
             Self.peerRouteResponse(
@@ -547,21 +586,28 @@ struct CmxConnectivityEngineTests {
 
     private static func admittedPeerRig(
         responses: [CmxConnectivitySyncResponse],
-        dialableConnections: Int = 1
+        dialableConnections: Int = 1,
+        firstAdmissionReceiveStream: (any CmxIrohReceiveStream)? = nil
     ) async throws -> AdmittedPeerRig {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "1", count: 64)
         )
         let peerIdentity = try CmxIrohPeerIdentity(endpointID: peerEndpointID)
-        let connections = (0 ..< dialableConnections).map { _ in
-            TestIrohConnection(
-                remoteIdentity: peerIdentity,
-                bidirectionalStreams: [CmxIrohBidirectionalStream(
-                    receiveStream: TestIrohReceiveStream(
+        let connections = (0 ..< dialableConnections).map { index in
+            let receiveStream: any CmxIrohReceiveStream =
+                if index == 0, let firstAdmissionReceiveStream {
+                    firstAdmissionReceiveStream
+                } else {
+                    TestIrohReceiveStream(
                         buffer: CmxIrohAdmissionAckCodec()
                             .encodeFrame(.acceptedPendingNatTraversal)
                             + admissionFrame(status: 3)
-                    ),
+                    )
+                }
+            return TestIrohConnection(
+                remoteIdentity: peerIdentity,
+                bidirectionalStreams: [CmxIrohBidirectionalStream(
+                    receiveStream: receiveStream,
                     sendStream: TestIrohSendStream()
                 )],
                 selectedPath: .direct
@@ -739,6 +785,60 @@ struct CmxConnectivityEngineTests {
         }
         struct TimedOut: Error {}
         throw TimedOut()
+    }
+}
+
+private actor GatedAdmissionReceiveStream: CmxIrohReceiveStream {
+    private var buffer: Data
+    private var blocked = false
+    private var released = false
+    private var blockedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var receiveWaiter: CheckedContinuation<Data?, any Error>?
+    private var stopWaiter: CheckedContinuation<Void, Never>?
+
+    init(buffer: Data) {
+        self.buffer = buffer
+    }
+
+    func receive(maximumByteCount: Int) async throws -> Data? {
+        guard maximumByteCount > 0 else {
+            throw CmxIrohClientSessionError.invalidMaximumByteCount(
+                maximumByteCount
+            )
+        }
+        if !buffer.isEmpty {
+            let count = min(maximumByteCount, buffer.count)
+            let value = Data(buffer.prefix(count))
+            buffer.removeFirst(count)
+            return value
+        }
+        if released { return nil }
+        blocked = true
+        let waiters = blockedWaiters
+        blockedWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        return try await withCheckedThrowingContinuation {
+            receiveWaiter = $0
+        }
+    }
+
+    func stop(errorCode _: UInt64) async {
+        guard !released else { return }
+        await withCheckedContinuation { stopWaiter = $0 }
+    }
+
+    func waitUntilBlocked() async {
+        guard !blocked else { return }
+        await withCheckedContinuation { blockedWaiters.append($0) }
+    }
+
+    func release() {
+        guard !released else { return }
+        released = true
+        receiveWaiter?.resume(returning: nil)
+        receiveWaiter = nil
+        stopWaiter?.resume()
+        stopWaiter = nil
     }
 }
 

@@ -444,6 +444,37 @@ import Testing
         await secondCleanup.release()
     }
 
+    @Test func blockedPostCloseReceiptsDoNotConsumeRouteAdmission()
+        async {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let key = debugConnectAttemptKey(port: 59_136)
+        let firstReceipt = PhysicalCleanupGate()
+        let secondReceipt = PhysicalCleanupGate()
+
+        await registry.trackPostCloseCleanup {
+            await firstReceipt.wait()
+        }
+        await registry.trackPostCloseCleanup {
+            await secondReceipt.wait()
+        }
+
+        guard case let .granted(firstLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Post-close receipts must not block route admission")
+            return
+        }
+        await registry.finishConnect(lease: firstLease)
+        guard case let .granted(secondLease) =
+                await registry.beginConnect(key: key) else {
+            Issue.record("Post-close receipts must not consume route quota")
+            return
+        }
+        await registry.finishConnect(lease: secondLease)
+
+        await firstReceipt.release()
+        await secondReceipt.release()
+    }
+
     @Test func timedOutPhysicalCloseIsHandedOffWithoutCancellation()
         async throws {
         let registry = MobileRPCConnectAttemptRegistry()

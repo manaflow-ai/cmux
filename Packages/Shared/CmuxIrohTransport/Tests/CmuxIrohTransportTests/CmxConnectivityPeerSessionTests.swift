@@ -75,6 +75,219 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func replacementWaitsForParentCloseAcknowledgement() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let firstSession = TestConnectivitySession(
+            continuityID: 15,
+            gatesFirstClose: true
+        )
+        let replacement = TestConnectivitySession(continuityID: 16)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [firstSession, replacement]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let firstOwner = UUID()
+        let replacementOwner = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: firstOwner)
+        let release = Task {
+            await peer.releaseControl(ownerID: firstOwner)
+        }
+        try await Self.waitUntil { await firstSession.closeGateIsWaiting() }
+        let acquireReplacement = Task {
+            try await peer.acquireControl(
+                for: request,
+                ownerID: replacementOwner
+            )
+        }
+        let replacementStartedBeforeCloseFinished: Bool
+        do {
+            try await Self.waitUntil { await builder.callCount() == 2 }
+            replacementStartedBeforeCloseFinished = true
+        } catch {
+            replacementStartedBeforeCloseFinished = false
+        }
+
+        await firstSession.releaseCloseGate()
+        await release.value
+        _ = try await acquireReplacement.value
+
+        #expect(!replacementStartedBeforeCloseFinished)
+        #expect(await peer.connectionContinuityID() == 16)
+        await peer.releaseControl(ownerID: replacementOwner)
+    }
+
+    @Test
+    func replacementStartsWhileRetiredChildCleanupRemainsBlocked() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let retired = TestConnectivitySession(
+            continuityID: 117,
+            gatesPostCloseCleanup: true
+        )
+        let replacement = TestConnectivitySession(continuityID: 118)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [retired, replacement]
+        )
+        let diagnosticLog = DiagnosticLog(capacity: 64)
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            diagnosticLog: diagnosticLog
+        )
+        let retiredOwner = UUID()
+        let replacementOwner = UUID()
+
+        _ = try await peer.acquireControl(
+            for: request,
+            ownerID: retiredOwner
+        )
+        let replacementAcquire = Task {
+            try await peer.acquireControl(
+                for: request,
+                ownerID: replacementOwner
+            )
+        }
+        let release = Task {
+            await peer.releaseControl(ownerID: retiredOwner)
+        }
+
+        try await Self.waitUntil {
+            await retired.postCloseCleanupIsWaiting()
+        }
+        await release.value
+        _ = try await replacementAcquire.value
+
+        #expect(await builder.callCount() == 2)
+        #expect(await peer.connectionContinuityID() == 118)
+        let lifecycleBeforeCleanup = try await Self.waitForLifecycleKinds(
+            in: diagnosticLog,
+            containing: [
+                .retirementStarted,
+                .parentCloseAcknowledged,
+                .controlOwnerReleased,
+                .replacementDialStarted,
+            ]
+        )
+        let retirementIndex = try #require(
+            lifecycleBeforeCleanup.firstIndex(of: .retirementStarted)
+        )
+        let parentCloseIndex = try #require(
+            lifecycleBeforeCleanup[retirementIndex...]
+                .firstIndex(of: .parentCloseAcknowledged)
+        )
+        let ownerReleaseIndex = try #require(
+            lifecycleBeforeCleanup[parentCloseIndex...]
+                .firstIndex(of: .controlOwnerReleased)
+        )
+        let replacementDialIndex = try #require(
+            lifecycleBeforeCleanup[ownerReleaseIndex...]
+                .firstIndex(of: .replacementDialStarted)
+        )
+        #expect(retirementIndex < parentCloseIndex)
+        #expect(parentCloseIndex < ownerReleaseIndex)
+        #expect(ownerReleaseIndex < replacementDialIndex)
+        #expect(!lifecycleBeforeCleanup.contains(.postCloseCleanupCompleted))
+
+        await retired.releasePostCloseCleanup()
+        _ = try await Self.waitForLifecycleKinds(
+            in: diagnosticLog,
+            containing: [.postCloseCleanupCompleted]
+        )
+        await peer.releaseControl(ownerID: replacementOwner)
+    }
+
+    @Test
+    func releaseDuringPendingDialInvalidatesLateResultAndUnblocksNextOwner() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let retired = TestConnectivitySession(continuityID: 17)
+        let replacement = TestConnectivitySession(continuityID: 18)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [retired, replacement]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let retiredOwner = UUID()
+        let replacementOwner = UUID()
+
+        let retiredAcquire = Task {
+            try await peer.acquireControl(for: request, ownerID: retiredOwner)
+        }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        await peer.releaseControl(ownerID: retiredOwner)
+
+        let replacementAcquire = Task {
+            try await peer.acquireControl(
+                for: request,
+                ownerID: replacementOwner
+            )
+        }
+        let replacementStartedWithoutLateDial: Bool
+        do {
+            try await Self.waitUntil { await builder.callCount() == 2 }
+            replacementStartedWithoutLateDial = true
+        } catch {
+            replacementStartedWithoutLateDial = false
+        }
+
+        // Let the cancelled first builder return after its generation retired.
+        // It must be closed instead of installed.
+        await builder.release(call: 0)
+        if !replacementStartedWithoutLateDial {
+            await peer.releaseControl(ownerID: retiredOwner)
+            try await Self.waitUntil { await builder.callCount() == 2 }
+        }
+        await builder.release(call: 1)
+        _ = try await replacementAcquire.value
+        _ = await retiredAcquire.result
+
+        #expect(replacementStartedWithoutLateDial)
+        #expect(await retired.closeCount() == 1)
+        #expect(await peer.connectionContinuityID() == 18)
+        await peer.releaseControl(ownerID: replacementOwner)
+    }
+
+    @Test
+    func featureLaneCannotDialWithoutAnActiveControlOwner() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [TestConnectivitySession(continuityID: 19)]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        await #expect(throws: CmxConnectivityEngineError.inactive) {
+            _ = try await peer.openBidirectionalLane(
+                for: request,
+                lane: .artifact(
+                    resourceID: CmxIrohResourceID("artifact:no-control"),
+                    offset: 0
+                ),
+                priority: 1
+            )
+        }
+        #expect(await builder.callCount() == 0)
+    }
+
+    @Test
     func cancelledControlWaiterCannotBlockTheNextOwner() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -201,15 +414,16 @@ struct CmxConnectivityPeerSessionTests {
             }
         )
         let ownerID = UUID()
+        let replacementOwnerID = UUID()
 
         _ = try await peer.acquireControl(for: request, ownerID: ownerID)
         await firstSession.finishRemotely(failure: .transportIdleTimedOut)
         try await Self.waitUntil {
             await firstSession.closeAttributionIsWaiting()
         }
-        _ = try await peer.connectedSession(
+        _ = try await peer.acquireControl(
             for: request,
-            preservesControlOwnerOnClosed: true
+            ownerID: replacementOwnerID
         )
         await firstSession.releaseCloseAttribution()
         for _ in 0 ..< 100 { await Task.yield() }
@@ -220,22 +434,19 @@ struct CmxConnectivityPeerSessionTests {
         #expect(snapshot.failure == .none)
         #expect(snapshot.controlLaneOwned)
         await peer.releaseControl(ownerID: ownerID)
+        await peer.releaseControl(ownerID: replacementOwnerID)
     }
 
     @Test
-    func concurrentRedialCannotDisplaceAnInstalledLiveSession() async throws {
+    func concurrentCallerSharesCandidateDuringTheLivenessProbe() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
-        let winner = TestConnectivitySession(
+        let candidate = TestConnectivitySession(
             continuityID: 81,
             gatesFirstIsClosedCheck: true
         )
-        let loser = TestConnectivitySession(
-            continuityID: 82,
-            gatesFirstIsClosedCheck: true
-        )
         let builder = OrderedGatedConnectivitySessionBuilder(
-            sessions: [winner, loser]
+            sessions: [candidate]
         )
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
@@ -244,130 +455,68 @@ struct CmxConnectivityPeerSessionTests {
             }
         )
 
-        // Park both callers past their pre-dial installed-slot checks so the
-        // first install lands while the second caller is still in flight.
+        // Keep the first caller in the dead-on-arrival probe. The second must
+        // share that candidate instead of starting a redundant physical dial.
         let firstCaller = Task { try await peer.connectedSession(for: request) }
         try await Self.waitUntil { await builder.callCount() == 1 }
         await builder.release(call: 0)
-        try await Self.waitUntil { await winner.isClosedGateIsWaiting() }
+        try await Self.waitUntil { await candidate.isClosedGateIsWaiting() }
         let secondCaller = Task { try await peer.connectedSession(for: request) }
-        try await Self.waitUntil { await builder.callCount() == 2 }
-        await builder.release(call: 1)
-        try await Self.waitUntil { await loser.isClosedGateIsWaiting() }
-        await winner.releaseIsClosedGate()
-        _ = try await firstCaller.value
-        await loser.releaseIsClosedGate()
         _ = try await secondCaller.value
+        #expect(await builder.callCount() == 1)
+        await candidate.releaseIsClosedGate()
+        _ = try await firstCaller.value
 
         #expect(await peer.connectionContinuityID() == 81)
-        #expect(await winner.closeCount() == 0)
-        #expect(await loser.closeCount() == 1)
+        #expect(await candidate.closeCount() == 0)
         #expect(await peer.snapshot().phase == .connected)
         await peer.invalidate()
     }
 
     @Test
-    func invalidationDuringRedundantDialCloseTriggersAFreshDial() async throws {
+    func invalidationDuringCandidateProbeRequiresAFreshDial() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
-        let winner = TestConnectivitySession(
+        let retired = TestConnectivitySession(
             continuityID: 91,
-            gatesFirstIsClosedCheck: true
-        )
-        let loser = TestConnectivitySession(
-            continuityID: 92,
-            gatesFirstClose: true
-        )
-        let replacement = TestConnectivitySession(continuityID: 93)
-        let builder = OrderedGatedConnectivitySessionBuilder(
-            sessions: [winner, loser, replacement]
-        )
-        let peer = CmxConnectivityPeerSession(
-            peerID: peerID,
-            buildSession: { request in
-                try await builder.build(request)
-            }
-        )
-
-        // Park the first caller at the dead-on-arrival probe so the second
-        // caller starts its own dial, then let the winner install before the
-        // second dial resolves.
-        let firstCaller = Task { try await peer.connectedSession(for: request) }
-        try await Self.waitUntil { await builder.callCount() == 1 }
-        await builder.release(call: 0)
-        try await Self.waitUntil { await winner.isClosedGateIsWaiting() }
-        let secondCaller = Task { try await peer.connectedSession(for: request) }
-        try await Self.waitUntil { await builder.callCount() == 2 }
-        await winner.releaseIsClosedGate()
-        _ = try await firstCaller.value
-        await builder.release(call: 1)
-        try await Self.waitUntil { await loser.closeGateIsWaiting() }
-
-        // The redundant close is in flight; invalidation evicts the winner
-        // before that close settles. The second caller must not receive the
-        // stale winner capture.
-        await peer.invalidate()
-        await loser.releaseCloseGate()
-        try await Self.waitUntil { await builder.callCount() == 3 }
-        await builder.release(call: 2)
-
-        let session = try await secondCaller.value
-        #expect(await session.connectionContinuityID() == 93)
-        #expect(await peer.connectionContinuityID() == 93)
-        #expect(await winner.closeCount() == 1)
-        #expect(await loser.closeCount() == 1)
-        await peer.invalidate()
-    }
-
-    @Test
-    func invalidationDuringPostProbeRedundantDialCloseTriggersAFreshDial() async throws {
-        let request = try Self.request()
-        let peerID = try CmxConnectivityPeerID(request: request)
-        let winner = TestConnectivitySession(
-            continuityID: 101,
-            gatesFirstIsClosedCheck: true
-        )
-        let loser = TestConnectivitySession(
-            continuityID: 102,
             gatesFirstIsClosedCheck: true,
             gatesFirstClose: true
         )
-        let replacement = TestConnectivitySession(continuityID: 103)
+        let replacement = TestConnectivitySession(continuityID: 92)
         let builder = OrderedGatedConnectivitySessionBuilder(
-            sessions: [winner, loser, replacement]
+            sessions: [retired, replacement]
         )
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
-            buildSession: { request in
-                try await builder.build(request)
+            buildRetirableSession: { request, retirement in
+                let session = try await builder.build(request)
+                try await retirement.register(session)
+                return session
             }
         )
 
-        // Park both callers at their dead-on-arrival probes so the winner
-        // installs while the second caller is past its post-resolve check.
-        let firstCaller = Task { try await peer.connectedSession(for: request) }
+        let retiredCaller = Task { try await peer.connectedSession(for: request) }
         try await Self.waitUntil { await builder.callCount() == 1 }
         await builder.release(call: 0)
-        try await Self.waitUntil { await winner.isClosedGateIsWaiting() }
-        let secondCaller = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await retired.isClosedGateIsWaiting() }
+        let invalidation = Task { await peer.invalidate() }
+        try await Self.waitUntil { await retired.closeGateIsWaiting() }
+        await retired.releaseCloseGate()
+        await invalidation.value
+        await retired.releaseIsClosedGate()
+        if case .success = await retiredCaller.result {
+            Issue.record("The retired candidate unexpectedly installed")
+        }
+
+        let replacementCaller = Task {
+            try await peer.connectedSession(for: request)
+        }
         try await Self.waitUntil { await builder.callCount() == 2 }
         await builder.release(call: 1)
-        try await Self.waitUntil { await loser.isClosedGateIsWaiting() }
-        await winner.releaseIsClosedGate()
-        _ = try await firstCaller.value
-        await loser.releaseIsClosedGate()
-        try await Self.waitUntil { await loser.closeGateIsWaiting() }
-
-        await peer.invalidate()
-        await loser.releaseCloseGate()
-        try await Self.waitUntil { await builder.callCount() == 3 }
-        await builder.release(call: 2)
-
-        let session = try await secondCaller.value
-        #expect(await session.connectionContinuityID() == 103)
-        #expect(await peer.connectionContinuityID() == 103)
-        #expect(await winner.closeCount() == 1)
-        #expect(await loser.closeCount() == 1)
+        let session = try await replacementCaller.value
+        #expect(await session.connectionContinuityID() == 92)
+        #expect(await peer.connectionContinuityID() == 92)
+        #expect(await retired.closeCount() >= 1)
         await peer.invalidate()
     }
 
@@ -397,7 +546,7 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
-    func cancelledDialDrainsBeforeTheReplacementStarts() async throws {
+    func cancelledDialDoesNotBlockTheReplacementStart() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
         let retired = TestConnectivitySession(continuityID: 41)
@@ -416,15 +565,11 @@ struct CmxConnectivityPeerSessionTests {
         try await Self.waitUntil { await builder.callCount() == 1 }
         await peer.invalidate()
         let second = Task { try await peer.connectedSession(for: request) }
-        for _ in 0 ..< 100 {
-            await Task.yield()
-            #expect(await builder.callCount() == 1)
-        }
-        await builder.release(call: 0)
         try await Self.waitUntil { await builder.callCount() == 2 }
         await builder.release(call: 1)
 
         _ = try await second.value
+        await builder.release(call: 0)
         if case .success = await first.result {
             Issue.record("The retired dial unexpectedly succeeded")
         }
@@ -434,7 +579,7 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
-    func wedgedRetiredDialCannotBlockPastTheSettleBound() async throws {
+    func wedgedRetiredDialCannotBlockReplacement() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
         let retired = TestConnectivitySession(continuityID: 51)
@@ -446,8 +591,7 @@ struct CmxConnectivityPeerSessionTests {
             peerID: peerID,
             buildSession: { request in
                 try await builder.build(request)
-            },
-            clock: ImmediateHostActivationClock()
+            }
         )
 
         let first = Task { try await peer.connectedSession(for: request) }
@@ -467,7 +611,7 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
-    func oneRetiredDialTimeoutDoesNotTaxEveryLaterRedial() async throws {
+    func oneWedgedRetiredDialDoesNotTaxLaterRedials() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
         let retired = TestConnectivitySession(continuityID: 61)
@@ -476,13 +620,11 @@ struct CmxConnectivityPeerSessionTests {
         let builder = OrderedGatedConnectivitySessionBuilder(
             sessions: [retired, second, third]
         )
-        let clock = FirstImmediateThenParkingRelayClock()
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
             buildSession: { request in
                 try await builder.build(request)
-            },
-            clock: clock
+            }
         )
 
         let firstDial = Task { try await peer.connectedSession(for: request) }
@@ -555,28 +697,25 @@ struct CmxConnectivityPeerSessionTests {
         struct TimedOut: Error {}
         throw TimedOut()
     }
-}
 
-private struct FirstImmediateThenParkingRelayClock: CmxIrohRelayClock {
-    private let state = FirstImmediateThenParkingRelayClockState()
-
-    func now() -> Date {
-        Date(timeIntervalSince1970: 1_800_000_000)
-    }
-
-    func sleep(until _: Date) async throws {
-        if await state.shouldPark() {
-            try await Task.sleep(for: .seconds(3_600))
+    private static func waitForLifecycleKinds(
+        in log: DiagnosticLog,
+        containing requiredKinds: Set<DiagnosticSessionLifecycleKind>
+    ) async throws -> [DiagnosticSessionLifecycleKind] {
+        for _ in 0 ..< 1_000 {
+            let observed: [DiagnosticSessionLifecycleKind] =
+                await log.snapshot().events.compactMap { event in
+                    guard event.code == .transportSessionLifecycle,
+                          let rawValue = event.a else { return nil }
+                    return DiagnosticSessionLifecycleKind(rawValue: rawValue)
+                }
+            if requiredKinds.isSubset(of: Set(observed)) {
+                return observed
+            }
+            await Task.yield()
         }
-    }
-}
-
-private actor FirstImmediateThenParkingRelayClockState {
-    private var calls = 0
-
-    func shouldPark() -> Bool {
-        calls += 1
-        return calls > 1
+        struct TimedOut: Error {}
+        throw TimedOut()
     }
 }
 
@@ -659,6 +798,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private let continuityID: UInt64
     private let gatesCloseAttribution: Bool
     private let keepsSelectedPathStreamOpen: Bool
+    private let gatesPostCloseCleanup: Bool
     private var closed = false
     private var closes = 0
     private var closeFailure = DiagnosticFailureKind.connectionClosed
@@ -671,6 +811,8 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private var closeGatePending: Bool
     private var closeGateWaiting = false
     private var closeGateWaiter: CheckedContinuation<Void, Never>?
+    private var postCloseCleanupWaiting = false
+    private var postCloseCleanupWaiter: CheckedContinuation<Void, Never>?
     private var received: [Data] = []
     private var selectedPath = CmxIrohObservedConnectionPath.direct
     private var selectedPathContinuation:
@@ -681,11 +823,13 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         gatesCloseAttribution: Bool = false,
         keepsSelectedPathStreamOpen: Bool = false,
         gatesFirstIsClosedCheck: Bool = false,
-        gatesFirstClose: Bool = false
+        gatesFirstClose: Bool = false,
+        gatesPostCloseCleanup: Bool = false
     ) {
         self.continuityID = continuityID
         self.gatesCloseAttribution = gatesCloseAttribution
         self.keepsSelectedPathStreamOpen = keepsSelectedPathStreamOpen
+        self.gatesPostCloseCleanup = gatesPostCloseCleanup
         isClosedGatePending = gatesFirstIsClosedCheck
         closeGatePending = gatesFirstClose
     }
@@ -811,6 +955,24 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     func releaseCloseGate() {
         closeGateWaiter?.resume()
         closeGateWaiter = nil
+    }
+
+    func waitForPostCloseCleanup() async {
+        guard gatesPostCloseCleanup else { return }
+        postCloseCleanupWaiting = true
+        await withCheckedContinuation { continuation in
+            postCloseCleanupWaiter = continuation
+        }
+        postCloseCleanupWaiting = false
+    }
+
+    func postCloseCleanupIsWaiting() -> Bool {
+        postCloseCleanupWaiting
+    }
+
+    func releasePostCloseCleanup() {
+        postCloseCleanupWaiter?.resume()
+        postCloseCleanupWaiter = nil
     }
 
     func finishRemotely(failure: DiagnosticFailureKind) {

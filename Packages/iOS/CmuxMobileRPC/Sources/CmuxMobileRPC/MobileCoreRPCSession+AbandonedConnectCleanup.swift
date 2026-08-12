@@ -4,36 +4,28 @@ import Foundation
 extension MobileCoreRPCSession {
     func abandonConnectionTask(_ connecting: ConnectingTask) async {
         let cleanupID = UUID()
-        let cleanupTask = Task.detached {
-            do {
-                let candidate = try await connecting.task.value
-                if let cancellationCloseTask =
-                    await connecting.cancellationClose.task() {
-                    await cancellationCloseTask.value
-                }
-                await candidate.close()
-            } catch {
-                if let cancellationCloseTask =
-                    await connecting.cancellationClose.task() {
-                    await cancellationCloseTask.value
-                }
-            }
-        }
-        let registrationTask = Task {
-            [connectAttemptRegistry] in
-            await connectAttemptRegistry.handOffPhysicalCleanup(
-                lease: connecting.lease
-            ) {
-                await cleanupTask.value
-            }
-        }
-        abandonedConnectionCleanupTasks[cleanupID] = registrationTask
         // Teardown cannot return while the cancelled dial still owns the
-        // active route lease. Transfer that exact physical lifetime first;
-        // the registry then admits one bounded recovery without waiting for
-        // a cancellation-ignoring connect or close to settle.
-        await registrationTask.value
-        abandonedConnectionCleanupTasks[cleanupID] = nil
+        // active route lease. The cleaner tracks the late-close receipt and
+        // transfers that exact physical lifetime; the late task result is
+        // tracked separately and consumes no admission.
+        let cleaner = MobileRPCAbandonedConnectCleaner(
+            registry: connectAttemptRegistry,
+            lease: connecting.lease,
+            cancellationClose: connecting.cancellationClose
+        )
+        let routeCleanupTask = await cleaner.handOffLateCandidateToRegistry(
+            task: connecting.task
+        )
+        // Store the wrapper that also removes its own registry entry, like
+        // startAbandonedConnectionCleanup does. Storing the bare route task
+        // lets waitForTransportDrain resume off an already-finished task
+        // without suspending, which starves the removal and livelocks the
+        // drain loop on this actor.
+        let cleanupTask = Task { [weak self] in
+            await routeCleanupTask.value
+            await self?.abandonedConnectionCleanupDidFinish(cleanupID)
+        }
+        abandonedConnectionCleanupTasks[cleanupID] = cleanupTask
     }
 
     func closeUninstalledConnectedCandidate(

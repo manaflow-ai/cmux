@@ -6,6 +6,58 @@ import Testing
 @Suite
 struct CmxIrohServerSessionTests {
     @Test
+    func closeAcknowledgesParentBeforeBlockedControlCleanup() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let credential = try CmxIrohAdmissionCredential.pairGrant("aa.bb.cc")
+        let controlHeader = try fixture.headerCodec.encode(
+            CmxIrohStreamHeader(lane: .control, credential: credential)
+        )
+        let receive = TestGatedStopIrohReceiveStream(
+            buffer: controlHeader
+                + admissionFrame(status: 2)
+                + Data("rpc".utf8)
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [CmxIrohBidirectionalStream(
+                receiveStream: receive,
+                sendStream: fixture.controlSend
+            )]
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+        _ = try await session.admit()
+        let completion = TestAsyncCompletionProbe()
+
+        let close = Task {
+            await session.close()
+            await completion.complete()
+        }
+        await receive.waitUntilStopStarted()
+        // The stop gate stays held, so control-stream cleanup is provably
+        // blocked. close() completing within the bound proves the parent
+        // close acknowledgement did not wait for it.
+        try await Self.waitUntil { await completion.isComplete() }
+        #expect(await connection.observedCloseCallCount() == 1)
+
+        await receive.releaseStop()
+        await close.value
+    }
+
+    private static func waitUntil(
+        _ condition: @escaping @Sendable () async -> Bool
+    ) async throws {
+        for _ in 0 ..< 1_000 {
+            if await condition() { return }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        struct TimedOut: Error {}
+        throw TimedOut()
+    }
+
+    @Test
     func admittedHostSessionEmitsAttributedCloseAndPathEvents() async throws {
         let fixture = try ServerFixture(decision: .accepted)
         let connection = TestIrohConnection(

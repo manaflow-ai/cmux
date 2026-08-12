@@ -3,8 +3,12 @@ import Foundation
 
 /// Sole owner of dialing, admission, lanes, closure, and redial for one peer.
 actor CmxConnectivityPeerSession {
-    typealias SessionBuilder = @Sendable (
+    typealias LegacySessionBuilder = @Sendable (
         _ request: CmxByteTransportRequest
+    ) async throws -> any CmxConnectivitySession
+    typealias SessionBuilder = @Sendable (
+        _ request: CmxByteTransportRequest,
+        _ retirement: CmxConnectivityPendingSessionRetirement
     ) async throws -> any CmxConnectivitySession
     typealias SnapshotHandler = @Sendable (
         _ snapshot: CmxConnectivityPeerSnapshot
@@ -12,7 +16,10 @@ actor CmxConnectivityPeerSession {
 
     private struct PendingConnection {
         let id: UUID
+        let diagnosticID: Int
+        let purpose: CmxTransportSessionPurpose
         let task: Task<any CmxConnectivitySession, any Error>
+        let retirement: CmxConnectivityPendingSessionRetirement
     }
 
     private struct ActiveConnection {
@@ -37,24 +44,17 @@ actor CmxConnectivityPeerSession {
         let continuation: CheckedContinuation<Void, Never>
     }
 
-    /// A cancelled FFI dial normally settles immediately. This bound prevents
-    /// one non-cooperative endpoint implementation from blocking every redial.
-    static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
-
     let peerID: CmxConnectivityPeerID
     private let buildSession: SessionBuilder
     private let handleSnapshot: SnapshotHandler
     private let diagnosticLog: DiagnosticLog?
-    private let clock: any CmxIrohRelayClock
     private var lifecycleRevision: UInt64 = 0
     private var connectionGeneration: UInt64 = 0
     private var stateRevision: UInt64 = 0
     private var nextDiagnosticSessionID = 0
     private var pendingConnection: PendingConnection?
     private var retiredDialDrains: [UUID: Task<Void, Never>] = [:]
-    private var retiredDialWaiters: [
-        UUID: CheckedContinuation<Void, Never>
-    ] = [:]
+    private var retiredConnectionCleanups: [UUID: Task<Void, Never>] = [:]
     private var activeConnection: ActiveConnection?
     private var controlOwner: ControlOwner?
     private var controlWaiters: [ControlWaiter] = []
@@ -62,16 +62,28 @@ actor CmxConnectivityPeerSession {
 
     init(
         peerID: CmxConnectivityPeerID,
-        buildSession: @escaping SessionBuilder,
+        buildSession: @escaping LegacySessionBuilder,
         handleSnapshot: @escaping SnapshotHandler = { _ in },
-        diagnosticLog: DiagnosticLog? = nil,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.peerID = peerID
-        self.buildSession = buildSession
+        self.buildSession = { request, _ in
+            try await buildSession(request)
+        }
         self.handleSnapshot = handleSnapshot
         self.diagnosticLog = diagnosticLog
-        self.clock = clock
+    }
+
+    init(
+        peerID: CmxConnectivityPeerID,
+        buildRetirableSession: @escaping SessionBuilder,
+        handleSnapshot: @escaping SnapshotHandler = { _ in },
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
+        self.peerID = peerID
+        buildSession = buildRetirableSession
+        self.handleSnapshot = handleSnapshot
+        self.diagnosticLog = diagnosticLog
     }
 
     func snapshot() -> CmxConnectivityPeerSnapshot {
@@ -106,12 +118,23 @@ actor CmxConnectivityPeerSession {
         failure: DiagnosticFailureKind = .none
     ) async {
         guard controlOwner?.id == ownerID else { return }
+        lifecycleRevision &+= 1
+        let retiredPending = await retirePendingConnection()
         await closeActiveConnection(
-            releasesControlOwner: false,
+            releasesControlOwner: true,
             reason: reason,
             failure: failure
         )
-        releaseControlOwner(ownerID: ownerID)
+        if controlOwner?.id == ownerID {
+            releaseControlOwner(ownerID: ownerID)
+            if let retiredPending {
+                recordSessionLifecycle(
+                    .controlOwnerReleased,
+                    sessionID: retiredPending.diagnosticID,
+                    purpose: retiredPending.purpose
+                )
+            }
+        }
     }
 
     func updateControlPurpose(
@@ -132,7 +155,13 @@ actor CmxConnectivityPeerSession {
 
         redial: while true {
             if let activeConnection {
-                if !(await activeConnection.session.isClosed()) {
+                let activeRevision = lifecycleRevision
+                let activeWasClosed = await activeConnection.session.isClosed()
+                guard lifecycleRevision == activeRevision,
+                      self.activeConnection?.id == activeConnection.id else {
+                    continue redial
+                }
+                if !activeWasClosed {
                     return activeConnection.session
                 }
                 await removeActiveConnection(
@@ -151,18 +180,30 @@ actor CmxConnectivityPeerSession {
                 connectionGeneration &+= 1
                 failure = .none
                 let buildSession = buildSession
-                let task = Task { [weak self] in
-                    await self?.waitForRetiredDials()
+                let retirement = CmxConnectivityPendingSessionRetirement()
+                let diagnosticID = makeDiagnosticSessionID()
+                let task = Task {
                     try Task.checkCancellation()
-                    let session = try await buildSession(request)
+                    let session = try await buildSession(request, retirement)
                     guard !Task.isCancelled else {
                         await session.close()
                         throw CancellationError()
                     }
                     return session
                 }
-                pending = PendingConnection(id: UUID(), task: task)
+                pending = PendingConnection(
+                    id: UUID(),
+                    diagnosticID: diagnosticID,
+                    purpose: request.sessionPurpose,
+                    task: task,
+                    retirement: retirement
+                )
                 pendingConnection = pending
+                recordSessionLifecycle(
+                    .replacementDialStarted,
+                    sessionID: diagnosticID,
+                    purpose: request.sessionPurpose
+                )
                 publishSnapshot()
             }
 
@@ -173,9 +214,6 @@ actor CmxConnectivityPeerSession {
                     await connected.close()
                     throw CmxConnectivityEngineError.superseded
                 }
-                if pendingConnection?.id == pending.id {
-                    pendingConnection = nil
-                }
             } catch {
                 if pendingConnection?.id == pending.id {
                     pendingConnection = nil
@@ -185,20 +223,32 @@ actor CmxConnectivityPeerSession {
                 throw error
             }
 
-            if let installed = activeConnection {
-                if installed.id == pending.id {
-                    return installed.session
-                }
-                if let winner = await settleRedundantDial(
-                    connected,
-                    installedID: installed.id
-                ) {
-                    return winner
-                }
+            switch try await settleAgainstInstalledConnection(
+                connected,
+                pending: pending,
+                revision: revision
+            ) {
+            case .installed(let session), .redundantDialWinner(let session):
+                return session
+            case .redial:
                 continue redial
+            case nil:
+                break
             }
-            if await connected.isClosed() {
+            let connectedWasClosed = await connected.isClosed()
+            guard lifecycleRevision == revision else {
                 await connected.close()
+                throw CmxConnectivityEngineError.superseded
+            }
+            if connectedWasClosed {
+                await connected.close()
+                await pending.retirement.finish()
+                if pendingConnection?.id == pending.id {
+                    pendingConnection = nil
+                }
+                guard lifecycleRevision == revision else {
+                    throw CmxConnectivityEngineError.superseded
+                }
                 guard corpseRetriesRemaining > 0 else {
                     throw CmxIrohClientSessionError.alreadyClosed
                 }
@@ -210,24 +260,40 @@ actor CmxConnectivityPeerSession {
             // caller that dialed in that window may have installed first;
             // installing over it would leak its session and double-record
             // an established lifecycle for the same peer.
-            if let installed = activeConnection {
-                if installed.id == pending.id {
-                    return installed.session
-                }
-                if let winner = await settleRedundantDial(
-                    connected,
-                    installedID: installed.id
-                ) {
-                    return winner
-                }
+            switch try await settleAgainstInstalledConnection(
+                connected,
+                pending: pending,
+                revision: revision
+            ) {
+            case .installed(let session), .redundantDialWinner(let session):
+                return session
+            case .redial:
                 continue redial
+            case nil:
+                break
             }
+            guard pendingConnection?.id == pending.id else {
+                await connected.close()
+                throw CmxConnectivityEngineError.superseded
+            }
+            // Install synchronously before clearing the pending retirement
+            // handle. A concurrent release therefore sees either a pending
+            // candidate or an active connection, and always closes its parent
+            // before relinquishing the control owner.
+            pendingConnection = nil
             install(
                 connected,
                 id: pending.id,
+                diagnosticID: pending.diagnosticID,
                 purpose: request.sessionPurpose
             )
-            return connected
+            await pending.retirement.finish()
+            guard lifecycleRevision == revision,
+                  activeConnection?.id == pending.id else {
+                await connected.close()
+                throw CmxConnectivityEngineError.superseded
+            }
+            return activeConnection?.session ?? connected
         }
     }
 
@@ -236,10 +302,35 @@ actor CmxConnectivityPeerSession {
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
-        let session = try await connectedSession(for: request)
-        let connectionID = activeConnection?.id
+        try requirePeer(request)
+        guard controlOwner != nil, let activeConnection else {
+            throw CmxConnectivityEngineError.inactive
+        }
+        let session = activeConnection.session
+        let connectionID = activeConnection.id
+        guard !(await session.isClosed()),
+              self.activeConnection?.id == connectionID,
+              controlOwner != nil else {
+            await removeActiveConnection(
+                matching: connectionID,
+                releasesControlOwner: true,
+                reason: .applicationLaneFailed,
+                failure: .connectionClosed
+            )
+            throw CmxConnectivityEngineError.inactive
+        }
         do {
-            return try await session.openBidirectionalLane(lane, priority: priority)
+            let stream = try await session.openBidirectionalLane(
+                lane,
+                priority: priority
+            )
+            guard self.activeConnection?.id == connectionID,
+                  controlOwner != nil else {
+                await stream.sendStream.reset(errorCode: 1)
+                await stream.receiveStream.stop(errorCode: 1)
+                throw CmxConnectivityEngineError.superseded
+            }
+            return stream
         } catch {
             try Task.checkCancellation()
             guard await session.isClosed() else { throw error }
@@ -249,19 +340,30 @@ actor CmxConnectivityPeerSession {
                 reason: .applicationLaneFailed,
                 failure: DiagnosticFailureKind.classify(error)
             )
-            let replacement = try await connectedSession(for: request)
-            return try await replacement.openBidirectionalLane(
-                lane,
-                priority: priority
-            )
+            throw error
         }
     }
 
     func serverEventByteStream(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
-        let session = try await connectedSession(for: request)
-        return try await session.serverEventByteStream()
+        try requirePeer(request)
+        guard controlOwner != nil, let activeConnection else {
+            throw CmxConnectivityEngineError.inactive
+        }
+        let connectionID = activeConnection.id
+        let stream = try await activeConnection.session.serverEventByteStream()
+        guard self.activeConnection?.id == connectionID,
+              controlOwner != nil else {
+            let drain = Task {
+                do {
+                    for try await _ in stream {}
+                } catch {}
+            }
+            drain.cancel()
+            throw CmxConnectivityEngineError.superseded
+        }
+        return stream
     }
 
     func connectionContinuityID() async -> UInt64? {
@@ -279,13 +381,13 @@ actor CmxConnectivityPeerSession {
 
     func invalidate(failure: DiagnosticFailureKind = .none) async {
         lifecycleRevision &+= 1
-        retirePendingConnection()
-        cancelControlOwnership()
+        _ = await retirePendingConnection()
         await closeActiveConnection(
             releasesControlOwner: false,
             reason: .runtimeReconfigured,
             failure: failure
         )
+        cancelControlOwnership()
         self.failure = failure
         publishSnapshot()
     }
@@ -296,6 +398,55 @@ actor CmxConnectivityPeerSession {
     /// replaced, or remotely closed before the close settles. Only a
     /// still-installed live winner may be handed out; a nil result means
     /// the caller must redial.
+    /// The outcomes of settling a completed dial against the currently
+    /// installed connection.
+    private enum InstalledDialSettlement {
+        case installed(any CmxConnectivitySession)
+        case redundantDialWinner(any CmxConnectivitySession)
+        case redial
+    }
+
+    /// Settles `connected` against the installed connection, re-checking
+    /// `lifecycleRevision` and the active identity after every suspension.
+    /// Returns `nil` when nothing is installed so the caller proceeds to its
+    /// own install path. Both post-dial suspension windows share this one
+    /// race protocol; keep it single-copy.
+    private func settleAgainstInstalledConnection(
+        _ connected: any CmxConnectivitySession,
+        pending: PendingConnection,
+        revision: UInt64
+    ) async throws -> InstalledDialSettlement? {
+        guard let installed = activeConnection else { return nil }
+        if installed.id == pending.id {
+            await pending.retirement.finish()
+            if pendingConnection?.id == pending.id {
+                pendingConnection = nil
+            }
+            guard lifecycleRevision == revision,
+                  activeConnection?.id == pending.id else {
+                await connected.close()
+                throw CmxConnectivityEngineError.superseded
+            }
+            return .installed(installed.session)
+        }
+        let winner = await settleRedundantDial(
+            connected,
+            installedID: installed.id
+        )
+        await pending.retirement.finish()
+        if pendingConnection?.id == pending.id {
+            pendingConnection = nil
+        }
+        guard lifecycleRevision == revision else {
+            await connected.close()
+            throw CmxConnectivityEngineError.superseded
+        }
+        if let winner {
+            return .redundantDialWinner(winner)
+        }
+        return .redial
+    }
+
     private func settleRedundantDial(
         _ connected: any CmxConnectivitySession,
         installedID: UUID
@@ -312,9 +463,9 @@ actor CmxConnectivityPeerSession {
     private func install(
         _ connected: any CmxConnectivitySession,
         id: UUID,
+        diagnosticID: Int,
         purpose: CmxTransportSessionPurpose
     ) {
-        let diagnosticID = makeDiagnosticSessionID()
         // Publish ownership before starting streams whose first value is an
         // immediate snapshot. Otherwise an already-pathless connection can
         // notify before the actor has an entry to evict, losing the only
@@ -331,10 +482,9 @@ actor CmxConnectivityPeerSession {
         let closureTask = Task { [weak self] in
             await connected.waitUntilClosed()
             guard !Task.isCancelled else { return }
-            let attribution = await connected.closeAttribution()
             await self?.connectionDidClose(
                 id: id,
-                failure: attribution.failureKind
+                failure: .connectionClosed
             )
         }
         let pathObservationTask = Task { [weak self] in
@@ -391,20 +541,32 @@ actor CmxConnectivityPeerSession {
         activeConnection.closureTask?.cancel()
         activeConnection.pathObservationTask?.cancel()
         activeConnection.pathEventObservationTask?.cancel()
-        await activeConnection.pathEventObservationTask?.value
-        await recordSessionClosure(
+        recordSessionLifecycle(
             .remoteClosed,
-            active: activeConnection,
-            failure: failure,
+            sessionID: activeConnection.diagnosticID,
             purpose: closurePurpose
         )
-        guard self.activeConnection == nil,
-              pendingConnection == nil else { return }
-        if let owner = removedOwner {
+        if self.activeConnection == nil,
+           pendingConnection == nil,
+           let owner = removedOwner {
             releaseControlOwner(ownerID: owner.id)
+            recordSessionLifecycle(
+                .controlOwnerReleased,
+                sessionID: activeConnection.diagnosticID,
+                purpose: closurePurpose
+            )
         }
-        self.failure = failure
+        // Precise remote-close attribution is post-close cleanup. Keep this
+        // peer disconnected until it arrives so a generic placeholder cannot
+        // win the failed snapshot ahead of the real reason.
+        self.failure = .none
         publishSnapshot()
+        startRetiredConnectionCleanup(
+            active: activeConnection,
+            failure: failure,
+            purpose: closurePurpose,
+            publishesAttributedFailure: true
+        )
     }
 
     private func removeActiveConnection(
@@ -422,21 +584,46 @@ actor CmxConnectivityPeerSession {
         activeConnection.closureTask?.cancel()
         activeConnection.pathObservationTask?.cancel()
         activeConnection.pathEventObservationTask?.cancel()
-        await activeConnection.session.close()
-        await activeConnection.pathEventObservationTask?.value
-        await recordSessionClosure(
-            reason,
-            active: activeConnection,
-            failure: failure,
-            purpose: closurePurpose
-        )
-        guard self.activeConnection == nil,
-              pendingConnection == nil else { return }
-        if releasesControlOwner, let owner = removedOwner {
-            releaseControlOwner(ownerID: owner.id)
-        }
         self.failure = failure
         publishSnapshot()
+
+        // `close()` acknowledges parent-connection close. Child stream resets,
+        // watcher joins, attribution, and diagnostics are a separate receipt.
+        recordSessionLifecycle(
+            .retirementStarted,
+            sessionID: activeConnection.diagnosticID,
+            purpose: closurePurpose
+        )
+        if reason != .controlOwnerReleased {
+            recordSessionLifecycle(
+                reason,
+                sessionID: activeConnection.diagnosticID,
+                purpose: closurePurpose
+            )
+        }
+        await activeConnection.session.close()
+        recordSessionLifecycle(
+            .parentCloseAcknowledged,
+            sessionID: activeConnection.diagnosticID,
+            purpose: closurePurpose
+        )
+        if releasesControlOwner,
+           self.activeConnection == nil,
+           pendingConnection == nil,
+           let owner = removedOwner {
+            releaseControlOwner(ownerID: owner.id)
+            recordSessionLifecycle(
+                .controlOwnerReleased,
+                sessionID: activeConnection.diagnosticID,
+                purpose: closurePurpose
+            )
+        }
+        startRetiredConnectionCleanup(
+            active: activeConnection,
+            failure: failure,
+            purpose: closurePurpose,
+            publishesAttributedFailure: false
+        )
     }
 
     private func closeActiveConnection(
@@ -452,10 +639,21 @@ actor CmxConnectivityPeerSession {
         )
     }
 
-    private func retirePendingConnection() {
-        guard let pending = pendingConnection else { return }
+    private func retirePendingConnection() async -> PendingConnection? {
+        guard let pending = pendingConnection else { return nil }
         pendingConnection = nil
         pending.task.cancel()
+        recordSessionLifecycle(
+            .retirementStarted,
+            sessionID: pending.diagnosticID,
+            purpose: pending.purpose
+        )
+        await pending.retirement.retire()
+        recordSessionLifecycle(
+            .parentCloseAcknowledged,
+            sessionID: pending.diagnosticID,
+            purpose: pending.purpose
+        )
         let drainID = UUID()
         retiredDialDrains[drainID] = Task { [weak self] in
             let orphan = try? await pending.task.value
@@ -465,6 +663,7 @@ actor CmxConnectivityPeerSession {
                 await orphan.close()
             }
         }
+        return pending
     }
 
     private func settleRetiredDial(
@@ -475,54 +674,53 @@ actor CmxConnectivityPeerSession {
             await orphan.close()
         }
         retiredDialDrains[id] = nil
-        guard retiredDialDrains.isEmpty else { return }
-        let waiters = retiredDialWaiters.values
-        retiredDialWaiters.removeAll()
-        for continuation in waiters {
-            continuation.resume()
+    }
+
+    private func startRetiredConnectionCleanup(
+        active: ActiveConnection,
+        failure: DiagnosticFailureKind,
+        purpose: CmxTransportSessionPurpose,
+        publishesAttributedFailure: Bool
+    ) {
+        let cleanupID = UUID()
+        retiredConnectionCleanups[cleanupID] = Task { [weak self] in
+            await active.session.waitForPostCloseCleanup()
+            await active.pathEventObservationTask?.value
+            await self?.finishRetiredConnectionCleanup(
+                cleanupID: cleanupID,
+                active: active,
+                failure: failure,
+                purpose: purpose,
+                publishesAttributedFailure: publishesAttributedFailure
+            )
         }
     }
 
-    private func waitForRetiredDials() async {
-        guard !retiredDialDrains.isEmpty else { return }
-        let waiterID = UUID()
-        let clock = clock
-        let deadline = clock.now().addingTimeInterval(
-            Self.retiredDialSettleWaitLimitSeconds
+    private func finishRetiredConnectionCleanup(
+        cleanupID: UUID,
+        active: ActiveConnection,
+        failure: DiagnosticFailureKind,
+        purpose: CmxTransportSessionPurpose,
+        publishesAttributedFailure: Bool
+    ) async {
+        let attributedFailure = await recordSessionClosure(
+            active: active,
+            failure: failure,
+            prefersAttributedFailure: publishesAttributedFailure
         )
-        let timeout = Task { [weak self] in
-            try? await clock.sleep(until: deadline)
-            guard !Task.isCancelled else { return }
-            await self?.expireRetiredDialWait(id: waiterID)
+        if publishesAttributedFailure,
+           activeConnection == nil,
+           pendingConnection == nil,
+           controlOwner == nil {
+            self.failure = attributedFailure
+            publishSnapshot()
         }
-        defer { timeout.cancel() }
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if retiredDialDrains.isEmpty {
-                    continuation.resume()
-                } else {
-                    retiredDialWaiters[waiterID] = continuation
-                }
-            }
-        } onCancel: {
-            Task { [weak self] in
-                await self?.resumeRetiredDialWaiter(id: waiterID)
-            }
-        }
-    }
-
-    private func resumeRetiredDialWaiter(id: UUID) {
-        retiredDialWaiters.removeValue(forKey: id)?.resume()
-    }
-
-    private func expireRetiredDialWait(id: UUID) {
-        guard retiredDialWaiters[id] != nil else { return }
-        retiredDialDrains.removeAll()
-        let waiters = retiredDialWaiters.values
-        retiredDialWaiters.removeAll()
-        for continuation in waiters {
-            continuation.resume()
-        }
+        recordSessionLifecycle(
+            .postCloseCleanupCompleted,
+            sessionID: active.diagnosticID,
+            purpose: purpose
+        )
+        retiredConnectionCleanups[cleanupID] = nil
     }
 
     private func reserveControlOwner(
@@ -659,29 +857,28 @@ actor CmxConnectivityPeerSession {
     }
 
     private func recordSessionClosure(
-        _ kind: DiagnosticSessionLifecycleKind,
         active: ActiveConnection,
         failure: DiagnosticFailureKind,
-        purpose: CmxTransportSessionPurpose
-    ) async {
+        prefersAttributedFailure: Bool
+    ) async -> DiagnosticFailureKind {
+        let attribution = await active.session.closeAttribution()
         if let diagnosticLog {
             let recorder = CmxIrohConnectionDiagnosticRecorder(
                 diagnosticLog: diagnosticLog,
                 sessionID: active.diagnosticID
             )
-            recorder.record(await active.session.closeAttribution())
+            recorder.record(attribution)
         }
-        recordSessionLifecycle(
-            kind,
-            sessionID: active.diagnosticID,
-            purpose: purpose
-        )
+        let recordedFailure = prefersAttributedFailure
+            ? attribution.failureKind
+            : failure
         diagnosticLog?.record(DiagnosticEvent(
             .sessionClosed,
             a: DiagnosticTransportKind.iroh.rawValue,
-            b: failure.rawValue,
+            b: recordedFailure.rawValue,
             c: active.diagnosticID
         ))
+        return recordedFailure
     }
 
     private func makeSnapshot() -> CmxConnectivityPeerSnapshot {

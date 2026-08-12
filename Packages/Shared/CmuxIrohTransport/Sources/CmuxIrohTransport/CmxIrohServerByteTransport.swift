@@ -4,6 +4,7 @@ public import Foundation
 /// Presents one already-admitted Iroh control stream through the shared RPC byte seam.
 public actor CmxIrohServerByteTransport: CmxByteTransport {
     private let session: CmxIrohServerSession
+    private var closeTask: Task<Void, Never>?
     private var connected = false
     private var closed = false
 
@@ -28,10 +29,19 @@ public actor CmxIrohServerByteTransport: CmxByteTransport {
     }
 
     public func close() async {
+        if let closeTask {
+            await closeTask.value
+            return
+        }
         guard !closed else { return }
         closed = true
         connected = false
-        await session.close()
+        let session = session
+        let closeTask = Task {
+            await session.close()
+        }
+        self.closeTask = closeTask
+        await closeTask.value
     }
 
     private func requireConnected() throws {

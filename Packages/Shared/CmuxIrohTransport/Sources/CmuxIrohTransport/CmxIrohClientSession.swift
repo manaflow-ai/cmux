@@ -15,10 +15,23 @@ public actor CmxIrohClientSession {
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let headerCodec: CmxIrohStreamHeaderCodec
     private let admissionCodec = CmxIrohAdmissionAckCodec()
-    private var connectionTask: Task<CmxIrohConnectedControl, any Error>?
+    private struct ConnectionAttempt {
+        let id: UUID
+        let task: Task<CmxIrohConnectedControl, any Error>
+    }
+
+    private struct PendingPhysicalConnection {
+        let attemptID: UUID
+        let connection: any CmxIrohConnection
+    }
+
+    private var connectionTask: ConnectionAttempt?
+    private var pendingPhysicalConnection: PendingPhysicalConnection?
     private var connection: (any CmxIrohConnection)?
     private var controlStream: CmxIrohBidirectionalStream?
     private var serverEventReceiver: CmxIrohClientServerEventReceiver?
+    private var parentCloseTask: Task<Void, Never>?
+    private var postCloseCleanupTask: Task<Void, Never>?
     private var controlReceiveBuffer = Data()
     private var terminalCloseAttribution: CmxIrohConnectionCloseAttribution?
     private var closed = false
@@ -64,31 +77,52 @@ public actor CmxIrohClientSession {
         guard !closed else { throw CmxIrohClientSessionError.alreadyClosed }
         if connection != nil, controlStream != nil { return }
 
-        let task: Task<CmxIrohConnectedControl, any Error>
+        let attempt: ConnectionAttempt
         if let connectionTask {
-            task = connectionTask
+            attempt = connectionTask
         } else {
-            task = Task { [weak self] in
+            let attemptID = UUID()
+            let task = Task { [weak self] in
                 guard let self else { throw CancellationError() }
-                return try await self.establishConnection()
+                return try await self.establishConnection(
+                    attemptID: attemptID
+                )
             }
-            connectionTask = task
+            attempt = ConnectionAttempt(id: attemptID, task: task)
+            connectionTask = attempt
         }
 
         do {
             let connected = try await withTaskCancellationHandler(operation: {
-                try await task.value
+                try await attempt.task.value
             }, onCancel: {
-                task.cancel()
+                attempt.task.cancel()
             })
+            guard !closed, connectionTask?.id == attempt.id else {
+                await connected.connection.close(
+                    errorCode: 0,
+                    reason: "retired_before_install"
+                )
+                throw CmxConnectivityEngineError.superseded
+            }
             if connection == nil, controlStream == nil {
                 connection = connected.connection
                 controlStream = connected.stream
                 controlReceiveBuffer = connected.initialReceiveBuffer
             }
-            connectionTask = nil
+            if pendingPhysicalConnection?.attemptID == attempt.id {
+                pendingPhysicalConnection = nil
+            }
+            if connectionTask?.id == attempt.id {
+                connectionTask = nil
+            }
         } catch {
-            connectionTask = nil
+            if pendingPhysicalConnection?.attemptID == attempt.id {
+                pendingPhysicalConnection = nil
+            }
+            if connectionTask?.id == attempt.id {
+                connectionTask = nil
+            }
             throw error
         }
     }
@@ -257,28 +291,73 @@ public actor CmxIrohClientSession {
         return await connection.observedPathEvents()
     }
 
-    /// Closes the control stream and complete QUIC connection.
+    /// Closes the complete QUIC connection, then cleans up child stream handles.
+    ///
+    /// The parent close runs first because it is the operation that unblocks
+    /// dead child streams. Child cleanup continues asynchronously and cannot
+    /// retain peer ownership or delay a replacement connection.
     public func close() async {
+        if let parentCloseTask {
+            await parentCloseTask.value
+            return
+        }
         guard !closed else { return }
         closed = true
-        connectionTask?.cancel()
+        connectionTask?.task.cancel()
         connectionTask = nil
-        await serverEventReceiver?.close()
+        let receiverToClose = serverEventReceiver
         serverEventReceiver = nil
-        if let controlStream {
-            await controlStream.sendStream.reset(errorCode: 0)
-            await controlStream.receiveStream.stop(errorCode: 0)
-        }
-        if let connection {
-            await connection.close(errorCode: 0, reason: "client_closed")
-            terminalCloseAttribution = await connection.closeAttribution()
-        }
+        let controlStreamToClose = controlStream
         controlStream = nil
-        self.connection = nil
+        let connectionToClose = connection
+        connection = nil
+        let pendingConnectionToClose = pendingPhysicalConnection?.connection
+        pendingPhysicalConnection = nil
         controlReceiveBuffer.removeAll(keepingCapacity: false)
+
+        let parentCloseTask = Task {
+            if let connectionToClose {
+                await connectionToClose.close(
+                    errorCode: 0,
+                    reason: "client_closed"
+                )
+            }
+            if let pendingConnectionToClose {
+                await pendingConnectionToClose.close(
+                    errorCode: 0,
+                    reason: "pending_client_closed"
+                )
+            }
+        }
+        self.parentCloseTask = parentCloseTask
+        postCloseCleanupTask = Task { [weak self] in
+            await parentCloseTask.value
+            if let controlStreamToClose {
+                await controlStreamToClose.sendStream.reset(errorCode: 0)
+                await controlStreamToClose.receiveStream.stop(errorCode: 0)
+            }
+            await receiverToClose?.close()
+            if let connectionToClose {
+                let attribution = await connectionToClose.closeAttribution()
+                await self?.storeTerminalCloseAttribution(attribution)
+            }
+        }
+        await parentCloseTask.value
     }
 
-    private func establishConnection() async throws -> CmxIrohConnectedControl {
+    func waitForPostCloseCleanup() async {
+        await postCloseCleanupTask?.value
+    }
+
+    private func storeTerminalCloseAttribution(
+        _ attribution: CmxIrohConnectionCloseAttribution
+    ) {
+        terminalCloseAttribution = attribution
+    }
+
+    private func establishConnection(
+        attemptID: UUID
+    ) async throws -> CmxIrohConnectedControl {
         var establishedConnection: (any CmxIrohConnection)?
         var publicConnectionError: (any Error)?
         if !dialPlan.publicPaths.isEmpty {
@@ -338,6 +417,18 @@ public actor CmxIrohClientSession {
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
 
+        guard !closed, connectionTask?.id == attemptID else {
+            await establishedConnection.close(
+                errorCode: 0,
+                reason: "retired_before_admission"
+            )
+            throw CmxConnectivityEngineError.superseded
+        }
+        pendingPhysicalConnection = PendingPhysicalConnection(
+            attemptID: attemptID,
+            connection: establishedConnection
+        )
+
         do {
             try Task.checkCancellation()
             guard await establishedConnection.remoteIdentity() == targetIdentity else {
@@ -377,6 +468,9 @@ public actor CmxIrohClientSession {
                     throw CmxIrohClientSessionError.invalidAdmissionFrame
                 }
                 try Task.checkCancellation()
+                guard !closed, connectionTask?.id == attemptID else {
+                    throw CmxConnectivityEngineError.superseded
+                }
                 return CmxIrohConnectedControl(
                     connection: establishedConnection,
                     stream: stream,
@@ -388,6 +482,9 @@ public actor CmxIrohClientSession {
                 throw CmxIrohClientSessionError.invalidAdmissionFrame
             }
         } catch {
+            if pendingPhysicalConnection?.attemptID == attemptID {
+                pendingPhysicalConnection = nil
+            }
             await establishedConnection.close(errorCode: 1, reason: "admission_failed")
             throw error
         }

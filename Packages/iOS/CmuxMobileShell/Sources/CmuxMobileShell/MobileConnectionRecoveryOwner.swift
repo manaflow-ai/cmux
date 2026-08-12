@@ -12,6 +12,7 @@ final class MobileConnectionRecoveryOwner {
         let id: UUID
         let trigger: String
         let sourceConnectionGeneration: UUID
+        let deadlineUptimeNanoseconds: UInt64
     }
 
     enum Phase: Equatable {
@@ -24,6 +25,9 @@ final class MobileConnectionRecoveryOwner {
 
     private(set) var phase: Phase = .idle
     private(set) var task: Task<Void, Never>?
+    private var validationWaiters: [
+        UUID: [CheckedContinuation<Bool, Never>]
+    ] = [:]
 
     var activeAttempt: Attempt? {
         switch phase {
@@ -61,7 +65,8 @@ final class MobileConnectionRecoveryOwner {
     func begin(
         trigger: String,
         sourceConnectionGeneration: UUID,
-        probing: Bool
+        probing: Bool,
+        deadlineUptimeNanoseconds: UInt64 = .max
     ) -> Attempt? {
         guard !isActive else { return nil }
         task?.cancel()
@@ -69,7 +74,8 @@ final class MobileConnectionRecoveryOwner {
         let attempt = Attempt(
             id: UUID(),
             trigger: trigger,
-            sourceConnectionGeneration: sourceConnectionGeneration
+            sourceConnectionGeneration: sourceConnectionGeneration,
+            deadlineUptimeNanoseconds: deadlineUptimeNanoseconds
         )
         phase = probing ? .probing(attempt) : .redialing(attempt)
         return attempt
@@ -81,13 +87,15 @@ final class MobileConnectionRecoveryOwner {
         trigger: String,
         sourceConnectionGeneration: UUID
     ) -> Attempt? {
-        guard case .probing = phase else { return nil }
+        guard case .probing(let previousAttempt) = phase else { return nil }
         task?.cancel()
         task = nil
         let attempt = Attempt(
             id: UUID(),
             trigger: trigger,
-            sourceConnectionGeneration: sourceConnectionGeneration
+            sourceConnectionGeneration: sourceConnectionGeneration,
+            deadlineUptimeNanoseconds:
+                previousAttempt.deadlineUptimeNanoseconds
         )
         phase = .redialing(attempt)
         return attempt
@@ -137,21 +145,37 @@ final class MobileConnectionRecoveryOwner {
     func complete(_ attempt: Attempt) -> Bool {
         guard isCurrent(attempt) else { return false }
         phase = .idle
+        task = nil
+        resolveValidationWaiters(for: attempt.id, result: true)
         return true
     }
 
     func completeValidation(connectionGeneration: UUID) -> Bool {
-        guard case .validatingReplacement(_, let expectedGeneration) = phase,
+        guard case .validatingReplacement(let attempt, let expectedGeneration) = phase,
               expectedGeneration == connectionGeneration else {
             return false
         }
         phase = .idle
+        task = nil
+        resolveValidationWaiters(for: attempt.id, result: true)
         return true
+    }
+
+    func waitForValidationSettlement(_ attempt: Attempt) async -> Bool {
+        guard case .validatingReplacement(let active, _) = phase,
+              active.id == attempt.id else {
+            return false
+        }
+        return await withCheckedContinuation { continuation in
+            validationWaiters[attempt.id, default: []].append(continuation)
+        }
     }
 
     func fail(_ attempt: Attempt) -> Bool {
         guard isCurrent(attempt) else { return false }
         phase = .failed(attempt)
+        task = nil
+        resolveValidationWaiters(for: attempt.id, result: false)
         return true
     }
 
@@ -166,6 +190,7 @@ final class MobileConnectionRecoveryOwner {
         task?.cancel()
         task = nil
         phase = .failed(attempt)
+        resolveValidationWaiters(for: attempt.id, result: false)
         return attempt
     }
 
@@ -185,8 +210,22 @@ final class MobileConnectionRecoveryOwner {
     }
 
     func cancel() {
+        let attempt = activeAttempt
         task?.cancel()
         task = nil
         phase = .idle
+        if let attempt {
+            resolveValidationWaiters(for: attempt.id, result: false)
+        }
+    }
+
+    private func resolveValidationWaiters(
+        for attemptID: UUID,
+        result: Bool
+    ) {
+        let waiters = validationWaiters.removeValue(forKey: attemptID) ?? []
+        for waiter in waiters {
+            waiter.resume(returning: result)
+        }
     }
 }
