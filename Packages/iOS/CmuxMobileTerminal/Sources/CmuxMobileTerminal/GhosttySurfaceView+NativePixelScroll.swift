@@ -140,10 +140,16 @@ extension GhosttySurfaceView {
         )
         nativePixelScrollState = state
 
+        if sample.effectiveOffsetY != previousOffsetY {
+            // Every fractional UIKit movement is a newer viewport intent, even
+            // when it rounds to the same Ghostty row. Live output must not
+            // publish a competing row presentation during the tail of a drag
+            // or deceleration, which is where adjacent-row stutter appears.
+            bumpUserViewportInteractionGeneration()
+        }
         if sample.targetViewportRow != nativePixelScrollLastRequestedRow {
             nativePixelScrollLastRequestedRow = sample.targetViewportRow
             nativePixelScrollHasRequestedViewport = true
-            bumpUserViewportInteractionGeneration()
             applyLocalScrollbackViewport(row: sample.targetViewportRow)
         }
         _ = applyLocalScrollbackPresentation(
