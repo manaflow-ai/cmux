@@ -212,6 +212,14 @@ func frontendFocusMutationIsAdmitted(
     pendingMutations < maximumPendingMutations && pendingRetirements == 0
 }
 
+func waitForFrontendTerminalRetirements(
+    _ retirements: [Task<Void, Never>]
+) async {
+    for retirement in retirements {
+        await retirement.value
+    }
+}
+
 func frontendConnectionIsAdmitted(
     isConnecting: Bool,
     isDisconnecting: Bool,
@@ -896,9 +904,13 @@ final class FrontendModel {
         selectedWorkspaceID = workspaceID
         selectedScreenID = screenID
         if let snapshot { reconcileTerminalControllers(snapshot) }
+        let retirements = Array(terminalRetirementTasks.values)
         let enqueued = mutate(
             operation,
             selectors: selectors,
+            beforeRequest: {
+                await waitForFrontendTerminalRetirements(retirements)
+            },
             onSuccess: { await self.reconcileFocusMutation(requestID) },
             onIndeterminate: { await self.reconcileFocusMutation(requestID) },
             onFailure: {
@@ -1151,6 +1163,7 @@ final class FrontendModel {
         _ operation: String,
         selectors: [String: String],
         fields: [String: JSONValue] = [:],
+        beforeRequest: (() async -> Void)? = nil,
         onSuccess: (() async -> Void)? = nil,
         onIndeterminate: (() async -> Void)? = nil,
         onFailure: (() -> Bool)? = nil
@@ -1183,6 +1196,10 @@ final class FrontendModel {
             guard let self else { return }
             defer { finishMutation(mutationID, replacementKey: replacementKey) }
             do {
+                if let beforeRequest {
+                    await beforeRequest()
+                }
+                try Task.checkCancellation()
                 try await service.requestDiscardingResult(
                     operation,
                     params: params,

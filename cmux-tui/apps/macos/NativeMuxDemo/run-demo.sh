@@ -247,7 +247,7 @@ if [[ "$REUSE_BUILD" == "1" ]]; then
       exit 1
     fi
   done
-  if [[ ! -d "$APP_BUNDLE/Contents/Resources/NativeMuxDemo_NativeMuxDemo.bundle" ]]; then
+  if [[ ! -d "$APP_BUNDLE/NativeMuxDemo_NativeMuxDemo.bundle" ]]; then
     echo "Reusable NativeMuxDemo resource bundle is missing." >&2
     echo "Run this launcher without --reuse-build once to assemble the localized app." >&2
     exit 1
@@ -287,7 +287,9 @@ else
     "$APP_BUNDLE/Contents/Resources/en.lproj/InfoPlist.strings"
   cp "$SCRIPT_DIR/Support/ja.lproj/InfoPlist.strings" \
     "$APP_BUNDLE/Contents/Resources/ja.lproj/InfoPlist.strings"
-  cp -R "$SWIFT_RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
+  # SwiftPM's generated Bundle.module accessor searches beside the main
+  # bundle URL before it uses its build-directory fallback.
+  cp -R "$SWIFT_RESOURCE_BUNDLE" "$APP_BUNDLE/"
   cp "$APP_BINARY" "$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
   codesign --force --sign - --timestamp=none "$APP_BUNDLE" >/dev/null
 fi

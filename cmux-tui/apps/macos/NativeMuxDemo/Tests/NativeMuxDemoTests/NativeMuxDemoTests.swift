@@ -613,6 +613,36 @@ func focusMutationAdmissionWaitsForControllerRetirement() {
 }
 
 @Test
+func focusMutationRequestWaitsForNewControllerRetirement() async {
+    let retirementStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let releaseRetirement = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let operations = EventLog()
+    let retirement = Task {
+        operations.append("retirement-started")
+        retirementStarted.continuation.yield()
+        for await _ in releaseRetirement.stream { break }
+        operations.append("retirement-finished")
+    }
+    for await _ in retirementStarted.stream { break }
+
+    let request = Task {
+        await waitForFrontendTerminalRetirements([retirement])
+        operations.append("focus-request")
+    }
+    #expect(operations.snapshot == ["retirement-started"])
+    releaseRetirement.continuation.yield()
+    await request.value
+
+    retirementStarted.continuation.finish()
+    releaseRetirement.continuation.finish()
+    #expect(operations.snapshot == [
+        "retirement-started",
+        "retirement-finished",
+        "focus-request",
+    ])
+}
+
+@Test
 func focusReconciliationUsesTheNewestAuthoritativeSnapshot() throws {
     let fetchedBeforeUpdate = try focusSnapshot(
         revision: "10",
