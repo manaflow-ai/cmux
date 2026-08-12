@@ -1050,8 +1050,10 @@ func browserExternalNavigationAction(for url: URL) -> BrowserExternalNavigationA
 }
 
 private func browserCopyExternalNavigationURL(_ url: URL) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    GhosttyApp.terminalPasteboard.writeString(
+        url.absoluteString,
+        to: .general
+    )
 }
 
 typealias BrowserAlertPresenter = (
@@ -2175,9 +2177,18 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
     private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
 
-    /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
-    /// the omnibar without changing the global browser default.
-    @Published private(set) var isOmnibarVisible: Bool
+    /// Pane-owned browser chrome state. Views observe this focused model directly
+    /// instead of adding more Combine propagation to the legacy panel object.
+    let chromeState: BrowserChromeState
+
+    /// Per-surface browser chrome policy used by persistence and action routing.
+    var chromeVisibility: BrowserChromeVisibility {
+        chromeState.visibility
+    }
+
+    var isOmnibarVisible: Bool {
+        chromeVisibility.isOmnibarVisible
+    }
 
     /// Semantic in-panel focus target used by split switching and transient overlays.
     private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
@@ -2292,9 +2303,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 && self?.webView.url != nil
         },
         clipboardWriter: { prompt in
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            return pasteboard.setString(prompt, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                prompt,
+                to: .general
+            )
         },
         onActivityChanged: { [weak self] in
             self?.handleDesignModeActivityChanged()
@@ -3336,7 +3348,7 @@ final class BrowserPanel: Panel, ObservableObject {
         renderInitialNavigation: Bool = true,
         preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
-        omnibarVisible: Bool = true,
+        chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
@@ -3358,7 +3370,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
-        self.isOmnibarVisible = omnibarVisible
+        self.chromeState = BrowserChromeState(visibility: chromeVisibility)
         self.usesTransparentBackground = transparentBackground
         let websiteDataStore = explicitWebsiteDataStore ?? (
             isRemoteWorkspace
@@ -3462,10 +3474,16 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         navDelegate.handleDroppedFileNavigation = { [weak self] urls in
-            guard let self, let workspace = AppDelegate.shared?.workspaceFor(tabId: self.workspaceId),
-                  let paneId = workspace.paneId(forPanelId: self.id) else { return false }
-            return workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
-                urls: urls, destination: PaneDropRouting.filePreviewDestination(targetPane: paneId, zone: .right)))
+            guard let self,
+                  let appDelegate = AppDelegate.shared,
+                  let target = appDelegate.browserActionTarget(for: self) else {
+                return false
+            }
+            return appDelegate.openFilePreviews(
+                urls,
+                relativeTo: target,
+                zone: .right
+            )
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
             self?.replaceWebViewAfterContentProcessTermination(for: webView)
@@ -4231,7 +4249,10 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
             setMuted(snapshot.isMuted)
-            setOmnibarVisible(snapshot.omnibarVisible ?? false)
+            setChromeVisibility(
+                snapshot.chromeVisibility
+                    ?? BrowserChromeVisibility(omnibarVisible: snapshot.omnibarVisible ?? false)
+            )
             currentURL = diffURL
             let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
             guard shouldRenderRestoredWebView else {
@@ -4247,7 +4268,10 @@ final class BrowserPanel: Panel, ObservableObject {
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
         setMuted(snapshot.isMuted)
-        setOmnibarVisible(snapshot.omnibarVisible ?? true)
+        setChromeVisibility(
+            snapshot.chromeVisibility
+                ?? BrowserChromeVisibility(omnibarVisible: snapshot.omnibarVisible ?? true)
+        )
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
@@ -7160,7 +7184,15 @@ extension BrowserPanel {
     @discardableResult
     func requestAddressBarFocus(
         selectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
-    ) -> UUID {
+    ) -> UUID? {
+        guard chromeVisibility.allowsAddressBarFocus else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.addressBar.request panel=\(id.uuidString.prefix(5)) result=chromeless"
+            )
+#endif
+            return nil
+        }
         clearBrowserFocusMode(reason: "requestAddressBarFocus")
         setOmnibarVisible(true)
         preferredFocusIntent = .addressBar
@@ -7204,15 +7236,21 @@ extension BrowserPanel {
 
     @discardableResult
     func setOmnibarVisible(_ visible: Bool) -> Bool {
-        guard isOmnibarVisible != visible else { return false }
+        guard chromeVisibility.allowsOmnibarToggle else { return false }
+        return setChromeVisibility(BrowserChromeVisibility(omnibarVisible: visible))
+    }
+
+    @discardableResult
+    func setChromeVisibility(_ visibility: BrowserChromeVisibility) -> Bool {
+        guard chromeState.setVisibility(visibility) else { return false }
 #if DEBUG
         cmuxDebugLog(
-            "browser.omnibar.visible panel=\(id.uuidString.prefix(5)) visible=\(visible ? 1 : 0) " +
+            "browser.omnibar.visible panel=\(id.uuidString.prefix(5)) " +
+            "state=\(visibility.rawValue) " +
             "callers=\(Thread.callStackSymbols.dropFirst().prefix(5).map { frame in String(frame.split(separator: " ").dropFirst(3).first ?? "?") }.joined(separator: "<"))"
         )
 #endif
-        isOmnibarVisible = visible
-        if !visible {
+        if !visibility.isOmnibarVisible {
             pendingAddressBarFocusRequestId = nil
             pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
             if preferredFocusIntent == .addressBar {
@@ -7316,11 +7354,17 @@ extension BrowserPanel {
 
         switch target {
         case .webView:
-            noteWebViewFocused()
+            prepareFocusIntentForActivation(.browser(.webView))
             focus()
             return true
         case .addressBar:
-            let requestId = requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
+            guard let requestId = requestAddressBarFocus(
+                selectionIntent: .preserveFieldEditorSelection
+            ) else {
+                prepareFocusIntentForActivation(.browser(.webView))
+                _ = requestExplicitWebViewFocus()
+                return true
+            }
             NotificationCenter.default.post(name: .browserFocusAddressBar, object: id)
 #if DEBUG
             cmuxDebugLog(
