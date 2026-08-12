@@ -799,6 +799,7 @@ struct TerminalRenderEvent: Sendable {
     case resize = 3
     case ready = 4
     case exit = 5
+    case inputEpoch = 6
   }
 
   let kind: Kind

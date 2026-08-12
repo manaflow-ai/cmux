@@ -1357,6 +1357,44 @@ func exitClearsMarkedTextFromThePreviousInputEpoch() async {
     #expect(exitInput.epoch == 7)
 }
 
+@Test @MainActor
+func inputEpochFenceClearsMarkedTextWithoutAReplacementSnapshot() async {
+    let input = AsyncStream<QueuedTerminalInput>.makeStream()
+    let drops = AsyncStream<Void>.makeStream()
+    let relay = GhosttyTerminalInputRelay(
+        continuation: input.continuation,
+        dropContinuation: drops.continuation
+    )
+    let view = GhosttyRemoteSurfaceView(
+        runtime: nil,
+        inputRelay: relay,
+        localization: testLocalization
+    )
+
+    view.setMarkedText(
+        "old",
+        selectedRange: NSRange(location: 3, length: 0),
+        replacementRange: NSRange(location: NSNotFound, length: 0)
+    )
+    view.apply(TerminalRenderEvent(
+        kind: .inputEpoch,
+        geometry: TerminalGeometry(cols: 80, rows: 24),
+        payload: Data(),
+        inputEpoch: 9
+    ))
+    #expect(relay.send(Data("after-restart".utf8)))
+    input.continuation.finish()
+    var queuedInput = input.stream.makeAsyncIterator()
+
+    #expect(!view.hasMarkedText())
+    #expect(view.markedRange().location == NSNotFound)
+    guard let restartedInput = await queuedInput.next() else {
+        Issue.record("Restart did not publish the new input epoch.")
+        return
+    }
+    #expect(restartedInput.epoch == 9)
+}
+
 @Test
 func sideBySideLayoutUsesScreenRelativeGhosttyCoordinates() {
     let visibleFrame = CGRect(x: 1440, y: 25, width: 1728, height: 971)

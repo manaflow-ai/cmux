@@ -27,6 +27,9 @@ typedef enum {
     CMUX_FRONTEND_RENDER_RESIZE = 3,
     CMUX_FRONTEND_RENDER_READY = 4,
     CMUX_FRONTEND_RENDER_EXIT = 5,
+    // Input from older render epochs must be discarded. This control event
+    // has no payload and remains available after render-queue backpressure.
+    CMUX_FRONTEND_RENDER_INPUT_EPOCH = 6,
 } CmuxFrontendRenderEventKind;
 
 // CMUX_FRONTEND_RENDER_RESET payloads use the versioned CMNR v1 format:

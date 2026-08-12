@@ -1248,8 +1248,10 @@ pub unsafe extern "C" fn cmux_frontend_terminal_copy_next_render_event(
     let Some(event_out) = (unsafe { event.as_mut() }) else { return false };
     let mut state = terminal.state.lock().unwrap();
     if state.native_render_event_lease.is_none() {
-        state.native_render_event_lease =
-            state.native_render_events.as_mut().and_then(VecDeque::pop_front);
+        state.native_render_event_lease = state
+            .native_render_control_event
+            .take()
+            .or_else(|| state.native_render_events.as_mut().and_then(VecDeque::pop_front));
     }
     let Some(next) = state.native_render_event_lease.as_ref() else {
         return false;
@@ -1288,6 +1290,7 @@ pub unsafe extern "C" fn cmux_frontend_terminal_discard_render_events(
     let Some(terminal) = (unsafe { terminal.as_ref() }) else { return };
     let mut state = terminal.state.lock().unwrap();
     state.native_render_event_lease = None;
+    state.native_render_control_event = None;
     if let Some(events) = state.native_render_events.as_mut() {
         events.clear();
     }
@@ -1968,6 +1971,79 @@ mod tests {
         });
         assert_eq!(payload, *b"old");
         assert_eq!(descriptor.kind, NativeRenderEventKind::Bytes as u32);
+    }
+
+    #[test]
+    fn native_render_epoch_control_precedes_queued_snapshot_events() {
+        let runtime = Runtime::new().unwrap();
+        let state = Arc::new(Mutex::new(
+            ClientState::new(
+                "test".into(),
+                "memory".into(),
+                1,
+                TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap(),
+            )
+            .unwrap(),
+        ));
+        {
+            let mut state = state.lock().unwrap();
+            state.enable_native_render_events();
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Reset,
+                80,
+                24,
+                b"stale".to_vec(),
+            ));
+            state.fail_closed_for_stream_restart();
+            state.prepare_handshake(
+                TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap(),
+            )
+            .unwrap();
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Reset,
+                100,
+                30,
+                b"authoritative".to_vec(),
+            ));
+        }
+        let mut terminal = CmuxFrontendTerminal {
+            runtime: runtime.handle().clone(),
+            state,
+            updates: Arc::new(ClientUpdates::default()),
+            active: Mutex::new(None),
+            next_request: AtomicU64::new(1),
+        };
+        let mut descriptor = CmuxFrontendRenderEvent {
+            kind: 0,
+            cols: 0,
+            rows: 0,
+            input_epoch: 0,
+            payload_length: 0,
+        };
+
+        assert!(unsafe {
+            cmux_frontend_terminal_copy_next_render_event(
+                &mut terminal,
+                &mut descriptor,
+                std::ptr::null_mut(),
+                0,
+            )
+        });
+        assert_eq!(descriptor.kind, NativeRenderEventKind::InputEpoch as u32);
+        assert_eq!(descriptor.input_epoch, 2);
+        assert_eq!(descriptor.payload_length, 0);
+
+        assert!(unsafe {
+            cmux_frontend_terminal_copy_next_render_event(
+                &mut terminal,
+                &mut descriptor,
+                std::ptr::null_mut(),
+                0,
+            )
+        });
+        assert_eq!(descriptor.kind, NativeRenderEventKind::Reset as u32);
+        assert_eq!(descriptor.input_epoch, 2);
+        assert_eq!(descriptor.payload_length, b"authoritative".len());
     }
 
     #[test]

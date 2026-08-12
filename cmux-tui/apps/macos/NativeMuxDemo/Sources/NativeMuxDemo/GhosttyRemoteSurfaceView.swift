@@ -362,6 +362,11 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
       clearLocalInputState()
       ready = false
       renderStreamValid = false
+    case .inputEpoch:
+      callbackContext.inputRelay.beginEpoch(event.inputEpoch)
+      clearLocalInputState()
+      ready = false
+      renderStreamValid = false
     }
   }
 

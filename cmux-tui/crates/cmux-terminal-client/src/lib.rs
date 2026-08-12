@@ -559,9 +559,11 @@ struct ClientState {
     cell_pixels: (u16, u16),
     resize_delivery: Option<Arc<ResizeDelivery>>,
     resize_acknowledgement: Option<ResizeAcknowledgement>,
+    native_render_control_event: Option<NativeRenderEvent>,
     native_render_events: Option<VecDeque<NativeRenderEvent>>,
     native_render_event_lease: Option<NativeRenderEvent>,
     native_render_event_bytes: usize,
+    pending_native_bootstrap_events: Vec<NativeRenderEvent>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -572,6 +574,7 @@ enum NativeRenderEventKind {
     Resize = 3,
     Ready = 4,
     Exit = 5,
+    InputEpoch = 6,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -656,16 +659,76 @@ impl ClientState {
             cell_pixels: (8, 16),
             resize_delivery: None,
             resize_acknowledgement: None,
+            native_render_control_event: None,
             native_render_events: None,
             native_render_event_lease: None,
             native_render_event_bytes: 0,
+            pending_native_bootstrap_events: Vec::new(),
         })
     }
 
     fn enable_native_render_events(&mut self) {
+        self.native_render_control_event = None;
         self.native_render_events = Some(VecDeque::new());
         self.native_render_event_lease = None;
         self.native_render_event_bytes = 0;
+        self.pending_native_bootstrap_events.clear();
+    }
+
+    fn native_render_event(
+        &self,
+        kind: NativeRenderEventKind,
+        cols: u16,
+        rows: u16,
+        payload: Vec<u8>,
+    ) -> NativeRenderEvent {
+        NativeRenderEvent { kind, cols, rows, input_epoch: self.input_epoch, payload }
+    }
+
+    fn stage_native_bootstrap_event(
+        &mut self,
+        kind: NativeRenderEventKind,
+        cols: u16,
+        rows: u16,
+        payload: Vec<u8>,
+    ) {
+        if self.native_render_events.is_some() {
+            let event = self.native_render_event(kind, cols, rows, payload);
+            self.pending_native_bootstrap_events.push(event);
+        }
+    }
+
+    fn push_native_render_event_value(&mut self, event: NativeRenderEvent) -> bool {
+        let Some(events) = self.native_render_events.as_mut() else { return true };
+        if event.kind == NativeRenderEventKind::Bytes && event.payload.is_empty() {
+            return true;
+        }
+        if event.kind == NativeRenderEventKind::Bytes
+            && self.native_render_event_bytes.saturating_add(event.payload.len())
+                <= MAX_NATIVE_RENDER_EVENT_BYTES
+            && let Some(previous) = events.back_mut()
+            && previous.kind == NativeRenderEventKind::Bytes
+            && previous.input_epoch == event.input_epoch
+            && previous.payload.len().saturating_add(event.payload.len()) <= 1024 * 1024
+        {
+            self.native_render_event_bytes =
+                self.native_render_event_bytes.saturating_add(event.payload.len());
+            previous.payload.extend_from_slice(&event.payload);
+            return true;
+        }
+        if events.len() >= MAX_NATIVE_RENDER_EVENTS
+            || self.native_render_event_bytes.saturating_add(event.payload.len())
+                > MAX_NATIVE_RENDER_EVENT_BYTES
+        {
+            events.clear();
+            self.native_render_event_bytes =
+                self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
+            return false;
+        }
+        self.native_render_event_bytes =
+            self.native_render_event_bytes.saturating_add(event.payload.len());
+        events.push_back(event);
+        true
     }
 
     fn push_native_render_event(
@@ -675,42 +738,35 @@ impl ClientState {
         rows: u16,
         payload: Vec<u8>,
     ) -> bool {
-        let Some(events) = self.native_render_events.as_mut() else { return true };
-        if kind == NativeRenderEventKind::Bytes && payload.is_empty() {
-            return true;
+        let event = self.native_render_event(kind, cols, rows, payload);
+        self.push_native_render_event_value(event)
+    }
+
+    fn push_native_control_event(&mut self, kind: NativeRenderEventKind) {
+        let event = self.native_render_event(kind, self.cols, self.rows, Vec::new());
+        if let Some(events) = self.native_render_events.as_mut() {
+            if kind == NativeRenderEventKind::Exit {
+                events.clear();
+                self.native_render_event_bytes = self
+                    .native_render_event_lease
+                    .as_ref()
+                    .map_or(0, |event| event.payload.len());
+            }
+            self.native_render_control_event = Some(event);
         }
-        if kind == NativeRenderEventKind::Bytes
-            && self.native_render_event_bytes.saturating_add(payload.len())
-                <= MAX_NATIVE_RENDER_EVENT_BYTES
-            && let Some(previous) = events.back_mut()
-            && previous.kind == NativeRenderEventKind::Bytes
-            && previous.input_epoch == self.input_epoch
-            && previous.payload.len().saturating_add(payload.len()) <= 1024 * 1024
-        {
-            self.native_render_event_bytes =
-                self.native_render_event_bytes.saturating_add(payload.len());
-            previous.payload.extend_from_slice(&payload);
-            return true;
+    }
+
+    fn publish_native_bootstrap_events(&mut self) -> FrameEffect {
+        let events = std::mem::take(&mut self.pending_native_bootstrap_events);
+        for event in events {
+            if !self.push_native_render_event_value(event) {
+                self.status = "renderer-backpressure".into();
+                self.resync_count = self.resync_count.saturating_add(1);
+                self.fail_closed_for_stream_restart();
+                return FrameEffect::Restart;
+            }
         }
-        if events.len() >= MAX_NATIVE_RENDER_EVENTS
-            || self.native_render_event_bytes.saturating_add(payload.len())
-                > MAX_NATIVE_RENDER_EVENT_BYTES
-        {
-            events.clear();
-            self.native_render_event_bytes =
-                self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
-            return false;
-        }
-        self.native_render_event_bytes =
-            self.native_render_event_bytes.saturating_add(payload.len());
-        events.push_back(NativeRenderEvent {
-            kind,
-            cols,
-            rows,
-            input_epoch: self.input_epoch,
-            payload,
-        });
-        true
+        FrameEffect::Continue
     }
 
     fn continue_after_native_event(
@@ -739,12 +795,14 @@ impl ClientState {
     fn fail_closed_for_stream_restart(&mut self) {
         self.bootstrap_committed = false;
         self.ready = false;
+        self.pending_native_bootstrap_events.clear();
         self.advance_input_epoch();
         if let Some(events) = self.native_render_events.as_mut() {
             events.clear();
         }
         self.native_render_event_bytes =
             self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
+        self.push_native_control_event(NativeRenderEventKind::InputEpoch);
     }
 
     fn advance_input_epoch(&mut self) {
@@ -773,6 +831,7 @@ impl ClientState {
         self.rows = 0;
         self.cell_pixels = (8, 16);
         self.resize_acknowledgement = None;
+        self.pending_native_bootstrap_events.clear();
         if let Some(events) = self.native_render_events.as_mut() {
             events.clear();
         }
@@ -863,16 +922,18 @@ impl ClientState {
                 self.expected_sequence = frame.sequence.checked_add(1);
                 self.snapshot_applied = true;
                 self.status = "snapshot".into();
+                self.pending_native_bootstrap_events.clear();
                 #[cfg(feature = "text-renderer")]
                 {
                     self.render_dirty = true;
                 }
-                self.continue_after_native_event(
+                self.stage_native_bootstrap_event(
                     NativeRenderEventKind::Reset,
                     snapshot.cols,
                     snapshot.rows,
                     encode_native_reset_payload(&snapshot),
-                )
+                );
+                FrameEffect::Continue
             }
             MessageKind::Colors
                 if self.snapshot_applied
@@ -893,12 +954,13 @@ impl ClientState {
                 {
                     self.render_dirty = true;
                 }
-                self.continue_after_native_event(
+                self.stage_native_bootstrap_event(
                     NativeRenderEventKind::Bytes,
                     self.cols,
                     self.rows,
                     native_colors,
-                )
+                );
+                FrameEffect::Continue
             }
             MessageKind::Ready
                 if self.snapshot_applied
@@ -909,12 +971,13 @@ impl ClientState {
                 self.bootstrap_committed = true;
                 self.status = "live".into();
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
-                self.continue_after_native_event(
+                self.stage_native_bootstrap_event(
                     NativeRenderEventKind::Ready,
                     self.cols,
                     self.rows,
                     Vec::new(),
-                )
+                );
+                self.publish_native_bootstrap_events()
             }
             MessageKind::Output => {
                 self.require_sequence(frame.sequence)?;
@@ -981,13 +1044,8 @@ impl ClientState {
                 self.exited = true;
                 self.status = "exited".into();
                 self.advance_input_epoch();
-                let effect = self.continue_after_native_event(
-                    NativeRenderEventKind::Exit,
-                    self.cols,
-                    self.rows,
-                    Vec::new(),
-                );
-                if effect == FrameEffect::Continue { FrameEffect::Stop } else { effect }
+                self.push_native_control_event(NativeRenderEventKind::Exit);
+                FrameEffect::Stop
             }
             MessageKind::ResyncRequired => {
                 self.source_cursor = frame.sequence;
@@ -1499,21 +1557,31 @@ async fn receive_frames(
     }
 }
 
+#[derive(Clone)]
+struct TerminalStreamCoordinator {
+    streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
+    send_lock: Arc<tokio::sync::Mutex<()>>,
+}
+
 async fn supervise_terminal_stream(
     multiplexer: Arc<ServiceMultiplexer>,
     terminal_id: TerminalPublicId,
     initial_stream: Arc<ServiceStream>,
-    streams: tokio::sync::watch::Sender<Option<Arc<ServiceStream>>>,
+    coordinator: TerminalStreamCoordinator,
     closed: Arc<AtomicBool>,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
-    send_lock: Arc<tokio::sync::Mutex<()>>,
 ) {
     let mut stream = initial_stream;
     loop {
-        let outcome =
-            receive_frames(stream.clone(), state.clone(), updates.clone(), send_lock.clone()).await;
-        let current = streams.send_replace(None);
+        let outcome = receive_frames(
+            stream.clone(),
+            state.clone(),
+            updates.clone(),
+            coordinator.send_lock.clone(),
+        )
+        .await;
+        let current = coordinator.streams.send_replace(None);
         if let Some(current) = current {
             let _ = current.close().await;
         }
@@ -1537,7 +1605,7 @@ async fn supervise_terminal_stream(
             match open_terminal_stream(&multiplexer, &terminal_id).await {
                 Ok(next) => {
                     stream = next;
-                    streams.send_replace(Some(stream.clone()));
+                    coordinator.streams.send_replace(Some(stream.clone()));
                     break;
                 }
                 Err(error) => {
@@ -1678,6 +1746,10 @@ fn start_terminal_tasks(
     let resize_streams = streams.subscribe();
     let resize_delivery = Arc::new(ResizeDelivery::default());
     let send_lock = Arc::new(tokio::sync::Mutex::new(()));
+    let coordinator = TerminalStreamCoordinator {
+        streams: streams.clone(),
+        send_lock: send_lock.clone(),
+    };
     {
         let mut state = state.lock().unwrap();
         state.resize_delivery = Some(resize_delivery.clone());
@@ -1687,11 +1759,10 @@ fn start_terminal_tasks(
         multiplexer,
         terminal_id.clone(),
         stream,
-        streams.clone(),
+        coordinator,
         closed.clone(),
         state.clone(),
         updates.clone(),
-        send_lock.clone(),
     ));
     let (command_sender, mut commands) = tokio::sync::mpsc::channel::<TerminalCommand>(256);
     let command_queue_bytes = Arc::new(AtomicUsize::new(0));
@@ -2635,9 +2706,16 @@ mod tests {
         state.fail_closed_for_stream_restart();
         assert_eq!(state.input_epoch, 2);
         assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        let control = state.native_render_control_event.as_ref().unwrap();
+        assert_eq!(control.kind, NativeRenderEventKind::InputEpoch);
+        assert_eq!(control.input_epoch, 2);
         assert_eq!(state.native_render_event_bytes, 0);
         state.prepare_handshake(test_terminal_id()).unwrap();
         assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        assert_eq!(
+            state.native_render_control_event.as_ref().unwrap().kind,
+            NativeRenderEventKind::InputEpoch
+        );
         assert_eq!(state.native_render_event_bytes, 0);
         assert!(state.push_native_render_event(NativeRenderEventKind::Reset, 80, 24, Vec::new()));
         assert_eq!(state.native_render_events.as_ref().unwrap()[0].input_epoch, 2);
@@ -2687,6 +2765,64 @@ mod tests {
         }
         assert!(!state.push_native_render_event(NativeRenderEventKind::Reset, 80, 24, Vec::new()));
         assert!(state.native_render_events.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn native_render_backpressure_keeps_the_latest_input_epoch_fence() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        for _ in 0..MAX_NATIVE_RENDER_EVENTS {
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Reset,
+                80,
+                24,
+                Vec::new()
+            ));
+        }
+
+        assert_eq!(
+            state.continue_after_native_event(
+                NativeRenderEventKind::Bytes,
+                80,
+                24,
+                b"overflow".to_vec(),
+            ),
+            FrameEffect::Restart
+        );
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        let control = state.native_render_control_event.as_ref().unwrap();
+        assert_eq!(control.kind, NativeRenderEventKind::InputEpoch);
+        assert_eq!(control.input_epoch, 2);
+
+        state.fail_closed_for_stream_restart();
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        let control = state.native_render_control_event.as_ref().unwrap();
+        assert_eq!(control.kind, NativeRenderEventKind::InputEpoch);
+        assert_eq!(control.input_epoch, 3);
+    }
+
+    #[test]
+    fn terminal_exit_replaces_a_full_native_render_queue() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        for _ in 0..MAX_NATIVE_RENDER_EVENTS {
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Reset,
+                80,
+                24,
+                Vec::new()
+            ));
+        }
+
+        state.advance_input_epoch();
+        state.push_native_control_event(NativeRenderEventKind::Exit);
+
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        let control = state.native_render_control_event.as_ref().unwrap();
+        assert_eq!(control.kind, NativeRenderEventKind::Exit);
+        assert_eq!(control.input_epoch, 2);
     }
 
     #[test]
@@ -3164,6 +3300,40 @@ mod tests {
     }
 
     #[test]
+    fn native_bootstrap_is_published_only_after_same_boundary_ready() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        let boundary = 7;
+        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
+        snapshot.sequence = boundary;
+        state.apply(snapshot).unwrap();
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+
+        apply_test_colors(&mut state, boundary);
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+
+        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+        ready.sequence = boundary;
+        assert_eq!(state.apply(ready).unwrap(), FrameEffect::Continue);
+        let kinds = state
+            .native_render_events
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|event| event.kind)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            kinds,
+            vec![
+                NativeRenderEventKind::Reset,
+                NativeRenderEventKind::Bytes,
+                NativeRenderEventKind::Ready,
+            ]
+        );
+    }
+
+    #[test]
     #[cfg(feature = "text-renderer")]
     fn snapshot_render_is_published_only_after_same_boundary_ready() {
         let mut state =
@@ -3477,6 +3647,9 @@ mod tests {
                 assert!(!state.bootstrap_committed);
                 assert!(!state.frame_text.contains("must-not-apply"));
                 assert!(state.native_render_events.as_ref().unwrap().is_empty());
+                let control = state.native_render_control_event.as_ref().unwrap();
+                assert_eq!(control.kind, NativeRenderEventKind::InputEpoch);
+                assert_eq!(control.input_epoch, 2);
             }
             let _ = incoming.stream.close().await;
             client.shutdown().await;
