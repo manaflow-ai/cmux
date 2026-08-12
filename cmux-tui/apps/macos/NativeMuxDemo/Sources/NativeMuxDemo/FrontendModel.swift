@@ -852,7 +852,7 @@ final class FrontendModel {
 
     func terminalViewStates() -> [String: NativeTerminalViewState] {
         _ = terminalControllerRevision
-        terminalControllers.mapValues(\.viewState)
+        return terminalControllers.mapValues(\.viewState)
     }
 
     func terminalTitleLookup() -> TerminalTitleFn {
