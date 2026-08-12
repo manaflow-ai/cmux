@@ -952,6 +952,107 @@ import CmuxTerminalCore
         #expect(coordinator.debugRuntimeSurfaceOwnerCount == 0)
     }
 
+    @Test @MainActor func recoveredCloseWorkerCancelsQueuedCapacityFailures() async throws {
+        let clock = ManualTerminalSurfaceRuntimeTeardownClock()
+        let stalledSlots = AsyncStream<Int>.makeStream()
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            maximumRuntimeSurfaceOwnerCount: 2,
+            closeTeardownTimeout: .seconds(5),
+            closeTeardownClock: clock,
+            closeTeardownStalledObserver: { slot in
+                stalledSlots.continuation.yield(slot)
+            }
+        )
+        let pointers = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        let freeStarted = AsyncStream<Int>.makeStream()
+        let releaseFrees = (0..<2).map { _ in DispatchSemaphore(value: 0) }
+        defer {
+            for releaseFree in releaseFrees {
+                releaseFree.signal()
+            }
+            for pointer in pointers {
+                pointer.deallocate()
+            }
+            freeStarted.continuation.finish()
+            stalledSlots.continuation.finish()
+        }
+        let reservations = try (0..<2).map { _ in
+            try #require(coordinator.reserveRuntimeSurfaceOwnership())
+        }
+        let tickets = try pointers.enumerated().map { index, pointer in
+            try #require(
+                coordinator.enqueueRuntimeTeardown(
+                    id: UUID(),
+                    workspaceId: UUID(),
+                    reason: "test.cancelStaleCapacityFailure.\(index)",
+                    surface: pointer,
+                    callbackContext: nil,
+                    manualIOContext: nil,
+                    byteTeeLease: nil,
+                    runtimeOwnershipReservation: reservations[index],
+                    freeSurface: { _ in
+                        freeStarted.continuation.yield(index)
+                        releaseFrees[index].wait()
+                    }
+                )
+            )
+        }
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = try #require(await freeStartedIterator.next())
+        _ = try #require(await freeStartedIterator.next())
+        var registrationIterator = clock.registrations.makeAsyncIterator()
+        let firstWatchdog = try #require(await registrationIterator.next())
+        let secondWatchdog = try #require(await registrationIterator.next())
+
+        let registry = FakeSurfaceRegistry()
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let deferredFixtures = (0..<3).map { _ in
+            makeSurfaceFixture(
+                registry: registry,
+                scheduler: scheduler,
+                runtimeTeardown: coordinator
+            )
+        }
+        for (index, fixture) in deferredFixtures.enumerated() {
+            fixture.surface.createSurface(for: fixture.nativeView)
+            scheduler.runScheduledOperation(at: index)
+        }
+
+        var stalledSlotIterator = stalledSlots.stream.makeAsyncIterator()
+        clock.fire(firstWatchdog)
+        _ = try #require(await stalledSlotIterator.next())
+        clock.fire(secondWatchdog)
+        _ = try #require(await stalledSlotIterator.next())
+
+        // Keep MainActor failure delivery queued while the coordinator actor
+        // receives the native-free completion and reopens admission.
+        let freeCompletion = DispatchSemaphore(value: 0)
+        Task.detached {
+            _ = await tickets[0].wait(timeout: nil)
+            freeCompletion.signal()
+        }
+        releaseFrees[0].signal()
+        freeCompletion.wait()
+        #expect(!coordinator.debugCloseTeardownAllStalled)
+
+        await waitForMainActorQueueBarrier()
+        #expect(
+            deferredFixtures.allSatisfy {
+                $0.paneHost.runtimeSurfaceCreationFailureMessages.isEmpty
+            }
+        )
+
+        releaseFrees[1].signal()
+        #expect(await tickets[1].wait(timeout: nil))
+        for fixture in deferredFixtures {
+            fixture.surface.beginPortalCloseLifecycle(
+                reason: "test.cancelStaleCapacityFailure.cleanup"
+            )
+        }
+    }
+
     @Test func repeatedStalledRecoveryUsesLatestFailureDelivery() throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
             maximumRuntimeSurfaceOwnerCount: 2
