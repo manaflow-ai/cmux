@@ -61,6 +61,49 @@ public final class BrowserSurfaceState: Identifiable {
     /// The page's current committed URL, or `nil` before the first navigation.
     public var currentURL: URL?
 
+    /// The most recent WebKit interaction state for this surface.
+    ///
+    /// `WKWebView` instances are view-lifecycle objects and can be torn down
+    /// during workspace switches. This snapshot lets a fresh web view restore
+    /// the page plus its back/forward list while the in-memory surface
+    /// survives. WebKit documents `WKWebView.interactionState` as an opaque
+    /// value, so it is held as-is and only ever handed back to WebKit.
+    public var savedInteractionState: Any?
+
+    /// The user's explicit content-mode choice for this surface.
+    public enum ContentModePreference: Equatable, Sendable {
+        /// Follow WebKit's recommended mode for the device (mobile on iPhone,
+        /// desktop on iPad).
+        case recommended
+        /// Force the mobile site.
+        case mobile
+        /// Force the desktop site.
+        case desktop
+    }
+
+    /// The content mode subsequent page loads should request. Starts as
+    /// ``ContentModePreference/recommended`` and becomes an explicit mode once
+    /// the user toggles the desktop-site menu item.
+    public var contentModePreference: ContentModePreference
+
+    /// Whether this device's recommended WebKit content mode is desktop
+    /// (true on iPad, false on iPhone). Injected by the hosting view when the
+    /// web view attaches, so this package stays UIKit-free and the toggle's
+    /// label and first action are correct on iPads, whose default
+    /// ``ContentModePreference/recommended`` mode already loads desktop sites.
+    public var recommendedContentModeIsDesktop: Bool
+
+    /// Whether subsequent page loads request the desktop site, resolving
+    /// ``ContentModePreference/recommended`` to the device default. Drives the
+    /// menu label and the toggle direction.
+    public var prefersDesktopSite: Bool {
+        switch contentModePreference {
+        case .recommended: recommendedContentModeIsDesktop
+        case .mobile: false
+        case .desktop: true
+        }
+    }
+
     /// Whether a navigation is in flight. Drives the progress indicator and the
     /// reload/stop button affordance.
     public var isLoading: Bool
@@ -101,6 +144,9 @@ public final class BrowserSurfaceState: Identifiable {
         self.isAddressEditing = false
         self.title = nil
         self.currentURL = initialURL
+        self.savedInteractionState = nil
+        self.contentModePreference = .recommended
+        self.recommendedContentModeIsDesktop = false
         self.isLoading = false
         self.estimatedProgress = 0
         self.canGoBack = false
@@ -117,6 +163,37 @@ public final class BrowserSurfaceState: Identifiable {
         loadRequest = url
         addressText = url.absoluteString
         lastErrorMessage = nil
+        savedInteractionState = nil
+    }
+
+    /// Store a new WebKit interaction-state snapshot when WebKit provides one.
+    ///
+    /// - Parameter interactionState: The opaque `WKWebView.interactionState`
+    ///   value, or `nil` when WebKit has no restorable state yet.
+    public func saveInteractionState(_ interactionState: Any?) {
+        guard let interactionState else { return }
+        savedInteractionState = interactionState
+    }
+
+    /// Update the content-mode preference and request a reload when a page is
+    /// already loaded.
+    ///
+    /// - Parameter preference: The content mode subsequent loads should request.
+    public func setContentModePreference(_ preference: ContentModePreference) {
+        guard contentModePreference != preference else { return }
+        contentModePreference = preference
+        if loadRequest == nil, currentURL != nil {
+            request(.reload)
+        }
+    }
+
+    /// Flip the desktop-site preference relative to the current effective
+    /// mode. On iPhone the first toggle forces the desktop site; on iPad
+    /// (where ``recommendedContentModeIsDesktop`` is true) it forces the
+    /// mobile site. Explicit modes are forced, never the device default, so
+    /// the request is honored regardless of device.
+    public func togglePrefersDesktopSite() {
+        setContentModePreference(prefersDesktopSite ? .mobile : .desktop)
     }
 
     /// Resolve and load whatever is currently in the address bar, returning
