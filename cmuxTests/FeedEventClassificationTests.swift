@@ -164,10 +164,9 @@ struct FeedEventClassificationTests {
 
     /// A COMPLETED codex tool proves any pending native approval prompt
     /// resolved — execution strictly follows approval (by the user or by
-    /// Codex's own auto-review) — so PostToolUse clears the pane's stale
-    /// permission notification, mirroring the pane-wide clears Claude's
-    /// lifecycle hooks and Hermes' approval-response hook already perform.
-    @Test func codexToolCompletionClearsNativeApprovalPrompt() {
+    /// Codex's own auto-review) — so PostToolUse resolves the matching
+    /// approval notification without touching a newer request in the pane.
+    @Test func codexToolCompletionResolvesNativeApprovalPrompt() {
         #expect(classify("codex", "PostToolUse", tool: "shell").clearsNativeApprovalPrompt == true)
         #expect(classify("codex", "post_tool_use", tool: "shell").clearsNativeApprovalPrompt == true)
     }
@@ -279,14 +278,16 @@ struct FeedEventClassificationTests {
         tool: String,
         displayName: String = "Codex",
         workspaceId: String? = workspaceUUID,
-        surfaceId: String? = surfaceUUID
+        surfaceId: String? = surfaceUUID,
+        approvalIdentity: CodexApprovalNotificationIdentity? = nil
     ) -> String? {
         FeedEventClassifier.nativeApprovalPromptAttentionCommand(
             classification: FeedEventClassifier.classify(source: source, event: event, toolName: tool),
             displayName: displayName,
             toolName: tool,
             workspaceId: workspaceId,
-            surfaceId: surfaceId
+            surfaceId: surfaceId,
+            approvalIdentity: approvalIdentity
         )
     }
 
@@ -332,6 +333,111 @@ struct FeedEventClassificationTests {
             attentionCommand("codex", "PostToolUse", tool: "shell")
                 == "clear_notifications --tab=\(Self.workspaceUUID) --panel=\(Self.surfaceUUID)"
         )
+    }
+
+    @Test func codexRequestAndCompletionBuildCorrelatedSettleCommands() throws {
+        let request: [String: Any] = [
+            "session_id": "codex-session",
+            "turn_id": "turn-1",
+            "tool_name": "shell",
+            "tool_input": ["command": "git status", "timeout_ms": 1_000],
+        ]
+        let completion: [String: Any] = [
+            "session_id": "codex-session",
+            "turn_id": "turn-1",
+            "tool_name": "shell",
+            "tool_input": ["timeout_ms": 1_000, "command": "git status"],
+            "tool_response": ["exit_code": 0],
+            "tool_use_id": "available-only-after-review",
+        ]
+        let requestIdentity = try #require(CodexApprovalNotificationIdentity.make(
+            rawObject: request,
+            fallbackSessionID: nil
+        ))
+        let completionIdentity = try #require(CodexApprovalNotificationIdentity.make(
+            rawObject: completion,
+            fallbackSessionID: nil
+        ))
+
+        #expect(requestIdentity == completionIdentity)
+        #expect(
+            attentionCommand(
+                "codex",
+                "PermissionRequest",
+                tool: "shell",
+                approvalIdentity: requestIdentity
+            )
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|shell needs approval|c=needs-permission;p=0;a=\(requestIdentity.approvalID)"
+        )
+        #expect(
+            attentionCommand(
+                "codex",
+                "PostToolUse",
+                tool: "shell",
+                approvalIdentity: completionIdentity
+            )
+                == "clear_notifications --tab=\(Self.workspaceUUID) --panel=\(Self.surfaceUUID) --approval-id=\(requestIdentity.approvalID)"
+        )
+    }
+
+    @Test func codexAutoReviewerIsReadFromTheMatchingTurnContext() {
+        let rawObject: [String: Any] = [
+            "session_id": "codex-session",
+            "turn_id": "turn-current",
+        ]
+        let rolloutLines = [
+            #"{"type":"turn_context","payload":{"turn_id":"turn-old","approvals_reviewer":"user"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"turn-current","approvals_reviewer":"auto_review"}}"#,
+        ]
+
+        #expect(
+            CodexApprovalNotificationPolicy().reviewRoute(
+                rawObject: rawObject,
+                rolloutLines: rolloutLines
+            ) == .autoReview
+        )
+    }
+
+    @Test func codexReviewerDoesNotLeakFromAnOlderKnownTurn() {
+        let rawObject: [String: Any] = [
+            "session_id": "codex-session",
+            "turn_id": "turn-current",
+        ]
+        let rolloutLines = [
+            #"{"type":"turn_context","payload":{"turn_id":"turn-old","approvals_reviewer":"auto_review"}}"#,
+            #"{"type":"turn_context","payload":{"turn_id":"turn-newer","approvals_reviewer":"user"}}"#,
+        ]
+
+        #expect(
+            CodexApprovalNotificationPolicy().reviewRoute(
+                rawObject: rawObject,
+                rolloutLines: rolloutLines
+            ) == nil
+        )
+    }
+
+    @Test func codexTurnReviewerDoesNotOverrideAnMCPRequest() {
+        let rolloutLines = [
+            #"{"type":"turn_context","payload":{"turn_id":"turn-current","approvals_reviewer":"auto_review"}}"#,
+        ]
+
+        for toolName in [
+            "mcp__codex_apps__calendar_create_event",
+            "MCP__codex_apps__calendar_create_event",
+        ] {
+            let rawObject: [String: Any] = [
+                "session_id": "codex-session",
+                "turn_id": "turn-current",
+                "tool_name": toolName,
+                "context": ["approvals_reviewer": "auto_review"],
+            ]
+            #expect(
+                CodexApprovalNotificationPolicy().reviewRoute(
+                    rawObject: rawObject,
+                    rolloutLines: rolloutLines
+                ) == nil
+            )
+        }
     }
 
     /// Lowercase UUIDs from the pane environment are normalized, not

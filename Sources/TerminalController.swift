@@ -12722,7 +12722,8 @@ class TerminalController {
             subtitle: subtitle,
             body: body,
             category: meta?.category,
-            pending: meta?.pending ?? false
+            pending: meta?.pending ?? false,
+            approvalID: meta?.approvalID
         ) else {
 #if DEBUG
             if let meta {
@@ -12793,13 +12794,68 @@ class TerminalController {
         if let error = panelResolution.error {
             return error
         }
+        let approvalID: AgentApprovalCorrelationID?
+        if let rawApprovalID = parsed.options["approval-id"] {
+            guard let parsedID = AgentApprovalCorrelationID(rawValue: rawApprovalID) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            approvalID = parsedID
+        } else {
+            approvalID = nil
+        }
+        let approvalScope: AgentApprovalCorrelationID.Scope?
+        if let rawApprovalScope = parsed.options["approval-scope"] {
+            guard let parsedScope = AgentApprovalCorrelationID.Scope(rawValue: rawApprovalScope) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            approvalScope = parsedScope
+        } else {
+            approvalScope = nil
+        }
+        guard approvalID == nil || approvalScope == nil else {
+            return "ERROR: Usage: \(usage)"
+        }
+        if approvalID != nil || approvalScope != nil, panelResolution.panelId == nil {
+            return "ERROR: Usage: \(usage)"
+        }
         if case .workspace(let tabId) = target {
             if let panelId = panelResolution.panelId {
-                TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: panelId)
+                if let approvalID {
+                    TerminalMutationBus.shared.enqueueAgentApprovalResolution(
+                        surfaceId: panelId,
+                        approvalID: approvalID
+                    )
+                } else if let approvalScope {
+                    TerminalMutationBus.shared.enqueueAgentApprovalResolution(
+                        surfaceId: panelId,
+                        approvalScope: approvalScope
+                    )
+                } else {
+                    TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: panelId)
+                }
             } else {
                 TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId)
             }
         } else {
+            if let panelId = panelResolution.panelId,
+               (approvalID != nil || approvalScope != nil) {
+                TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+                    guard let self, let tab = self.resolveSidebarMutationTab(target),
+                          tab.panels.keys.contains(panelId) else { return }
+                    if let approvalID {
+                        TerminalMutationBus.shared.enqueueAgentApprovalResolution(
+                            surfaceId: panelId,
+                            approvalID: approvalID
+                        )
+                    } else if let approvalScope {
+                        TerminalMutationBus.shared.enqueueAgentApprovalResolution(
+                            surfaceId: panelId,
+                            approvalScope: approvalScope
+                        )
+                    }
+                }
+                return "OK"
+            }
             let clearBoundary = TerminalMutationBus.shared.markNotificationClearBoundary()
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self, let tab = self.resolveSidebarMutationTab(target) else { return }

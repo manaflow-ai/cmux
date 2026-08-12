@@ -27,6 +27,7 @@ struct AgentNotificationDelivery: Sendable {
         body: String,
         category: AgentNotifyCategory?,
         pending: Bool,
+        approvalID: AgentApprovalCorrelationID? = nil,
         coalesces: Bool = false
     ) -> Bool {
         if let category,
@@ -38,6 +39,17 @@ struct AgentNotificationDelivery: Sendable {
                idleEnabled: idleEnabled
            ) {
             return false
+        }
+        if category == .needsPermission, let approvalID {
+            TerminalMutationBus.shared.enqueueAgentApprovalNotification(
+                tabId: workspaceID,
+                surfaceId: surfaceID,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                approvalID: approvalID
+            )
+            return true
         }
         TerminalMutationBus.shared.enqueueNotification(
             tabId: workspaceID,

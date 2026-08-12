@@ -13,6 +13,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let subtitle: String
     let body: String
     let replyShape: TerminalNotificationReplyShape
+    let correlationKey: String?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -20,6 +21,7 @@ fileprivate enum TerminalSocketMutation {
     case clearAllNotifications(through: UInt64)
     case clearNotificationsForTab(UUID, through: UInt64)
     case clearNotificationsForSurface(UUID, UUID, through: UInt64)
+    case clearNotificationCorrelation(QueuedTerminalNotificationKey, String)
     case perform(@MainActor () -> Void)
 }
 
@@ -67,6 +69,34 @@ final class TerminalMutationBus: @unchecked Sendable {
     private var drainsSuspendedForTesting = false
 #endif
 
+    @MainActor
+    private lazy var agentApprovalNotifications = AgentApprovalNotificationCoordinator(
+        dispatchScheduledAction: { [weak self] action in
+            self?.enqueueMainActorMutation(action)
+        },
+        deliver: { [weak self] delivery in
+            self?.enqueueNotification(
+                tabId: delivery.workspaceID,
+                surfaceId: delivery.surfaceID,
+                title: delivery.title,
+                subtitle: delivery.subtitle,
+                body: delivery.body,
+                replyShape: .none,
+                correlationKey: delivery.correlationKey,
+                // The coordinator already owns approval coalescing. Preserve
+                // unrelated notifications that are queued for the same pane.
+                coalesces: false
+            )
+        },
+        clear: { [weak self] clear in
+            self?.enqueueClearNotification(
+                tabId: clear.workspaceID,
+                surfaceId: clear.surfaceID,
+                correlationKey: clear.correlationKey
+            )
+        }
+    )
+
     nonisolated func enqueueNotification(
         tabId: UUID,
         surfaceId: UUID?,
@@ -74,6 +104,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
+        correlationKey: String? = nil,
         coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
@@ -81,8 +112,53 @@ final class TerminalMutationBus: @unchecked Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShape: replyShape
+            replyShape: replyShape,
+            correlationKey: correlationKey
         ), coalesces: coalesces)
+    }
+
+    nonisolated func enqueueAgentApprovalNotification(
+        tabId: UUID,
+        surfaceId: UUID,
+        title: String,
+        subtitle: String,
+        body: String,
+        approvalID: AgentApprovalCorrelationID
+    ) {
+        enqueueBarrierMutation(.perform { [weak self] in
+            self?.agentApprovalNotifications.stage(
+                workspaceID: tabId,
+                surfaceID: surfaceId,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                approvalID: approvalID
+            )
+        })
+    }
+
+    nonisolated func enqueueAgentApprovalResolution(
+        surfaceId: UUID,
+        approvalID: AgentApprovalCorrelationID
+    ) {
+        enqueueBarrierMutation(.perform { [weak self] in
+            self?.agentApprovalNotifications.resolve(
+                surfaceID: surfaceId,
+                approvalID: approvalID
+            )
+        })
+    }
+
+    nonisolated func enqueueAgentApprovalResolution(
+        surfaceId: UUID,
+        approvalScope: AgentApprovalCorrelationID.Scope
+    ) {
+        enqueueBarrierMutation(.perform { [weak self] in
+            self?.agentApprovalNotifications.resolve(
+                surfaceID: surfaceId,
+                approvalScope: approvalScope
+            )
+        })
     }
 
     nonisolated func enqueueClearAllNotifications() {
@@ -102,6 +178,17 @@ final class TerminalMutationBus: @unchecked Sendable {
         enqueueClear({ .clearNotificationsForSurface(tabId, surfaceId, through: $0) }) { notification in
             notification.key.surfaceId == surfaceId
         }
+    }
+
+    private nonisolated func enqueueClearNotification(
+        tabId: UUID,
+        surfaceId: UUID,
+        correlationKey: String
+    ) {
+        enqueueBarrierMutation(.clearNotificationCorrelation(
+            QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
+            correlationKey
+        ))
     }
 
     nonisolated func enqueueMainActorMutation(_ mutation: @escaping @MainActor () -> Void) {
@@ -136,6 +223,14 @@ final class TerminalMutationBus: @unchecked Sendable {
         discardPendingNotifications(advanceGeneration: true) { _, _ in true }
     }
 
+    /// Direct store clears bypass the socket mutation cases, so cancel their
+    /// staged approval state before discarding queued notification deliveries.
+    @MainActor
+    func discardPendingNotificationsForClearAll() {
+        agentApprovalNotifications.cancelAll(clearDelivered: false)
+        discardPendingNotifications()
+    }
+
     nonisolated func discardPendingNotifications(forTabId tabId: UUID) {
         discardPendingNotifications { notification, _ in
             notification.key.tabId == tabId
@@ -165,8 +260,34 @@ final class TerminalMutationBus: @unchecked Sendable {
     /// live destination workspace when workspace-scoped.
     @MainActor
     func discardPendingNotificationsForClear(tabId: UUID, surfaceId: UUID?) {
-        if let surfaceId { discardPendingNotifications(forSurfaceId: surfaceId) }
-        else { discardPendingNotificationsResolvingLiveOwner(forTabId: tabId) }
+        if let surfaceId {
+            agentApprovalNotifications.cancel(surfaceID: surfaceId, clearDelivered: false)
+            discardPendingNotifications(forSurfaceId: surfaceId)
+        } else {
+            cancelAgentApprovalNotifications(
+                forLiveTabId: tabId,
+                clearDelivered: false
+            )
+            discardPendingNotificationsResolvingLiveOwner(forTabId: tabId)
+        }
+    }
+
+    @MainActor
+    private func cancelAgentApprovalNotifications(
+        forLiveTabId tabId: UUID,
+        clearDelivered: Bool
+    ) {
+        agentApprovalNotifications.cancelPanes(clearDelivered: clearDelivered) {
+            claimedTabId,
+            surfaceId in
+            guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+                claimedTabId: claimedTabId,
+                surfaceId: surfaceId
+            ) else {
+                return claimedTabId == tabId
+            }
+            return target.tabId == tabId
+        }
     }
 
     /// Phase 1 of the live-owner workspace clear (see
@@ -459,22 +580,38 @@ final class TerminalMutationBus: @unchecked Sendable {
                     subtitle: notification.subtitle,
                     body: notification.body,
                     replyShape: notification.replyShape,
+                    correlationKey: notification.correlationKey,
                     notificationGeneration: entry.notificationGeneration ?? 0
                 )
             case .clearAllNotifications(let boundary):
+                agentApprovalNotifications.cancelAll(clearDelivered: false)
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false, throughNotificationGeneration: boundary)
             case .clearNotificationsForTab(let tabId, let boundary):
+                cancelAgentApprovalNotifications(
+                    forLiveTabId: tabId,
+                    clearDelivered: false
+                )
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
                     discardQueuedNotifications: false,
                     throughNotificationGeneration: boundary
                 )
             case .clearNotificationsForSurface(let tabId, let surfaceId, let boundary):
+                agentApprovalNotifications.cancel(surfaceID: surfaceId, clearDelivered: false)
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
                     surfaceId: surfaceId,
                     discardQueuedNotifications: false,
                     throughNotificationGeneration: boundary
+                )
+            case .clearNotificationCorrelation(let key, let correlationKey):
+                guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+                    claimedTabId: key.tabId,
+                    surfaceId: key.surfaceId
+                ) else { continue }
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: target.tabId,
+                    correlationKey: correlationKey
                 )
             case .perform(let mutation):
                 mutation()

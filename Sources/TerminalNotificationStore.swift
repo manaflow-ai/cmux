@@ -1096,6 +1096,7 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool = true,
+        correlationKey: String? = nil,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
@@ -1143,7 +1144,7 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             replyShape: replyShape,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
-            correlationKey: cooldownKey,
+            correlationKey: correlationKey ?? cooldownKey,
             resolvedHooks: resolvedHooks
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
@@ -2008,7 +2009,9 @@ final class TerminalNotificationStore: ObservableObject {
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
     func clearAll(discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
         inFlightPolicyRequests.discardAll(through: throughNotificationGeneration)
-        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
+        if discardQueuedNotifications {
+            TerminalMutationBus.shared.discardPendingNotificationsForClearAll()
+        }
         guard !notifications.isEmpty ||
             !focusedReadIndicatorByTabId.isEmpty ||
             !manualUnreadWorkspaceIds.isEmpty ||

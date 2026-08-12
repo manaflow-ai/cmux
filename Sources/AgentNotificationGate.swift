@@ -17,22 +17,25 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>` meta segment. Returns `nil` unless BOTH a
-/// KNOWN category literal and a valid `p=0|1` pending flag are present, so the
-/// reserved suffix grammar is exactly the three known categories — any other
-/// `c=...` tail stays part of the legacy notification body. (`.other` never
-/// rides the wire: senders omit the meta entirely for ungated alerts.)
+/// Parsed `c=<category>;p=<0|1>` meta segment, optionally followed by the
+/// canonical `a=<approval-id>` for a needs-permission event. Returns `nil`
+/// unless every field is valid, so any other `c=...` tail stays part of the
+/// legacy notification body. (`.other` never rides the wire: senders omit the
+/// meta entirely for ungated alerts.)
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
+    /// Correlates a native approval request with its completion. Only Codex
+    /// approval prompts carry this optional field; legacy category metadata
+    /// remains the exact two-field form.
+    let approvalID: AgentApprovalCorrelationID?
 
     init?(meta: String) {
-        // Accept ONLY the exact canonical serialization the CLI emits
-        // (`c=<known-category>;p=<0|1>`, two fields, this order, no extras).
-        // Anything else — reordered, duplicated, or trailing fields — is not
-        // metadata and stays part of the legacy notification body.
+        // Accept ONLY the canonical serialization the CLI emits: the legacy
+        // two fields, or a needs-permission record with one opaque approval
+        // correlation id. Anything else stays part of the notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard fields.count == 2,
+        guard fields.count == 2 || fields.count == 3,
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
         guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))),
@@ -43,6 +46,18 @@ struct AgentNotificationMeta {
         default: return nil
         }
         self.category = known
+        if fields.count == 3 {
+            guard known == .needsPermission,
+                  fields[2].hasPrefix("a="),
+                  let approvalID = AgentApprovalCorrelationID(
+                      rawValue: String(fields[2].dropFirst(2))
+                  ) else {
+                return nil
+            }
+            self.approvalID = approvalID
+        } else {
+            self.approvalID = nil
+        }
     }
 }
 
