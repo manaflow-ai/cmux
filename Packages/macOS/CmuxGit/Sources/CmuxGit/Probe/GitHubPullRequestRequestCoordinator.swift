@@ -16,6 +16,34 @@ public actor GitHubPullRequestRequestCoordinator {
     private static let maximumConcurrentTransportCount = 3
     private static let maximumRateLimitIdentityCount = 32
 
+    /// Product token that identifies cmux's pull-request poller in the GitHub `User-Agent` header.
+    private static let userAgentProductToken = "cmux-workspace-pr-poller"
+
+    /// `User-Agent` sent with every pull-request probe, formatted as `Product/Version`.
+    ///
+    /// The version is resolved once from the host app bundle's
+    /// `CFBundleShortVersionString`, so it always reflects the shipped release
+    /// without any manual update. Formatting is factored into
+    /// `userAgentValue(appVersion:)` so it can be unit-tested without depending
+    /// on the bundle.
+    private static let userAgentHeaderValue = userAgentValue(
+        appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    )
+
+    /// Builds the poller `User-Agent`, appending the app version when available.
+    ///
+    /// The product token is always emitted as the leading component so
+    /// server-side matching on `cmux-workspace-pr-poller` keeps working. When no
+    /// version is available the token is paired with `unknown` to preserve the
+    /// `Product/Version` shape.
+    static func userAgentValue(appVersion: String?) -> String {
+        let version = appVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let version, !version.isEmpty else {
+            return "\(userAgentProductToken)/unknown"
+        }
+        return "\(userAgentProductToken)/\(version)"
+    }
+
     internal struct RequestKey: Hashable, Sendable {
         let endpoint: String
         let authorizationFingerprint: Data
@@ -173,7 +201,7 @@ public actor GitHubPullRequestRequestCoordinator {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("cmux-workspace-pr-poller", forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.userAgentHeaderValue, forHTTPHeaderField: "User-Agent")
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
         let cachedResponse = cachedResponseByRequestKey[requestKey]
         if let cachedResponse {

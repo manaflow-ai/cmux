@@ -420,4 +420,43 @@ struct GitHubPullRequestRequestTests {
         #expect(await survivor.value?.statusCode == 200)
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
     }
+
+    @Test func userAgentValueAppendsAppVersion() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "1.2.3")
+                == "cmux-workspace-pr-poller/1.2.3"
+        )
+    }
+
+    @Test func userAgentValueTrimsSurroundingWhitespace() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "  0.64.21  ")
+                == "cmux-workspace-pr-poller/0.64.21"
+        )
+    }
+
+    @Test func userAgentValueFallsBackWhenVersionMissing() {
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: nil)
+                == "cmux-workspace-pr-poller/unknown"
+        )
+        #expect(
+            GitHubPullRequestRequestCoordinator.userAgentValue(appVersion: "   ")
+                == "cmux-workspace-pr-poller/unknown"
+        )
+    }
+
+    @Test func pollerRequestSendsProductTokenUserAgent() async {
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, data: Data("[]".utf8)),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
+
+        _ = await coordinator.response(endpoint: endpoint, authHeader: "******")
+
+        let userAgent = GitHubPullRequestStubURLProtocol.capturedRequests()
+            .first?
+            .value(forHTTPHeaderField: "User-Agent")
+        #expect(userAgent?.hasPrefix("cmux-workspace-pr-poller/") == true)
+    }
 }
