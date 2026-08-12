@@ -52,6 +52,9 @@ final class AppCompositionRoot {
     /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
 
+    /// Owns UIKit lifecycle observers and removes them with the app graph.
+    private let appLifecycleDiagnostics: MobileAppLifecycleDiagnostics
+
     /// The consolidated on-disk log pair: `cmux-app.log` (app-wide, including
     /// the mirrored string debug log) and `cmux-network.log` (network
     /// diagnostics). Fed by the diagnostic ring's event tap; always on, since
@@ -83,11 +86,17 @@ final class AppCompositionRoot {
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
+        let crashReportingEvent: DiagnosticAppEventKind
         if Self.crashReportingEnabled {
             MobileCrashReporter().startIfEnabled(
                 consent: telemetryConsent,
                 revocationWatcher: crashRevocationWatcher
             )
+            crashReportingEvent = telemetryConsent.isTelemetryEnabled
+                ? .crashReportingStarted
+                : .crashReportingDisabled
+        } else {
+            crashReportingEvent = .crashReportingDisabled
         }
         // The reporter checks `SentrySDK.isEnabled` per event, so it respects
         // both the build-level kill switch above and mid-session consent
@@ -107,6 +116,11 @@ final class AppCompositionRoot {
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
         }
+        self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
+            diagnosticLog: diagnosticLog
+        )
+        diagnosticLog.recordAppEvent(.appLaunched)
+        diagnosticLog.recordAppEvent(crashReportingEvent)
         // Mirror the string debug log into the app log file so one file holds
         // the whole in-app story in wall-clock order. The string sink keeps
         // its own privacy gating (DEBUG always, Release behind the verbose
@@ -120,12 +134,29 @@ final class AppCompositionRoot {
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,
-            consent: telemetryConsent
+            consent: telemetryConsent,
+            diagnosticLog: diagnosticLog
         )
+        #if DEBUG
+        let pushNotificationSettings:
+            (@MainActor () async -> MobilePushSystemSettings)?
+        if UITestConfig.mockDataEnabled {
+            // Full-app mock tests run on freshly erased simulators. Keep the
+            // real SpringBoard authorization alert out of unrelated UI flows.
+            pushNotificationSettings = { .authorizationOnly(.denied) }
+        } else {
+            pushNotificationSettings = nil
+        }
+        #else
+        let pushNotificationSettings:
+            (@MainActor () async -> MobilePushSystemSettings)? = nil
+        #endif
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
-            phoneAPIOrigin: auth.config.apiBaseURL
+            diagnosticLog: diagnosticLog,
+            phoneAPIOrigin: auth.config.apiBaseURL,
+            notificationSettings: pushNotificationSettings
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
@@ -151,7 +182,7 @@ final class AppCompositionRoot {
                 await diagnosticLog.clear()
             }
         }
-        self.displaySettings = MobileDisplaySettings()
+        self.displaySettings = MobileDisplaySettings(diagnosticLog: diagnosticLog)
         // Snapshot raw upgrade eligibility before either current-launch store is
         // constructed. The migration model persists pending/ineligible now and
         // never recomputes after onboarding or Settings writes. UI fixtures use
@@ -211,7 +242,8 @@ final class AppCompositionRoot {
             defaults: connectionPreferenceDefaults
         )
         self.connectionMethodStore = MobileConnectionMethodStore(
-            defaults: connectionPreferenceDefaults
+            defaults: connectionPreferenceDefaults,
+            diagnosticLog: diagnosticLog
         )
         // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
@@ -239,6 +271,10 @@ final class AppCompositionRoot {
                 await pushCoordinator.networkDidBecomeReachable()
             }
         }
+        // Start auth only after the diagnostic tap is durable. Session restore
+        // can complete during launch, and starting earlier would leave its
+        // accepted events in the in-memory ring but absent from cmux-app.log.
+        auth.start()
     }
 
     deinit {
@@ -288,6 +324,7 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            diagnosticLog.recordAppEvent(.appForegrounded)
             iroh.didBecomeActive()
             Task { await pushCoordinator.refreshReadiness() }
             let now = Date()
@@ -313,10 +350,12 @@ final class AppCompositionRoot {
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
         case .inactive:
+            diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
             iroh.archiveDiagnostics()
         case .background:
+            diagnosticLog.recordAppEvent(.appBackgrounded)
             iroh.didEnterBackground()
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)

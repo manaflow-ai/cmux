@@ -1195,13 +1195,6 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なチャネルの確立に失敗" } }
       }
     },
-    "mobile.iroh.diagnostics.failure.routeGated" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Route Gated" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が一時的に制限されています" } }
-      }
-    },
     "mobile.iroh.diagnostics.failure.sendQueueOverflow" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1242,6 +1235,41 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Relay Policy Unavailable" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "リレーポリシーを利用できません" } }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.payloadTooLarge" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Payload Too Large" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイロードが大きすぎます" } }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.resourceLimitReached" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Resource Limit Reached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リソース上限に達しました" } }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.attachmentCountLimitReached" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Attachment Count Limit Reached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付ファイル数の上限に達しました" } }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.attachmentAggregateSizeLimitReached" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Attachment Size Limit Reached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付ファイルの合計サイズ上限に達しました" } }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.localStateUnavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Local State Unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ローカル状態を利用できません" } }
       }
     },
     "mobile.iroh.diagnostics.failure.endpointUnavailable" : {

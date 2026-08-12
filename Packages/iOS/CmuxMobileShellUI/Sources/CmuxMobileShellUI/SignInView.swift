@@ -21,6 +21,7 @@ struct SignInView: View {
     private let usesStandaloneChrome: Bool
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var email = ""
     @State private var code = ""
     @State private var emailEntryMode = EmailEntryMode.methods
@@ -348,10 +349,13 @@ struct SignInView: View {
         requestVerificationOnUnverifiedEmail: Bool = true
     ) async {
         error = nil
+        diagnosticLog?.recordAppEvent(.authSignInStarted)
         analytics.capture("ios_sign_in_started", ["method": .string("email_code")])
         do {
             try await authManager.sendCode(to: email)
+            diagnosticLog?.recordAppEvent(.authCodeRequested)
             guard !authManager.isAuthenticated else {
+                diagnosticLog?.recordAppEvent(.authSignInSucceeded)
                 return
             }
             shouldAutofocusCode = autofocusCodeOnSuccess
@@ -360,10 +364,15 @@ struct SignInView: View {
             }
         } catch {
             if case AuthError.cancelled = error {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
                 return
             }
             shouldAutofocusCode = false
+            diagnosticLog?.recordAppEvent(
+                .authCodeRequestFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             if emailCodeFailurePolicy.action(for: error) == .requestEmailVerification {
                 if requestVerificationOnUnverifiedEmail {
                     await requestEmailVerification()
@@ -423,15 +432,22 @@ struct SignInView: View {
 
     private func verifyCode() async {
         error = nil
+        diagnosticLog?.recordAppEvent(.authVerificationStarted)
         do {
             try await authManager.verifyCode(code)
+            diagnosticLog?.recordAppEvent(.authSignInSucceeded)
         } catch {
             if case AuthError.cancelled = error {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
                 return
             }
             self.error = detailedErrorMessage(error)
             code = ""
+            diagnosticLog?.recordAppEvent(
+                .authSignInFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("email_code"),
                 "failure_reason": .string(signInFailureReason(error)),
@@ -443,19 +459,27 @@ struct SignInView: View {
         error = nil
         signingInProviders.insert(provider)
         defer { signingInProviders.remove(provider) }
+        diagnosticLog?.recordAppEvent(.authSignInStarted)
         analytics.capture("ios_sign_in_started", ["method": .string(provider.analyticsMethod)])
         do {
             try await provider.signIn(using: authManager)
+            diagnosticLog?.recordAppEvent(.authSignInSucceeded)
         } catch {
             if case AuthError.cancelled = error {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string(provider.analyticsMethod)])
                 return
             }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string(provider.analyticsMethod)])
                 return
             }
             self.error = detailedErrorMessage(error)
+            diagnosticLog?.recordAppEvent(
+                .authSignInFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             analytics.capture("ios_sign_in_failed", [
                 "method": .string(provider.analyticsMethod),
                 "failure_reason": .string(signInFailureReason(error)),
