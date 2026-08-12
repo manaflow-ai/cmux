@@ -1,4 +1,5 @@
 import AppKit
+import CCmuxTerminal
 import CoreText
 import Foundation
 import GhosttyKit
