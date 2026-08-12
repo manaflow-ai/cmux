@@ -26169,6 +26169,7 @@ mod tests {
         let mux = test_mux();
         let surface = mux.new_workspace(Some("process-exit".into()), None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
 
         mux.reset_terminal_exit_state_query_count_for_test();
         let waiting_mux = mux.clone();
@@ -26202,7 +26203,7 @@ mod tests {
             "process completion must not detach a terminal before its reader drains"
         );
         assert_eq!(
-            mux.resolve_terminal(terminal_id.as_str()).unwrap().unwrap().terminal.lifecycle,
+            mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().terminal.lifecycle,
             TerminalLifecycle::Running,
             "durable lifecycle must remain ordered after final terminal output"
         );
