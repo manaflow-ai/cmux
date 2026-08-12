@@ -21,6 +21,7 @@ import Testing
         ])
         #expect(seeds.allSatisfy { $0.defaultDirectory == nil })
         #expect(seeds.allSatisfy { $0.isBuiltIn })
+        #expect(seeds.compactMap(\.builtInKind) == MobileTaskBuiltInTemplateKind.allCases)
     }
 
     @Test func userCreatedTemplatesAreCustomByDefault() {
@@ -65,6 +66,26 @@ import Testing
         let decoded = try JSONDecoder().decode(MobileTaskTemplate.self, from: data)
 
         #expect(decoded == template)
+    }
+
+    @Test func builtInKindSurvivesEditableFieldChangesAndCodableRoundTrip() throws {
+        var template = MobileTaskTemplate(
+            name: "Claude",
+            icon: "agent:claude",
+            command: "claude -- \"$CMUX_TASK_PROMPT\"",
+            builtInKind: .claude
+        )
+        template.name = "My Claude"
+        template.command = "claude --dangerously-skip-permissions"
+
+        let decoded = try JSONDecoder().decode(
+            MobileTaskTemplate.self,
+            from: JSONEncoder().encode(template)
+        )
+
+        #expect(decoded.builtInKind == .claude)
+        #expect(decoded.isBuiltIn)
+        #expect(decoded.name == "My Claude")
     }
 
     @Test func legacyTemplateWithoutProvenanceDecodesAsCustom() throws {

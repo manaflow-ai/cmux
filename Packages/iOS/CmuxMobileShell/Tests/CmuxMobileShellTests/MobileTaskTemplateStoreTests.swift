@@ -112,6 +112,7 @@ import CmuxMobileShellModel
         )
         for index in legacySeeds.indices {
             legacySeeds[index].isBuiltIn = false
+            legacySeeds[index].builtInKind = nil
         }
         let custom = MobileTaskTemplate(
             name: "Custom",
@@ -142,6 +143,10 @@ import CmuxMobileShellModel
             shellName: "Shell"
         )
         survivingSeeds.removeLast()
+        for index in survivingSeeds.indices {
+            survivingSeeds[index].builtInKind = nil
+            survivingSeeds[index].isBuiltIn = true
+        }
         let custom = MobileTaskTemplate(
             name: "Custom",
             icon: "hammer",

@@ -1,5 +1,13 @@
 public import Foundation
 
+/// Stable identity for one task template shipped by cmux.
+public enum MobileTaskBuiltInTemplateKind: String, Codable, CaseIterable, Sendable {
+    case claude
+    case codex
+    case openCode
+    case shell
+}
+
 /// A user-editable template for creating a new mobile task workspace.
 public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
     /// Stable template identifier.
@@ -15,6 +23,8 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
     public var defaultDirectory: String?
     /// Whether this template ships with cmux and must remain available.
     public var isBuiltIn: Bool
+    /// Stable shipped-template identity, retained when editable fields change.
+    public var builtInKind: MobileTaskBuiltInTemplateKind?
 
     /// Whether the command is blank and should open a plain shell.
     public var isPlainShell: Bool {
@@ -29,20 +39,23 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
     ///   - command: Shell script run in the first terminal; blank values create a plain shell.
     ///   - defaultDirectory: Optional default working directory.
     ///   - isBuiltIn: Whether cmux owns this permanent template.
+    ///   - builtInKind: Stable identity for a template shipped by cmux.
     public init(
         id: UUID = UUID(),
         name: String,
         icon: String,
         command: String,
         defaultDirectory: String? = nil,
-        isBuiltIn: Bool = false
+        isBuiltIn: Bool = false,
+        builtInKind: MobileTaskBuiltInTemplateKind? = nil
     ) {
         self.id = id
         self.name = name
         self.icon = icon
         self.command = command
         self.defaultDirectory = defaultDirectory
-        self.isBuiltIn = isBuiltIn
+        self.isBuiltIn = isBuiltIn || builtInKind != nil
+        self.builtInKind = builtInKind
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -52,6 +65,7 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
         case command
         case defaultDirectory
         case isBuiltIn
+        case builtInKind
     }
 
     /// Decodes templates written before built-in provenance was persisted.
@@ -67,10 +81,15 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
             String.self,
             forKey: .defaultDirectory
         )
-        isBuiltIn = try container.decodeIfPresent(
+        builtInKind = try container.decodeIfPresent(
+            MobileTaskBuiltInTemplateKind.self,
+            forKey: .builtInKind
+        )
+        let encodedIsBuiltIn = try container.decodeIfPresent(
             Bool.self,
             forKey: .isBuiltIn
         ) ?? false
+        isBuiltIn = encodedIsBuiltIn || builtInKind != nil
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -81,6 +100,7 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
         try container.encode(command, forKey: .command)
         try container.encodeIfPresent(defaultDirectory, forKey: .defaultDirectory)
         try container.encode(isBuiltIn, forKey: .isBuiltIn)
+        try container.encodeIfPresent(builtInKind, forKey: .builtInKind)
     }
 
     /// Prefix marking an icon value as a bundled agent brand image rather
@@ -123,25 +143,25 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
                 name: claudeName,
                 icon: "agent:claude",
                 command: "claude -- \"$CMUX_TASK_PROMPT\"",
-                isBuiltIn: true
+                builtInKind: .claude
             ),
             MobileTaskTemplate(
                 name: codexName,
                 icon: "agent:codex",
                 command: "codex -- \"$CMUX_TASK_PROMPT\"",
-                isBuiltIn: true
+                builtInKind: .codex
             ),
             MobileTaskTemplate(
                 name: openCodeName,
                 icon: "agent:opencode",
                 command: "opencode --prompt \"$CMUX_TASK_PROMPT\"",
-                isBuiltIn: true
+                builtInKind: .openCode
             ),
             MobileTaskTemplate(
                 name: shellName,
                 icon: "terminal",
                 command: "",
-                isBuiltIn: true
+                builtInKind: .shell
             ),
         ]
     }

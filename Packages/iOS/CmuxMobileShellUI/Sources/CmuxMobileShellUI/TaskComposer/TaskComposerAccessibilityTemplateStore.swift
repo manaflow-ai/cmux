@@ -25,6 +25,7 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
     func addTemplate(_ template: MobileTaskTemplate) {
         var customTemplate = template
         customTemplate.isBuiltIn = false
+        customTemplate.builtInKind = nil
         templates.append(customTemplate)
     }
 
@@ -32,6 +33,7 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
         guard let index = templates.firstIndex(where: { $0.id == template.id }) else { return }
         var updatedTemplate = template
         updatedTemplate.isBuiltIn = templates[index].isBuiltIn
+        updatedTemplate.builtInKind = templates[index].builtInKind
         templates[index] = updatedTemplate
     }
 
