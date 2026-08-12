@@ -46,6 +46,33 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
         }
     }
 
+    /// Returns whether authenticated host status is compatible with this build.
+    ///
+    /// cmux 0.64.17 predates the authenticated instance-tag field. Distributed
+    /// iOS builds may retain that one legacy release only when the user has
+    /// authorized the exact Tailscale endpoint locally. Discovery and Iroh stay
+    /// fail-closed, as do development builds and newer untagged Mac releases.
+    public func allowsAuthenticatedHost(
+        instanceTag: String?,
+        macAppVersion: String?,
+        usesLocallyAuthorizedTailscaleRoute: Bool
+    ) -> Bool {
+        if allows(instanceTag: instanceTag) {
+            return true
+        }
+        guard case .official = self,
+              Self.normalized(instanceTag) == nil,
+              usesLocallyAuthorizedTailscaleRoute,
+              let rawVersion = macAppVersion?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let version = MobileMacAppVersion(parsing: rawVersion),
+              let legacyMinimum = MobileMacAppVersion(parsing: "0.64.17"),
+              let firstTaggedRelease = MobileMacAppVersion(parsing: "0.64.18")
+        else {
+            return false
+        }
+        return version >= legacyMinimum && version < firstTaggedRelease
+    }
+
     /// Wraps a paired-Mac store so every read and mutation follows this policy.
     ///
     /// - Parameter store: The underlying persistence implementation.

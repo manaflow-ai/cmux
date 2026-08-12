@@ -71,6 +71,16 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
     /// `format` is a lowercase file-extension hint (e.g. `"png"`). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String)
+    /// A fixed, privacy-safe terminal toolbar control was used.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didUseToolbarAction action: TerminalToolbarDiagnosticAction
+    )
+    /// The terminal's user zoom changed through a fixed control path.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didChangeZoom action: TerminalZoomDiagnosticAction
+    )
     /// The composer accessory button was tapped; the host should toggle the
     /// iMessage-style composer above the terminal. Optional.
     ///
@@ -129,6 +139,16 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeVisibleArtifactCount count: Int) {}
     /// Default no-op so hosts without image upload can ignore pasted images.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
+    /// Default no-op so hosts without diagnostics can ignore toolbar actions.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didUseToolbarAction action: TerminalToolbarDiagnosticAction
+    ) {}
+    /// Default no-op so hosts without diagnostics can ignore zoom changes.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didChangeZoom action: TerminalZoomDiagnosticAction
+    ) {}
     /// Default no-op so hosts without a composer can ignore the toggle request.
     func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without a composer can ignore the focus request.

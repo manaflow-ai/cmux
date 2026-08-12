@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Foundation
 
@@ -14,6 +15,10 @@ extension TaskComposerSheet {
             }
             syncSuggestedDirectory()
         }
+        store.recordAppEvent(
+            .taskProviderSelected,
+            correlationID: template.id.uuidString
+        )
     }
 
     func restoreSubmittedDraft(_ snapshot: MobileTaskSubmissionSnapshot) {
@@ -63,6 +68,13 @@ extension TaskComposerSheet {
         failureText = nil
         failureTitleStyle = .launchFailed
         update()
+        if !hasRecordedDraftChange {
+            hasRecordedDraftChange = true
+            store.recordAppEvent(
+                .taskDraftChanged,
+                correlationID: submissionIdentity.id.uuidString
+            )
+        }
         submissionIdentity.markRequestDirty()
         if var recovery = completedOperationRecovery {
             recovery.markCurrentRequestDifferent()

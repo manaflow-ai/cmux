@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import Foundation
 import SwiftUI
@@ -99,6 +100,8 @@ public struct ChatArtifactLoader: Sendable {
     private let listHandler: @Sendable (_ path: String) async throws -> ChatArtifactDirectoryListing
     private let thumbnailCache: ChatArtifactThumbnailCache
     private let contentCache: ChatArtifactContentCache
+    private let diagnosticLog: DiagnosticLog?
+    private let diagnosticCorrelationID: String?
 
     /// Creates a closure-backed artifact loader.
     ///
@@ -120,6 +123,8 @@ public struct ChatArtifactLoader: Sendable {
         scope: ChatArtifactLoaderScope = .unsupported,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         contentCache: ChatArtifactContentCache = .applicationDefault(),
+        diagnosticLog: DiagnosticLog? = nil,
+        diagnosticCorrelationID: String? = nil,
         stat: @escaping @Sendable (_ path: String) async throws -> ChatArtifactStat = { _ in
             throw ChatArtifactError.unsupported
         },
@@ -145,6 +150,8 @@ public struct ChatArtifactLoader: Sendable {
         self.scope = scope
         self.thumbnailCache = cache
         self.contentCache = contentCache
+        self.diagnosticLog = diagnosticLog
+        self.diagnosticCorrelationID = diagnosticCorrelationID ?? scope.diagnosticCorrelationID
         statHandler = stat
         fetchHandler = fetch
         streamHandler = stream ?? { path, onChunk in
@@ -167,7 +174,8 @@ public struct ChatArtifactLoader: Sendable {
         source: any ChatEventSource,
         sessionID: String,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
-        contentCache: ChatArtifactContentCache = .applicationDefault()
+        contentCache: ChatArtifactContentCache = .applicationDefault(),
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.init(
             supportsArtifacts: source.supportsArtifacts,
@@ -175,6 +183,7 @@ public struct ChatArtifactLoader: Sendable {
             scope: .chat(sessionID: sessionID),
             cache: cache,
             contentCache: contentCache,
+            diagnosticLog: diagnosticLog,
             stat: { path in
                 try await source.artifactStat(sessionID: sessionID, path: path)
             },
@@ -218,6 +227,7 @@ public struct ChatArtifactLoader: Sendable {
         supportsDirectoryBrowsing: Bool = false,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         contentCache: ChatArtifactContentCache = .applicationDefault(),
+        diagnosticLog: DiagnosticLog? = nil,
         stat: @escaping @Sendable (_ path: String) async throws -> ChatArtifactStat,
         fetch: @escaping @Sendable (
             _ path: String,
@@ -238,6 +248,7 @@ public struct ChatArtifactLoader: Sendable {
             scope: .terminal(workspaceID: terminalWorkspaceID, surfaceID: terminalSurfaceID),
             cache: cache,
             contentCache: contentCache,
+            diagnosticLog: diagnosticLog,
             stat: stat,
             fetch: fetch,
             stream: stream,
@@ -248,9 +259,28 @@ public struct ChatArtifactLoader: Sendable {
 
     public static func unsupported(
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
-        contentCache: ChatArtifactContentCache = .applicationDefault()
+        contentCache: ChatArtifactContentCache = .applicationDefault(),
+        diagnosticLog: DiagnosticLog? = nil
     ) -> ChatArtifactLoader {
-        ChatArtifactLoader(cache: cache, contentCache: contentCache)
+        ChatArtifactLoader(
+            cache: cache,
+            contentCache: contentCache,
+            diagnosticLog: diagnosticLog
+        )
+    }
+
+    /// Records a viewer-owned artifact action without retaining its path.
+    public func recordDiagnostic(
+        _ kind: DiagnosticAppEventKind,
+        failure: DiagnosticFailureKind? = nil,
+        count: Int? = nil
+    ) {
+        diagnosticLog?.recordAppEvent(
+            kind,
+            correlationID: diagnosticCorrelationID,
+            failure: failure,
+            count: count
+        )
     }
 
     public func stat(path: String) async throws -> ChatArtifactStat {
@@ -288,7 +318,7 @@ public struct ChatArtifactLoader: Sendable {
             return
         }
         let handler = streamHandler
-        _ = try await contentCache.stream(
+        let wasCacheHit = try await contentCache.stream(
             for: key,
             expectedSize: size,
             fetch: { receive in
@@ -296,6 +326,9 @@ public struct ChatArtifactLoader: Sendable {
             },
             receive: onChunk
         )
+        if wasCacheHit {
+            recordDiagnostic(.artifactCacheHit, count: Int(clamping: size))
+        }
     }
 
     public func thumbnail(
@@ -346,6 +379,21 @@ public struct ChatArtifactLoader: Sendable {
             return diskKey
         }
         return "\(scope.cacheNamespace)#\(maxDimension)#\(path)"
+    }
+}
+
+private extension ChatArtifactLoaderScope {
+    var diagnosticCorrelationID: String? {
+        switch self {
+        case .chat(let sessionID):
+            sessionID
+        case .terminal(_, let surfaceID):
+            surfaceID
+        case .workspaceChanges(let workspaceID, _, _):
+            workspaceID
+        case .unsupported:
+            nil
+        }
     }
 }
 

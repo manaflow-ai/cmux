@@ -42,6 +42,10 @@ extension WorkspaceDetailView {
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in
+            store.recordAppEvent(
+                .terminalArtifactGalleryOpened,
+                correlationID: terminalID
+            )
             terminalArtifactFilesPresentation.present {
                 terminalArtifactFilesContext = TerminalArtifactContext(
                     workspaceID: workspace.id.rawValue,
