@@ -7538,12 +7538,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// processing) can still race a delete/rename. This is the minimum bar
     /// the design calls for; it does not re-fetch a fresh viewport snapshot
     /// and re-resolve the candidate from scratch.
-    private func commitWrappedCandidate(_ candidate: TerminalWrappedPathResolution) {
+    private func commitWrappedCandidate(_ candidate: TerminalWrappedPathResolution) -> WordPathResolution? {
         guard FileManager.default.fileExists(atPath: candidate.path) else {
             #if DEBUG
             cmuxDebugLog("link.wrappedPath commit abort reason=fileGoneAtRelease")
             #endif
-            return
+            return nil
         }
         #if DEBUG
         cmuxDebugLog("link.wrappedPath resolvedPath=\(candidate.path)")
@@ -7558,9 +7558,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                sourcePanelId: termSurface.id,
                filePath: candidate.path
            ) {
-            return
+            return makeWordPathResolution(
+                path: candidate.path,
+                source: .snapshot,
+                rawToken: candidate.path
+            )
         }
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: candidate.path))
+        return makeWordPathResolution(
+            path: candidate.path,
+            source: .snapshot,
+            rawToken: candidate.path
+        )
     }
 
     /// Handles Ghostty's `GHOSTTY_ACTION_OPEN_URL` callback for this
@@ -7999,8 +8008,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .finishWithoutFallback:
             return nil
         case .openWrappedCandidate(let candidate):
-            commitWrappedCandidate(candidate)
-            return nil
+            return commitWrappedCandidate(candidate)
         }
 
         guard let surface else { return nil }
