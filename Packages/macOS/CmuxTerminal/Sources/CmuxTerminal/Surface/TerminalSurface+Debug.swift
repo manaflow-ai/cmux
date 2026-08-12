@@ -198,7 +198,11 @@ extension TerminalSurface {
 
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
-        ghostty_surface_free(surfaceToFree)
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            freeSurface(surfaceToFree)
+        } else {
+            ghostty_surface_free(surfaceToFree)
+        }
         callbackContext?.release()
         if let runtimeOwnershipReservation {
             runtimeTeardown.cancelRuntimeSurfaceOwnership(
