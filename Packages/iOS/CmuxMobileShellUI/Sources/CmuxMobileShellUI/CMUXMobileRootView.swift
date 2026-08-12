@@ -444,13 +444,13 @@ struct CMUXMobileRootView: View {
                     hasKnownPairedMac: store.hasKnownPairedMac,
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
+                    signOut: signOut,
+                    setupHelpHighlight: disconnectedSetupHelpHighlight,
+                    store: store,
                     isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
                     dismissTailscalePairingBanner: {
                         isTailscalePairingBannerDismissed = true
                     },
-                    signOut: signOut,
-                    setupHelpHighlight: disconnectedSetupHelpHighlight,
-                    store: store,
                     showSettings: showSettings,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
