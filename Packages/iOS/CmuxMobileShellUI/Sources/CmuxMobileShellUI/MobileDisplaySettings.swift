@@ -1,4 +1,4 @@
-import CMUXMobileCore
+public import CMUXMobileCore
 import CmuxMobileSupport
 import Foundation
 import Observation
@@ -22,6 +22,7 @@ public final class MobileDisplaySettings {
     // UserDefaults is Apple-documented thread-safe; the synchronous read in
     // `init` and the write-through in `didSet` are safe nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
+    private let diagnosticLog: DiagnosticLog?
     public let haptics: MobileHapticFeedback
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
@@ -52,28 +53,40 @@ public final class MobileDisplaySettings {
     /// truncating to a single line. Defaults to `false` (single-line). Mutating
     /// this writes through to the injected ``UserDefaults``.
     public var wrapWorkspaceTitles: Bool {
-        didSet { defaults.set(wrapWorkspaceTitles, forKey: Self.wrapWorkspaceTitlesKey) }
+        didSet {
+            defaults.set(wrapWorkspaceTitles, forKey: Self.wrapWorkspaceTitlesKey)
+            recordBooleanChange(.displayWorkspaceTitleWrappingChanged, oldValue, wrapWorkspaceTitles)
+        }
     }
 
     /// Whether the alternate-screen sizing notice is shown. Defaults to `true`.
     /// The notice's "Don't Show Again" action sets this to `false`; mutating
     /// this writes through to the injected ``UserDefaults``.
     public var showAltScreenNotice: Bool {
-        didSet { defaults.set(showAltScreenNotice, forKey: Self.showAltScreenNoticeKey) }
+        didSet {
+            defaults.set(showAltScreenNotice, forKey: Self.showAltScreenNoticeKey)
+            recordBooleanChange(.displayAltScreenNoticeChanged, oldValue, showAltScreenNotice)
+        }
     }
 
     /// Whether artifact galleries include paths that no longer exist on the
     /// connected Mac. Defaults to `false`. Mutating this writes through to the
     /// injected ``UserDefaults``.
     public var showMissingFiles: Bool {
-        didSet { defaults.set(showMissingFiles, forKey: Self.showMissingFilesKey) }
+        didSet {
+            defaults.set(showMissingFiles, forKey: Self.showMissingFilesKey)
+            recordBooleanChange(.displayMissingFilesChanged, oldValue, showMissingFiles)
+        }
     }
 
     /// Whether tapping a directory path in the terminal opens the folder browser.
     /// Defaults to `true`. File-path taps remain enabled regardless of this value.
     /// Mutating this writes through to the injected ``UserDefaults``.
     public var terminalFolderTapEnabled: Bool {
-        didSet { defaults.set(terminalFolderTapEnabled, forKey: Self.terminalFolderTapEnabledKey) }
+        didSet {
+            defaults.set(terminalFolderTapEnabled, forKey: Self.terminalFolderTapEnabledKey)
+            recordBooleanChange(.displayFolderTapChanged, oldValue, terminalFolderTapEnabled)
+        }
     }
 
     /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
@@ -82,6 +95,7 @@ public final class MobileDisplaySettings {
     public var hapticFeedbackEnabled: Bool {
         didSet {
             defaults.set(hapticFeedbackEnabled, forKey: MobileHapticFeedback.enabledDefaultsKey)
+            recordBooleanChange(.displayHapticsChanged, oldValue, hapticFeedbackEnabled)
         }
     }
 
@@ -91,6 +105,7 @@ public final class MobileDisplaySettings {
     public var terminalFilesChipEnabled: Bool {
         didSet {
             defaults.set(terminalFilesChipEnabled, forKey: Self.terminalFilesChipEnabledKey)
+            recordBooleanChange(.terminalFilesFeatureChanged, oldValue, terminalFilesChipEnabled)
         }
     }
 
@@ -100,6 +115,7 @@ public final class MobileDisplaySettings {
     public var taskComposerEnabled: Bool {
         didSet {
             defaults.set(taskComposerEnabled, forKey: Self.taskComposerEnabledKey)
+            recordBooleanChange(.taskComposerFeatureChanged, oldValue, taskComposerEnabled)
         }
     }
 
@@ -114,6 +130,9 @@ public final class MobileDisplaySettings {
             let clamped = MobileTerminalScrollbackPreference.clamped(terminalScrollbackRows)
             if clamped != terminalScrollbackRows { terminalScrollbackRows = clamped }
             defaults.set(clamped, forKey: MobileTerminalScrollbackPreference.defaultsKey)
+            if oldValue != clamped {
+                diagnosticLog?.recordAppEvent(.terminalScrollbackRowsChanged, count: clamped)
+            }
         }
     }
 
@@ -126,6 +145,9 @@ public final class MobileDisplaySettings {
             // Assigning inside didSet does not re-trigger the observer.
             if clamped != workspacePreviewLineCount { workspacePreviewLineCount = clamped }
             defaults.set(clamped, forKey: Self.workspacePreviewLineCountKey)
+            if oldValue != clamped {
+                diagnosticLog?.recordAppEvent(.displayWorkspacePreviewLinesChanged, count: clamped)
+            }
         }
     }
 
@@ -187,12 +209,16 @@ public final class MobileDisplaySettings {
     ///     preview lines) without a write.
     ///   - environment: The process environment consulted for the DEBUG-only
     ///     task-composer lab fallbacks; tests pass an explicit dictionary.
+    ///   - diagnosticLog: Optional privacy-safe recorder for every persisted
+    ///     user-visible setting mutation, including changes made outside Settings.
     public init(
         defaults: UserDefaults = .standard,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         let haptics = MobileHapticFeedback(defaults: defaults)
         self.defaults = defaults
+        self.diagnosticLog = diagnosticLog
         self.haptics = haptics
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
@@ -224,6 +250,15 @@ public final class MobileDisplaySettings {
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
         #endif
+    }
+
+    private func recordBooleanChange(
+        _ kind: DiagnosticAppEventKind,
+        _ oldValue: Bool,
+        _ newValue: Bool
+    ) {
+        guard oldValue != newValue else { return }
+        diagnosticLog?.recordAppEvent(kind, count: newValue ? 1 : 0)
     }
 
     #if DEBUG
