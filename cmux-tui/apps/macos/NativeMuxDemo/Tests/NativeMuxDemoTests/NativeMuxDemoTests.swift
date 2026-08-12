@@ -423,7 +423,7 @@ func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async throws {
             return true
         }
         Issue.record("A timed-out queued operation returned a value.")
-    } catch SerialFFIExecutorError.timedOut {
+    } catch SerialFFIExecutorError.timedOutBeforeExecution {
     } catch {
         Issue.record("A timed-out queued operation returned an unexpected error: \(error)")
     }
@@ -465,7 +465,7 @@ func runningFFIOperationDeadlineResolvesBeforeTheBlockingCallReturns() async thr
     do {
         _ = try await operation.value
         Issue.record("A running timed-out operation returned a value.")
-    } catch SerialFFIExecutorError.timedOut {
+    } catch SerialFFIExecutorError.timedOutDuringExecution {
     } catch {
         Issue.record("A running timed-out operation returned an unexpected error: \(error)")
     }
@@ -783,6 +783,20 @@ func mutationIndeterminateErrorKeepsTheRetryIdentityForReconciliation() {
     #expect(operation == "workspace.create")
     #expect(idempotencyKey == "native-test-42")
     #expect(error.requiresAuthoritativeReconciliation)
+}
+
+@Test
+func runningMutationTimeoutRequiresAuthoritativeReconciliation() {
+    let error = FrontendServiceError.mutationTimedOutDuringExecution(
+        operation: "workspace.create",
+        localization: testLocalization
+    )
+
+    #expect(error.requiresAuthoritativeReconciliation)
+    #expect(error.localizedDescription == testLocalization.text(
+        "error.mutation_indeterminate",
+        "The operation result is not known. The view will refresh."
+    ))
 }
 
 @Test

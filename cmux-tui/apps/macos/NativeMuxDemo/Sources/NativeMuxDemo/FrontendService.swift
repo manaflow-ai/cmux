@@ -9,6 +9,7 @@ enum FrontendServiceError: LocalizedError {
   case terminalAttachFailure(String, localization: Localization)
   case requestQueueFull(localization: Localization)
   case requestQueueTimedOut(localization: Localization)
+  case mutationTimedOutDuringExecution(operation: String, localization: Localization)
   case terminalAttachQueueFull(localization: Localization)
   case terminalAttachQueueTimedOut(localization: Localization)
   case mutationIndeterminate(
@@ -38,8 +39,10 @@ enum FrontendServiceError: LocalizedError {
   }
 
   var requiresAuthoritativeReconciliation: Bool {
-    if case .mutationIndeterminate = self { return true }
-    return false
+    switch self {
+    case .mutationIndeterminate, .mutationTimedOutDuringExecution: return true
+    default: return false
+    }
   }
 
   var errorDescription: String? {
@@ -67,6 +70,11 @@ enum FrontendServiceError: LocalizedError {
         "error.request_failure",
         "The frontend request failed. See diagnostics for details."
       )
+    case .mutationTimedOutDuringExecution(_, let localization):
+      return localization.text(
+        "error.mutation_indeterminate",
+        "The operation result is not known. The view will refresh."
+      )
     case .terminalAttachQueueFull(let localization):
       return localization.text(
         "error.terminal_attach_queue_full",
@@ -87,7 +95,8 @@ enum FrontendServiceError: LocalizedError {
     case .connectionFailure(let message, _), .requestRejected(let message, _),
       .terminalAttachFailure(let message, _): return message
     case .localized, .requestQueueFull, .requestQueueTimedOut,
-      .terminalAttachQueueFull, .terminalAttachQueueTimedOut, .mutationIndeterminate:
+      .terminalAttachQueueFull, .terminalAttachQueueTimedOut,
+      .mutationIndeterminate, .mutationTimedOutDuringExecution:
       return nil
     }
   }
@@ -230,7 +239,14 @@ final class SerialFFIExecutor: @unchecked Sendable {
     }
     if let timeoutNanoseconds {
       let timeoutTask = timeoutScheduler(timeoutNanoseconds) {
-        if cancellation.cancel() { await waiter.complete(.timedOut) }
+        switch cancellation.cancel() {
+        case .beforeExecution:
+          await waiter.complete(.timedOutBeforeExecution)
+        case .duringExecution:
+          await waiter.complete(.timedOutDuringExecution)
+        case .none:
+          break
+        }
       }
       await waiter.installTimeoutTask(timeoutTask)
     }
@@ -238,27 +254,30 @@ final class SerialFFIExecutor: @unchecked Sendable {
     let result = await withTaskCancellationHandler {
       await waiter.value()
     } onCancel: {
-      if cancellation.cancel() {
+      if cancellation.cancel() != .none {
         Task { await waiter.complete(.cancelled) }
       }
     }
     switch result {
     case .value(let value): return value
     case .cancelled: throw CancellationError()
-    case .timedOut: throw SerialFFIExecutorError.timedOut
+    case .timedOutBeforeExecution: throw SerialFFIExecutorError.timedOutBeforeExecution
+    case .timedOutDuringExecution: throw SerialFFIExecutorError.timedOutDuringExecution
     }
   }
 }
 
 enum SerialFFIExecutorError: Error {
   case queueFull
-  case timedOut
+  case timedOutBeforeExecution
+  case timedOutDuringExecution
 }
 
 private enum FFIWaitResult<T: Sendable>: Sendable {
   case value(T)
   case cancelled
-  case timedOut
+  case timedOutBeforeExecution
+  case timedOutDuringExecution
 }
 
 private actor FFIResultWaiter<T: Sendable> {
@@ -318,15 +337,28 @@ final class FFICancellation: @unchecked Sendable {
   }
 
   @discardableResult
-  func cancel() -> Bool {
+  func cancel() -> FFICancellationDisposition {
     let result = cmux_frontend_queue_cancellation_cancel(raw)
-    guard result != UInt8(CMUX_FRONTEND_QUEUE_CANCEL_NONE) else { return false }
-    onCancel()
-    // A running operation remains on the serial queue, but its waiter must
-    // still resolve now. The queue block retains the waiter and releases the
-    // pending-operation slot when the blocking C call finishes.
-    return true
+    switch result {
+    case UInt8(CMUX_FRONTEND_QUEUE_CANCEL_BEFORE_EXECUTION):
+      onCancel()
+      return .beforeExecution
+    case UInt8(CMUX_FRONTEND_QUEUE_CANCEL_DURING_EXECUTION):
+      onCancel()
+      // A running operation remains on the serial queue, but its waiter must
+      // still resolve now. The queue block retains the waiter and releases the
+      // pending-operation slot when the blocking C call finishes.
+      return .duringExecution
+    default:
+      return .none
+    }
   }
+}
+
+enum FFICancellationDisposition: Sendable, Equatable {
+  case none
+  case beforeExecution
+  case duringExecution
 }
 
 // Safe because raw points to a Rust object whose cancellation flag and wakeup
@@ -491,7 +523,15 @@ actor FrontendService {
       }
     } catch SerialFFIExecutorError.queueFull {
       throw FrontendServiceError.requestQueueFull(localization: localization)
-    } catch SerialFFIExecutorError.timedOut {
+    } catch SerialFFIExecutorError.timedOutBeforeExecution {
+      throw FrontendServiceError.requestQueueTimedOut(localization: localization)
+    } catch SerialFFIExecutorError.timedOutDuringExecution {
+      if mutation {
+        throw FrontendServiceError.mutationTimedOutDuringExecution(
+          operation: operation,
+          localization: localization
+        )
+      }
       throw FrontendServiceError.requestQueueTimedOut(localization: localization)
     }
     try Task.checkCancellation()
@@ -558,7 +598,8 @@ actor FrontendService {
       }
     } catch SerialFFIExecutorError.queueFull {
       throw FrontendServiceError.terminalAttachQueueFull(localization: localization)
-    } catch SerialFFIExecutorError.timedOut {
+    } catch SerialFFIExecutorError.timedOutBeforeExecution,
+      SerialFFIExecutorError.timedOutDuringExecution {
       throw FrontendServiceError.terminalAttachQueueTimedOut(localization: localization)
     }
     switch queuedResult {
