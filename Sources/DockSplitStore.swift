@@ -292,12 +292,14 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
         terminalTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
+        tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         closedItemHistoryStore: ClosedItemHistoryStore? = nil
     ) {
+        let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.workspaceId = workspaceId
         self.scope = scope
         self.baseDirectoryProvider = baseDirectoryProvider
@@ -323,7 +325,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
             settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
         })
-        self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
+        self.bonsplitController = BonsplitController(
+            configuration: Self.makeConfiguration(),
+            tabDragTransferRegistry: tabDragTransferRegistry
+        )
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.contextMenuShortcuts = Workspace.buildContextMenuShortcuts()
@@ -339,6 +344,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         // so Bonsplit routes it here; the live panel is moved (not copied).
         self.bonsplitController.onExternalTabDrop = { [weak self] request in
             guard let self else { return false }
+            if let handled = self.performRegisteredPaneTransferDrop(request) {
+                return handled
+            }
             return AppDelegate.shared?.moveSurfaceIntoDock(
                 sourceTabId: request.tabId.uuid,
                 destinationDock: self,
@@ -534,6 +542,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         sourcePanelId: UUID? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        initialInput: String? = nil,
+        startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
@@ -567,6 +577,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 sourcePanelId: source
             ),
             tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            startupRestoreAgent: startupRestoreAgent,
             preferredProfileID: resolvedBrowserProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             chromeVisibility: chromeVisibility,
@@ -581,6 +593,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId) else {
             return nil
         }
+        commitStartupRestoreIfNeeded(
+            panel: panel,
+            snapshot: startupRestoreAgent,
+            initialInput: initialInput
+        )
         recordExplicitPanelCreation()
         if focus {
             bonsplitController.focusPane(paneId)
@@ -607,6 +624,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        initialInput: String? = nil,
+        startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialDividerPosition: CGFloat? = nil,
         preferredProfileID: UUID? = nil,
         chromeVisibility: BrowserChromeVisibility = .visible,
@@ -640,6 +659,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 sourcePanelId: source
             ),
             tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            startupRestoreAgent: startupRestoreAgent,
             preferredProfileID: resolvedBrowserProfileID,
             chromeVisibility: chromeVisibility,
             preloadInitialNavigationInBackground:
@@ -657,6 +678,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                   let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: rootPane) else {
                 return nil
             }
+            commitStartupRestoreIfNeeded(
+                panel: panel,
+                snapshot: startupRestoreAgent,
+                initialInput: initialInput
+            )
             recordExplicitPanelCreation()
             if focus {
                 bonsplitController.focusPane(rootPane)
@@ -693,6 +719,11 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         }
         installSubscription(for: panel)
         applyVisibility(to: panel)
+        commitStartupRestoreIfNeeded(
+            panel: panel,
+            snapshot: startupRestoreAgent,
+            initialInput: initialInput
+        )
         recordExplicitPanelCreation()
         if focus {
             focusPanel(panel.id)
@@ -893,6 +924,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         environment: [String: String],
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
+        initialInput: String? = nil,
+        startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         chromeVisibility: BrowserChromeVisibility = .visible,
@@ -911,6 +944,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 environment: environment,
                 configTemplate: configTemplate,
                 tmuxStartCommand: tmuxStartCommand,
+                initialInput: initialInput,
+                startupRestoreAgent: startupRestoreAgent,
                 controlId: nil,
                 controlTitle: nil
             )
@@ -966,6 +1001,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         environment: [String: String],
         configTemplate: CmuxSurfaceConfigTemplate?,
         tmuxStartCommand: String? = nil,
+        initialInput: String? = nil,
+        startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         controlId: String?,
         controlTitle: String?
     ) -> TerminalPanel {
@@ -989,9 +1026,32 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
             initialEnvironmentOverrides: resolvedEnvironment,
-            focusPlacement: .rightSidebarDock
+            focusPlacement: .rightSidebarDock,
+            runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+                requestedPolicy: .immediate,
+                willRunStartupCommand: false,
+                willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+            )
         )
+    }
+
+    private func commitStartupRestoreIfNeeded(
+        panel: any Panel,
+        snapshot: SessionRestorableAgentSnapshot?,
+        initialInput: String?
+    ) {
+        guard let snapshot, let terminal = panel as? TerminalPanel else { return }
+        terminalStartupRestoreCoordinator.stage(
+            panel: terminal,
+            snapshot: snapshot,
+            manualResumeAvailable: true,
+            willRunStartupCommand: false,
+            willRunStartupInput: initialInput != nil,
+            resumeWorkingDirectory: snapshot.workingDirectory
+        )
+        terminalStartupRestoreCoordinator.commitPendingRestores(panelIDs: [terminal.id])
     }
 
     private func tabKindRaw(_ kind: DockSurfaceKind) -> String {
