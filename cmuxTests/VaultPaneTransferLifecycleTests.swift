@@ -281,7 +281,9 @@ struct VaultPaneTransferLifecycleTests {
             )
             #expect(target.draggingEntered(dragInfo) == .move)
             #expect(target.prepareForDragOperation(dragInfo))
-            return target.performDragOperation(dragInfo)
+            let handled = target.performDragOperation(dragInfo)
+            target.draggingEnded(dragInfo)
+            return handled
 
         case .browser:
             let slot = WindowBrowserSlotView(frame: root.bounds)
@@ -297,7 +299,9 @@ struct VaultPaneTransferLifecycleTests {
             )
             #expect(target.draggingEntered(dragInfo) == .move)
             #expect(target.prepareForDragOperation(dragInfo))
-            return target.performDragOperation(dragInfo)
+            let handled = target.performDragOperation(dragInfo)
+            target.draggingEnded(dragInfo)
+            return handled
         }
     }
 
