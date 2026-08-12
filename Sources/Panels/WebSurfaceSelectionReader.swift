@@ -13,8 +13,6 @@ nonisolated struct WebSurfaceSelectionReader {
         }
     }
 
-    private static let contentWorldName = "cmux.surface-selection"
-
     private static let trackingBootstrapScript = """
     (() => {
       if (globalThis.__cmuxSurfaceSelectionRuntime) return true;
@@ -200,18 +198,15 @@ nonisolated struct WebSurfaceSelectionReader {
     })()
     """
 
-    @MainActor
-    private static var contentWorld: WKContentWorld {
-        WKContentWorld.world(name: contentWorldName)
-    }
-
+    /// Installs the event-owned snapshot in the page world because WebKit does
+    /// not project its live `Selection` object into isolated content worlds.
     @MainActor
     static func installTracking(in userContentController: WKUserContentController) {
         userContentController.addUserScript(WKUserScript(
             source: trackingBootstrapScript,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true,
-            in: contentWorld
+            in: .page
         ))
     }
 
@@ -225,7 +220,7 @@ nonisolated struct WebSurfaceSelectionReader {
         do {
             guard let encoded = try await webView.evaluateJavaScript(
                 Self.script,
-                contentWorld: Self.contentWorld
+                contentWorld: .page
             ) as? String,
             let data = encoded.data(using: .utf8) else {
                 return .unavailable
