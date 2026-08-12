@@ -635,7 +635,7 @@ import Testing
                 displayName: "Test Mac \(index)",
                 routes: [current],
                 createdAt: .distantPast,
-                lastSeenAt: .now,
+                lastSeenAt: .distantPast,
                 isActive: index == 999,
                 stackUserID: "user-1",
                 legacyTailscaleRoutes: index == 999 ? [current] : nil
