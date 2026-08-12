@@ -2,16 +2,13 @@ import AppKit
 import Bonsplit
 import Foundation
 
-/// One process-wide capability registry so every surface that exchanges tabs
-/// (workspaces, the Dock) can resolve drags that began in another controller,
-/// matching the 0.64.22 behavior where any destination could decode the drag.
 @MainActor
-enum BonsplitTabDragSharing {
-    static let transferRegistry = TabDragTransferRegistry()
-
+extension AppDelegate {
     /// Ends the originating Bonsplit drag after a destination accepts it.
-    static func finishAcceptedDrop(from pasteboard: NSPasteboard = NSPasteboard(name: .drag)) {
-        transferRegistry.finish(from: pasteboard)
+    func finishAcceptedBonsplitTabDrop(
+        from pasteboard: NSPasteboard = NSPasteboard(name: .drag)
+    ) {
+        tabDragTransferRegistry.finish(from: pasteboard)
     }
 }
 
@@ -32,6 +29,19 @@ struct PaneDragTransfer: Equatable {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
+    init(tabDragTransfer: TabDragTransfer) {
+        tabId = tabDragTransfer.tab.id.uuid
+        sourcePaneId = tabDragTransfer.sourcePaneId.id
+        sourceProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
+    }
+
+    init(tabId: UUID, sourcePaneId: UUID, sourceProcessId: Int32) {
+        self.tabId = tabId
+        self.sourcePaneId = sourcePaneId
+        self.sourceProcessId = sourceProcessId
+    }
+
+    /// Decodes the legacy JSON representation used by older synthetic sources.
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
         if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
             return decode(from: data)
@@ -64,7 +74,11 @@ struct PaneDragTransfer: Equatable {
 typealias TerminalPaneDragTransfer = PaneDragTransfer
 
 @MainActor
-extension WindowTerminalHostView {
+protocol PaneDropRoutingHost: AnyObject {
+    var paneDropRoutingSession: PaneDropRoutingSession { get }
+}
+
+extension PaneDropRoutingHost {
     var hasActivePaneDropDrag: Bool {
         paneDropRoutingSession.hasActiveDropDrag
     }
@@ -81,6 +95,9 @@ extension WindowTerminalHostView {
         paneDropRoutingSession.clearActiveDropDrag(sequenceNumber: sequenceNumber)
     }
 }
+
+extension WindowTerminalHostView: PaneDropRoutingHost {}
+extension WindowBrowserHostView: PaneDropRoutingHost {}
 
 enum PaneDropRouting {
     private static func fullPaneSize(for size: CGSize, topChromeHeight: CGFloat) -> CGSize {
@@ -106,7 +123,7 @@ enum PaneDropRouting {
         }
     }
 
-    static func filePreviewDestination(
+    static func destination(
         targetPane paneId: PaneID,
         zone: DropZone
     ) -> BonsplitController.ExternalTabDropRequest.Destination {

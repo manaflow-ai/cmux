@@ -120,7 +120,9 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
         guard let transfer = acceptedTransfer(sender) else { return false }
         let moved = performMove(transfer)
         if moved {
-            BonsplitTabDragSharing.finishAcceptedDrop(from: sender.draggingPasteboard)
+            AppDelegate.shared?.finishAcceptedBonsplitTabDrop(
+                from: sender.draggingPasteboard
+            )
         }
         return moved
     }

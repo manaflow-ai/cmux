@@ -27,6 +27,7 @@ struct SessionIndexTableViewportTests {
             isCollapsed: false,
             actions: IndexSectionActions(
                 onBeginDrag: {},
+                beginSessionDrag: { _, _, _, _, _ in false },
                 onPreviewEntry: { _ in },
                 onDismissPreview: { _ in },
                 onResume: nil,
@@ -112,6 +113,7 @@ struct SessionIndexTableViewportTests {
         )
         let actions = IndexSectionActions(
             onBeginDrag: {},
+            beginSessionDrag: { _, _, _, _, _ in false },
             onPreviewEntry: { _ in },
             onDismissPreview: { _ in },
             onResume: nil,
@@ -388,6 +390,7 @@ struct SessionIndexTableViewportTests {
             isCollapsed: false,
             actions: IndexSectionActions(
                 onBeginDrag: {},
+                beginSessionDrag: { _, _, _, _, _ in false },
                 onPreviewEntry: { _ in },
                 onDismissPreview: { _ in },
                 onResume: nil,
