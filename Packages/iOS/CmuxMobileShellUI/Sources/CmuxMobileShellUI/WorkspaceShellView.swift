@@ -160,6 +160,9 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     var showPairingScanner: (() -> Void)?
+    /// Hides the Tailscale setup banner for the current shell session.
+    var isTailscalePairingBannerDismissed = false
+    var dismissTailscalePairingBanner: () -> Void = {}
     var showSettings: () -> Void = {}
     var deviceTreePresentation = MobileChildSheetPresentation()
     var taskComposerPresentation = MobileChildSheetPresentation()
@@ -665,6 +668,8 @@ struct WorkspaceShellView: View {
             refresh: refreshWorkspacesClosure,
             signOut: signOut,
             reconnect: store.tailscalePairingRequired ? nil : reconnectClosure,
+            isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
+            dismissTailscalePairingBanner: dismissTailscalePairingBanner,
             showAddDevice: showAddDevice,
             showPairingScanner: showPairingScanner,
             store: store,

@@ -61,6 +61,9 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
+    /// Hides the Tailscale setup banner for the current shell session.
+    var isTailscalePairingBannerDismissed = false
+    var dismissTailscalePairingBanner: () -> Void = {}
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
     var showAddDevice: (() -> Void)?
@@ -502,9 +505,11 @@ struct WorkspaceListView: View {
             .modifier(WorkspaceListBarUnderlap())
             .safeAreaInset(edge: .top, spacing: 0) {
                 if connectionChrome == .tailscalePairingRequired,
+                   !isTailscalePairingBannerDismissed,
                    let showPairingScanner {
                     MobileTailscalePairingRequiredBanner(
-                        scanPairingCode: showPairingScanner
+                        scanPairingCode: showPairingScanner,
+                        dismiss: dismissTailscalePairingBanner
                     )
                 }
             }
@@ -525,10 +530,11 @@ struct WorkspaceListView: View {
                     }
                 }
             case .tailscalePairingRequired:
-                if let showPairingScanner {
+                if !isTailscalePairingBannerDismissed, let showPairingScanner {
                     Section {
                         MobileTailscalePairingRequiredBanner(
-                            scanPairingCode: showPairingScanner
+                            scanPairingCode: showPairingScanner,
+                            dismiss: dismissTailscalePairingBanner
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)

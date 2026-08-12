@@ -45,6 +45,10 @@ struct CMUXMobileRootView: View {
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
     @State private var didExceedStartupRestoringGate = false
+    /// Session-only dismissal for the setup reminder. Pairing and Settings
+    /// remain available, and a fresh launch can remind the user again until the
+    /// required local authorization is complete.
+    @State private var isTailscalePairingBannerDismissed = false
     #if os(macOS)
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
@@ -354,6 +358,7 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
+                isTailscalePairingBannerDismissed = false
                 #if os(iOS)
                 handleRootPresentation(.dismissPairing)
                 #else
@@ -367,6 +372,11 @@ struct CMUXMobileRootView: View {
             #endif
         }
         #if os(iOS)
+        .onChange(of: store.tailscalePairingRequired) { _, isRequired in
+            if !isRequired {
+                isTailscalePairingBannerDismissed = false
+            }
+        }
         .onChange(of: authManager.currentUser?.id) { _, _ in
             // Account identity can in principle change without an
             // isAuthenticated or team edge; re-key the keep-alive so a stale
@@ -434,6 +444,10 @@ struct CMUXMobileRootView: View {
                     hasKnownPairedMac: store.hasKnownPairedMac,
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
+                    isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
+                    dismissTailscalePairingBanner: {
+                        isTailscalePairingBannerDismissed = true
+                    },
                     signOut: signOut,
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
@@ -457,6 +471,10 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
+                    isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
+                    dismissTailscalePairingBanner: {
+                        isTailscalePairingBannerDismissed = true
+                    },
                     showSettings: showSettings,
                     deviceTreePresentation: childSheetPresentation(
                         for: .workspaceDeviceTree
