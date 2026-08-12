@@ -2522,6 +2522,140 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
     }
 
+    /// Regression: the real Add Computer toolbar entrypoint remains usable after
+    /// forgetting the final saved computer swaps the authenticated root shell.
+    @MainActor
+    func testForgettingFinalComputerKeepsAddComputerResponsive() async throws {
+        let app = try await launchAppAfterForgettingFinalComputer()
+        defer { app.terminate() }
+
+        let addComputer = app.buttons["MobileShowAddDeviceToolbarButton"]
+        XCTAssertTrue(addComputer.waitForExistence(timeout: 8))
+        XCTAssertTrue(addComputer.isHittable)
+        tap(addComputer, in: app)
+
+        XCTAssertTrue(
+            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
+            "Add Computer must present after deleting the final computer."
+        )
+    }
+
+    /// Regression: the real Settings toolbar entrypoint remains usable after
+    /// forgetting the final saved computer swaps the authenticated root shell.
+    @MainActor
+    func testForgettingFinalComputerKeepsSettingsResponsive() async throws {
+        let app = try await launchAppAfterForgettingFinalComputer()
+        defer { app.terminate() }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        XCTAssertTrue(settings.isHittable)
+        tap(settings, in: app)
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsView"]
+                .waitForExistence(timeout: 8),
+            "Settings must present after deleting the final computer."
+        )
+    }
+
+    /// Forgets the only saved Mac through the production Computers sheet and
+    /// returns only after SwiftUI has mounted the no-computers root shell.
+    @MainActor
+    private func launchAppAfterForgettingFinalComputer() async throws -> XCUIApplication {
+        let server = try MobileSyncMockHostServer(supportsManualAttachTicket: true)
+        let port = try await server.start()
+        var serverIsRunning = true
+        defer {
+            if serverIsRunning { server.stop() }
+        }
+
+        let app = try launchConnectedAppViaManualPairing(
+            port: port,
+            environment: ["CMUX_UITEST_SUCCESSFUL_COMPUTER_FORGET": "1"]
+        )
+
+        server.stop()
+        serverIsRunning = false
+        let connectionStatus = app.descendants(matching: .any)[
+            "MobileTerminalMacConnectionStatus"
+        ]
+        XCTAssertTrue(
+            connectionStatus.waitForExistence(timeout: 12),
+            "The mock Mac must disconnect before deletion so removing its final saved row changes root shells."
+        )
+        let disconnected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@",
+                "Reconnecting",
+                "Disconnected"
+            ),
+            object: connectionStatus
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [disconnected], timeout: 12),
+            .completed,
+            "The connection status must leave Connected before the final saved computer is forgotten."
+        )
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: app)
+
+        let computersButton = app.buttons["MobileWorkspaceDevicesButton"]
+        XCTAssertTrue(computersButton.waitForExistence(timeout: 4))
+        tap(computersButton, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileDeviceTree"]
+                .waitForExistence(timeout: 4)
+        )
+
+        let toggle = app.switches.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileComputerVisibilityToggle-ui-test-mac"
+            )
+        ).firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 4))
+        tap(toggle, in: app)
+        let hidden = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "0"),
+            object: toggle
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 4), .completed)
+
+        let computerRow = app.staticTexts["UI Test Mac"]
+        XCTAssertTrue(computerRow.waitForExistence(timeout: 4))
+        computerRow.swipeLeft()
+        let forgetSwipe = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileComputerForgetSwipeButton-ui-test-mac"
+            )
+        ).firstMatch
+        XCTAssertTrue(forgetSwipe.waitForExistence(timeout: 4))
+        forgetSwipe.tap()
+
+        let confirmForget = app.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileComputerForgetConfirmButton-ui-test-mac"
+            )
+        ).firstMatch
+        XCTAssertTrue(confirmForget.waitForExistence(timeout: 4))
+        confirmForget.tap()
+        XCTAssertTrue(
+            computerRow.waitForNonExistence(timeout: 8),
+            "The final computer must leave the production list after Forget succeeds."
+        )
+
+        let disconnectedShell = app.descendants(matching: .any)[
+            "MobileDisconnectedWorkspaceShell"
+        ]
+        XCTAssertTrue(disconnectedShell.waitForExistence(timeout: 8))
+        return app
+    }
+
     @MainActor
     func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
@@ -7634,19 +7768,38 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
+    private func launchConnectedAppViaManualPairing(
+        port: UInt16,
+        environment: [String: String] = [:]
+    ) throws -> XCUIApplication {
         let portText = String(port)
-        let fixtureName = "manual-\(UUID().uuidString)"
-        let app = launchApp(mockData: true, environment: [
-            "CMUX_UITEST_ADD_DEVICE_NAME": fixtureName,
-            "CMUX_UITEST_ADD_DEVICE_HOST": "127.0.0.1",
-            "CMUX_UITEST_ADD_DEVICE_PORT": portText,
-        ], launchArguments: [
+        guard let finalPortDigit = portText.last else {
+            throw URLError(.badURL)
+        }
+        var launchEnvironment = environment
+        // Give each manual-pair fixture its own persisted store so a relaunch
+        // cannot inherit a device from another test invocation.
+        launchEnvironment["CMUX_UITEST_ADD_DEVICE_NAME"] =
+            "manual-\(UUID().uuidString)"
+        launchEnvironment["CMUX_UITEST_ADD_DEVICE_PORT"] = String(portText.dropLast())
+        // Seed the real root pairing host at construction time. Waiting for the
+        // no-computers startup route made this setup depend on reconnect and
+        // onboarding work that is unrelated to the post-Forget regression.
+        launchEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION"] = "ineligible"
+        launchEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_ID"] = UUID().uuidString
+        launchEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_MODAL_HOST"] =
+            "root-pairing"
+        let app = launchApp(mockData: true, environment: launchEnvironment, launchArguments: [
             "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
             "-cmux.mobile.taskComposerEnabled", "YES",
         ])
-        let pairingForm = app.otherElements["MobileAddDeviceForm"]
-        if !pairingForm.waitForExistence(timeout: 2) {
+
+        let hostField = app.textFields["MobileAddDeviceHostField"]
+        if !hostField.waitForExistence(timeout: 2) {
+            // The root pairing host is normally seeded by the migration
+            // fixture. Keep the production disconnected-shell entrypoint as a
+            // fallback so this helper still follows the user-visible path if
+            // the initial presentation changes.
             let disconnectedShell = app.otherElements["MobileDisconnectedWorkspaceShell"]
             _ = try XCTUnwrap(
                 disconnectedShell.waitForExistence(timeout: 8) ? disconnectedShell : nil,
@@ -7664,16 +7817,17 @@ final class cmuxUITests: XCTestCase {
                 tap(toolbarButton, in: app)
             }
         }
-        _ = try XCTUnwrap(
-            pairingForm.waitForExistence(timeout: 8) ? pairingForm : nil,
-            "The explicit Add Computer entrypoint must present the manual pairing form"
+        XCTAssertTrue(
+            hostField.waitForExistence(timeout: 12),
+            "The initial Add Computer field must appear before manual pairing."
         )
-
-        let hostField = app.textFields["MobileAddDeviceHostField"]
-        XCTAssertTrue(hostField.waitForExistence(timeout: 4))
+        hostField.tap()
+        hostField.typeText("127.0.0.1")
 
         let portField = app.textFields["MobileAddDevicePortField"]
         XCTAssertTrue(portField.waitForExistence(timeout: 4))
+        portField.tap()
+        portField.typeText(String(finalPortDigit))
         XCTAssertEqual(hostField.value as? String, "127.0.0.1")
         XCTAssertEqual(portField.value as? String, portText)
 
@@ -7687,7 +7841,7 @@ final class cmuxUITests: XCTestCase {
         pairButton.tap()
 
         XCTAssertTrue(
-            pairingForm.waitForNonExistence(timeout: 20),
+            hostField.waitForNonExistence(timeout: 20),
             "Successful manual loopback pairing must dismiss the Add Computer sheet"
         )
 
