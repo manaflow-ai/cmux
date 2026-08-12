@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 enum BrowserPaneDropRouting {
     static func zone(for location: CGPoint, in size: CGSize, topChromeHeight: CGFloat = 0) -> DropZone {
