@@ -1512,6 +1512,70 @@ import Testing
         focus.subscription.cancel()
     }
 
+    @Test func removingControlCapabilityLeavesSharedFocusRegistered() throws {
+        let route = try CmxAttachRoute(
+            id: "exact-control-removal",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 57_100)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "control-removal-workspace",
+            terminalID: "control-removal-terminal",
+            macDeviceID: "control-removal-mac",
+            macDisplayName: "Control removal Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let connection = MacConnection(
+            macDeviceID: ticket.macDeviceID,
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: ticket.macDisplayName,
+            instanceTag: "control-removal-tag",
+            supportedHostCapabilities: [],
+            actionCapabilities: .none
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: ticket.macDeviceID,
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: connection.storedInstanceTag,
+            authenticatedInstanceTag: connection.authenticatedInstanceTag,
+            supportedHostCapabilities: [],
+            actionCapabilities: .none,
+            displayName: ticket.macDisplayName
+        )
+        let registry = MobileMacConnectionRegistry()
+
+        #expect(registry.transitionToFocused(connection) == nil)
+        #expect(registry.installControlAlongsideFocus(
+            subscription,
+            replacing: connection
+        ))
+        #expect(registry.removeControlSubscription(ifMatching: subscription))
+        #expect(registry.controlSubscription(for: connection.ownerKey) == nil)
+        #expect(registry.focusedConnection(for: connection.ownerKey)?.client === client)
+        #expect(registry.sessionCount == 1)
+
+        subscription.cancel()
+    }
+
     @Test func targetedPresenceRefreshUsesCachedPerMacIndex() async throws {
         let records = try (0 ..< 1_000).map { index in
             try Self.pairedMac(
