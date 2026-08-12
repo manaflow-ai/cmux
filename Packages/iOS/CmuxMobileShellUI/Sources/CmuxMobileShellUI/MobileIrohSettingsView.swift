@@ -13,8 +13,14 @@ struct MobileIrohSettingsView: View {
     @State private var editedPrivatePathMacDeviceID: String?
     @State private var pendingPrivatePathRemovalMacDeviceID: String?
 
-    init(controller: any CmxIrohSettingsControlling) {
-        _model = State(initialValue: MobileIrohSettingsModel(controller: controller))
+    init(
+        controller: any CmxIrohSettingsControlling,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
+        _model = State(initialValue: MobileIrohSettingsModel(
+            controller: controller,
+            diagnosticLog: diagnosticLog
+        ))
     }
 
     var body: some View {
@@ -155,6 +161,7 @@ struct MobileIrohSettingsView: View {
                 needsAttention: !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil,
                 verboseLogEnabled: model.verboseLogEnabled,
                 verboseLogShareURL: model.verboseLogShareURL,
+                diagnosticLog: model.diagnosticLogForView,
                 setVerboseLog: { enabled in
                     Task { await model.setVerboseLog(enabled) }
                 },
@@ -168,6 +175,7 @@ struct MobileIrohSettingsView: View {
         .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Iroh and Relays"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.observe() }
+        .onDisappear { model.cancelOperations() }
         .sheet(isPresented: $showsCustomEditor) {
             MobileIrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
                 await model.upsertCustomRelay(relay, deviceSecret: secret)
@@ -376,6 +384,28 @@ private extension MobileIrohSettingsView {
             )
         case .some(.policyUnavailable):
             L10n.string("mobile.iroh.diagnostics.failure.policyUnavailable", defaultValue: "Relay Policy Unavailable")
+        case .some(.payloadTooLarge):
+            L10n.string("mobile.iroh.diagnostics.failure.payloadTooLarge", defaultValue: "Payload Too Large")
+        case .some(.resourceLimitReached):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.resourceLimitReached",
+                defaultValue: "Resource Limit Reached"
+            )
+        case .some(.attachmentCountLimitReached):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.attachmentCountLimitReached",
+                defaultValue: "Attachment Count Limit Reached"
+            )
+        case .some(.attachmentAggregateSizeLimitReached):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.attachmentAggregateSizeLimitReached",
+                defaultValue: "Attachment Size Limit Reached"
+            )
+        case .some(.localStateUnavailable):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.localStateUnavailable",
+                defaultValue: "Local State Unavailable"
+            )
         case .some(.endpointUnavailable):
             L10n.string("mobile.iroh.diagnostics.failure.endpointUnavailable", defaultValue: "Endpoint Unavailable")
         case .some(.identityMismatch):
@@ -417,8 +447,6 @@ private extension MobileIrohSettingsView {
                 "mobile.iroh.diagnostics.failure.sendQueueOverflow",
                 defaultValue: "Send Queue Overflow"
             )
-        case .some(.routeGated):
-            L10n.string("mobile.iroh.diagnostics.failure.routeGated", defaultValue: "Route Gated")
         case .some(.superseded):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.superseded",
@@ -494,6 +522,7 @@ private struct MobileIrohDiagnosticsSection: View {
     let needsAttention: Bool
     let verboseLogEnabled: Bool
     let verboseLogShareURL: URL?
+    let diagnosticLog: DiagnosticLog?
     let setVerboseLog: (Bool) -> Void
     let refresh: () -> Void
     let clear: () -> Void
@@ -560,6 +589,9 @@ private struct MobileIrohDiagnosticsSection: View {
             }
             .disabled(exportText.isEmpty)
             .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
+            .simultaneousGesture(TapGesture().onEnded {
+                diagnosticLog?.recordAppEvent(.irohDiagnosticsShared)
+            })
 
             Toggle(isOn: Binding(
                 get: { verboseLogEnabled },
@@ -590,6 +622,9 @@ private struct MobileIrohDiagnosticsSection: View {
                     )
                 }
                 .accessibilityIdentifier("MobileIrohShareVerboseLog")
+                .simultaneousGesture(TapGesture().onEnded {
+                    diagnosticLog?.recordAppEvent(.verboseDiagnosticsShared)
+                })
             }
 
             Button(role: .destructive) {

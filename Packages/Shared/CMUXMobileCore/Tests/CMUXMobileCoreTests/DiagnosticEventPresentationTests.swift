@@ -16,6 +16,7 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.sessionClosed) == "sessionClosed")
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.retryScheduled) == "retryScheduled")
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.hostAuthenticationFailed) == "hostAuthenticationFailed")
+        #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.appFeatureAction) == "appFeatureAction")
     }
 
     @Test func pinsTaxonomyNames() {
@@ -26,6 +27,7 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticPathKind.relay) == "relay")
         #expect(DiagnosticEventPresentation().name(DiagnosticRuntimeRole.mobileClient) == "mobileClient")
         #expect(DiagnosticEventPresentation().name(DiagnosticAppLifecyclePhase.background) == "background")
+        #expect(DiagnosticEventPresentation().name(DiagnosticAppEventKind.authSignInStarted) == "authSignInStarted")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorFrameLifecycle.cachedSent) == "cachedSent")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorInputLifecycle.rejectedLocked) == "rejectedLocked")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorInputKind.hardwareButton) == "hardwareButton")
@@ -113,6 +115,14 @@ import Testing
             .init(key: "transport", value: "Unknown transport (999)"),
             .init(key: "failure", value: "Unknown failure (998)"),
         ])
+
+        let appEvent = englishPresentation.describe(
+            DiagnosticEvent(code: .appFeatureAction, tNanos: 1, a: 999, b: 998)
+        )
+        #expect(appEvent.fields == [
+            .init(key: "operation", value: "Unknown app event (999)"),
+            .init(key: "failure", value: "Unknown failure (998)"),
+        ])
     }
 
     @Test func everyEventCodeHasAReadableTitle() {
@@ -174,6 +184,7 @@ import Testing
             .simulatorInputLifecycle: "Simulator input state changed",
             .simulatorCoordinateMapped: "Simulator touch coordinate mapped",
             .simulatorOwnershipChanged: "Simulator control ownership changed",
+            .appFeatureAction: "App feature event",
         ]
 
         #expect(Set(expected.keys) == Set(DiagnosticEventCode.allCases))
@@ -371,10 +382,73 @@ import Testing
             .init(key: "previous_owner", value: "Current connection"),
         ])
 
+        let appFeature = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            surface: 23,
+            ms: 125,
+            a: DiagnosticAppEventKind.workspaceListRefreshFailed.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue,
+            c: 8
+        ))
+        #expect(appFeature.fields == [
+            .init(key: "surface", value: "23"),
+            .init(key: "operation", value: "workspaceListRefreshFailed"),
+            .init(key: "failure", value: "Timed out"),
+            .init(key: "duration", value: "125 ms"),
+            .init(key: "count", value: "8"),
+        ])
+
+        let toolbarMutation = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.customToolbarChanged.rawValue,
+            c: DiagnosticToolbarConfigurationAction.customActionUpdated.rawValue
+        ))
+        #expect(toolbarMutation.fields == [
+            .init(key: "operation", value: "customToolbarChanged"),
+            .init(key: "change", value: "customActionUpdated"),
+        ])
+        #expect(englishPresentation.summary(toolbarMutation).contains("Change: customActionUpdated"))
+
+        let unknownToolbarMutation = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.customToolbarChanged.rawValue,
+            c: 999
+        ))
+        #expect(unknownToolbarMutation.fields == [
+            .init(key: "operation", value: "customToolbarChanged"),
+            .init(key: "change", value: "Unknown value (999)"),
+        ])
+
+        let searchSelection = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.searchResultSelected.rawValue,
+            c: DiagnosticSearchScope.notifications.rawValue
+        ))
+        #expect(searchSelection.fields == [
+            .init(key: "operation", value: "searchResultSelected"),
+            .init(key: "scope", value: "notifications"),
+        ])
+
+        let toastDismissal = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.toastDismissed.rawValue,
+            c: DiagnosticToastDismissReason.automatic.rawValue
+        ))
+        #expect(toastDismissal.fields == [
+            .init(key: "operation", value: "toastDismissed"),
+            .init(key: "reason", value: "automatic"),
+        ])
+
         for described in [
             recovery, endpoint, session, composer, input, browserLifecycle,
             browserInput, browserFocus, browserCreate, simulatorStream,
             simulatorFrame, simulatorInput, simulatorCoordinate, simulatorOwnership,
+            appFeature, toolbarMutation, searchSelection, toastDismissal,
         ] {
             #expect(!described.fields.contains { ["a", "b", "c", "ms"].contains($0.key) })
         }

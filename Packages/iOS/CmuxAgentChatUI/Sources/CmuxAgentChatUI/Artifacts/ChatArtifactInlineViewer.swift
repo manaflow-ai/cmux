@@ -134,6 +134,7 @@ public struct ChatArtifactInlineViewer: View {
         case .copyImage:
             guard case .image(let data) = pageModel.snapshot.state else { return }
             UIPasteboard.general.image = UIImage(data: data)
+            loader.recordDiagnostic(.artifactCopied)
         case .copyContents, .copyPath:
             break
         }

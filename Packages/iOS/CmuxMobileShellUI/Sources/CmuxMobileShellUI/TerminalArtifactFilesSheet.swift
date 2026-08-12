@@ -81,6 +81,7 @@ struct TerminalArtifactFilesSheet: View {
     @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
 
     /// Confirms a gallery row's "Copy path"; rows report through a closure so
     /// they never hold the toast center themselves.
@@ -150,6 +151,9 @@ struct TerminalArtifactFilesSheet: View {
         }
         .frame(idealWidth: 380, idealHeight: 520)
         .task(id: "\(workspaceID)#\(surfaceID)") {
+            sessionLoader = ChatArtifactLoader.unsupported(
+                diagnosticLog: diagnosticLog
+            )
             await loadInitial()
         }
         .task(id: liveRefreshTaskID) {
@@ -197,7 +201,11 @@ struct TerminalArtifactFilesSheet: View {
                 return
             }
             sessionID = resolvedSessionID
-            sessionLoader = ChatArtifactLoader(source: source, sessionID: resolvedSessionID)
+            sessionLoader = ChatArtifactLoader(
+                source: source,
+                sessionID: resolvedSessionID,
+                diagnosticLog: diagnosticLog
+            )
             scope = .session
             await loadFirstSessionPage(query: nil)
         } catch is CancellationError {

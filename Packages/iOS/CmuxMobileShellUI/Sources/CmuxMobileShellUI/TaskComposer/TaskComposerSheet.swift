@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShell
@@ -41,8 +42,12 @@ struct TaskComposerSheet: View {
     @State var isAttachmentFileImporterPresented = false
     @State var attachmentStagingTask: Task<Void, Never>?
     @State var attachmentAlertMessage: String?
+    /// Draft typing is sampled once per composer presentation so this bounded
+    /// log records that editing occurred without one event per keystroke.
+    @State var hasRecordedDraftChange = false
 
     let sessionGeneration: Int
+    private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
@@ -103,6 +108,7 @@ struct TaskComposerSheet: View {
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
         let draft = store.taskTemplateStore?.composerDraft()
+        self.restoredDraftAtInitialization = draft != nil
         let foregroundMacID = store.connectedMacDeviceID
         // Restore persisted Mac IDs only while they remain paired.
         let availablePairedMacs = availableMachines ?? store.displayPairedMacs
@@ -266,12 +272,29 @@ struct TaskComposerSheet: View {
                 .presentationDragIndicator(.visible)
             }
             .onDisappear {
+                store.recordAppEvent(
+                    .taskComposerClosed,
+                    correlationID: submissionIdentity.id.uuidString
+                )
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
                 attachmentStagingTask?.cancel()
                 removeStagedAttachmentFiles()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
+                }
+            }
+            .onAppear {
+                store.recordAppEvent(
+                    .taskComposerOpened,
+                    correlationID: submissionIdentity.id.uuidString
+                )
+                store.recordAppEvent(
+                    .taskTemplateListLoaded,
+                    count: templates.count
+                )
+                if restoredDraftAtInitialization {
+                    store.recordAppEvent(.draftRestored)
                 }
             }
             .onChange(of: scenePhase) { _, newPhase in
@@ -300,6 +323,9 @@ struct TaskComposerSheet: View {
                 isFileImporterPresented: $isAttachmentFileImporterPresented,
                 remainingCount: remainingAttachmentCount,
                 selectedPhotos: stageSelectedPhotos,
+                dismissedPhotos: {
+                    store.recordAppEvent(.photoPickerDismissed)
+                },
                 selectedFiles: stageSelectedFiles
             ))
             .alert(
@@ -709,6 +735,11 @@ struct TaskComposerSheet: View {
     }
 
     private func cancelComposer() {
+        store.recordAppEvent(
+            .taskSubmitCancelled,
+            correlationID: submissionIdentity.id.uuidString,
+            failure: .cancelled
+        )
         submitTask?.cancel()
         shouldPersistDraftOnDisappear = false
         store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
@@ -720,6 +751,14 @@ struct TaskComposerSheet: View {
               machines.contains(where: {
                   $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
               }) else { return }
+        store.recordAppEvent(
+            .taskMachineSelected,
+            correlationID: macDeviceID
+        )
+        store.recordAppEvent(
+            .taskRouteSelected,
+            correlationID: instanceTag ?? macDeviceID
+        )
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = macDeviceID
             selectedMacInstanceTag = instanceTag
@@ -841,17 +880,29 @@ struct TaskComposerSheet: View {
             selectedModelID = nil
             syncSuggestedDirectory()
         }
+        store.recordAppEvent(
+            .taskTemplateCreated,
+            correlationID: template.id.uuidString
+        )
     }
 
     private func updateTemplate(_ template: MobileTaskTemplate) {
         guard !submissionPhase.disablesRequestEditing else { return }
         store.taskTemplateStore?.updateTemplate(template)
+        store.recordAppEvent(
+            .taskTemplateUpdated,
+            correlationID: template.id.uuidString
+        )
     }
 
     private func deleteTemplates(_ offsets: IndexSet) {
         guard !submissionPhase.disablesRequestEditing else { return }
         let ids = Set(offsets.map { templates[$0].id })
         store.taskTemplateStore?.deleteTemplates(ids: ids)
+        store.recordAppEvent(
+            .taskTemplateDeleted,
+            count: ids.count
+        )
     }
 
     private func refreshTemplates() {
@@ -865,6 +916,10 @@ struct TaskComposerSheet: View {
             // Sync template edits unless the user typed the directory.
             syncSuggestedDirectory()
         }
+        store.recordAppEvent(
+            .taskTemplateListLoaded,
+            count: templates.count
+        )
     }
 
     private func validateMacSelection() {

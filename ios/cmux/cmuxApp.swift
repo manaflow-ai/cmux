@@ -23,11 +23,13 @@ struct cmuxApp: App {
     @MainActor
     private static let root: AppCompositionRoot = {
         let reachability = ReachabilityService()
-        let auth = MobileAuthComposition(reachability: reachability)
-        auth.start()
         let diagnosticLog = DiagnosticLog(
             buildStamp: AppCompositionRoot.diagnosticBuildStamp,
             role: .iosClient
+        )
+        let auth = MobileAuthComposition(
+            reachability: reachability,
+            diagnosticLog: diagnosticLog
         )
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
             buildScope: MobileIOSBuildScope.current()

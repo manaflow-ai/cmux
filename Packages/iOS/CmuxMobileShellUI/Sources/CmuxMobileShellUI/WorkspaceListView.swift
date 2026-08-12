@@ -638,6 +638,12 @@ struct WorkspaceListView: View {
         .onChange(of: currentVisibleMacSelection) { _, selection in
             filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
         }
+        .onChange(of: filter) { _, filter in
+            store?.recordAppEvent(
+                .workspaceListFilterChanged,
+                count: filter.isActive ? 1 : 0
+            )
+        }
         #if os(iOS)
         .sheet(
             isPresented: terminalShortcutsPresentation.isPresented,
