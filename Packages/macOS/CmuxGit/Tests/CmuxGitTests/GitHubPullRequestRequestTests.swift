@@ -457,6 +457,10 @@ struct GitHubPullRequestRequestTests {
         let userAgent = GitHubPullRequestStubURLProtocol.capturedRequests()
             .first?
             .value(forHTTPHeaderField: "User-Agent")
+        let expected = GitHubPullRequestRequestCoordinator.userAgentValue(
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        )
+        #expect(userAgent == expected)
         #expect(userAgent?.hasPrefix("cmux-workspace-pr-poller/") == true)
     }
 }
