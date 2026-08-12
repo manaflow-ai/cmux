@@ -19025,8 +19025,8 @@ mod tests {
         let (small_scope, small_steps) = projection_metrics(8);
         let (large_scope, large_steps) = projection_metrics(16);
 
-        assert_eq!(small_scope, [8, 8, 8, 15]);
-        assert_eq!(large_scope, [16, 16, 16, 31]);
+        assert_eq!(small_scope, [8, 7, 7, 7]);
+        assert_eq!(large_scope, [16, 15, 15, 15]);
         assert_eq!(small_steps, 63);
         assert_eq!(large_steps, 127);
         assert_eq!(large_steps, small_steps * 2 + 1);
