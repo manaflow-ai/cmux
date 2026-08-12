@@ -1,13 +1,20 @@
 name: Set up cmux-tui Rust
 description: Install the repository-pinned cmux-tui Rust toolchain.
 
+inputs:
+  toolchain-file:
+    description: Rust toolchain file owned by the source checkout.
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
     - name: Install pinned Rust toolchain
       shell: bash
       env:
-        TOOLCHAIN_FILE: ${{ github.action_path }}/../../../cmux-tui/rust-toolchain.toml
+        TOOLCHAIN_FILE_INPUT: ${{ inputs.toolchain-file }}
+        TOOLCHAIN_FILE_DEFAULT: ${{ github.action_path }}/../../../cmux-tui/rust-toolchain.toml
       run: |
         if command -v python3 >/dev/null 2>&1; then
           python_cmd=python3
@@ -23,7 +30,11 @@ runs:
         import re
         import subprocess
 
-        contents = pathlib.Path(os.environ["TOOLCHAIN_FILE"]).read_text(encoding="utf-8")
+        toolchain_file = (
+            os.environ["TOOLCHAIN_FILE_INPUT"]
+            or os.environ["TOOLCHAIN_FILE_DEFAULT"]
+        )
+        contents = pathlib.Path(toolchain_file).read_text(encoding="utf-8")
 
         def value(name):
             match = re.search(rf'^\s*{name}\s*=\s*"([^"]+)"', contents, re.MULTILINE)

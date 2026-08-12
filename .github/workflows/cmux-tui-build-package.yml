@@ -195,7 +195,6 @@ jobs:
           path: .cmux-workflow
           sparse-checkout: |
             .github/actions/setup-cmux-tui-rust
-            cmux-tui/rust-toolchain.toml
             scripts/ghostty-zig-version.sh
           sparse-checkout-cone-mode: false
 
@@ -222,6 +221,8 @@ jobs:
 
       - name: Set up pinned Rust
         uses: ./.cmux-workflow/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ github.workspace }}/cmux-tui/rust-toolchain.toml
 
       - name: Install Rust target
         shell: bash
@@ -393,7 +394,6 @@ jobs:
           path: .cmux-workflow
           sparse-checkout: |
             .github/actions/setup-cmux-tui-rust
-            cmux-tui/rust-toolchain.toml
           sparse-checkout-cone-mode: false
 
       - name: Set up Node.js
@@ -405,6 +405,8 @@ jobs:
 
       - name: Set up pinned Rust
         uses: ./.cmux-workflow/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ github.workspace }}/cmux-tui/rust-toolchain.toml
 
       - name: Install Worker builder
         run: |
@@ -458,7 +460,6 @@ jobs:
           path: .cmux-workflow
           sparse-checkout: |
             .github/actions/setup-cmux-tui-rust
-            cmux-tui/rust-toolchain.toml
             scripts/ghostty-zig-version.sh
           sparse-checkout-cone-mode: false
 
@@ -479,6 +480,8 @@ jobs:
 
       - name: Set up pinned Rust
         uses: ./.cmux-workflow/.github/actions/setup-cmux-tui-rust
+        with:
+          toolchain-file: ${{ github.workspace }}/cmux-tui/rust-toolchain.toml
 
       - name: Install Rust target
         shell: bash
