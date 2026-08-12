@@ -118,7 +118,27 @@ struct SurfaceSelectionTests {
         #expect(unloadedSnapshot.url == nil)
 
         let panel = BrowserPanel(workspaceId: UUID())
-        defer { panel.close() }
+        let contentRect = NSRect(x: 0, y: 0, width: 640, height: 480)
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let hostView = NSView(frame: contentRect)
+        panel.webView.frame = hostView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        hostView.addSubview(panel.webView)
+        window.contentView = hostView
+        window.orderFrontRegardless()
+        window.displayIfNeeded()
+        #expect(window.makeFirstResponder(panel.webView))
+        defer {
+            panel.close()
+            window.orderOut(nil)
+            window.close()
+        }
         let baseURL = try #require(URL(string: "https://selection.test/document"))
         let loader = SurfaceSelectionNavigationLoader()
         try await loader.load(
@@ -135,7 +155,7 @@ struct SurfaceSelectionTests {
             in: panel.webView
         )
 
-        _ = try await panel.evaluateJavaScript(
+        let preparedBrowserSelection = try await panel.evaluateJavaScript(
             """
             (() => {
               const node = document.getElementById('passage').firstChild;
@@ -146,17 +166,20 @@ struct SurfaceSelectionTests {
               const selection = window.getSelection();
               selection.removeAllRanges();
               selection.addRange(range);
-              return true;
+              return selection.toString();
             })()
             """
         )
+        #expect(preparedBrowserSelection as? String == "selected browser words")
 
+        let browserFirstResponder = window.firstResponder
         let browserSnapshot = try snapshot(from: await panel.readSurfaceSelection())
         #expect(browserSnapshot.kind == .browser)
         #expect(browserSnapshot.text == "selected browser words")
         #expect(browserSnapshot.url == baseURL.absoluteString)
         #expect(browserSnapshot.filePath == nil)
         #expect(browserSnapshot.lineRange == nil)
+        #expect(window.firstResponder === browserFirstResponder)
 
         let markdownSnapshot = try snapshot(from: await WebSurfaceSelectionReader().read(
             webView: panel.webView,
@@ -167,7 +190,7 @@ struct SurfaceSelectionTests {
         #expect(markdownSnapshot.text == "selected browser words")
         #expect(markdownSnapshot.filePath == "/tmp/guide.md")
 
-        _ = try await panel.evaluateJavaScript(
+        let preparedFrameSelection = try await panel.evaluateJavaScript(
             """
             (() => {
               window.getSelection().removeAllRanges();
@@ -182,24 +205,27 @@ struct SurfaceSelectionTests {
               selection.removeAllRanges();
               selection.addRange(range);
               childWindow.focus();
-              return true;
+              return `${document.activeElement === frame}|${selection.toString()}`;
             })()
             """
         )
+        #expect(preparedFrameSelection as? String == "true|selected frame words")
         let frameSnapshot = try snapshot(from: await panel.readSurfaceSelection())
         #expect(frameSnapshot.text == "selected frame words")
 
-        _ = try await panel.evaluateJavaScript(
+        let preparedEditableSelection = try await panel.evaluateJavaScript(
             """
             (() => {
               const editor = document.getElementById('editor');
               const start = editor.value.indexOf('selected editable words');
               editor.focus();
               editor.setSelectionRange(start, start + 'selected editable words'.length);
-              return true;
+              const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+              return `${document.activeElement === editor}|${selected}`;
             })()
             """
         )
+        #expect(preparedEditableSelection as? String == "true|selected editable words")
         let editableSnapshot = try snapshot(from: await panel.readSurfaceSelection())
         #expect(editableSnapshot.hasSelection)
         #expect(editableSnapshot.text == "selected editable words")
