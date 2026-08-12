@@ -17,7 +17,7 @@ use cmux_tui_core::platform::transport;
 use cmux_tui_core::release::{LAUNCHER_COMMAND_ENV, ReleaseIdentity};
 use cmux_tui_core::server::{
     LOCAL_SOCKET_CONNECT_TIMEOUT, PROTOCOL_VERSION, SERVER_SHUTDOWN_CAPABILITY,
-    SERVER_SHUTDOWN_INCOMPLETE_ERROR, SERVER_SHUTDOWN_TIMEOUT,
+    SERVER_SHUTDOWN_TIMEOUT,
 };
 use serde_json::{Value, json};
 
@@ -32,20 +32,17 @@ use legacy_process::{
 };
 
 const PROBE_REQUEST_ID: u64 = 0;
-const SHUTDOWN_REQUEST_ID: u64 = 1;
 #[cfg(unix)]
 const LEGACY_LIST_REQUEST_ID: u64 = 2;
 #[cfg(unix)]
 const LEGACY_STABLE_EMPTY_SCANS: usize = 2;
 #[cfg(unix)]
 const LEGACY_MAX_SCAN_ROUNDS: usize = 64;
-const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_LIFECYCLE_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const SHUTDOWN_TRANSPORT_MARGIN: Duration = Duration::from_secs(5);
-const SHUTDOWN_RESPONSE_TIMEOUT: Duration =
-    SERVER_SHUTDOWN_TIMEOUT.saturating_add(SHUTDOWN_TRANSPORT_MARGIN);
 #[cfg(unix)]
-const LEGACY_SHUTDOWN_TIMEOUT: Duration = SHUTDOWN_RESPONSE_TIMEOUT;
+const LEGACY_SHUTDOWN_TIMEOUT: Duration =
+    SERVER_SHUTDOWN_TIMEOUT.saturating_add(SHUTDOWN_TRANSPORT_MARGIN);
 #[cfg(unix)]
 const LEGACY_HELPER_WAIT_MARGIN: Duration = Duration::from_millis(250);
 #[cfg(unix)]
@@ -560,15 +557,6 @@ pub(crate) enum ReleaseMismatch {
 }
 
 impl ReleaseMismatch {
-    pub(crate) fn code(self) -> &'static str {
-        match self {
-            Self::DistributionVersion => "distribution-version",
-            Self::SourceBuild => "source-build",
-            Self::TerminalEngine => "terminal-engine",
-            Self::Protocol => "protocol",
-        }
-    }
-
     pub(crate) fn message(self, messages: &crate::localization::ServerMessages) -> &'static str {
         match self {
             Self::DistributionVersion => messages.reason_version,
@@ -601,14 +589,6 @@ pub(crate) struct ServerIdentity {
     pub release: ReleaseIdentity,
     pub pid: u32,
     capabilities: HashSet<String>,
-    pub(crate) shutdown_cleanup: ShutdownCleanupStatus,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ShutdownCleanupStatus {
-    pub(crate) pending: u64,
-    pub(crate) retrying: bool,
-    pub(crate) degraded: bool,
 }
 
 impl ServerIdentity {
@@ -629,26 +609,7 @@ impl ServerIdentity {
             .filter_map(Value::as_str)
             .map(str::to_string)
             .collect();
-        let shutdown_cleanup = match data.get("shutdown_cleanup") {
-            None => ShutdownCleanupStatus::default(),
-            Some(cleanup) => ShutdownCleanupStatus {
-                pending: cleanup.get("pending").and_then(Value::as_u64).ok_or_else(|| {
-                    anyhow::anyhow!(crate::localization::catalog().server.endpoint_invalid)
-                })?,
-                retrying: cleanup.get("retrying").and_then(Value::as_bool).ok_or_else(|| {
-                    anyhow::anyhow!(crate::localization::catalog().server.endpoint_invalid)
-                })?,
-                degraded: cleanup.get("degraded").and_then(Value::as_bool).ok_or_else(|| {
-                    anyhow::anyhow!(crate::localization::catalog().server.endpoint_invalid)
-                })?,
-            },
-        };
-        Ok(Self {
-            release: ReleaseIdentity::from_protocol_data(data),
-            pid,
-            capabilities,
-            shutdown_cleanup,
-        })
+        Ok(Self { release: ReleaseIdentity::from_protocol_data(data), pid, capabilities })
     }
 
     pub(crate) fn supports(&self, capability: &str) -> bool {
@@ -706,10 +667,6 @@ impl ServerProbe {
         }
     }
 
-    pub(crate) fn connect(path: &Path) -> anyhow::Result<(Self, TransportReader, Option<u32>)> {
-        Self::connect_until(path, Instant::now() + RESPONSE_TIMEOUT)
-    }
-
     fn connect_until(
         path: &Path,
         deadline: Instant,
@@ -761,41 +718,27 @@ pub(crate) struct ServerLifecycle {
 }
 
 impl ServerLifecycle {
-    pub(crate) fn connect(path: PathBuf) -> anyhow::Result<Self> {
-        let (probe, reader, peer_process_id) = ServerProbe::connect(&path)?;
-        Ok(Self { path, probe, reader, peer_process_id })
-    }
-
     #[cfg(unix)]
     fn connect_until(path: PathBuf, deadline: Instant) -> anyhow::Result<Self> {
         let (probe, reader, peer_process_id) = ServerProbe::connect_until(&path, deadline)?;
         Ok(Self { path, probe, reader, peer_process_id })
     }
 
-    pub(crate) fn probe(&self) -> &ServerProbe {
-        &self.probe
+    pub(crate) fn from_connected(
+        path: PathBuf,
+        identity: &Value,
+        reader: TransportReader,
+    ) -> anyhow::Result<Self> {
+        let peer_process_id = reader.get_ref().peer_process_id().ok().flatten();
+        let probe = ServerProbe { identity: ServerIdentity::from_protocol_data(identity)? };
+        Ok(Self { path, probe, reader, peer_process_id })
     }
 
-    pub(crate) fn stop(mut self) -> anyhow::Result<()> {
-        if !self.probe.identity.supports(SERVER_SHUTDOWN_CAPABILITY) {
-            return self.stop_legacy_server();
+    pub(crate) fn stop_legacy(self) -> anyhow::Result<()> {
+        if self.probe.identity.release.protocol >= PROTOCOL_VERSION {
+            anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
         }
-
-        self.reader
-            .get_mut()
-            .set_read_timeout(Some(SHUTDOWN_RESPONSE_TIMEOUT))
-            .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
-        write_json_line(
-            self.reader.get_mut(),
-            &json!({"id": SHUTDOWN_REQUEST_ID, "cmd": "shutdown"}),
-        )
-        .map_err(|_| anyhow::anyhow!(crate::localization::catalog().server.transport_failed))?;
-
-        let response = read_shutdown_response(&mut self.reader, SHUTDOWN_REQUEST_ID)?;
-        if response.get("ok").and_then(Value::as_bool) == Some(true) {
-            return wait_for_disconnect(&mut self.reader, &self.path);
-        }
-        anyhow::bail!(localized_shutdown_error(response.get("error").and_then(Value::as_str)))
+        self.stop_legacy_server()
     }
 
     #[cfg(unix)]
@@ -1062,14 +1005,6 @@ impl ServerLifecycle {
             // server is still never signaled on ambiguity.
         }
         Ok(surfaces.len())
-    }
-}
-
-fn localized_shutdown_error(error: Option<&str>) -> &'static str {
-    let messages = &crate::localization::catalog().server;
-    match error {
-        Some(SERVER_SHUTDOWN_INCOMPLETE_ERROR) => messages.shutdown_cleanup_incomplete,
-        Some(_) | None => messages.shutdown_failed,
     }
 }
 
@@ -1510,24 +1445,6 @@ fn read_response_until(
     read_matching_response_until(reader, request_id, false, deadline)
 }
 
-fn read_shutdown_response(reader: &mut TransportReader, request_id: u64) -> anyhow::Result<Value> {
-    read_matching_response_with_timeout(reader, request_id, true, SHUTDOWN_RESPONSE_TIMEOUT)
-}
-
-fn read_matching_response_with_timeout(
-    reader: &mut TransportReader,
-    request_id: u64,
-    accept_unidentified_error: bool,
-    timeout: Duration,
-) -> anyhow::Result<Value> {
-    read_matching_response_until(
-        reader,
-        request_id,
-        accept_unidentified_error,
-        Instant::now() + timeout,
-    )
-}
-
 fn read_matching_response_until(
     reader: &mut TransportReader,
     request_id: u64,
@@ -1674,10 +1591,6 @@ fn legacy_surfaces(data: &Value) -> anyhow::Result<Vec<LegacySurface>> {
 #[cfg(all(unix, test))]
 fn legacy_surface_ids(data: &Value) -> Vec<u64> {
     legacy_surfaces(data).unwrap().into_iter().map(|surface| surface.id).collect()
-}
-
-fn wait_for_disconnect(reader: &mut TransportReader, path: &Path) -> anyhow::Result<()> {
-    wait_for_disconnect_until(reader, path, Instant::now() + RESPONSE_TIMEOUT)
 }
 
 fn wait_for_disconnect_until(
@@ -1898,7 +1811,6 @@ mod tests {
             },
             pid: 42,
             capabilities: HashSet::new(),
-            shutdown_cleanup: ShutdownCleanupStatus::default(),
         };
 
         let message = incompatible_server_message(&identity, Path::new("/tmp/test socket"));
@@ -1919,44 +1831,6 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("Stopping exits pane processes."));
-    }
-
-    #[test]
-    fn legacy_identity_may_omit_shutdown_cleanup_as_a_whole() {
-        let identity = ServerIdentity::from_protocol_data(&json!({
-            "app": "cmux-tui",
-            "pid": 42,
-            "protocol": PROTOCOL_VERSION,
-        }))
-        .unwrap();
-
-        assert_eq!(identity.shutdown_cleanup, ShutdownCleanupStatus::default());
-    }
-
-    #[test]
-    fn present_shutdown_cleanup_requires_every_typed_member() {
-        let malformed = [
-            json!(null),
-            json!({}),
-            json!({"pending": 1, "retrying": true}),
-            json!({"pending": "1", "retrying": true, "degraded": false}),
-            json!({"pending": 1, "retrying": "true", "degraded": false}),
-            json!({"pending": 1, "retrying": true, "degraded": 0}),
-        ];
-
-        for shutdown_cleanup in malformed {
-            let identity = json!({
-                "app": "cmux-tui",
-                "pid": 42,
-                "protocol": PROTOCOL_VERSION,
-                "shutdown_cleanup": shutdown_cleanup,
-            });
-            assert!(
-                ServerIdentity::from_protocol_data(&identity).is_err(),
-                "accepted malformed shutdown cleanup: {}",
-                identity["shutdown_cleanup"]
-            );
-        }
     }
 
     #[cfg(unix)]
@@ -2014,115 +1888,6 @@ mod tests {
         assert!(
             elapsed < Duration::from_millis(50),
             "expired lifecycle connect entered socket resolution: {elapsed:?}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn modern_shutdown_requires_a_success_response_before_disconnect() {
-        let path = PathBuf::from("/tmp").join(format!(
-            "cmux-tui-shutdown-disconnect-{}-{}.sock",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            let identify: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(identify["cmd"], "identify");
-            write_json_line(
-                &mut stream,
-                &json!({
-                    "id": identify["id"],
-                    "ok": true,
-                    "data": {
-                        "app": "cmux-tui",
-                        "version": "test",
-                        "protocol": PROTOCOL_VERSION,
-                        "pid": std::process::id(),
-                        "capabilities": [SERVER_SHUTDOWN_CAPABILITY],
-                    },
-                }),
-            )
-            .unwrap();
-            line.clear();
-            reader.read_line(&mut line).unwrap();
-            let shutdown: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(shutdown["cmd"], "shutdown");
-        });
-
-        let result = ServerLifecycle::connect(path.clone()).unwrap().stop();
-
-        server.join().unwrap();
-        std::fs::remove_file(path).unwrap();
-        let error = result.expect_err("disconnect without a success response was accepted");
-        assert!(
-            error.to_string().contains(crate::localization::catalog().server.response_closed)
-                || error
-                    .to_string()
-                    .contains(crate::localization::catalog().server.transport_failed)
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn modern_shutdown_does_not_expose_unlocalized_server_details() {
-        let path = PathBuf::from("/tmp").join(format!(
-            "cmux-tui-shutdown-localization-{}-{}.sock",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            let identify: Value = serde_json::from_str(&line).unwrap();
-            write_json_line(
-                &mut stream,
-                &json!({
-                    "id": identify["id"],
-                    "ok": true,
-                    "data": {
-                        "app": "cmux-tui",
-                        "version": "test",
-                        "protocol": PROTOCOL_VERSION,
-                        "pid": std::process::id(),
-                        "capabilities": [SERVER_SHUTDOWN_CAPABILITY],
-                    },
-                }),
-            )
-            .unwrap();
-            line.clear();
-            reader.read_line(&mut line).unwrap();
-            let shutdown: Value = serde_json::from_str(&line).unwrap();
-            write_json_line(
-                &mut stream,
-                &json!({
-                    "id": shutdown["id"],
-                    "ok": false,
-                    "error": "raw internal shutdown detail",
-                }),
-            )
-            .unwrap();
-        });
-
-        let error = ServerLifecycle::connect(path.clone()).unwrap().stop().unwrap_err();
-
-        server.join().unwrap();
-        std::fs::remove_file(path).unwrap();
-        assert_eq!(error.to_string(), crate::localization::catalog().server.shutdown_failed);
-    }
-
-    #[test]
-    fn modern_shutdown_localizes_stable_cleanup_error_code() {
-        assert_eq!(
-            localized_shutdown_error(Some(SERVER_SHUTDOWN_INCOMPLETE_ERROR)),
-            crate::localization::catalog().server.shutdown_cleanup_incomplete
         );
     }
 

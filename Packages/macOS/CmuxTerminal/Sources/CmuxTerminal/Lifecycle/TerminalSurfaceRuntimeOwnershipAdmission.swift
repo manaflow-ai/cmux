@@ -372,10 +372,14 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
     }
 
     func clearAllStalledCloseTeardowns() {
-        let grant: TerminalSurfaceRuntimeOwnershipRecoveryGrant?
-        grant = state.withLock { state in
+        _ = clearAllStalledCloseTeardownsIfNeeded()
+    }
+
+    func clearAllStalledCloseTeardownsIfNeeded() -> Bool {
+        let output: (TerminalSurfaceRuntimeOwnershipRecoveryGrant?, Bool)
+        output = state.withLock { state in
             guard state.closeTeardownAllStalled else {
-                return nil
+                return (nil, false)
             }
             state.closeTeardownAllStalled = false
             for recoveryID in Array(state.recoveryEntriesByID.keys) {
@@ -387,10 +391,13 @@ final class TerminalSurfaceRuntimeOwnershipAdmission: @unchecked Sendable {
             }
             let grant = takeNextRecoveryGrant(from: &state)
             _ = takeRecoveryRescanRequest(from: &state)
-            return grant
+            return (grant, true)
         }
-        schedule(grant)
-        recoveryRescanScheduler.requestRescan()
+        schedule(output.0)
+        if output.1 {
+            recoveryRescanScheduler.requestRescan()
+        }
+        return output.1
     }
 
     func cancelRecovery(_ recoveryID: UUID) {

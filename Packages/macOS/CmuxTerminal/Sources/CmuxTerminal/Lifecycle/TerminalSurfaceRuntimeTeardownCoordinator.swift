@@ -605,8 +605,10 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private func updateCloseTeardownAdmission() {
         if stalledCloseExecutionSlots.count
             < Self.maximumConcurrentCloseTeardownCount {
-            runtimeOwnershipAdmission.clearAllStalledCloseTeardowns()
-            recoveryRescanScheduler.cancelPendingOverflowFailures()
+            if runtimeOwnershipAdmission
+                .clearAllStalledCloseTeardownsIfNeeded() {
+                recoveryRescanScheduler.cancelPendingOverflowFailures()
+            }
         }
         runtimeOwnershipAdmission.setCloseTeardownDegraded(
             activeCloseTeardownsBySlot.count
