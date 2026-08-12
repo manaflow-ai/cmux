@@ -81,9 +81,10 @@ struct DockEmptyView: View {
     }
 
     private func copyAgentPrompt() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(agentPrompt, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            agentPrompt,
+            to: .general
+        )
     }
 
     private func openDockDocs() {
