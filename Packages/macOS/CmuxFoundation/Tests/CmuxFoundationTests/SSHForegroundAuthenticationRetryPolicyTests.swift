@@ -1703,6 +1703,55 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func publishesWorkerIdentityUsingKernelProcessLayout(shellPath: String) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-worker-kernel-identity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let ownerURL = root.appendingPathComponent("owner")
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_publish_current_worker "$CMUX_TEST_OWNER"
+        cmux_ssh_auth_parse_recorded_process "$CMUX_TEST_OWNER"
+        """
+        let result = try runShellCommand(
+            command,
+            environment: ["CMUX_TEST_OWNER": ownerURL.path],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func cleanupOwnerReadFailureDoesNotProveAbandonment(shellPath: String) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-cleanup-owner-read-failure-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: groupDirectory.appendingPathComponent("cleanup.lock"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        : > "$CMUX_TEST_GROUP/cancel"
+        printf '1|1|K_1_1\\n' > "$CMUX_TEST_GROUP/cleanup.owner"
+        cmux_ssh_auth_stable_identity() { return 1; }
+        if cmux_ssh_auth_group_cleanup_is_abandoned "$CMUX_TEST_GROUP"; then exit 97; fi
+        """
+        let result = try runShellCommand(
+            command,
+            environment: ["CMUX_TEST_GROUP": groupDirectory.path],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func rollbackDoesNotResumeProcessStoppedBeforeCleanup(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
