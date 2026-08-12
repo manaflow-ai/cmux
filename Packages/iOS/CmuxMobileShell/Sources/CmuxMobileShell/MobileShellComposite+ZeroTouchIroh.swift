@@ -145,6 +145,10 @@ extension MobileShellComposite {
         // peer appears immediately with its accurate availability state.
         await loadPairedMacs()
         if !transientFailureMacIDs.isEmpty {
+            // These candidates are not persisted until authentication succeeds,
+            // so the normal stored-row retry cannot find them. Preserve the
+            // discovery intent and let the same backoff rerun broker discovery.
+            preserveSecondaryIrohDiscoveryIntent()
             scheduleSecondaryAggregationRetry(
                 macDeviceIDs: transientFailureMacIDs,
                 needsFullRefresh: true

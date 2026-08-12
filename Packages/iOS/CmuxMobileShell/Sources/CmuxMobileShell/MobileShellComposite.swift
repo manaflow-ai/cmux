@@ -4563,6 +4563,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Preserve a broker-discovery request when a transient candidate failure
+    /// occurs before that candidate can be persisted as a paired row.
+    func preserveSecondaryIrohDiscoveryIntent() {
+        secondaryIrohDiscoveryPending = true
+    }
+
     func scheduleSecondaryPresenceAggregation(
         forMacDeviceID macDeviceID: String
     ) {
@@ -4821,14 +4827,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Reconcile the bounded warm pool concurrently. Keep the task-group
         // width explicit here as a second resource boundary if target
         // selection changes later.
-        let reconciliationMacs = Array(macs.lazy.filter {
+        let reconciliationMacs = macs.filter {
             wanted.contains(MacPairingKey($0))
-        }.prefix(Self.maximumSecondaryReconciliationConcurrency))
+        }
         let reconciliationResults = await withTaskGroup(
             of: SecondaryMacReconciliationResult.self,
             returning: [SecondaryMacReconciliationResult].self
         ) { group in
-            for mac in reconciliationMacs {
+            var pending = reconciliationMacs.makeIterator()
+            var results: [SecondaryMacReconciliationResult] = []
+            results.reserveCapacity(reconciliationMacs.count)
+
+            for _ in 0 ..< Self.maximumSecondaryReconciliationConcurrency {
+                guard let mac = pending.next() else { break }
                 group.addTask { [weak self] in
                     guard let self else {
                         return SecondaryMacReconciliationResult(
@@ -4844,10 +4855,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
             }
-            var results: [SecondaryMacReconciliationResult] = []
-            results.reserveCapacity(reconciliationMacs.count)
-            for await result in group {
+            while let result = await group.next() {
                 results.append(result)
+                guard let mac = pending.next() else { continue }
+                group.addTask { [weak self] in
+                    guard let self else {
+                        return SecondaryMacReconciliationResult(
+                            macDeviceID: mac.macDeviceID,
+                            establishmentOutcome: .superseded
+                        )
+                    }
+                    return await self.reconcileSecondaryMac(
+                        mac,
+                        scope: scope,
+                        authorityValidation: authorityValidation,
+                        allowsNewConnections: allowsNewConnections
+                    )
+                }
             }
             return results
         }

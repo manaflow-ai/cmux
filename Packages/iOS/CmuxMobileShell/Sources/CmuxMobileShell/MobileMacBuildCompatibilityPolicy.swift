@@ -13,10 +13,19 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
     /// default, preserving per-tag isolation for ordinary development builds.
     case development(
         expectedInstanceTag: String,
-        additionalInstanceTags: Set<String> = []
+        additionalInstanceTags: Set<String>
     )
     /// A distributed iOS build may use Stable and Nightly Mac releases.
     case official
+
+    public static func development(
+        expectedInstanceTag: String
+    ) -> MobileMacBuildCompatibilityPolicy {
+        .development(
+            expectedInstanceTag: expectedInstanceTag,
+            additionalInstanceTags: []
+        )
+    }
 
     /// Resolves the policy compiled into the running iOS app.
     ///
