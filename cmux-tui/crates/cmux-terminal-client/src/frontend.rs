@@ -51,6 +51,17 @@ pub struct CmuxFrontendInputEpochGate {
     queued_bytes: AtomicUsize,
 }
 
+fn reserve_input_bytes_with_epoch(
+    gate: &CmuxFrontendInputEpochGate,
+    bytes: usize,
+    maximum_bytes: usize,
+    after_epoch_load: impl FnOnce(),
+) -> Option<u64> {
+    let epoch = gate.epoch.load(Ordering::Acquire);
+    after_epoch_load();
+    super::try_reserve_bytes(&gate.queued_bytes, bytes, maximum_bytes).then_some(epoch)
+}
+
 /// Creates a thread-safe epoch gate for one native input queue.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_frontend_input_epoch_gate_new() -> *mut CmuxFrontendInputEpochGate {
@@ -98,7 +109,32 @@ pub unsafe extern "C" fn cmux_frontend_input_epoch_gate_try_reserve_bytes(
     maximum_bytes: usize,
 ) -> bool {
     let Some(gate) = (unsafe { gate.as_ref() }) else { return false };
-    super::try_reserve_bytes(&gate.queued_bytes, bytes, maximum_bytes)
+    reserve_input_bytes_with_epoch(gate, bytes, maximum_bytes, || {}).is_some()
+}
+
+/// Reserves bytes and returns the epoch captured before that reservation.
+///
+/// # Safety
+///
+/// `gate` must be null or a live pointer returned by the matching constructor.
+/// `input_epoch` must be null or writable for one `u64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_input_epoch_gate_try_reserve_bytes_with_epoch(
+    gate: *const CmuxFrontendInputEpochGate,
+    bytes: usize,
+    maximum_bytes: usize,
+    input_epoch: *mut u64,
+) -> bool {
+    let (Some(gate), Some(input_epoch)) =
+        (unsafe { gate.as_ref() }, unsafe { input_epoch.as_mut() })
+    else {
+        return false;
+    };
+    let Some(epoch) = reserve_input_bytes_with_epoch(gate, bytes, maximum_bytes, || {}) else {
+        return false;
+    };
+    *input_epoch = epoch;
+    true
 }
 
 /// Releases bytes after one native input leaves the async queue.
@@ -1637,6 +1673,22 @@ mod tests {
         unsafe { cmux_frontend_input_epoch_gate_release_bytes(gate, 4) };
         assert!(unsafe { cmux_frontend_input_epoch_gate_try_reserve_bytes(gate, 5, 5) });
         unsafe { cmux_frontend_input_epoch_gate_release_bytes(gate, 5) };
+        unsafe { cmux_frontend_input_epoch_gate_free(gate) };
+    }
+
+    #[test]
+    fn input_epoch_reservation_keeps_the_pre_reset_epoch() {
+        let gate = cmux_frontend_input_epoch_gate_new();
+        let gate_ref = unsafe { gate.as_ref() }.unwrap();
+        unsafe { cmux_frontend_input_epoch_gate_store(gate, 42) };
+
+        let captured = reserve_input_bytes_with_epoch(gate_ref, 4, 5, || {
+            gate_ref.epoch.store(43, Ordering::Release);
+        });
+
+        assert_eq!(captured, Some(42));
+        assert_eq!(unsafe { cmux_frontend_input_epoch_gate_load(gate) }, 43);
+        unsafe { cmux_frontend_input_epoch_gate_release_bytes(gate, 4) };
         unsafe { cmux_frontend_input_epoch_gate_free(gate) };
     }
 

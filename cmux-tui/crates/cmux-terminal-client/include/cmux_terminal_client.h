@@ -80,6 +80,11 @@ bool cmux_frontend_input_epoch_gate_try_reserve_bytes(
     const CmuxFrontendInputEpochGate *gate,
     size_t bytes,
     size_t maximum_bytes);
+bool cmux_frontend_input_epoch_gate_try_reserve_bytes_with_epoch(
+    const CmuxFrontendInputEpochGate *gate,
+    size_t bytes,
+    size_t maximum_bytes,
+    uint64_t *input_epoch);
 void cmux_frontend_input_epoch_gate_release_bytes(
     const CmuxFrontendInputEpochGate *gate,
     size_t bytes);

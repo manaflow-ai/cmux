@@ -38,15 +38,16 @@ final class GhosttyTerminalInputRelay: @unchecked Sendable {
   @discardableResult
   func send(_ input: TerminalInput) -> Bool {
     let byteCount = input.queuedByteCount
-    guard cmux_frontend_input_epoch_gate_try_reserve_bytes(
+    var epoch: UInt64 = 0
+    guard cmux_frontend_input_epoch_gate_try_reserve_bytes_with_epoch(
       epochGate,
       byteCount,
-      maximumQueuedBytes
+      maximumQueuedBytes,
+      &epoch
     ) else {
       dropContinuation.yield()
       return false
     }
-    let epoch = cmux_frontend_input_epoch_gate_load(epochGate)
     switch continuation.yield(QueuedTerminalInput(
       input: input,
       epoch: epoch,
