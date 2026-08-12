@@ -139,37 +139,6 @@ struct AgentFeedView: View {
                             .background(.regularMaterial, in: Capsule())
                         }
                     }
-                    .onChange(of: source, initial: true) { oldSource, newSource in
-                        let oldVisibleItems = renderedItems ?? oldSource.visibleItems
-                        let oldIDs = oldVisibleItems.map(\.id)
-                        let newVisibleItems = newSource.visibleItems
-                        let newIDs = newVisibleItems.map(\.id)
-                        let genuinelyNewIDs = Set(newSource.items.map(\.id))
-                            .subtracting(oldSource.items.map(\.id))
-                        let oldNewestID = oldIDs.first
-                        let anchorID = visibilityTracker.topVisibleID(orderedBy: oldIDs)
-                        let insertedBeforeOldNewest: Set<MobileAgentFeedItemID>
-                        if let oldNewestID,
-                           let oldNewestIndex = newIDs.firstIndex(of: oldNewestID) {
-                            insertedBeforeOldNewest = Set(newIDs[..<oldNewestIndex])
-                        } else {
-                            insertedBeforeOldNewest = []
-                        }
-                        let insertedVisibleCount = insertedBeforeOldNewest
-                            .intersection(genuinelyNewIDs)
-                            .count
-                        if !oldIDs.isEmpty,
-                           let oldNewestID,
-                           !visibilityTracker.visibleIDs.contains(oldNewestID),
-                           insertedVisibleCount > 0 {
-                            unseenItemCount += insertedVisibleCount
-                            if heldViewportAnchor == nil {
-                                heldViewportAnchor = anchorID
-                            }
-                            pendingViewportAnchor = heldViewportAnchor
-                        }
-                        renderedItems = newVisibleItems
-                    }
                     .onChange(of: visibleItems.map(\.id)) { _, _ in
                         guard let anchorID = pendingViewportAnchor else { return }
                         pendingViewportAnchor = nil
@@ -181,6 +150,37 @@ struct AgentFeedView: View {
                     }
                 }
             }
+        }
+        .onChange(of: source, initial: true) { oldSource, newSource in
+            let oldVisibleItems = renderedItems ?? oldSource.visibleItems
+            let oldIDs = oldVisibleItems.map(\.id)
+            let newVisibleItems = newSource.visibleItems
+            let newIDs = newVisibleItems.map(\.id)
+            let genuinelyNewIDs = Set(newSource.items.map(\.id))
+                .subtracting(oldSource.items.map(\.id))
+            let oldNewestID = oldIDs.first
+            let anchorID = visibilityTracker.topVisibleID(orderedBy: oldIDs)
+            let insertedBeforeOldNewest: Set<MobileAgentFeedItemID>
+            if let oldNewestID,
+               let oldNewestIndex = newIDs.firstIndex(of: oldNewestID) {
+                insertedBeforeOldNewest = Set(newIDs[..<oldNewestIndex])
+            } else {
+                insertedBeforeOldNewest = []
+            }
+            let insertedVisibleCount = insertedBeforeOldNewest
+                .intersection(genuinelyNewIDs)
+                .count
+            if !oldIDs.isEmpty,
+               let oldNewestID,
+               !visibilityTracker.visibleIDs.contains(oldNewestID),
+               insertedVisibleCount > 0 {
+                unseenItemCount += insertedVisibleCount
+                if heldViewportAnchor == nil {
+                    heldViewportAnchor = anchorID
+                }
+                pendingViewportAnchor = heldViewportAnchor
+            }
+            renderedItems = newVisibleItems
         }
         .navigationTitle(localizer.string("mobile.tabs.feed", defaultValue: "Feed"))
         .overlay(alignment: .topLeading) {
