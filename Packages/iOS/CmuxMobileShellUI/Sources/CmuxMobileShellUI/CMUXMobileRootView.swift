@@ -537,18 +537,18 @@ struct CMUXMobileRootView: View {
         switch rootPresentation.presentation {
         case .autoConnectMigrationIntroduction:
             MobileAutoConnectMigrationSheet(
-                continueWithAutoConnect: {
-                    handleRootPresentation(.continueWithAutoConnect)
+                useAutoConnect: {
+                    handleRootPresentation(.useAutoConnect)
                 },
-                openConnectionSettings: {
-                    handleRootPresentation(.openConnectionSettings)
+                setUpTailscale: {
+                    handleRootPresentation(.setUpTailscale(
+                        hasUsableAuthorization: store.hasUsableTailscaleAuthorization
+                    ))
                 },
                 showsLayoutProbe: showsAutoConnectMigrationLayoutProbe
             )
         case .settings:
             settingsSheet(initialFocus: nil)
-        case .connectionSettings:
-            settingsSheet(initialFocus: .connectionMethod)
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
         case .child, .dismissingChild, nil:
@@ -638,6 +638,12 @@ struct CMUXMobileRootView: View {
         case .none:
             break
         case .acknowledgeAutoConnectMigration:
+            autoConnectMigrationStore?.acknowledge()
+        case .useAutoConnect:
+            connectionMethodStore?.method = .automatic
+            autoConnectMigrationStore?.acknowledge()
+        case .setUpTailscale:
+            connectionMethodStore?.method = .tailscale
             autoConnectMigrationStore?.acknowledge()
         case .finishPairing:
             finishPairingPresentation()
