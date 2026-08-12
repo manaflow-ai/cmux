@@ -54,7 +54,7 @@ struct SessionIndexView: View {
     /// Lives alongside the store but is owned by this view so drag-state
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
-    @StateObject private var dragCoordinator = SessionDragCoordinator()
+    @State private var dragCoordinator = SessionDragCoordinator()
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
     /// Single source of truth for both Vault popover variants.
@@ -195,6 +195,15 @@ struct SessionIndexView: View {
         let rows = sections.flatMap { section in
             let sectionActions = IndexSectionActions(
                 onBeginDrag: { dragCoordinator.draggedKey = section.key },
+                beginSessionDrag: { entry, sourceView, event, frame, image in
+                    dragCoordinator.beginSessionDrag(
+                        entry,
+                        from: sourceView,
+                        event: event,
+                        frame: frame,
+                        image: image
+                    )
+                },
                 onPreviewEntry: { entry in
                     popoverIdentity = .transcript(section: section.key, entry: entry.id)
                 },
@@ -330,6 +339,7 @@ typealias DirectorySnapshotFn = @MainActor (_ cwd: String?) async -> DirectorySn
 /// than a silent 100% CPU regression.
 struct IndexSectionActions {
     let onBeginDrag: @MainActor () -> Void
+    let beginSessionDrag: SessionDragBeginAction
     let onPreviewEntry: (SessionEntry) -> Void
     let onDismissPreview: (SessionEntry.ID) -> Void
     let onResume: ((SessionEntry) -> Void)?
@@ -361,6 +371,7 @@ struct IndexSectionView: View, Equatable {
     /// earlier `store` / `dragCoordinator` class references so rows can't
     /// observe the store.
     let actions: IndexSectionActions
+    @State private var sessionDragRegions = SessionDragRegionStore()
 
     /// Skip body re-eval when this view's inputs are unchanged. `actions` is
     /// not comparable (closures) but is expected to be stable (closures
@@ -394,12 +405,14 @@ struct IndexSectionView: View, Equatable {
                         .onGeometryChange(for: CGRect.self) { proxy in
                             proxy.frame(in: .named(Self.popoverAnchorCoordinateSpace))
                         } action: { frame in
+                            sessionDragRegions.update(row, frame: frame)
                             onPopoverAnchorChange(
                                 .transcript(section: section.key, entry: row.entry.id),
                                 frame
                             )
                         }
                         .onDisappear {
+                            sessionDragRegions.remove(row.id)
                             onPopoverAnchorChange(
                                 .transcript(section: section.key, entry: row.entry.id),
                                 nil
@@ -413,6 +426,12 @@ struct IndexSectionView: View, Equatable {
             }
         }
         .opacity(isDragged ? 0.45 : 1.0)
+        .background(
+            SessionDragMonitor(
+                regions: sessionDragRegions,
+                beginDrag: actions.beginSessionDrag
+            )
+        )
         .coordinateSpace(name: Self.popoverAnchorCoordinateSpace)
     }
 
@@ -604,20 +623,6 @@ private struct SessionRow: View, Equatable {
         .help(helpText)
         .onTapGesture(count: 2) {
             onPreview()
-        }
-        .onDrag {
-            sessionDragItemProvider(for: entry)
-        } preview: {
-            HStack(spacing: 6) {
-                AgentIconImage(agent: entry.agent, size: 12)
-                Text(entry.displayTitle)
-                    .cmuxFont(size: 12, weight: .medium)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: onResume)
@@ -1952,6 +1957,8 @@ private struct EscapeKeyCatcher: NSViewRepresentable {
 // MARK: - "Show more" popover with search
 
 struct SectionPopoverView: View {
+    private static let sessionDragCoordinateSpace = "session-popover-drag"
+
     let section: IndexSection
     /// Closure-typed search handle. The popover never holds a reference to
     /// `SessionIndexStore`; the parent view is the only owner.
@@ -1960,6 +1967,7 @@ struct SectionPopoverView: View {
     /// Used on the empty-query directory-scope scroll path so pagination
     /// is an in-memory array slice, not repeated store round-trips.
     let loadSnapshot: DirectorySnapshotFn
+    let beginSessionDrag: SessionDragBeginAction
     let onResume: ((SessionEntry) -> Void)?
     let onDismiss: () -> Void
 
@@ -1982,6 +1990,7 @@ struct SectionPopoverView: View {
     /// only). When non-nil, `loadMore()` slices this array in memory
     /// instead of hitting the store.
     @State private var fullSnapshot: [SessionEntry]?
+    @State private var sessionDragRegions = SessionDragRegionStore()
 
     private static let pageSize = 100
 
@@ -2071,6 +2080,14 @@ struct SectionPopoverView: View {
                                 onDismiss()
                             }
                             .equatable()
+                            .onGeometryChange(for: CGRect.self) { proxy in
+                                proxy.frame(in: .named(Self.sessionDragCoordinateSpace))
+                            } action: { frame in
+                                sessionDragRegions.update(row, frame: frame)
+                            }
+                            .onDisappear {
+                                sessionDragRegions.remove(row.id)
+                            }
                         }
                         if hasMore {
                             // Always visible while more pages exist. Serves
@@ -2101,8 +2118,15 @@ struct SectionPopoverView: View {
         // and squashed the top header padding.
         .frame(width: 360)
         .background(
+            SessionDragMonitor(
+                regions: sessionDragRegions,
+                beginDrag: beginSessionDrag
+            )
+        )
+        .background(
             EscapeKeyCatcher { onDismiss() }
         )
+        .coordinateSpace(name: Self.sessionDragCoordinateSpace)
         // Single SwiftUI-owned lifecycle for the initial load and every
         // query change. `.task(id: query)` auto-cancels on view disappear
         // AND on any `query` change, so we don't need onAppear +
@@ -2346,9 +2370,6 @@ private struct PopoverRow: View, Equatable {
         .background(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         .onHover { isHovered = $0 }
         .onTapGesture(count: 2) { onActivate() }
-        .onDrag {
-            sessionDragItemProvider(for: entry)
-        }
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
@@ -2375,92 +2396,10 @@ private struct RelativeTimestampSchedule: TimelineSchedule {
     }
 }
 
-// MARK: - Drag payload
-
-/// Mirrors `Bonsplit.TabItem`'s Codable shape so we can produce a JSON payload
-/// that bonsplit's external-drop path will decode and accept.
-private struct MirrorTabItem: Codable {
-    let id: UUID
-    let title: String
-    let hasCustomTitle: Bool
-    let icon: String?
-    let iconImageData: Data?
-    let kind: String?
-    let isDirty: Bool
-    let showsNotificationBadge: Bool
-    let isLoading: Bool
-    let isAudioMuted: Bool
-    let isPinned: Bool
-}
-
-/// Mirrors `Bonsplit.TabTransferData` exactly.
-private struct MirrorTabTransferData: Codable {
-    let tab: MirrorTabItem
-    let sourcePaneId: UUID
-    let sourceProcessId: Int32
-}
-
-/// Build the encoded payload bonsplit's external-drop decoder accepts.
-private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
-    let mirror = MirrorTabTransferData(
-        tab: MirrorTabItem(
-            id: dragId,
-            title: entry.displayTitle,
-            hasCustomTitle: false,
-            icon: "terminal.fill",
-            iconImageData: nil,
-            kind: "terminal",
-            isDirty: false,
-            showsNotificationBadge: false,
-            isLoading: false,
-            isAudioMuted: false,
-            isPinned: false
-        ),
-        sourcePaneId: UUID(),
-        sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
-    )
-    return try? JSONEncoder().encode(mirror)
-}
-
-/// NSItemProvider used by `.onDrag {}`. Registers ONLY
-/// `com.splittabbar.tabtransfer` so the terminal's NSDraggingDestination
-/// (which accepts `.string` / `public.utf8-plain-text`) is not hit-tested
-/// for our drag. With the terminal out of the way, bonsplit's SwiftUI
-/// `.onDrop(of: [.tabTransfer])` overlay can render the blue insert/split
-/// zones across the entire pane (including its center).
-///
-/// Also mirrors the encoded blob onto NSPasteboard(name: .drag) since
-/// bonsplit's external-drop decoder reads from that pasteboard directly
-/// and SwiftUI's NSItemProvider bridge doesn't always surface custom
-/// UTTypes there reliably.
-@MainActor
-private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
-    let dragId = SessionDragRegistry.shared.register(entry)
-    let provider = NSItemProvider()
-
-    if let data = sessionTabTransferData(for: entry, dragId: dragId) {
-        provider.registerDataRepresentation(
-            forTypeIdentifier: "com.splittabbar.tabtransfer",
-            visibility: .ownProcess
-        ) { completion in
-            completion(data, nil)
-            return nil
-        }
-        let pb = NSPasteboard(name: .drag)
-        let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-        pb.addTypes([type], owner: nil)
-        pb.setData(data, forType: type)
-    }
-
-    provider.suggestedName = entry.displayTitle
-    return provider
-}
-
 // MARK: - Drag cancel monitor
 
-/// Ends folder-header and Vault-row drag ownership after mouseUp or Escape.
-/// Pane targets retain their accepted transfer plan through mouse-up, so this
-/// cleanup can be immediate without racing successful drop execution.
+/// Ends folder-header drag ownership after mouseUp or Escape.
+/// Vault rows use `NSDraggingSource` completion instead.
 private struct DragCancelMonitor: NSViewRepresentable {
     let dragCoordinator: SessionDragCoordinator
 
@@ -2494,16 +2433,10 @@ private struct DragCancelMonitor: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(
                 matching: [.leftMouseUp, .otherMouseUp, .keyDown]
             ) { [weak self] event in
-                guard let coordinator = self?.dragCoordinator else { return event }
-                let activeVaultDragID = SessionDragRegistry.shared.activeDragID
-                guard coordinator.draggedKey != nil || activeVaultDragID != nil else {
-                    return event
-                }
+                guard let coordinator = self?.dragCoordinator,
+                      coordinator.draggedKey != nil else { return event }
                 if event.type == .keyDown, event.keyCode != 53 { // 53 = kVK_Escape
                     return event
-                }
-                if let activeVaultDragID {
-                    SessionDragRegistry.shared.discard(id: activeVaultDragID)
                 }
                 coordinator.draggedKey = nil
                 return event

@@ -92,58 +92,6 @@ final class ClaudeMetadataCache: @unchecked Sendable {
     }
 }
 
-// MARK: - Drag registry
-
-/// Process-wide registry that pairs a synthetic drag UUID with a SessionEntry.
-/// Used to forward sessions through bonsplit's external-tab-drop hook (which only
-/// carries UUIDs in its payload). Workspace.handleExternalTabDrop consults this
-/// to decide whether a drop should spawn a brand new terminal vs. move an existing tab.
-@MainActor
-final class SessionDragRegistry {
-    static let shared = SessionDragRegistry()
-
-    private enum State {
-        case idle
-        case active(id: UUID, entry: SessionEntry)
-    }
-
-    private var state: State = .idle
-
-    var activeDragID: UUID? {
-        guard case .active(let id, _) = state else { return nil }
-        return id
-    }
-
-    func register(_ entry: SessionEntry) -> UUID {
-        let id = UUID()
-        // AppKit permits only one process-local drag at a time. Replacing the
-        // active value makes any superseded pasteboard payload invalid now.
-        state = .active(id: id, entry: entry)
-        return id
-    }
-
-    func contains(id: UUID) -> Bool {
-        entry(id: id) != nil
-    }
-
-    func entry(id: UUID) -> SessionEntry? {
-        guard case .active(let activeID, let entry) = state,
-              activeID == id else { return nil }
-        return entry
-    }
-
-    func consume(id: UUID) -> SessionEntry? {
-        guard let entry = entry(id: id) else { return nil }
-        state = .idle
-        return entry
-    }
-
-    func discard(id: UUID) {
-        guard contains(id: id) else { return }
-        state = .idle
-    }
-}
-
 // MARK: - Store
 
 enum SessionGrouping: String, CaseIterable, Identifiable, Codable {
@@ -201,15 +149,6 @@ struct IndexSection: Identifiable, Equatable {
 enum SectionIcon: Equatable {
     case agent(SessionAgent)
     case folder
-}
-
-/// Owns the "which section is currently being dragged" bit, separate from
-/// `SessionIndexStore`. Isolating this means drag start/end does not emit
-/// `objectWillChange` on the data store, so rows and gaps don't re-render
-/// every time a drag begins or clears.
-@MainActor
-final class SessionDragCoordinator: ObservableObject {
-    @Published var draggedKey: SectionKey? = nil
 }
 
 /// Immutable per-directory snapshot consumed by `SectionPopoverView` for

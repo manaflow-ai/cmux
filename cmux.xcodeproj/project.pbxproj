@@ -1843,6 +1843,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C71510010000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71510020000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift */; };
 		E7A5F1A10000000000000001 /* SessionCustomSidebarPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A5F1A10000000000000002 /* SessionCustomSidebarPanelSnapshot.swift */; };
 		A74770010000000000000003 /* SessionDisplaySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000004 /* SessionDisplaySnapshot.swift */; };
+		469201000000000000000008 /* SessionDragCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469201000000000000000007 /* SessionDragCoordinator.swift */; };
+		46920100000000000000000E /* SessionDragMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000D /* SessionDragMonitor.swift */; };
+		46920100000000000000000C /* SessionDragMonitorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000B /* SessionDragMonitorView.swift */; };
+		469201000000000000000004 /* SessionDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469201000000000000000003 /* SessionDragPayload.swift */; };
+		46920100000000000000000A /* SessionDragRegionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469201000000000000000009 /* SessionDragRegionStore.swift */; };
+		469201000000000000000002 /* SessionDragRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469201000000000000000001 /* SessionDragRegistry.swift */; };
+		469201000000000000000006 /* SessionDragSessionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469201000000000000000005 /* SessionDragSessionSource.swift */; };
 		992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230004 /* SessionEntryResumeLaunch.swift */; };
 		992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */; };
 		85000000000000000000002A /* SessionIndexEntryProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85000000000000000000001A /* SessionIndexEntryProjection.swift */; };
@@ -4597,6 +4604,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C71510020000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionContentWidthSettingsFileStoreTests.swift; sourceTree = "<group>"; };
 		E7A5F1A10000000000000002 /* SessionCustomSidebarPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCustomSidebarPanelSnapshot.swift; sourceTree = "<group>"; };
 		A74770010000000000000004 /* SessionDisplaySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDisplaySnapshot.swift; sourceTree = "<group>"; };
+		469201000000000000000007 /* SessionDragCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragCoordinator.swift; sourceTree = "<group>"; };
+		46920100000000000000000D /* SessionDragMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragMonitor.swift; sourceTree = "<group>"; };
+		46920100000000000000000B /* SessionDragMonitorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragMonitorView.swift; sourceTree = "<group>"; };
+		469201000000000000000003 /* SessionDragPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragPayload.swift; sourceTree = "<group>"; };
+		469201000000000000000009 /* SessionDragRegionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragRegionStore.swift; sourceTree = "<group>"; };
+		469201000000000000000001 /* SessionDragRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragRegistry.swift; sourceTree = "<group>"; };
+		469201000000000000000005 /* SessionDragSessionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSessionSource.swift; sourceTree = "<group>"; };
 		992300019923000199230004 /* SessionEntryResumeLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunch.swift; sourceTree = "<group>"; };
 		992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunchTests.swift; sourceTree = "<group>"; };
 		85000000000000000000001A /* SessionIndexEntryProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexEntryProjection.swift; sourceTree = "<group>"; };
@@ -7433,6 +7447,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE001002 /* FileExplorerView.swift */,
 				FE001007 /* GitFileStatus.swift */,
 				FE001006 /* GitStatusProvider.swift */,
+				469201000000000000000007 /* SessionDragCoordinator.swift */,
+				46920100000000000000000D /* SessionDragMonitor.swift */,
+				46920100000000000000000B /* SessionDragMonitorView.swift */,
+				469201000000000000000003 /* SessionDragPayload.swift */,
+				469201000000000000000001 /* SessionDragRegistry.swift */,
+				469201000000000000000009 /* SessionDragRegionStore.swift */,
+				469201000000000000000005 /* SessionDragSessionSource.swift */,
 				FE003001 /* SessionIndexStore.swift */,
 				85000000000000000000001D /* SessionIndexTableApplyInput.swift */,
 				850000000000000000000010 /* SessionIndexTableCellRootView.swift */,
@@ -9991,6 +10012,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C71500040000000000000001 /* SessionContentWidthPresentation.swift in Sources */,
 				E7A5F1A10000000000000001 /* SessionCustomSidebarPanelSnapshot.swift in Sources */,
 				A74770010000000000000003 /* SessionDisplaySnapshot.swift in Sources */,
+				469201000000000000000008 /* SessionDragCoordinator.swift in Sources */,
+				46920100000000000000000E /* SessionDragMonitor.swift in Sources */,
+				46920100000000000000000C /* SessionDragMonitorView.swift in Sources */,
+				469201000000000000000004 /* SessionDragPayload.swift in Sources */,
+				46920100000000000000000A /* SessionDragRegionStore.swift in Sources */,
+				469201000000000000000002 /* SessionDragRegistry.swift in Sources */,
+				469201000000000000000006 /* SessionDragSessionSource.swift in Sources */,
 				992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */,
 				85000000000000000000002A /* SessionIndexEntryProjection.swift in Sources */,
 				850000000000000000000028 /* SessionIndexJSONLReader.swift in Sources */,
