@@ -65,12 +65,14 @@ extension RemoteTmuxControlConnection {
     func absorbPaneOutputIntoPendingSeed(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty, pendingPaneSeeds[paneId]?.isEmpty == false else { return false }
         let nextCount = pendingPaneSeeds[paneId]![0].bufferedLiveByteCount + data.count
-        guard nextCount <= Self.maximumPendingPaneSeedLiveBytes,
-              reservePendingPaneSeedBytes(data.count, paneId: paneId) else {
-            record("pane-seed-backpressure %\(paneId)")
-            if connectionState == .connected { beginReconnecting() }
+        guard nextCount <= Self.maximumPendingPaneSeedLiveBytes else {
+            recoverPaneSeedBudget(paneId: paneId, event: "pane-seed-backpressure")
             return true
         }
+        // On failure the reserve call has already recovered this pane under
+        // "pane-seed-total-backpressure"; recovering again here would enqueue a
+        // second clear-scrollback reseed for the same overflow.
+        guard reservePendingPaneSeedBytes(data.count, paneId: paneId) else { return true }
         pendingPaneSeeds[paneId]![0].bufferedLiveByteCount = nextCount
         if pendingPaneSeeds[paneId]![0].isCaptureInstalled {
             Self.appendCoalesced(data, to: &pendingPaneSeeds[paneId]![0].catchUpOutput)
@@ -186,6 +188,7 @@ extension RemoteTmuxControlConnection {
     func discardPendingPaneSeeds() {
         pendingPaneSeeds.removeAll(keepingCapacity: false)
         pendingPaneSeedByteCount = 0
+        deferredPaneSeedBudgetRecoveryPaneIDs.removeAll(keepingCapacity: false)
         pendingPaneVisibleRepaintSeedIDs.removeAll(keepingCapacity: false)
         deferredPaneVisibleRepaints.removeAll(keepingCapacity: false)
         pendingReconnectSeedIDs.removeAll(keepingCapacity: false)
@@ -204,6 +207,7 @@ extension RemoteTmuxControlConnection {
         pendingPaneVisibleRepaintSeedIDs = pendingPaneVisibleRepaintSeedIDs.filter {
             livePanes.contains($0.key)
         }
+        deferredPaneSeedBudgetRecoveryPaneIDs.formIntersection(livePanes)
         deferredPaneVisibleRepaints.formIntersection(livePanes)
         pendingReconnectPaneIDs.removeAll { !livePanes.contains($0) }
         for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
@@ -212,6 +216,7 @@ extension RemoteTmuxControlConnection {
     func discardPendingPaneSeeds(paneId: Int) {
         let removedSeeds = pendingPaneSeeds.removeValue(forKey: paneId) ?? []
         let removedSeedIDs = removedSeeds.map(\.id)
+        deferredPaneSeedBudgetRecoveryPaneIDs.remove(paneId)
         releasePendingPaneSeedBytes(removedSeeds.reduce(0) { $0 + $1.retainedByteCount })
         pendingPaneVisibleRepaintSeedIDs[paneId] = nil
         deferredPaneVisibleRepaints.remove(paneId)
@@ -291,12 +296,66 @@ extension RemoteTmuxControlConnection {
         }
     }
 
+    /// Recovers one pane after the producer ran out of seed budget.
+    ///
+    /// A budget ceiling is not a transport failure. Both call sites used to reach for
+    /// ``beginReconnecting()`` under an explicit `connectionState == .connected` guard — a healthy
+    /// stream restarted because a renderer could not keep up — and the reattach reseeds every pane with
+    /// `clearScrollback`, emitting ESC[3J, so one slow pane truncated every sibling's scrollback.
+    ///
+    /// Dropping this pane's retained bytes is safe because the re-seed is an authoritative
+    /// `capture-pane`: the content is re-derived from tmux's own grid rather than remembered. Freeing
+    /// them first is also what makes room for the re-seed to be admitted. If sibling seeds still hold
+    /// too much of the aggregate budget, the pane stays in the deferred recovery set and the next byte
+    /// release retries it. The set and one scheduled turn bound duplicate work.
+    ///
+    /// The first re-seed attempt is deferred to the next main-actor turn on purpose. This runs inside
+    /// the reservation that just failed, and seeding re-enters that same reservation, so a synchronous
+    /// call recurses until the stack overflows — measured, not theorised.
+    private func recoverPaneSeedBudget(paneId: Int, event: String) {
+        record("\(event) %\(paneId)")
+        discardPendingPaneSeeds(paneId: paneId)
+        deferredPaneSeedBudgetRecoveryPaneIDs.insert(paneId)
+        schedulePaneSeedBudgetRecoveryIfNeeded()
+    }
+
+    /// Starts every pane recovery that currently fits, retaining blocked panes for a later release.
+    private func pumpPaneSeedBudgetRecoveries() {
+        guard connectionState == .connected else { return }
+        for paneId in deferredPaneSeedBudgetRecoveryPaneIDs.sorted() {
+            guard connectionState == .connected else { return }
+            guard seedPane(paneId: paneId, clearScrollback: true) != nil else {
+                if connectionState == .connected {
+                    record("pane-seed-recovery-deferred %\(paneId)")
+                }
+                continue
+            }
+            deferredPaneSeedBudgetRecoveryPaneIDs.remove(paneId)
+        }
+    }
+
+    /// Defers recovery out of the failing reservation and coalesces duplicate requests.
+    private func schedulePaneSeedBudgetRecoveryIfNeeded() {
+        guard connectionState == .connected,
+              !deferredPaneSeedBudgetRecoveryPaneIDs.isEmpty,
+              !paneSeedBudgetRecoveryTaskScheduled else { return }
+        paneSeedBudgetRecoveryTaskScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.pumpPaneSeedBudgetRecoveries()
+            self.paneSeedBudgetRecoveryTaskScheduled = false
+        }
+    }
+
     private func reservePendingPaneSeedBytes(_ count: Int, paneId: Int) -> Bool {
-        guard count >= 0,
-              count <= pendingPaneSeedByteLimit,
-              pendingPaneSeedByteCount <= pendingPaneSeedByteLimit - count else {
-            record("pane-seed-total-backpressure %\(paneId)")
-            if connectionState == .connected { beginReconnecting() }
+        guard count >= 0, count <= pendingPaneSeedByteLimit else {
+            record("pane-seed-reservation-too-large %\(paneId)")
+            return false
+        }
+        guard pendingPaneSeedByteCount <= pendingPaneSeedByteLimit - count else {
+            if !deferredPaneSeedBudgetRecoveryPaneIDs.contains(paneId) {
+                recoverPaneSeedBudget(paneId: paneId, event: "pane-seed-total-backpressure")
+            }
             return false
         }
         pendingPaneSeedByteCount += count
@@ -305,6 +364,7 @@ extension RemoteTmuxControlConnection {
 
     private func releasePendingPaneSeedBytes(_ count: Int) {
         pendingPaneSeedByteCount = max(0, pendingPaneSeedByteCount - count)
+        schedulePaneSeedBudgetRecoveryIfNeeded()
     }
 
     /// Repaints panes whose verified tmux assignment grew since the last

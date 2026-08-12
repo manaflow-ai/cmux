@@ -436,7 +436,7 @@ private final class FileExternalOpenMenuActionTarget: NSObject {
     }
 }
 
-struct FilePreviewDragEntry {
+struct FilePreviewDragEntry: Equatable {
     let filePath: String
     let displayTitle: String
 }
@@ -997,6 +997,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     var fileChangeWatcher: FileWatcher?
     var fileChangeTask: Task<Void, Never>?
     var fileChangeReloadTask: Task<Void, Never>?
+    /// The one container currently projecting this panel's tab metadata.
+    weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?
     var lastObservedFileState: FilePreviewFileState?
     var isClosed = false
     weak var textView: NSTextView?
@@ -1063,12 +1065,18 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         isClosed = true
+        unbindTabMetadata()
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
         modeLoadCoordinator.cancel()
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
+    }
+
+    /// Retargets container-scoped identity after a live panel transfer.
+    func updateWorkspaceId(_ workspaceId: UUID) {
+        self.workspaceId = workspaceId
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -1165,7 +1173,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func updateTextContent(_ nextContent: String) {
         guard textContent != nextContent else { return }
         textContent = nextContent
-        isDirty = nextContent != originalTextContent
+        setTabMetadataDirtyState(nextContent != originalTextContent)
     }
 
     /// Re-resolves and reloads the current path. Toolbar actions and filesystem
@@ -1237,7 +1245,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             textLoadCoordinator.cancel()
         }
         previewMode = mode
-        displayIcon = FilePreviewKindResolver.iconName(for: mode)
+        setTabMetadataDisplayIcon(FilePreviewKindResolver.iconName(for: mode))
         focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
         nativeViewSessions.closeInactive(except: mode)
         return prepareContentForPreviewMode()
@@ -1271,21 +1279,21 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             }
             textContent = ""
             originalTextContent = ""
-            isDirty = false
+            setTabMetadataDirtyState(false)
             isFileUnavailable = true
             return
         case .loaded(let content, let encoding):
             if !replacingDirtyContent && isDirty {
                 originalTextContent = content
                 textEncoding = encoding
-                isDirty = textContent != originalTextContent
+                setTabMetadataDirtyState(textContent != originalTextContent)
                 isFileUnavailable = false
                 return
             }
             textContent = content
             originalTextContent = content
             textEncoding = encoding
-            isDirty = false
+            setTabMetadataDirtyState(false)
             isFileUnavailable = false
         }
     }
@@ -1297,7 +1305,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
             textContent = currentContent
-            isDirty = false
+            setTabMetadataDirtyState(false)
             return nil
         }
 
@@ -1319,7 +1327,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             switch result {
             case .saved:
                 self.originalTextContent = currentContent
-                self.isDirty = self.textContent != currentContent
+                self.setTabMetadataDirtyState(self.textContent != currentContent)
                 self.isFileUnavailable = false
                 reconciliationTask = self.reloadFromDisk()
             case .failed(let fileExists):
@@ -1328,6 +1336,20 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             }
             await reconciliationTask?.value
         }
+    }
+
+    /// Updates dirty state and emits only when the tab-facing value changes.
+    private func setTabMetadataDirtyState(_ nextValue: Bool) {
+        guard isDirty != nextValue else { return }
+        isDirty = nextValue
+        publishTabMetadataUpdate()
+    }
+
+    /// Updates the display icon and emits only when the tab-facing value changes.
+    private func setTabMetadataDisplayIcon(_ nextValue: String?) {
+        guard displayIcon != nextValue else { return }
+        displayIcon = nextValue
+        publishTabMetadataUpdate()
     }
 
     private static func defaultFocusIntent(for mode: FilePreviewMode) -> FilePreviewPanelFocusIntent {
@@ -2337,6 +2359,7 @@ private final class FilePreviewPDFThumbnailItemView: NSView {
 
 final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate {
     private let visiblePageResolver = FilePreviewPDFVisiblePageResolver()
+    private let sharingPresenter: FilePreviewPDFSharingPresenter
     private enum Metrics {
         static let defaultSidebarWidth = FilePreviewPDFSizing.defaultSidebarWidth
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
@@ -2402,7 +2425,18 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     override init(frame frameRect: NSRect) {
+        sharingPresenter = FilePreviewPDFSharingPresenter()
         super.init(frame: frameRect)
+        finishInitialization()
+    }
+
+    init(frame frameRect: NSRect, sharingPresenter: FilePreviewPDFSharingPresenter) {
+        self.sharingPresenter = sharingPresenter
+        super.init(frame: frameRect)
+        finishInitialization()
+    }
+
+    private func finishInitialization() {
         setupView()
         fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
             self?.applyFloatingChromeFonts()
@@ -2454,6 +2488,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     func close() {
+        sharingPresenter.close()
         removeFromSuperview()
         removePDFScrollObserver()
         NotificationCenter.default.removeObserver(self)
@@ -2485,6 +2520,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             refreshPDFSmartFitPreservingVisibleTop()
             return
         }
+        sharingPresenter.close()
         let isReload = currentURL == url
         if isReload, pendingReloadViewport == nil {
             preparePDFViewportSnapshot()
@@ -2526,6 +2562,17 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
                   self.loadGeneration == generation else { return }
             self.applyLoadedPDFDocument(result.document, for: loadURL)
         }
+    }
+
+    private func share(
+        from anchorView: NSView,
+        activation: FilePreviewPDFShareActivation
+    ) {
+        guard let anchorWindow = anchorView.window,
+              let window,
+              anchorWindow === window,
+              let currentURL else { return }
+        sharingPresenter.present(fileURL: currentURL, from: anchorView, activation: activation)
     }
 
     private func applyLoadedPDFDocument(_ document: PDFDocument?, for url: URL) {
@@ -2850,7 +2897,10 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             zoomToFit: { [weak self] in self?.zoomToFit() },
             rotateLeft: { [weak self] in self?.rotateLeft() },
             rotateRight: { [weak self] in self?.rotateRight() },
-            refresh: { [weak panel] in panel?.reloadFromDisk() }
+            refresh: { [weak panel] in panel?.reloadFromDisk() },
+            share: { [weak self] anchorView, activation in
+                self?.share(from: anchorView, activation: activation)
+            }
         ))
     }
 

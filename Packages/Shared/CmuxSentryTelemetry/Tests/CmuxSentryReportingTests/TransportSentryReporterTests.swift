@@ -220,6 +220,75 @@ import os
         #expect(recorder.breadcrumbs.withLock { $0.count } == 4)
     }
 
+    @Test func simulatorEventsUseSimulatorBreadcrumbsAndSafeAttributes() {
+        let recorder = Recorder()
+        let reporter = makeReporter(recorder: recorder)
+
+        reporter.ingest(DiagnosticEvent(
+            code: .simulatorInputLifecycle,
+            tNanos: 1,
+            surface: 17,
+            a: DiagnosticSimulatorInputLifecycle.rejectedLocked.rawValue,
+            b: DiagnosticSimulatorInputKind.hardwareButton.rawValue,
+            c: DiagnosticSimulatorHardwareButtonKind.appSwitcher.rawValue
+        ))
+
+        let crumb = recorder.breadcrumbs.withLock { $0.first }
+        #expect(crumb?.category == "simulator")
+        #expect(crumb?.level == .warning)
+        #expect(crumb?.data["diagnostic.category"] == "simulator")
+        #expect(crumb?.data["event_code"] == "simulatorInputLifecycle")
+        #expect(crumb?.data["surface"] == "17")
+        #expect(crumb?.data["input"] == "Hardware button")
+        #expect(crumb?.data["input_detail"] == "App Switcher")
+        #expect(crumb?.data.keys.contains { $0.contains("text") } == false)
+
+        let log = recorder.logs.withLock { $0.first }
+        #expect(log?.level == .warning)
+        #expect(log?.attributes["diagnostic.category"] == "simulator")
+        #expect(log?.attributes["simulator.event_code"] == "simulatorInputLifecycle")
+        #expect(log?.attributes["simulator.role"] == "iOS client")
+        #expect(log?.attributes["simulator.role_code"] == "mobileClient")
+        #expect(log?.attributes["simulator.surface"] == "17")
+        #expect(log?.attributes["simulator.state"] == "Rejected because locked")
+        #expect(log?.attributes["simulator.input"] == "Hardware button")
+        #expect(log?.attributes["simulator.input_detail"] == "App Switcher")
+        #expect(log?.attributes.keys.contains { $0.hasPrefix("transport.") } == false)
+        #expect(recorder.events.withLock { $0.isEmpty })
+    }
+
+    @Test func appFeatureEventsUseAppNamespaceAndClassifiedSeverity() {
+        let recorder = Recorder()
+        let reporter = makeReporter(recorder: recorder)
+
+        reporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.workspaceOpenSucceeded.rawValue
+        ))
+        reporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 2,
+            a: DiagnosticAppEventKind.workspaceOpenFailed.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue
+        ))
+
+        let crumbs = recorder.breadcrumbs.withLock { $0 }
+        #expect(crumbs.map(\.category) == ["app", "app"])
+        #expect(crumbs.map(\.level) == [.info, .warning])
+        #expect(crumbs[0].data["event_code"] == "appFeatureAction")
+        #expect(crumbs[0].data["operation"] == "workspaceOpenSucceeded")
+
+        let logs = recorder.logs.withLock { $0 }
+        #expect(logs.count == 2)
+        #expect(logs[0].attributes["app.event_code"] == "appFeatureAction")
+        #expect(logs[0].attributes["app.operation"] == "workspaceOpenSucceeded")
+        #expect(logs[1].attributes["app.failure"] == "Timed out")
+        #expect(logs.allSatisfy { line in
+            line.attributes.keys.contains { $0.hasPrefix("transport.") } == false
+        })
+    }
+
     @Test func disabledDeliverySendsNothing() {
         let recorder = Recorder()
         recorder.enabled.withLock { $0 = false }

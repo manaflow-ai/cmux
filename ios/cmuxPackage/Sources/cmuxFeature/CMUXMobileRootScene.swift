@@ -48,6 +48,8 @@ public struct CMUXMobileRootScene: View {
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     private let connectionMethodStore: MobileConnectionMethodStore
+    /// The one-time Auto-Connect migration eligibility and acknowledgement.
+    private let autoConnectMigrationStore: MobileAutoConnectMigrationStore
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
@@ -62,7 +64,7 @@ public struct CMUXMobileRootScene: View {
     /// The app-wide toast presenter, hosted at this root so toasts float over
     /// every screen (including sheets) and any descendant can present through
     /// `@Environment(ToastCenter.self)`.
-    @State private var toastCenter = ToastCenter()
+    @State private var toastCenter: ToastCenter
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
     /// a disk-backed ``TerminalDraftStoring`` (drafts surviving relaunch) lands
@@ -89,6 +91,10 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - connectionMethodStore: The shared Auto-Connect vs Tailscale choice
+    ///     used by both connection routing and Settings.
+    ///   - autoConnectMigrationStore: The versioned, one-time migration
+    ///     eligibility and acknowledgement injected into the root view.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
@@ -111,6 +117,7 @@ public struct CMUXMobileRootScene: View {
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         connectionMethodStore: MobileConnectionMethodStore,
+        autoConnectMigrationStore: MobileAutoConnectMigrationStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
@@ -127,6 +134,7 @@ public struct CMUXMobileRootScene: View {
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.connectionMethodStore = connectionMethodStore
+        self.autoConnectMigrationStore = autoConnectMigrationStore
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
@@ -134,9 +142,10 @@ public struct CMUXMobileRootScene: View {
         self.personalIrohForget = personalIrohForget
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.signOutHook = signOutHook
-        self.pairedMacStore = Self.openPairedMacStore()
+        self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
+        _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
     }
     #else
     /// Creates the root scene (non-iOS: no push).
@@ -158,13 +167,16 @@ public struct CMUXMobileRootScene: View {
         self.personalIrohForget = nil
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.tailscaleStatusMonitor = nil
-        self.pairedMacStore = Self.openPairedMacStore()
+        self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: nil)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = nil
+        _toastCenter = State(initialValue: ToastCenter())
     }
     #endif
 
-    private static func openPairedMacStore() -> (any MobilePairedMacStoring)? {
+    private static func openPairedMacStore(
+        diagnosticLog: DiagnosticLog?
+    ) -> (any MobilePairedMacStoring)? {
         do {
             #if DEBUG
             if UITestConfig.mockDataEnabled {
@@ -172,13 +184,21 @@ public struct CMUXMobileRootScene: View {
                     .appendingPathComponent(
                         "cmux-uitest-paired-macs-\(UUID().uuidString).sqlite3"
                     )
-                return try MobilePairedMacStore(databaseURL: databaseURL)
+                let store = try MobilePairedMacStore(databaseURL: databaseURL)
+                diagnosticLog?.recordAppEvent(.pairedMacStoreOpened)
+                return store
             }
             #endif
-            return try MobilePairedMacStore()
+            let store = try MobilePairedMacStore()
+            diagnosticLog?.recordAppEvent(.pairedMacStoreOpened)
+            return store
         } catch {
             mobileRootSceneLog.error(
                 "failed to open paired mac store: \(String(describing: error), privacy: .public)"
+            )
+            diagnosticLog?.recordAppEvent(
+                .pairedMacStoreOpenFailed,
+                failure: DiagnosticFailureKind.classify(error)
             )
             return nil
         }
@@ -297,7 +317,8 @@ public struct CMUXMobileRootScene: View {
             teamIDProvider: { await coordinator.resolvedTeamID },
             restoreBoundary: restoreBoundary,
             pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore(),
-            backupTeamStore: UserDefaultsPairedMacBackupTeamStore()
+            backupTeamStore: UserDefaultsPairedMacBackupTeamStore(),
+            diagnosticLog: diagnosticLog
         )
     }
 
@@ -317,11 +338,13 @@ public struct CMUXMobileRootScene: View {
             .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
             .analytics(analytics)
+            .environment(\.mobileDiagnosticLog, diagnosticLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
             .environment(connectionMethodStore)
+            .environment(autoConnectMigrationStore)
             #endif
     }
 
@@ -357,17 +380,26 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeMobileAppView() -> CMUXMobileAppView {
         let browserStreamStore = BrowserStreamStore()
+        let simulatorStreamStore = MobileSimulatorStreamStore()
         #if os(iOS)
         return CMUXMobileAppView(
-            store: makeStore(browserStreamEvents: browserStreamStore),
+            store: makeStore(
+                browserStreamEvents: browserStreamStore,
+                simulatorStreamStore: simulatorStreamStore
+            ),
             browserStreamStore: browserStreamStore,
+            simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
             signOutHook: signOutHook
         )
         #else
         return CMUXMobileAppView(
-            store: makeStore(browserStreamEvents: browserStreamStore),
+            store: makeStore(
+                browserStreamEvents: browserStreamStore,
+                simulatorStreamStore: simulatorStreamStore
+            ),
             browserStreamStore: browserStreamStore,
+            simulatorStreamStore: simulatorStreamStore,
             signOutHook: signOutHook
         )
         #endif
@@ -375,7 +407,8 @@ public struct CMUXMobileRootScene: View {
 
     @MainActor
     package func makeStore(
-        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil
+        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
+        simulatorStreamStore: MobileSimulatorStreamStore? = nil
     ) -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
@@ -395,6 +428,16 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
+        let resolvedPersonalIrohForget: (any MobileIrohMacForgetting)?
+        #if DEBUG
+        if UITestConfig.successfulComputerForgetEnabled {
+            resolvedPersonalIrohForget = SuccessfulComputerForgetUITestStub()
+        } else {
+            resolvedPersonalIrohForget = personalIrohForget
+        }
+        #else
+        resolvedPersonalIrohForget = personalIrohForget
+        #endif
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -403,7 +446,7 @@ public struct CMUXMobileRootScene: View {
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
-            personalIrohForget: personalIrohForget,
+            personalIrohForget: resolvedPersonalIrohForget,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
@@ -414,8 +457,12 @@ public struct CMUXMobileRootScene: View {
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore,
-            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard),
-            browserStreamEvents: browserStreamEvents
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(
+                defaults: .standard,
+                diagnosticLog: diagnosticLog
+            ),
+            browserStreamEvents: browserStreamEvents,
+            simulatorStreamStore: simulatorStreamStore
         )
     }
 }

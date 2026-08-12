@@ -1,7 +1,7 @@
 # Public resource SDK conformance
 
 This suite drives the handwritten Python, TypeScript, Rust, Go, Java, C++,
-and Zig SDK roots through one `cmux.protocol/1` contract. The fake server
+and Zig SDK roots through one `cmux.protocol/2` contract. The fake server
 checks exact Unix JSONL requests and exercises reads, mutation replay,
 revision and ambiguity errors, indeterminate external effects, typed unknown
 stream items, cancellation ordering, decimal strings, redaction, and
@@ -29,7 +29,7 @@ authenticated WebSocket transports.
 The Zig adapter targets Zig 0.15.2. Set `CMUX_ZIG` when that compiler is not
 the `zig` on `PATH`.
 
-Generated protocol-10 compatibility tests are intentionally separate:
+Generated protocol-12 compatibility tests are intentionally separate:
 
 ```sh
 python3 cmux-tui/bindings/conformance/raw/runner.py \

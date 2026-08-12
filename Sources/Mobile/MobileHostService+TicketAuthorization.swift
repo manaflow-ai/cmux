@@ -48,6 +48,16 @@ extension MobileHostService {
             // Cursor-based read of the same Mac-scoped list state as
             // `mobile.workspace.list`; carries no workspace/terminal selection.
             return nil
+        case "mobile.simulator.list":
+            return nil
+        case "mobile.simulator.stream.start", "mobile.simulator.stream.stop",
+             "mobile.simulator.input.pointer",
+             "mobile.simulator.input.text",
+             "mobile.simulator.input.button":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "mobile.workspace.changes.files",
              "mobile.workspace.changes.file_diff",
              "mobile.workspace.changes.file_stat",
@@ -117,7 +127,7 @@ extension MobileHostService {
             return nil
         case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
-        case "mobile.host.status":
+        case "mobile.host.status", "phone_push.status.get":
             return nil
         default:
             return scopedTicketError

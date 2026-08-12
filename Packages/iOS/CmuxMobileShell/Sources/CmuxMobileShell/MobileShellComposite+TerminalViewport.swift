@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
 internal import CmuxMobileShellModel
@@ -131,9 +132,21 @@ extension MobileShellComposite {
               workspaceID(forTerminalID: surfaceID) == preparedWorkspaceID,
               reportedViewportSizesByTerminalKey[key] == reportedGrid,
               viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {
+            recordAppEvent(
+                .terminalViewportReportFailed,
+                correlationID: surfaceID,
+                failure: .superseded
+            )
             return nil
         }
-        guard let client = remoteClient else { return nil }
+        guard let client = remoteClient else {
+            recordAppEvent(
+                .terminalViewportReportFailed,
+                correlationID: surfaceID,
+                failure: .offline
+            )
+            return nil
+        }
         let previousReportedGrid = reportedTerminalViewportSizesBySurfaceID[surfaceID]
         let prearmedReplayBarrierToken = prearmTerminalViewportReplayBarrierIfNeeded(
             surfaceID: surfaceID,
@@ -160,10 +173,20 @@ extension MobileShellComposite {
                     token: prearmedReplayBarrierToken,
                     reason: "viewport_stale_client"
                 )
+                self.recordAppEvent(
+                    .terminalViewportReportFailed,
+                    correlationID: surfaceID,
+                    failure: .superseded
+                )
                 return nil
             }
             guard viewportReportGenerationsBySequenceKey[sequenceKey] == requestGeneration else {
                 // A newer viewport request now owns any pending pre-ACK barrier.
+                self.recordAppEvent(
+                    .terminalViewportReportFailed,
+                    correlationID: surfaceID,
+                    failure: .superseded
+                )
                 return nil
             }
             guard let payload = try? MobileTerminalViewportResponse.decode(data),
@@ -172,6 +195,11 @@ extension MobileShellComposite {
                     surfaceID: surfaceID,
                     token: prearmedReplayBarrierToken,
                     reason: "viewport_missing_grid"
+                )
+                recordAppEvent(
+                    .terminalViewportReportFailed,
+                    correlationID: surfaceID,
+                    failure: .protocolViolation
                 )
                 return nil
             }
@@ -224,6 +252,11 @@ extension MobileShellComposite {
                     reason: "viewport_unchanged"
                 )
             }
+            recordAppEvent(
+                .terminalViewportReportSucceeded,
+                correlationID: surfaceID,
+                count: grid.columns * grid.rows
+            )
             return (
                 columns: grid.columns,
                 rows: grid.rows,
@@ -242,6 +275,11 @@ extension MobileShellComposite {
                 // for the superseding report to carry; finishing here would
                 // clear it (or replay early) before the newest report owns
                 // recovery.
+                recordAppEvent(
+                    .terminalViewportReportFailed,
+                    correlationID: surfaceID,
+                    failure: .cancelled
+                )
                 return nil
             }
             finishPrearmedTerminalViewportBarrierWithoutResize(
@@ -250,6 +288,11 @@ extension MobileShellComposite {
                 reason: "viewport_failed"
             )
             terminalViewportLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            recordAppEvent(
+                .terminalViewportReportFailed,
+                correlationID: surfaceID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             return nil
         }
     }
@@ -257,6 +300,7 @@ extension MobileShellComposite {
     /// Tell the Mac to drop this device's viewport pin for a surface (on
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
+        recordAppEvent(.terminalViewportClearStarted, correlationID: surfaceID)
         // The generation entry deliberately outlives the surface: it is the
         // monotonic fence that keeps a still-in-flight viewport report from
         // applying after detach and blocks generation reuse across re-attach.
@@ -272,23 +316,39 @@ extension MobileShellComposite {
         reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            recordAppEvent(
+                .terminalViewportClearFailed,
+                correlationID: surfaceID,
+                failure: .noRoute
+            )
             return
         }
         let id = clientID
         let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
         Task { @MainActor in
-            let request = try? MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.viewport",
-                params: [
-                    "workspace_id": remoteWorkspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": id,
-                    "clear": true,
-                    "viewport_generation": Int(clamping: clearGeneration),
-                ]
-            )
-            guard let request else { return }
-            _ = try? await client.sendRequest(request)
+            do {
+                let request = try MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.viewport",
+                    params: [
+                        "workspace_id": remoteWorkspaceID.rawValue,
+                        "surface_id": surfaceID,
+                        "client_id": id,
+                        "clear": true,
+                        "viewport_generation": Int(clamping: clearGeneration),
+                    ]
+                )
+                _ = try await client.sendRequest(request)
+                self.recordAppEvent(
+                    .terminalViewportClearSucceeded,
+                    correlationID: surfaceID
+                )
+            } catch {
+                self.recordAppEvent(
+                    .terminalViewportClearFailed,
+                    correlationID: surfaceID,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
+            }
         }
     }
 

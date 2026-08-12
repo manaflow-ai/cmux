@@ -1,6 +1,6 @@
 #pragma once
 
-// Low-level protocol-v10 compatibility layer. Prefer <cmux/client.hpp>.
+// Low-level protocol-v12 compatibility layer. Prefer <cmux/client.hpp>.
 #include "cmux/raw/attachment.hpp"
 #include "cmux/raw/generated/commands.hpp"
 

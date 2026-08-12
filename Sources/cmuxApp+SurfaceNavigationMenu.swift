@@ -11,6 +11,12 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .nextSurface)
         ) {
+            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            ) {
+                _ = dock.performShortcutCommand(.selectNextSurface)
+                return
+            }
             activeTabManager.selectNextSurface()
         }
         splitCommandButton(
@@ -20,6 +26,12 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .prevSurface)
         ) {
+            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            ) {
+                _ = dock.performShortcutCommand(.selectPreviousSurface)
+                return
+            }
             activeTabManager.selectPreviousSurface()
         }
         splitCommandButton(
@@ -29,6 +41,12 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .moveSurfaceLeft)
         ) {
+            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            ) {
+                _ = dock.performShortcutCommand(.moveSurface(offset: -1))
+                return
+            }
             activeTabManager.selectedWorkspace?.moveSelectedSurface(by: -1)
         }
         splitCommandButton(
@@ -38,6 +56,12 @@ extension cmuxApp {
             ),
             shortcut: menuShortcut(for: .moveSurfaceRight)
         ) {
+            if let dock = AppDelegate.shared?.focusedDockStoreForShortcut(
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            ) {
+                _ = dock.performShortcutCommand(.moveSurface(offset: 1))
+                return
+            }
             activeTabManager.selectedWorkspace?.moveSelectedSurface(by: 1)
         }
         ForEach(SurfacePaneMovement.allCases, id: \.self) { movement in

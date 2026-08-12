@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileSupport
 import CmuxMobileToast
 import SwiftUI
 
@@ -28,6 +29,7 @@ public struct ChatScreen: View {
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
     private let runsStoreTask: Bool
+    private let onDictationDiagnosticEvent: (ComposerDictationDiagnosticEvent) -> Void
 
     /// Creates the screen.
     ///
@@ -56,6 +58,7 @@ public struct ChatScreen: View {
         accessoryShortcuts: [ChatAccessoryShortcut] = [],
         providesOwnChrome: Bool = true,
         runsStoreTask: Bool = true,
+        onDictationDiagnosticEvent: @escaping (ComposerDictationDiagnosticEvent) -> Void = { _ in },
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
@@ -64,6 +67,7 @@ public struct ChatScreen: View {
         self.accessoryShortcuts = accessoryShortcuts
         self.providesOwnChrome = providesOwnChrome
         self.runsStoreTask = runsStoreTask
+        self.onDictationDiagnosticEvent = onDictationDiagnosticEvent
         self.onOpenTerminal = onOpenTerminal
     }
 
@@ -221,7 +225,9 @@ public struct ChatScreen: View {
                 onInterrupt: { hard in
                     Task { await store.interrupt(hard: hard) }
                 },
-                onOpenTerminal: onOpenTerminal
+                onOpenTerminal: onOpenTerminal,
+                onDiagnosticEvent: { store.recordDiagnostic($0) },
+                onDictationDiagnosticEvent: onDictationDiagnosticEvent
             )
             #if os(iOS)
             .layoutPriority(1)
@@ -323,6 +329,12 @@ public struct ChatScreen: View {
             answerOption: { index in
                 Task { await store.answer(optionIndex: index) }
             },
+            answerPermission: { index in
+                Task { await store.answer(optionIndex: index, kind: .permission) }
+            },
+            answerQuestion: { index in
+                Task { await store.answer(optionIndex: index, kind: .question) }
+            },
             retryPending: { id in
                 Task { await store.retry(pendingID: id) }
             },
@@ -331,15 +343,19 @@ public struct ChatScreen: View {
             },
             openTerminal: onOpenTerminal,
             openArtifact: { path in
+                store.recordDiagnostic(.artifactOpened)
                 selectedArtifact = ChatArtifactPathSelection(path: path)
             },
             showMessageDetail: { message in
+                store.recordDiagnostic(.blockDetailOpened)
                 selectedBlockSelection = .message(id: message.id)
             },
             showTerminalCommandDetail: { block in
+                store.recordDiagnostic(.blockDetailOpened)
                 selectedBlockSelection = .terminalCommand(id: block.id)
             },
             showCodeBlockDetail: { messageID, segmentIndex in
+                store.recordDiagnostic(.blockDetailOpened)
                 selectedBlockSelection = .codeBlock(messageID: messageID, segmentIndex: segmentIndex)
             },
             notifyCopied: { toasts.present(.copied()) }

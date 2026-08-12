@@ -140,12 +140,7 @@ fn nullableLiteral(allocator: Allocator, request: Value) !Value {
     defer placement.deinit();
 
     var result = Object.init(allocator);
-    switch (placement.value.lifecycle) {
-        .value => |lifecycle| {
-            try putString(&result, allocator, "lifecycle", lifecycle);
-        },
-        .null_value => try result.put("lifecycle", .null),
-    }
+    try putString(&result, allocator, "lifecycle", placement.value.lifecycle.toWire());
     return .{ .object = result };
 }
 
@@ -612,7 +607,7 @@ fn realFlow(allocator: Allocator, request: Value) !Value {
         renamed_index.? < closed_index.?;
 
     var result = Object.init(allocator);
-    try result.put("identified", .{ .bool = identity.value.protocol == 10 });
+    try result.put("identified", .{ .bool = identity.value.protocol == 12 });
     try result.put("workspace_created", .{ .bool = workspace > 0 });
     try result.put("terminal_created", .{ .bool = context.terminal_created });
     try result.put("marker_sent", .{ .bool = true });

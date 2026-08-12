@@ -92,7 +92,7 @@ public struct PullRequestProbeService: Sendable {
     /// - Returns: The candidates plus repo-keyed indexes for the fetch stage.
     public nonisolated func resolveCandidateSeeds(
         _ seeds: [WorkspacePullRequestCandidateSeed],
-        gitMetadata: GitMetadataService
+        gitMetadata: any GitRepositoryDiscovering
     ) async -> WorkspacePullRequestCandidateResolution {
         var candidates: [WorkspacePullRequestCandidate] = []
         candidates.reserveCapacity(seeds.count)

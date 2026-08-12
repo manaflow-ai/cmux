@@ -74,9 +74,94 @@ public struct DiagnosticEventPresentation: Sendable {
         String(describing: phase)
     }
 
+    /// The stable machine name of an app-wide iOS feature event.
+    public func name(_ kind: DiagnosticAppEventKind) -> String {
+        String(describing: kind)
+    }
+
+    /// The stable machine name of a terminal toolbar action.
+    public func name(_ action: DiagnosticTerminalToolbarAction) -> String {
+        String(describing: action)
+    }
+
+    /// The stable machine name of a terminal zoom action.
+    public func name(_ action: DiagnosticTerminalZoomAction) -> String {
+        String(describing: action)
+    }
+
+    /// The stable machine name of a primary navigation destination.
+    public func name(_ tab: DiagnosticPrimaryTab) -> String {
+        String(describing: tab)
+    }
+
+    /// The stable machine name of a primary search owner.
+    public func name(_ scope: DiagnosticSearchScope) -> String {
+        String(describing: scope)
+    }
+
+    /// The stable machine name of a terminal toolbar configuration mutation.
+    public func name(_ action: DiagnosticToolbarConfigurationAction) -> String {
+        String(describing: action)
+    }
+
+    /// The stable machine name of a feedback delivery route.
+    public func name(_ route: DiagnosticFeedbackRoute) -> String {
+        String(describing: route)
+    }
+
+    /// The stable machine name of a toast style.
+    public func name(_ style: DiagnosticToastStyle) -> String {
+        String(describing: style)
+    }
+
+    /// The stable machine name of a toast dismissal reason.
+    public func name(_ reason: DiagnosticToastDismissReason) -> String {
+        String(describing: reason)
+    }
+
     /// The stable machine name of a runtime role.
     public func name(_ role: DiagnosticRuntimeRole) -> String {
         String(describing: role)
+    }
+
+    /// The stable machine name of a Simulator stream lifecycle edge.
+    public func name(_ kind: DiagnosticSimulatorStreamLifecycle) -> String {
+        String(describing: kind)
+    }
+
+    /// The stable machine name of a Simulator frame lifecycle edge.
+    public func name(_ kind: DiagnosticSimulatorFrameLifecycle) -> String {
+        String(describing: kind)
+    }
+
+    /// The stable machine name of a Simulator input lifecycle edge.
+    public func name(_ kind: DiagnosticSimulatorInputLifecycle) -> String {
+        String(describing: kind)
+    }
+
+    /// The stable machine name of a Simulator input kind.
+    public func name(_ kind: DiagnosticSimulatorInputKind) -> String {
+        String(describing: kind)
+    }
+
+    /// The stable machine name of a Simulator hardware button kind.
+    public func name(_ kind: DiagnosticSimulatorHardwareButtonKind) -> String {
+        String(describing: kind)
+    }
+
+    /// The stable machine name of a Simulator pointer phase.
+    public func name(_ phase: DiagnosticSimulatorPointerPhase) -> String {
+        String(describing: phase)
+    }
+
+    /// The stable machine name of a Simulator ownership state.
+    public func name(_ state: DiagnosticSimulatorOwnershipState) -> String {
+        String(describing: state)
+    }
+
+    /// The stable machine name of a Simulator coordinate mapping state.
+    public func name(_ state: DiagnosticSimulatorCoordinateState) -> String {
+        String(describing: state)
     }
 
     /// Human-readable name of a diagnostic failure category.
@@ -108,6 +193,11 @@ public struct DiagnosticEventPresentation: Sendable {
         case .admissionRevalidationFailed: localized("diagnostics.failure.admissionRevalidationFailed", defaultValue: "Admission revalidation failed")
         case .sendQueueOverflow: localized("diagnostics.failure.sendQueueOverflow", defaultValue: "Send queue overflow")
         case .routeGated: localized("diagnostics.failure.routeGated", defaultValue: "Route already connecting")
+        case .payloadTooLarge: localized("diagnostics.failure.payloadTooLarge", defaultValue: "Payload too large")
+        case .resourceLimitReached: localized("diagnostics.failure.resourceLimitReached", defaultValue: "Resource limit reached")
+        case .attachmentCountLimitReached: localized("diagnostics.failure.attachmentCountLimitReached", defaultValue: "Attachment count limit reached")
+        case .attachmentAggregateSizeLimitReached: localized("diagnostics.failure.attachmentAggregateSizeLimitReached", defaultValue: "Attachment size limit reached")
+        case .localStateUnavailable: localized("diagnostics.failure.localStateUnavailable", defaultValue: "Local state unavailable")
         case .unknown: localized("diagnostics.failure.unknown", defaultValue: "Unknown failure")
         }
     }
@@ -189,7 +279,7 @@ public struct DiagnosticEventPresentation: Sendable {
             fields.append(decodeMilliseconds(ms, code: event.code))
         }
         if let c = event.c {
-            fields.append(decodeC(c, code: event.code))
+            fields.append(decodeC(c, event: event))
         }
         return DescribedEvent(name: title(for: event.code), fields: fields)
     }
@@ -236,7 +326,7 @@ public struct DiagnosticEventPresentation: Sendable {
         .pairFail, .transportDialFailed, .recoveryFailed, .endpointFailed,
         .relayPolicyRefreshFailed, .sessionClosed, .routeUnavailable,
         .discoveryFailed, .admissionFailed, .hostAuthenticationFailed,
-        .rpcFailed, .transportCloseAttribution,
+        .rpcFailed, .transportCloseAttribution, .appFeatureAction,
     ]
 
     /// Event codes whose `a` slot carries a ``DiagnosticTransportKind``.
@@ -353,6 +443,26 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.transportCloseAttribution", defaultValue: "Transport close attributed")
         case .transportPathEvent:
             localized("diagnostics.event.transportPathEvent", defaultValue: "Transport path changed")
+        case .browserStreamLifecycle:
+            localized("diagnostics.event.browserStreamLifecycle", defaultValue: "Browser stream lifecycle")
+        case .browserInputReplayed:
+            localized("diagnostics.event.browserInputReplayed", defaultValue: "Browser input replayed")
+        case .browserEditableFocus:
+            localized("diagnostics.event.browserEditableFocus", defaultValue: "Browser editable focus")
+        case .browserPanelCreateResolved:
+            localized("diagnostics.event.browserPanelCreateResolved", defaultValue: "Browser panel create resolved")
+        case .simulatorStreamLifecycle:
+            localized("diagnostics.event.simulatorStreamLifecycle", defaultValue: "Simulator stream state changed")
+        case .simulatorFrameLifecycle:
+            localized("diagnostics.event.simulatorFrameLifecycle", defaultValue: "Simulator frame pipeline changed")
+        case .simulatorInputLifecycle:
+            localized("diagnostics.event.simulatorInputLifecycle", defaultValue: "Simulator input state changed")
+        case .simulatorCoordinateMapped:
+            localized("diagnostics.event.simulatorCoordinateMapped", defaultValue: "Simulator touch coordinate mapped")
+        case .simulatorOwnershipChanged:
+            localized("diagnostics.event.simulatorOwnershipChanged", defaultValue: "Simulator control ownership changed")
+        case .appFeatureAction:
+            localized("diagnostics.event.appFeatureAction", defaultValue: "App feature event")
         }
     }
 
@@ -387,6 +497,26 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "composer_active", value: booleanName(raw))
         case .composerKeyboardToggleWhilePresented:
             return Field(key: "terminal_input_focused", value: booleanName(raw))
+        case .browserStreamLifecycle:
+            return Field(key: "stage", value: browserStreamStageName(raw))
+        case .browserInputReplayed:
+            return Field(key: "input", value: browserInputKindName(raw))
+        case .browserEditableFocus:
+            return Field(key: "editable_focused", value: booleanName(raw))
+        case .browserPanelCreateResolved:
+            return Field(key: "created", value: booleanName(raw))
+        case .simulatorStreamLifecycle:
+            return Field(key: "state", value: simulatorStreamLifecycleName(raw))
+        case .simulatorFrameLifecycle:
+            return Field(key: "state", value: simulatorFrameLifecycleName(raw))
+        case .simulatorInputLifecycle:
+            return Field(key: "state", value: simulatorInputLifecycleName(raw))
+        case .simulatorCoordinateMapped:
+            return Field(key: "x", value: normalizedCoordinate(raw))
+        case .simulatorOwnershipChanged:
+            return Field(key: "owner", value: simulatorOwnershipName(raw))
+        case .appFeatureAction:
+            return Field(key: "operation", value: appEventName(raw))
         default:
             return Field(key: "detail_1", value: String(raw))
         }
@@ -411,6 +541,20 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "draft_empty", value: booleanName(raw))
         case .composerActiveTransition, .composerKeyboardToggleWhilePresented:
             return Field(key: "first_responder", value: responderName(raw))
+        case .browserInputReplayed:
+            return Field(key: "count", value: String(raw))
+        case .browserEditableFocus:
+            return Field(key: "outcome", value: browserFocusOutcomeName(raw))
+        case .simulatorStreamLifecycle:
+            return Field(key: "owner", value: simulatorOwnershipName(raw))
+        case .simulatorFrameLifecycle:
+            return Field(key: "frame_sequence", value: String(raw))
+        case .simulatorInputLifecycle:
+            return Field(key: "input", value: simulatorInputKindName(raw))
+        case .simulatorCoordinateMapped:
+            return Field(key: "y", value: normalizedCoordinate(raw))
+        case .simulatorOwnershipChanged:
+            return Field(key: "previous_owner", value: simulatorOwnershipName(raw))
         default:
             return Field(key: "detail_2", value: String(raw))
         }
@@ -436,8 +580,8 @@ public struct DiagnosticEventPresentation: Sendable {
         }
     }
 
-    private func decodeC(_ raw: Int, code: DiagnosticEventCode) -> Field {
-        switch code {
+    private func decodeC(_ raw: Int, event: DiagnosticEvent) -> Field {
+        switch event.code {
         case .transportDialStarted, .transportDialConnected, .transportDialFailed:
             return Field(key: "attempt", value: String(raw))
         case .sessionClosed, .transportSessionLifecycle,
@@ -445,10 +589,124 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "session", value: String(raw))
         case .composerActiveTransition:
             return Field(key: "terminal_input_focused", value: booleanName(raw))
+        case .browserStreamLifecycle, .browserInputReplayed,
+             .browserEditableFocus, .browserPanelCreateResolved:
+            return Field(key: "panel", value: String(raw))
+        case .simulatorStreamLifecycle:
+            return Field(key: "active_sessions", value: String(raw))
+        case .simulatorFrameLifecycle:
+            return Field(key: "payload_size", value: byteCount(raw))
+        case .simulatorInputLifecycle:
+            return Field(
+                key: "input_detail",
+                value: simulatorInputDetailName(raw, inputKindRaw: event.b)
+            )
+        case .simulatorCoordinateMapped:
+            return Field(key: "mapping", value: simulatorCoordinateStateName(raw))
+        case .appFeatureAction:
+            if let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)) {
+                switch kind {
+                case .terminalToolbarActionUsed:
+                    return Field(key: "action", value: terminalToolbarActionName(raw))
+                case .terminalZoomChanged:
+                    return Field(key: "action", value: terminalZoomActionName(raw))
+                case .primaryTabSelected:
+                    return Field(key: "tab", value: primaryTabName(raw))
+                case .searchPresented, .searchDismissed, .searchResultSelected:
+                    return Field(key: "scope", value: searchScopeName(raw))
+                case .customToolbarChanged, .terminalShortcutChanged:
+                    return Field(key: "change", value: toolbarConfigurationActionName(raw))
+                case .feedbackSubmitStarted, .feedbackSubmitSucceeded, .feedbackSubmitFailed:
+                    return Field(key: "route", value: feedbackRouteName(raw))
+                case .toastPresented, .toastCoalesced, .toastQueued, .toastDropped:
+                    return Field(key: "style", value: toastStyleName(raw))
+                case .toastDismissed:
+                    return Field(key: "reason", value: toastDismissReasonName(raw))
+                default:
+                    if Self.appEventKindsWithValuePayload.contains(kind) {
+                        return Field(key: "value", value: String(raw))
+                    }
+                }
+            }
+            return Field(key: "count", value: String(raw))
         default:
             return Field(key: "detail_3", value: String(raw))
         }
     }
+
+    private func appEventName(_ raw: Int) -> String {
+        guard let kind = DiagnosticAppEventKind(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.appEvent",
+                defaultValue: "Unknown app event (\(raw))"
+            )
+        }
+        return name(kind)
+    }
+
+    private func terminalToolbarActionName(_ raw: Int) -> String {
+        DiagnosticTerminalToolbarAction(rawValue: raw).map(name)
+            ?? unknownPayloadName(raw)
+    }
+
+    private func terminalZoomActionName(_ raw: Int) -> String {
+        DiagnosticTerminalZoomAction(rawValue: raw).map(name)
+            ?? unknownPayloadName(raw)
+    }
+
+    private func primaryTabName(_ raw: Int) -> String {
+        DiagnosticPrimaryTab(rawValue: raw).map(name)
+            ?? unknownPayloadName(raw)
+    }
+
+    private func searchScopeName(_ raw: Int) -> String {
+        DiagnosticSearchScope(rawValue: raw).map(name)
+            ?? unknownPayloadName(raw)
+    }
+
+    private func toolbarConfigurationActionName(_ raw: Int) -> String {
+        DiagnosticToolbarConfigurationAction(rawValue: raw).map(name)
+            ?? unknownPayloadName(raw)
+    }
+
+    private func feedbackRouteName(_ raw: Int) -> String {
+        DiagnosticFeedbackRoute(rawValue: raw).map(name)
+            ?? unknownPayloadName(raw)
+    }
+
+    private func toastStyleName(_ raw: Int) -> String {
+        DiagnosticToastStyle(rawValue: raw).map(name)
+            ?? unknownPayloadName(raw)
+    }
+
+    private func toastDismissReasonName(_ raw: Int) -> String {
+        DiagnosticToastDismissReason(rawValue: raw).map(name)
+            ?? unknownPayloadName(raw)
+    }
+
+    private func unknownPayloadName(_ raw: Int) -> String {
+        localized(
+            "diagnostics.unknown.payload",
+            defaultValue: "Unknown value (\(raw))"
+        )
+    }
+
+    private static let appEventKindsWithValuePayload: Set<DiagnosticAppEventKind> = [
+        .displayAltScreenNoticeChanged,
+        .displayFolderTapChanged,
+        .displayHapticsChanged,
+        .taskComposerFeatureChanged,
+        .terminalFilesFeatureChanged,
+        .toastFeatureChanged,
+        .displayMissingFilesChanged,
+        .displayWorkspaceTitleWrappingChanged,
+        .displayWorkspacePreviewLinesChanged,
+        .terminalScrollbackRowsChanged,
+        .telemetrySharingChanged,
+        .connectionMethodPreferenceChanged,
+        .notificationPreferenceChanged,
+        .terminalDraftStateChanged,
+    ]
 
     private func failureName(_ raw: Int) -> String {
         guard let value = DiagnosticFailureKind(rawValue: raw) else {
@@ -598,6 +856,48 @@ public struct DiagnosticEventPresentation: Sendable {
         }
     }
 
+    private func browserStreamStageName(_ raw: Int) -> String {
+        switch raw {
+        case 1: localized("diagnostics.browserStage.started", defaultValue: "Started")
+        case 2: localized("diagnostics.browserStage.replaced", defaultValue: "Replaced existing session")
+        case 3: localized("diagnostics.browserStage.stopped", defaultValue: "Stopped")
+        case 4: localized("diagnostics.browserStage.firstFrame", defaultValue: "First frame delivered")
+        default:
+            localized(
+                "diagnostics.unknown.browserStage",
+                defaultValue: "Unknown stage (\(raw))"
+            )
+        }
+    }
+
+    private func browserInputKindName(_ raw: Int) -> String {
+        switch raw {
+        case 1: localized("diagnostics.browserInput.pointer", defaultValue: "Pointer")
+        case 2: localized("diagnostics.browserInput.key", defaultValue: "Key")
+        case 3: localized("diagnostics.browserInput.text", defaultValue: "Text")
+        case 4: localized("diagnostics.browserInput.keySuppressed", defaultValue: "Key suppressed")
+        default:
+            localized(
+                "diagnostics.unknown.browserInput",
+                defaultValue: "Unknown input (\(raw))"
+            )
+        }
+    }
+
+    private func browserFocusOutcomeName(_ raw: Int) -> String {
+        switch raw {
+        case 0: localized("diagnostics.browserFocus.none", defaultValue: "No editable at point")
+        case 1: localized("diagnostics.browserFocus.moved", defaultValue: "Focus moved")
+        case 2: localized("diagnostics.browserFocus.already", defaultValue: "Already focused")
+        case 3: localized("diagnostics.browserFocus.beacon", defaultValue: "Beacon transition")
+        default:
+            localized(
+                "diagnostics.unknown.browserFocus",
+                defaultValue: "Unknown outcome (\(raw))"
+            )
+        }
+    }
+
     private func pathEventName(_ raw: Int) -> String {
         switch raw {
         case 1: localized("diagnostics.pathOperation.opened", defaultValue: "Opened")
@@ -610,6 +910,241 @@ public struct DiagnosticEventPresentation: Sendable {
                 defaultValue: "Unknown path operation (\(raw))"
             )
         }
+    }
+
+    private func simulatorStreamLifecycleName(_ raw: Int) -> String {
+        guard let value = DiagnosticSimulatorStreamLifecycle(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.simulatorStreamState",
+                defaultValue: "Unknown stream state (\(raw))"
+            )
+        }
+        switch value {
+        case .startRequested:
+            return localized("diagnostics.simulator.stream.startRequested", defaultValue: "Start requested")
+        case .started:
+            return localized("diagnostics.simulator.stream.started", defaultValue: "Started")
+        case .locked:
+            return localized("diagnostics.simulator.stream.locked", defaultValue: "Locked by another controller")
+        case .startFailed:
+            return localized("diagnostics.simulator.stream.startFailed", defaultValue: "Start failed")
+        case .stopRequested:
+            return localized("diagnostics.simulator.stream.stopRequested", defaultValue: "Stop requested")
+        case .stopped:
+            return localized("diagnostics.simulator.stream.stopped", defaultValue: "Stopped")
+        case .closed:
+            return localized("diagnostics.simulator.stream.closed", defaultValue: "Closed")
+        case .restartRequested:
+            return localized("diagnostics.simulator.stream.restartRequested", defaultValue: "Restart requested")
+        case .pausedForBackground:
+            return localized("diagnostics.simulator.stream.pausedForBackground", defaultValue: "Paused for background")
+        case .descriptorApplied:
+            return localized("diagnostics.simulator.stream.descriptorApplied", defaultValue: "Descriptor applied")
+        case .stalled:
+            return localized("diagnostics.simulator.stream.stalled", defaultValue: "Stalled (no frames or keepalives)")
+        case .stopFailed:
+            return localized("diagnostics.simulator.stream.stopFailed", defaultValue: "Stop failed")
+        }
+    }
+
+    private func simulatorFrameLifecycleName(_ raw: Int) -> String {
+        guard let value = DiagnosticSimulatorFrameLifecycle(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.simulatorFrameState",
+                defaultValue: "Unknown frame state (\(raw))"
+            )
+        }
+        switch value {
+        case .readerAttached:
+            return localized("diagnostics.simulator.frame.readerAttached", defaultValue: "Reader attached")
+        case .readerMissing:
+            return localized("diagnostics.simulator.frame.readerMissing", defaultValue: "Reader missing")
+        case .copied:
+            return localized("diagnostics.simulator.frame.copied", defaultValue: "Frame copied")
+        case .encodeFailed:
+            return localized("diagnostics.simulator.frame.encodeFailed", defaultValue: "Frame encode failed")
+        case .sent:
+            return localized("diagnostics.simulator.frame.sent", defaultValue: "Frame sent")
+        case .refused:
+            return localized("diagnostics.simulator.frame.refused", defaultValue: "Frame refused by queue")
+        case .cachedSent:
+            return localized("diagnostics.simulator.frame.cachedSent", defaultValue: "Cached frame sent")
+        case .subscriptionReasserted:
+            return localized("diagnostics.simulator.frame.subscriptionReasserted", defaultValue: "Subscription reasserted")
+        case .received:
+            return localized("diagnostics.simulator.frame.received", defaultValue: "Frame received")
+        case .staleIgnored:
+            return localized("diagnostics.simulator.frame.staleIgnored", defaultValue: "Stale frame ignored")
+        case .decodeFailed:
+            return localized("diagnostics.simulator.frame.decodeFailed", defaultValue: "Frame decode failed")
+        case .imageDecoded:
+            return localized("diagnostics.simulator.frame.imageDecoded", defaultValue: "Image decoded")
+        case .imageDecodeFailed:
+            return localized("diagnostics.simulator.frame.imageDecodeFailed", defaultValue: "Image decode failed")
+        case .unknownPanel:
+            return localized("diagnostics.simulator.frame.unknownPanel", defaultValue: "Unknown panel")
+        }
+    }
+
+    private func simulatorInputLifecycleName(_ raw: Int) -> String {
+        guard let value = DiagnosticSimulatorInputLifecycle(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.simulatorInputState",
+                defaultValue: "Unknown input state (\(raw))"
+            )
+        }
+        switch value {
+        case .queued:
+            return localized("diagnostics.simulator.input.queued", defaultValue: "Queued")
+        case .sent:
+            return localized("diagnostics.simulator.input.sent", defaultValue: "Sent")
+        case .accepted:
+            return localized("diagnostics.simulator.input.accepted", defaultValue: "Accepted")
+        case .failed:
+            return localized("diagnostics.simulator.input.failed", defaultValue: "Failed")
+        case .rejectedLocked:
+            return localized("diagnostics.simulator.input.rejectedLocked", defaultValue: "Rejected because locked")
+        case .unavailable:
+            return localized("diagnostics.simulator.input.unavailable", defaultValue: "Unavailable")
+        case .invalidParameters:
+            return localized("diagnostics.simulator.input.invalidParameters", defaultValue: "Invalid parameters")
+        case .panelMissing:
+            return localized("diagnostics.simulator.input.panelMissing", defaultValue: "Panel missing")
+        case .featureDisabled:
+            return localized("diagnostics.simulator.input.featureDisabled", defaultValue: "Feature disabled")
+        case .blockedViewOnly:
+            return localized("diagnostics.simulator.input.blockedViewOnly", defaultValue: "Blocked in view-only mode")
+        }
+    }
+
+    private func simulatorInputKindName(_ raw: Int) -> String {
+        guard let value = DiagnosticSimulatorInputKind(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.simulatorInputKind",
+                defaultValue: "Unknown input kind (\(raw))"
+            )
+        }
+        switch value {
+        case .pointer:
+            return localized("diagnostics.simulator.inputKind.pointer", defaultValue: "Pointer")
+        case .text:
+            return localized("diagnostics.simulator.inputKind.text", defaultValue: "Text")
+        case .hardwareButton:
+            return localized("diagnostics.simulator.inputKind.hardwareButton", defaultValue: "Hardware button")
+        }
+    }
+
+    private func simulatorInputDetailName(_ raw: Int, inputKindRaw: Int?) -> String {
+        guard let inputKindRaw,
+              let inputKind = DiagnosticSimulatorInputKind(rawValue: inputKindRaw) else {
+            return String(raw)
+        }
+        switch inputKind {
+        case .pointer:
+            return simulatorPointerPhaseName(raw)
+        case .text:
+            return byteCount(raw)
+        case .hardwareButton:
+            return simulatorHardwareButtonName(raw)
+        }
+    }
+
+    private func simulatorPointerPhaseName(_ raw: Int) -> String {
+        guard let value = DiagnosticSimulatorPointerPhase(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.simulatorPointerPhase",
+                defaultValue: "Unknown pointer phase (\(raw))"
+            )
+        }
+        switch value {
+        case .began:
+            return localized("diagnostics.simulator.pointer.began", defaultValue: "Began")
+        case .moved:
+            return localized("diagnostics.simulator.pointer.moved", defaultValue: "Moved")
+        case .ended:
+            return localized("diagnostics.simulator.pointer.ended", defaultValue: "Ended")
+        case .tap:
+            return localized("diagnostics.simulator.pointer.tap", defaultValue: "Tap")
+        }
+    }
+
+    private func simulatorHardwareButtonName(_ raw: Int) -> String {
+        guard let value = DiagnosticSimulatorHardwareButtonKind(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.simulatorHardwareButton",
+                defaultValue: "Unknown hardware button (\(raw))"
+            )
+        }
+        switch value {
+        case .unknown:
+            return localized("diagnostics.simulator.button.unknown", defaultValue: "Unknown button")
+        case .home:
+            return localized("diagnostics.simulator.button.home", defaultValue: "Home")
+        case .swipeHome:
+            return localized("diagnostics.simulator.button.swipeHome", defaultValue: "Swipe Home")
+        case .appSwitcher:
+            return localized("diagnostics.simulator.button.appSwitcher", defaultValue: "App Switcher")
+        case .lock:
+            return localized("diagnostics.simulator.button.lock", defaultValue: "Lock")
+        case .siri:
+            return localized("diagnostics.simulator.button.siri", defaultValue: "Siri")
+        case .sideButton:
+            return localized("diagnostics.simulator.button.sideButton", defaultValue: "Side button")
+        case .power:
+            return localized("diagnostics.simulator.button.power", defaultValue: "Power")
+        case .volumeUp:
+            return localized("diagnostics.simulator.button.volumeUp", defaultValue: "Volume up")
+        case .volumeDown:
+            return localized("diagnostics.simulator.button.volumeDown", defaultValue: "Volume down")
+        case .action:
+            return localized("diagnostics.simulator.button.action", defaultValue: "Action")
+        case .watchSideButton:
+            return localized("diagnostics.simulator.button.watchSideButton", defaultValue: "Watch side button")
+        }
+    }
+
+    private func simulatorOwnershipName(_ raw: Int) -> String {
+        guard let value = DiagnosticSimulatorOwnershipState(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.simulatorOwner",
+                defaultValue: "Unknown owner state (\(raw))"
+            )
+        }
+        switch value {
+        case .unowned:
+            return localized("diagnostics.simulator.owner.unowned", defaultValue: "Unowned")
+        case .currentConnection:
+            return localized("diagnostics.simulator.owner.currentConnection", defaultValue: "Current connection")
+        case .otherConnection:
+            return localized("diagnostics.simulator.owner.otherConnection", defaultValue: "Other connection")
+        case .pendingHandshake:
+            return localized("diagnostics.simulator.owner.pendingHandshake", defaultValue: "Pending handshake")
+        case .unknown:
+            return localized("diagnostics.simulator.owner.unknown", defaultValue: "Unknown")
+        }
+    }
+
+    private func simulatorCoordinateStateName(_ raw: Int) -> String {
+        guard let value = DiagnosticSimulatorCoordinateState(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.simulatorCoordinateState",
+                defaultValue: "Unknown coordinate state (\(raw))"
+            )
+        }
+        switch value {
+        case .mapped:
+            return localized("diagnostics.simulator.coordinate.mapped", defaultValue: "Mapped")
+        case .outsideImage:
+            return localized("diagnostics.simulator.coordinate.outsideImage", defaultValue: "Outside image")
+        case .viewOnlyBlocked:
+            return localized("diagnostics.simulator.coordinate.viewOnlyBlocked", defaultValue: "View-only blocked")
+        case .zeroImage:
+            return localized("diagnostics.simulator.coordinate.zeroImage", defaultValue: "Missing image geometry")
+        }
+    }
+
+    private func normalizedCoordinate(_ raw: Int) -> String {
+        String(format: "%.4f", Double(raw) / 10_000.0)
     }
 
     private func duration(_ milliseconds: UInt32) -> String {
@@ -690,6 +1225,30 @@ public struct DiagnosticEventPresentation: Sendable {
         case "remote_sequence": localized("diagnostics.field.remoteSequence", defaultValue: "Remote sequence")
         case "delivered_sequence": localized("diagnostics.field.deliveredSequence", defaultValue: "Delivered sequence")
         case "next_sequence": localized("diagnostics.field.nextSequence", defaultValue: "Next sequence")
+        case "stage": localized("diagnostics.field.stage", defaultValue: "Stage")
+        case "owner": localized("diagnostics.field.owner", defaultValue: "Owner")
+        case "previous_owner": localized("diagnostics.field.previousOwner", defaultValue: "Previous owner")
+        case "frame_sequence": localized("diagnostics.field.frameSequence", defaultValue: "Frame sequence")
+        case "payload_size": localized("diagnostics.field.payloadSize", defaultValue: "Payload size")
+        case "input": localized("diagnostics.field.input", defaultValue: "Input")
+        case "input_detail": localized("diagnostics.field.inputDetail", defaultValue: "Input detail")
+        case "active_sessions": localized("diagnostics.field.activeSessions", defaultValue: "Active sessions")
+        case "count": localized("diagnostics.field.count", defaultValue: "Count")
+        case "value": localized("diagnostics.field.value", defaultValue: "Value")
+        case "action": localized("diagnostics.field.action", defaultValue: "Action")
+        case "tab": localized("diagnostics.field.tab", defaultValue: "Tab")
+        case "scope": localized("diagnostics.field.scope", defaultValue: "Scope")
+        case "change": localized("diagnostics.field.change", defaultValue: "Change")
+        case "route": localized("diagnostics.field.route", defaultValue: "Route")
+        case "style": localized("diagnostics.field.style", defaultValue: "Style")
+        case "reason": localized("diagnostics.field.reason", defaultValue: "Reason")
+        case "outcome": localized("diagnostics.field.outcome", defaultValue: "Outcome")
+        case "editable_focused": localized("diagnostics.field.editableFocused", defaultValue: "Editable focused")
+        case "created": localized("diagnostics.field.created", defaultValue: "Created")
+        case "panel": localized("diagnostics.field.panel", defaultValue: "Panel")
+        case "x": localized("diagnostics.field.x", defaultValue: "X")
+        case "y": localized("diagnostics.field.y", defaultValue: "Y")
+        case "mapping": localized("diagnostics.field.mapping", defaultValue: "Mapping")
         case "detail_1": localized("diagnostics.field.detail1", defaultValue: "Detail 1")
         case "detail_2": localized("diagnostics.field.detail2", defaultValue: "Detail 2")
         case "detail_3": localized("diagnostics.field.detail3", defaultValue: "Detail 3")
