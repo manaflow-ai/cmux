@@ -2,6 +2,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
+use cmux_tui_core::server::PROTOCOL_VERSION;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
@@ -119,14 +120,6 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             3,
         );
     };
-    let Some(generation) = identity["generation"].as_str().filter(|value| !value.is_empty()) else {
-        return local_error(
-            "server.invalid_identity",
-            crate::localization::catalog().local_server.invalid_identity,
-            global.output,
-            3,
-        );
-    };
     if expected_session.as_deref().is_some_and(|expected| actual_session != expected) {
         return local_error(
             "server.different_session",
@@ -135,6 +128,38 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             1,
         );
     }
+    let generation = identity["generation"].as_str().filter(|value| !value.is_empty());
+    if generation.is_none()
+        && identity["protocol"].as_u64().unwrap_or_default() < u64::from(PROTOCOL_VERSION)
+        && let ServerAction::Stop { force } = &plan.action
+    {
+        if *force {
+            return local_error(
+                "server.force_unsupported",
+                crate::localization::catalog().local_server.force_unsupported,
+                global.output,
+                1,
+            );
+        }
+        let result =
+            crate::server_lifecycle::ServerLifecycle::from_connected(socket, &identity, connection)
+                .and_then(crate::server_lifecycle::ServerLifecycle::stop_legacy);
+        return match result {
+            Ok(()) => print_stop_success(global.output, actual_session, pid, None),
+            Err(error) => {
+                let message = error.to_string();
+                local_error("server.stop_failed", &message, global.output, 1)
+            }
+        };
+    }
+    let Some(generation) = generation else {
+        return local_error(
+            "server.invalid_identity",
+            crate::localization::catalog().local_server.invalid_identity,
+            global.output,
+            3,
+        );
+    };
 
     match plan.action {
         ServerAction::Status => print_success(
@@ -240,19 +265,28 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             if let Err(message) = wait_for_close(&mut connection, deadline) {
                 return local_error("server.stop_incomplete", &message, global.output, 3);
             }
-            print_success(
-                json!({
-                    "status":"stopped",
-                    "accepted":true,
-                    "session":actual_session,
-                    "pid":pid,
-                    "generation":generation,
-                    "message":crate::localization::catalog().local_server.stopped,
-                }),
-                global.output,
-            )
+            print_stop_success(global.output, actual_session, pid, Some(generation))
         }
     }
+}
+
+fn print_stop_success(
+    output: OutputMode,
+    session: &str,
+    pid: u32,
+    generation: Option<&str>,
+) -> i32 {
+    print_success(
+        json!({
+            "status":"stopped",
+            "accepted":true,
+            "session":session,
+            "pid":pid,
+            "generation":generation,
+            "message":crate::localization::catalog().local_server.stopped,
+        }),
+        output,
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
