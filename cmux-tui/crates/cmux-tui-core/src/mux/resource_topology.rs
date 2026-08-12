@@ -2628,10 +2628,8 @@ impl Mux {
                         if closing == public_id
                 )
             }) {
-                let expected_incarnation = plan
-                    .terminal_batch
-                    .first()
-                    .and_then(|(_, incarnation)| incarnation.clone());
+                let expected_incarnation =
+                    plan.terminal_batch.first().and_then(|(_, incarnation)| incarnation.clone());
                 projection.patch.changes.push(ResourceChange::TombstoneTerminal {
                     public_id: public_id.clone(),
                     expected_incarnation,
