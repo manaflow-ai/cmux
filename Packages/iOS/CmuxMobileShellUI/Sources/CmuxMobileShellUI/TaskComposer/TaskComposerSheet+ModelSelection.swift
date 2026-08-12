@@ -82,7 +82,7 @@ extension TaskComposerSheet {
         }
         store.recordAppEvent(
             .taskModelSelected,
-            correlationID: validatedID
+            correlationID: selectedID
         )
     }
 }
