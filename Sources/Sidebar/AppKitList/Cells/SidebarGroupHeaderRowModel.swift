@@ -19,6 +19,9 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let isMultiSelected: Bool
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
     let memberCount: Int
+    let showsAgentActivity: Bool
+    let runningAgentCount: Int
+    let needsInputAgentCount: Int
     var anchorUnreadCount: Int
     var canMarkRead: Bool
     var canMarkUnread: Bool

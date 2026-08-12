@@ -9,6 +9,7 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupTableConfiguration(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
+        agentActivityCountsByWorkspaceId: [UUID: SidebarAgentActivitySummary.Counts],
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableRowConfiguration {
         let settings = renderContext.tabItemSettings
@@ -32,6 +33,11 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
+        let showsAgentActivity = group.isCollapsed && renderContext.showsAgentActivity
+        let agentActivity = SidebarAgentActivitySummary.visibleCounts(
+            showsAgentActivity: showsAgentActivity,
+            countsByWorkspace: memberWorkspaceIds.compactMap { agentActivityCountsByWorkspaceId[$0] }
+        )
         // The AppKit controller applies the current unread snapshot after row
         // construction, keeping this root projection outside Observation.
         let unreadSnapshot = SidebarUnreadSnapshot()
@@ -84,6 +90,9 @@ extension VerticalTabsSidebar {
             isMultiSelected: isMultiSelected,
             multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
             memberCount: memberWorkspaceIds.count,
+            showsAgentActivity: showsAgentActivity,
+            runningAgentCount: agentActivity.running,
+            needsInputAgentCount: agentActivity.needsInput,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
             canMarkUnread: canMarkAnchorUnread,
@@ -252,6 +261,7 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupRowSnapshot(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
+        agentActivityCountsByWorkspaceId: [UUID: SidebarAgentActivitySummary.Counts],
         renderContext: WorkspaceListRenderContext,
         unreadSnapshot: SidebarUnreadSnapshot,
         notificationIndex: SidebarWorkspaceNotificationIndex,
@@ -279,6 +289,11 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
+        let showsAgentActivity = group.isCollapsed && renderContext.showsAgentActivity
+        let agentActivity = SidebarAgentActivitySummary.visibleCounts(
+            showsAgentActivity: showsAgentActivity,
+            countsByWorkspace: memberWorkspaceIds.compactMap { agentActivityCountsByWorkspaceId[$0] }
+        )
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
                 return memberWorkspaceIds.reduce(0) { partial, workspaceId in
@@ -333,6 +348,9 @@ extension VerticalTabsSidebar {
             isMultiSelected: isMultiSelected,
             multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
             memberCount: memberWorkspaceIds.count,
+            showsAgentActivity: showsAgentActivity,
+            runningAgentCount: agentActivity.running,
+            needsInputAgentCount: agentActivity.needsInput,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
             canMarkUnread: canMarkAnchorUnread,
@@ -383,6 +401,9 @@ extension VerticalTabsSidebar {
             isMultiSelected: snapshot.isMultiSelected,
             multiSelectionBackgroundStyle: snapshot.multiSelectionBackgroundStyle,
             memberCount: snapshot.memberCount,
+            showsAgentActivity: snapshot.showsAgentActivity,
+            runningAgentCount: snapshot.runningAgentCount,
+            needsInputAgentCount: snapshot.needsInputAgentCount,
             anchorUnreadCount: snapshot.anchorUnreadCount,
             canMarkRead: snapshot.canMarkRead,
             canMarkUnread: snapshot.canMarkUnread,

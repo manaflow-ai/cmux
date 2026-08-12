@@ -37,6 +37,7 @@ struct SidebarAppKitRowCellTests {
             latestLog: nil,
             progress: nil,
             activeCodingAgentCount: 0,
+            agentActivityCounts: .init(),
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -2082,24 +2083,28 @@ struct SidebarAppKitRowCellTests {
 @Suite
 @MainActor
 struct SidebarPinnedIndicatorColorTests {
-    @Test
-    func pinnedGroupUsesWorkspacePinColor() throws {
-        let workspaceCell = SidebarAppKitRowCellTests.configuredCell(
-            model: SidebarAppKitRowCellTests.makeModel(isPinned: true)
-        )
-        let groupCell = SidebarGroupHeaderTableCellView()
-        groupCell.configurePresentation(model: SidebarGroupHeaderRowModel(
+    private func makeGroupModel(
+        isCollapsed: Bool = false,
+        isPinned: Bool = false,
+        showsAgentActivity: Bool = false,
+        runningAgentCount: Int = 0,
+        needsInputAgentCount: Int = 0
+    ) -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
             groupId: UUID(),
             anchorWorkspaceId: UUID(),
             name: "Group",
             iconSymbol: "folder",
             tintHex: nil,
-            isCollapsed: false,
-            isPinned: true,
+            isCollapsed: isCollapsed,
+            isPinned: isPinned,
             isAnchorActive: false,
             isMultiSelected: false,
             multiSelectionBackgroundStyle: .clear,
             memberCount: 1,
+            showsAgentActivity: showsAgentActivity,
+            runningAgentCount: runningAgentCount,
+            needsInputAgentCount: needsInputAgentCount,
             anchorUnreadCount: 0,
             canMarkRead: false,
             canMarkUnread: false,
@@ -2117,7 +2122,16 @@ struct SidebarPinnedIndicatorColorTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false
-        ))
+        )
+    }
+
+    @Test
+    func pinnedGroupUsesWorkspacePinColor() throws {
+        let workspaceCell = SidebarAppKitRowCellTests.configuredCell(
+            model: SidebarAppKitRowCellTests.makeModel(isPinned: true)
+        )
+        let groupCell = SidebarGroupHeaderTableCellView()
+        groupCell.configurePresentation(model: makeGroupModel(isPinned: true))
 
         let workspacePin = try #require(
             SidebarAppKitRowCellTests.descendants(of: workspaceCell)
@@ -2132,4 +2146,28 @@ struct SidebarPinnedIndicatorColorTests {
 
         #expect(groupPin.contentTintColor == workspacePin.contentTintColor)
     }
+
+    @Test
+    func collapsedGroupShowsRunningAndNeedsInputCounts() throws {
+        let cell = SidebarGroupHeaderTableCellView()
+        cell.configurePresentation(model: makeGroupModel(
+            isCollapsed: true,
+            showsAgentActivity: true,
+            runningAgentCount: 4,
+            needsInputAgentCount: 2
+        ))
+
+        let activity = try #require(
+            SidebarAppKitRowCellTests.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue.contains("▶ 4") }
+        )
+
+        #expect(!activity.isHidden)
+        #expect(activity.stringValue.contains("! 2"))
+        #expect(activity.accessibilityLabel() == SidebarAgentActivitySummary.accessibilityText(
+            counts: .init(running: 4, needsInput: 2)
+        ))
+    }
+
 }

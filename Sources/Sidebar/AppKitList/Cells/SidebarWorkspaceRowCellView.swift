@@ -516,11 +516,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
 
-        let conversationSubtitle: String? = {
-            guard !settings.hidesAllDetails, settings.iMessageModeEnabled else { return nil }
-            let trimmed = snapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (trimmed?.isEmpty == false) ? trimmed : nil
-        }()
+        let conversationSubtitle = SidebarAgentActivitySummary.conversationSubtitle(
+            showsAgentActivity: model.showsAgentActivity,
+            hidesAllDetails: settings.hidesAllDetails,
+            iMessageModeEnabled: settings.iMessageModeEnabled,
+            message: snapshot.latestConversationMessage
+        )
         let effectiveSubtitle = model.latestNotificationText ?? conversationSubtitle
         let subtitleLineLimit = model.latestNotificationText == nil ? 2 : settings.notificationMessageLineLimit
         subtitleView.isHidden = effectiveSubtitle == nil

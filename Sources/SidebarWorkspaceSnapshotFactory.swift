@@ -101,6 +101,10 @@ struct SidebarWorkspaceSnapshotFactory {
                 showsAgentActivity: showsAgentActivity,
                 statesByPanelId: workspace.agentLifecycleStatesByPanelId
             ),
+            agentActivityCounts: SidebarAgentActivitySummary.visibleCounts(
+                showsAgentActivity: showsAgentActivity,
+                statesByPanelId: workspace.agentLifecycleStatesByPanelId
+            ),
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
