@@ -10,9 +10,9 @@ The split is deliberate:
   stable public operations, selectors, fields, results, errors, and streams.
 - Public resource handles, options, lifecycle, errors, and conveniences are
   handwritten in each language.
-- Mechanical protocol-v11 models are generated deterministically and exposed
+- Mechanical protocol-v12 models are generated deterministically and exposed
   only through `raw`.
-- A catalog descriptor in every package proves that all 113 transported
+- A catalog descriptor in every package proves that all 124 transported
   operations have the same class and wire name.
 - The six sidebar plugin operations are local CLI/filesystem APIs. Transported
   SDK roots expose sidebar views, not plugin resource handles.
@@ -36,19 +36,13 @@ Every high-level SDK must provide:
 | Results | Flat `value`, `generation`, decimal-string `revision`, and `replayed` fields |
 | Errors | Transport, timeout, decode, and structured resource errors retain code, message, details, and retryability |
 | Streams | Typed items, explicit cancellation, bounded unread queues, structured end state, and per-stream overflow isolation |
-| Evolution | Unknown stream variants retain their discriminator and complete raw object; malformed known variants fail decoding; a protocol-1 terminal snapshot missing `tab_ids` derives it from nullable `tab_id` |
+| Evolution | Unknown stream variants retain their discriminator and complete raw object; malformed known variants fail decoding |
 | Secrets | Pairing codes and renderer tokens are redacted from formatting and errors |
-| Raw access | Private protocol-v11 APIs are reachable only through a package path containing `raw` |
+| Raw access | Private protocol-v12 APIs are reachable only through a package path containing `raw` |
 
 Decimal wire values remain strings. TypeScript never converts them to
 `number`; Java uses `BigInteger`; other SDKs validate canonical unsigned
 decimal text before an optional native conversion.
-
-Current servers always emit `TerminalSnapshot.tab_ids`. High-level decoders
-also accept protocol-1 snapshots from older servers that omit it, producing
-`[tab_id]` when `tab_id` is present and `[]` when it is null. An explicitly
-present `tab_ids` must still be an array and satisfy the current first-item
-invariant, so the compatibility path cannot hide malformed current output.
 
 The server may return `mutation.indeterminate` after a crash around an external
 effect. SDKs retain the structured error and never repeat that key
@@ -170,7 +164,7 @@ Closing a client unblocks pending reads and releases owned transports.
 
 The raw generator:
 
-1. consumes the reviewed protocol-v11 schema;
+1. consumes the reviewed protocol-v12 schema;
 2. renders each selected language twice and requires byte equality;
 3. stages all outputs before changing the checkout;
 4. writes atomically;

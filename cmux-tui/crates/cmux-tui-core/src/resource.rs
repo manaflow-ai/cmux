@@ -140,6 +140,28 @@ pub enum ResourceOperation {
     SessionCreationResolve,
     #[serde(rename = "session.events")]
     SessionEvents,
+    #[serde(rename = "session.journal.subscribe")]
+    SessionJournalSubscribe,
+    #[serde(rename = "session.journal.producer.list")]
+    SessionJournalProducerList,
+    #[serde(rename = "session.journal.producer.put")]
+    SessionJournalProducerPut,
+    #[serde(rename = "session.journal.append")]
+    SessionJournalAppend,
+    #[serde(rename = "session.journal.checkpoint.create")]
+    SessionJournalCheckpointCreate,
+    #[serde(rename = "session.journal.checkpoint.list")]
+    SessionJournalCheckpointList,
+    #[serde(rename = "session.journal.hook.list")]
+    SessionJournalHookList,
+    #[serde(rename = "session.journal.hook.put")]
+    SessionJournalHookPut,
+    #[serde(rename = "session.journal.restore.preview")]
+    SessionJournalRestorePreview,
+    #[serde(rename = "session.journal.segment.list")]
+    SessionJournalSegmentList,
+    #[serde(rename = "session.journal.segment.seal")]
+    SessionJournalSegmentSeal,
     #[serde(rename = "session.ping")]
     SessionPing,
     #[serde(rename = "session.shutdown")]
@@ -389,6 +411,7 @@ impl ResourceOperation {
         if matches!(
             self,
             Self::SessionEvents
+                | Self::SessionJournalSubscribe
                 | Self::TerminalAttach
                 | Self::BrowserAttach
                 | Self::SidebarViewAttach
@@ -419,6 +442,11 @@ impl ResourceOperation {
                 | Self::SessionSnapshot
                 | Self::SessionCreationResolve
                 | Self::SessionPing
+                | Self::SessionJournalProducerList
+                | Self::SessionJournalHookList
+                | Self::SessionJournalCheckpointList
+                | Self::SessionJournalRestorePreview
+                | Self::SessionJournalSegmentList
                 | Self::ClientList
                 | Self::ClientGet
                 | Self::PairingRequestList
@@ -947,6 +975,7 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "local.io",
     "mutation.indeterminate",
     "operation.failed",
+    "operation.unsupported",
     "resource.not_found",
     "revision.conflict",
     "selector.ambiguous",
@@ -1472,6 +1501,11 @@ mod tests {
                 false,
             ),
             (
+                "operation.unsupported",
+                json!({"capability":"session-journal-v1","action":"restart_session"}),
+                false,
+            ),
+            (
                 "resource.not_found",
                 json!({"scope":"terminal","id":format!("term_{}", "0".repeat(32))}),
                 false,
@@ -1696,6 +1730,7 @@ mod tests {
     fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempotency() {
         for operation in [
             ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
             ResourceOperation::TerminalAttach,
             ResourceOperation::BrowserAttach,
             ResourceOperation::SidebarViewAttach,
@@ -1728,6 +1763,7 @@ mod tests {
 
         for operation in [
             ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
             ResourceOperation::RequestCancel,
             ResourceOperation::StreamCancel,
             ResourceOperation::ClientMetadataUpdate,

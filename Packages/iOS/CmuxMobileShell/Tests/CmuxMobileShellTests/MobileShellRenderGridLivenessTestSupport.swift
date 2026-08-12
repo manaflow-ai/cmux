@@ -81,6 +81,7 @@ actor LivenessHostRouter {
     private var macInstanceTag: String? = "default"
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
+    private var workspaceIDs = ["live-workspace"]
     private var workspaceListTitles: [String] = []
     /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
     private var syncFetchResults: [[String: Any]] = []
@@ -336,6 +337,10 @@ actor LivenessHostRouter {
         workspaceListTitles.append(contentsOf: titles)
     }
 
+    func setWorkspaceIDs(_ workspaceIDs: [String]) {
+        self.workspaceIDs = workspaceIDs
+    }
+
     func scriptNotificationFeedRevisions(_ revisions: [Int]) {
         notificationFeedRevisions.append(contentsOf: revisions)
     }
@@ -483,24 +488,27 @@ actor LivenessHostRouter {
                     message: "scripted workspace list failure"
                 )
             }
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": "live-workspace",
-                        "title": workspaceTitle,
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": "live-terminal",
-                                "title": "Terminal",
-                                "current_directory": "/Users/test/project",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
+            let workspaces: [[String: Any]] = workspaceIDs.enumerated().map { index, workspaceID in
+                [
+                    "id": workspaceID,
+                    "title": index == 0 ? workspaceTitle : workspaceID,
+                    "current_directory": "/Users/test/project",
+                    "is_selected": index == 0,
+                    "terminals": [
+                        [
+                            "id": workspaceID == "live-workspace"
+                                ? "live-terminal"
+                                : "\(workspaceID)-terminal",
+                            "title": "Terminal",
+                            "current_directory": "/Users/test/project",
+                            "is_ready": true,
+                            "is_focused": true,
                         ],
                     ],
-                ],
+                ]
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "workspaces": workspaces,
             ])
         case "mobile.host.status":
             hostStatusRequestCount += 1

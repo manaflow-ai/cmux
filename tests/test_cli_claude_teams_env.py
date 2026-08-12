@@ -5,6 +5,8 @@ Regression test: `cmux claude-teams` injects the tmux-style auto-mode env.
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import subprocess
 import tempfile
@@ -50,6 +52,7 @@ def run_claude_teams(
         env_log = tmp / "agent-teams.log"
         sandboxed_log = tmp / "sandboxed.log"
         marker_log = tmp / "sandboxed-marker.log"
+        respawn_environment_log = tmp / "respawn-environment.log"
         tmux_log = tmp / "tmux-path.log"
         tmux_shim_log = tmp / "tmux-shim.log"
         cmux_bin_log = tmp / "cmux-bin.log"
@@ -78,6 +81,7 @@ set -euo pipefail
 printf '%s\\n' "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS-__UNSET__}" > "$FAKE_AGENT_TEAMS_LOG"
 printf '%s\\n' "${CLAUDE_CODE_SANDBOXED-__UNSET__}" > "$FAKE_SANDBOXED_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_TEAMS_SANDBOXED-__UNSET__}" > "$FAKE_SANDBOXED_MARKER_LOG"
+printf '%s\\n' "${CMUX_CLAUDE_TEAMS_RESPAWN_ENV_B64-__UNSET__}" > "$FAKE_RESPAWN_ENVIRONMENT_LOG"
 # Claude Code restores a shell snapshot before invoking tmux. The snapshot's
 # full PATH assignment can discard the launcher-only claude-teams-bin entry,
 # while cmux's managed per-surface wrapper root remains available.
@@ -142,6 +146,7 @@ fs.writeFileSync(
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
         env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
         env["FAKE_SANDBOXED_MARKER_LOG"] = str(marker_log)
+        env["FAKE_RESPAWN_ENVIRONMENT_LOG"] = str(respawn_environment_log)
         env["FAKE_TMUX_PATH_LOG"] = str(tmux_log)
         env["FAKE_TMUX_SHIM_LOG"] = str(tmux_shim_log)
         env["FAKE_CMUX_BIN_LOG"] = str(cmux_bin_log)
@@ -166,6 +171,8 @@ fs.writeFileSync(
         env["TERM"] = "xterm-256color"
         env["TERM_PROGRAM"] = "__HOST_TERM_PROGRAM__"
         env["NODE_OPTIONS"] = node_options
+        env["CLAUDE_CONFIG_DIR"] = str(fake_home / "claude-config")
+        env["ANTHROPIC_API_KEY"] = "sk-ant-must-not-cross-respawn-transport"
         expect_managed_tmux_shim = True
         env["TMPDIR"] = str(tmp) if tmpdir is None else tmpdir
         explicit_socket_path_hint = tmp / "explicit-cmux.sock"
@@ -229,6 +236,39 @@ fs.writeFileSync(
         marker_value = read_text(marker_log)
         if marker_value != "1":
             print(f"FAIL: expected CMUX_CLAUDE_TEAMS_SANDBOXED=1 opt-in marker, got {marker_value!r}")
+            raise SystemExit(1)
+
+        encoded_respawn_environment = read_text(respawn_environment_log)
+        try:
+            respawn_environment = json.loads(
+                base64.b64decode(encoded_respawn_environment, validate=True).decode("utf-8")
+            )
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            print(
+                "FAIL: expected CMUX_CLAUDE_TEAMS_RESPAWN_ENV_B64 to contain a base64 JSON object, "
+                f"got {encoded_respawn_environment!r}: {exc}"
+            )
+            raise SystemExit(1) from exc
+
+        transported_path = respawn_environment.get("PATH", "")
+        expected_shim_prefix = f"{wrapper_shim_bin}:"
+        if not transported_path.startswith(expected_shim_prefix) or str(real_bin) not in transported_path.split(":"):
+            print(
+                "FAIL: expected the respawn transport to carry the final launcher PATH "
+                f"(managed shim first, invoking tool path retained), got {transported_path!r}"
+            )
+            raise SystemExit(1)
+
+        expected_config_directory = str(fake_home / "claude-config")
+        if respawn_environment.get("CLAUDE_CONFIG_DIR") != expected_config_directory:
+            print(
+                "FAIL: expected the respawn transport to retain allowlisted Claude configuration, "
+                f"got {respawn_environment!r}"
+            )
+            raise SystemExit(1)
+
+        if "ANTHROPIC_API_KEY" in respawn_environment:
+            print(f"FAIL: respawn transport must reject secrets, got {respawn_environment!r}")
             raise SystemExit(1)
 
         tmux_path = read_text(tmux_log)

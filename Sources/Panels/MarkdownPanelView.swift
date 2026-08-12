@@ -207,9 +207,10 @@ struct MarkdownPanelView: View {
     // MARK: - Copy actions
 
     private func copyAsMarkdown() {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(panel.content, forType: .string)
+        guard GhosttyApp.terminalPasteboard.writeString(
+            panel.content,
+            to: .general
+        ) else { return }
         flashCopyConfirmation(.markdown)
     }
 
@@ -217,12 +218,15 @@ struct MarkdownPanelView: View {
         Task { @MainActor in
             guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
             let text = await panel.rendererSession.renderedText() ?? panel.content
-            let pb = NSPasteboard.general
-            pb.clearContents()
             // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
             // and a plain-text fallback so plain editors still receive content.
-            pb.setString(html, forType: .html)
-            pb.setString(text, forType: .string)
+            let item = NSPasteboardItem()
+            _ = item.setString(html, forType: .html)
+            _ = item.setString(text, forType: .string)
+            guard GhosttyApp.terminalPasteboard.replaceContents(
+                of: .general,
+                with: [item]
+            ) else { return }
             flashCopyConfirmation(.html)
         }
     }
