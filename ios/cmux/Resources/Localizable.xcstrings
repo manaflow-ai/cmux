@@ -69,6 +69,23 @@
         }
       }
     },
+    "auth.error.email_requires_original_method": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account can’t use email codes yet. Enter your password, or use your original sign-in method."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントではまだメールコードを使用できません。パスワードを入力するか、最初に使用したサインイン方法を選んでください。"
+          }
+        }
+      }
+    },
     "auth.error.generic": {
       "extractionState": "manual",
       "localizations": {
@@ -9096,6 +9113,40 @@
         }
       }
     },
+    "mobile.signIn.passwordPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード"
+          }
+        }
+      }
+    },
+    "mobile.signIn.passwordTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードでサインイン"
+          }
+        }
+      }
+    },
     "mobile.signIn.restoring": {
       "extractionState": "manual",
       "localizations": {
@@ -9215,6 +9266,23 @@
         }
       }
     },
+    "mobile.signIn.useAnotherMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use another sign-in method"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のサインイン方法を使用"
+          }
+        }
+      }
+    },
     "mobile.signIn.useDifferentEmail": {
       "extractionState": "manual",
       "localizations": {
@@ -9228,6 +9296,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "別のメールを使用"
+          }
+        }
+      }
+    },
+    "mobile.signIn.usePassword": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use password instead"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代わりにパスワードを使用"
           }
         }
       }

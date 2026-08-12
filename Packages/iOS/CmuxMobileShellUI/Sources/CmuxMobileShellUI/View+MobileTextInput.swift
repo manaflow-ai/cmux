@@ -41,6 +41,19 @@ extension View {
         #endif
     }
 
+    /// Password content type with capitalization and correction disabled (iOS).
+    @ViewBuilder
+    func mobilePasswordTextInput() -> some View {
+        #if os(iOS)
+        self
+            .textContentType(.password)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        #else
+        self
+        #endif
+    }
+
     /// Applies the keyboard/content-type behavior for an add-device field kind.
     @ViewBuilder
     func addDeviceInputBehavior(_ kind: AddDeviceInputKind) -> some View {
