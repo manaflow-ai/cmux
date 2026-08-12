@@ -105,7 +105,21 @@ struct MobileShellNotificationFeedStateTests {
 
     @Test("Computer-scoped feeds aggregate before the global feed cap")
     func computerScopedFeedsAggregateBeforeGlobalCap() throws {
-        let store = MobileShellComposite()
+        var macAWorkspace = MobileWorkspacePreview(
+            id: "mac-a-workspace-row",
+            macDeviceID: "mac-a",
+            name: "A",
+            terminals: []
+        )
+        macAWorkspace.remoteWorkspaceID = "workspace"
+        var macBWorkspace = MobileWorkspacePreview(
+            id: "mac-b-workspace-row",
+            macDeviceID: "mac-b",
+            name: "B",
+            terminals: []
+        )
+        macBWorkspace.remoteWorkspaceID = "workspace"
+        let store = MobileShellComposite(workspaces: [macAWorkspace, macBWorkspace])
         let cap = MobileNotificationFeedAggregation.maxItemCount
         let macAEntries = (0..<cap).map { offset in
             NotificationResponseEntry(

@@ -95,26 +95,30 @@ extension MobileShellComposite {
     }
 
     /// Builds a computer-picker-scoped feed from the retained source snapshots
-    /// before applying the global row cap. Filtering the already-capped global
-    /// feed can hide an entire Mac when another Mac owns the newest retained
-    /// rows.
+    /// before applying the global row cap. Rows whose current navigation target
+    /// is absent from the live workspace snapshot stay retained but are not
+    /// presented. Filtering the already-capped global feed can hide valid older
+    /// rows when newer retained rows are no longer navigable.
     public func notificationFeedItems(
         scopedTo macDeviceIDs: Set<String>?
     ) -> [MobileNotificationFeedItem] {
-        guard let macDeviceIDs, !macDeviceIDs.isEmpty else {
-            return notificationFeedItems
-        }
         // Scope entries are bare device ids or pairing ids. Matching happens
         // per ITEM (each carries its stamped tag) so a build-scoped selection
         // excludes the sibling's rows even inside the foreground's
         // device-keyed snapshot.
-        let parsedScopeEntries =
-            MobileWorkspaceListFilter.parsedMachineEntries(macDeviceIDs)
+        let parsedScopeEntries = macDeviceIDs.flatMap { ids in
+            ids.isEmpty ? nil : MobileWorkspaceListFilter.parsedMachineEntries(ids)
+        }
+        let targetIndex = NotificationFeedWorkspaceTargetIndex(workspaces: workspaces)
         let projected = notificationFeedSnapshotsByMac.compactMap {
             entry -> MobileNotificationFeedSourceSnapshot? in
             let ownerKey = entry.key
             let items = entry.value.items.filter { item in
-                parsedScopeEntries.contains {
+                guard targetIndex.workspaceID(for: item) != nil else {
+                    return false
+                }
+                guard let parsedScopeEntries else { return true }
+                return parsedScopeEntries.contains {
                     $0.matches(deviceID: item.macDeviceID, rowTag: item.macInstanceTag)
                 }
             }
@@ -253,24 +257,7 @@ extension MobileShellComposite {
                 instanceTag: item.macInstanceTag
             ) else { return }
         }
-        // Sibling builds share the device id and can reuse Mac-local
-        // workspace/surface ids: match by the item's exact pairing.
-        let capturedWorkspaceID = rowWorkspaceID(
-            forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID),
-            macDeviceID: item.macDeviceID,
-            instanceTag: item.macInstanceTag
-        )
-        let targetWorkspaceID: MobileWorkspacePreview.ID?
-        if item.retargetsToLiveSurfaceOwner, let surfaceID = item.remoteSurfaceID {
-            targetWorkspaceID = workspaceID(
-                forTerminalID: surfaceID,
-                macDeviceID: item.macDeviceID,
-                instanceTag: item.macInstanceTag
-            )
-        } else {
-            targetWorkspaceID = capturedWorkspaceID
-        }
-        guard let workspaceID = targetWorkspaceID else {
+        guard let workspaceID = notificationFeedTargetWorkspaceID(for: item) else {
             notificationFeedLog.error(
                 "open target unavailable mac=\(item.macDeviceID, privacy: .public) notification=\(item.notificationID, privacy: .public)"
             )
@@ -284,6 +271,16 @@ extension MobileShellComposite {
             selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
         }
         await markNotificationFeedItemRead(item)
+    }
+
+    /// Resolves the same live destination used by feed visibility and opening.
+    /// Sibling builds share Mac-local ids, so every lookup includes the item's
+    /// exact pairing identity.
+    private func notificationFeedTargetWorkspaceID(
+        for item: MobileNotificationFeedItem
+    ) -> MobileWorkspacePreview.ID? {
+        NotificationFeedWorkspaceTargetIndex(workspaces: workspaces)
+            .workspaceID(for: item)
     }
 
     /// Handles a revision-only feed invalidation from one specific Mac.
