@@ -22,7 +22,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_SUCCESS, HANDLE,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_SUCCESS, GENERIC_WRITE, HANDLE,
     HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree, SetHandleInformation, WAIT_OBJECT_0,
     WAIT_TIMEOUT,
 };
@@ -49,7 +49,10 @@ use windows_sys::Win32::Security::{
     TOKEN_QUERY, TOKEN_STATISTICS, TOKEN_USER, TokenAppContainerSid, TokenCapabilities,
     TokenIntegrityLevel, TokenIsAppContainer, TokenPrivileges, TokenStatistics, TokenUser,
 };
-use windows_sys::Win32::Storage::FileSystem::{CreateDirectoryW, FILE_TYPE_UNKNOWN, GetFileType};
+use windows_sys::Win32::Storage::FileSystem::{
+    CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_TYPE_UNKNOWN,
+    GetFileType,
+};
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
 use windows_sys::Win32::System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus};
@@ -423,17 +426,17 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         &runner_sid,
         &account_sid,
         &appcontainer_sid,
-        NonceDirectoryAccess::ReadExecute,
+        NonceObjectAccess::ReadExecute,
     )?;
     let mut fixture = OwnedNonceDirectory::create(
         &fixture_path,
         &runner_sid,
         &account_sid,
         &appcontainer_sid,
-        NonceDirectoryAccess::Full,
+        NonceObjectAccess::Full,
     )?;
     let staged_target = staging.path().join("startup-benchmark-appcontainer-probe.exe");
-    copy_new_regular_file(&current, &staged_target)
+    copy_new_regular_file(&current, &staged_target, &runner_sid, &account_sid, &appcontainer_sid)
         .context("stage exact AppContainer probe executable")?;
     let staged_probe_sha256 = sha256_file(&staged_target)?;
     if staged_probe_sha256 != target_sha256 {
@@ -1038,7 +1041,7 @@ impl Drop for AppContainerProfile {
     }
 }
 
-enum NonceDirectoryAccess {
+enum NonceObjectAccess {
     ReadExecute,
     Full,
 }
@@ -1046,6 +1049,28 @@ enum NonceDirectoryAccess {
 struct OwnedSecurityDescriptor(windows_sys::Win32::Security::PSECURITY_DESCRIPTOR);
 
 impl OwnedSecurityDescriptor {
+    fn for_nonce_object(
+        runner_sid: &str,
+        account_sid: &str,
+        appcontainer_sid: &str,
+        access: NonceObjectAccess,
+    ) -> Result<Self> {
+        for (name, sid) in
+            [("runner", runner_sid), ("account", account_sid), ("AppContainer", appcontainer_sid)]
+        {
+            OwnedSid::from_string(sid)
+                .with_context(|| format!("validate {name} SID for nonce-owned object"))?;
+        }
+        let access = match access {
+            NonceObjectAccess::ReadExecute => "GRGX",
+            NonceObjectAccess::Full => "GA",
+        };
+        let sddl = format!(
+            "D:P(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GA;;;{runner_sid})(A;OICI;{access};;;{account_sid})(A;OICI;{access};;;{appcontainer_sid})S:(ML;OICI;NW;;;LW)"
+        );
+        Self::from_sddl(&sddl)
+    }
+
     fn from_sddl(sddl: &str) -> Result<Self> {
         let sddl = wide(OsStr::new(sddl));
         let mut descriptor = null_mut();
@@ -1059,7 +1084,7 @@ impl OwnedSecurityDescriptor {
                     null_mut(),
                 )
             },
-            "build nonce-owned AppContainer directory security descriptor",
+            "build nonce-owned AppContainer object security descriptor",
         )?;
         Ok(Self(descriptor))
     }
@@ -1088,25 +1113,17 @@ impl OwnedNonceDirectory {
         runner_sid: &str,
         account_sid: &str,
         appcontainer_sid: &str,
-        access: NonceDirectoryAccess,
+        access: NonceObjectAccess,
     ) -> Result<Self> {
         if path.exists() {
             bail!("nonce-owned AppContainer directory already existed: {}", path.display());
         }
-        for (name, sid) in
-            [("runner", runner_sid), ("account", account_sid), ("AppContainer", appcontainer_sid)]
-        {
-            OwnedSid::from_string(sid)
-                .with_context(|| format!("validate {name} SID for nonce-owned directory"))?;
-        }
-        let access = match access {
-            NonceDirectoryAccess::ReadExecute => "GRGX",
-            NonceDirectoryAccess::Full => "GA",
-        };
-        let sddl = format!(
-            "D:P(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GA;;;{runner_sid})(A;OICI;{access};;;{account_sid})(A;OICI;{access};;;{appcontainer_sid})S:(ML;OICI;NW;;;LW)"
-        );
-        let descriptor = OwnedSecurityDescriptor::from_sddl(&sddl)?;
+        let descriptor = OwnedSecurityDescriptor::for_nonce_object(
+            runner_sid,
+            account_sid,
+            appcontainer_sid,
+            access,
+        )?;
         let attributes = SECURITY_ATTRIBUTES {
             nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())?,
             lpSecurityDescriptor: descriptor.0,
@@ -2451,13 +2468,49 @@ fn sha256_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", digest.finalize()))
 }
 
-fn copy_new_regular_file(source: &Path, destination: &Path) -> Result<()> {
+fn copy_new_regular_file(
+    source: &Path,
+    destination: &Path,
+    runner_sid: &str,
+    account_sid: &str,
+    appcontainer_sid: &str,
+) -> Result<()> {
     let source_metadata = fs::symlink_metadata(source)?;
     if !source_metadata.file_type().is_file() || source_metadata.file_type().is_symlink() {
         bail!("AppContainer staged source was not one regular file");
     }
     let mut source = File::open(source)?;
-    let mut destination = OpenOptions::new().write(true).create_new(true).open(destination)?;
+    let descriptor = OwnedSecurityDescriptor::for_nonce_object(
+        runner_sid,
+        account_sid,
+        appcontainer_sid,
+        NonceObjectAccess::ReadExecute,
+    )?;
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())?,
+        lpSecurityDescriptor: descriptor.0,
+        bInheritHandle: 0,
+    };
+    let destination_wide = wide(destination.as_os_str());
+    // SAFETY: the path is NUL-terminated. The descriptor and attributes remain live for the
+    // atomic create call. The returned handle is owned by destination after the validity check.
+    let destination_handle = unsafe {
+        CreateFileW(
+            destination_wide.as_ptr(),
+            GENERIC_WRITE,
+            0,
+            &attributes,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            null_mut(),
+        )
+    };
+    if destination_handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error())
+            .with_context(|| format!("create secured staged file: {}", destination.display()));
+    }
+    // SAFETY: CreateFileW returned one valid, uniquely owned handle.
+    let mut destination = unsafe { File::from_raw_handle(destination_handle as RawHandle) };
     io::copy(&mut source, &mut destination)?;
     destination.flush()?;
     drop(destination);
@@ -2648,7 +2701,7 @@ mod tests {
             &current_sid,
             &current_sid,
             &current_sid,
-            NonceDirectoryAccess::Full,
+            NonceObjectAccess::Full,
         )
         .unwrap();
 
