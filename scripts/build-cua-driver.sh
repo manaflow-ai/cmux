@@ -388,6 +388,18 @@ chmod 0755 "$OUTPUT"
 /usr/bin/codesign --force --sign - --timestamp=none "$OUTPUT"
 /usr/bin/codesign --verify --strict "$OUTPUT"
 
+# MIT compliance: the upstream license and copyright notice must accompany
+# every redistributed copy of the driver. Take it from the pinned checkout so
+# the shipped notice always matches the code it covers, and fail loudly if it
+# ever disappears upstream rather than shipping unattributed.
+CUA_LICENSE_SRC="$SRC_ROOT/LICENSE.md"
+if [[ ! -f "$CUA_LICENSE_SRC" ]]; then
+  echo "error: cmux-cua LICENSE.md not found at $CUA_LICENSE_SRC" >&2
+  echo "  the bundled cua-driver cannot ship without its MIT notice" >&2
+  exit 1
+fi
+cp "$CUA_LICENSE_SRC" "$(dirname "$OUTPUT")/cmux-computer-use-client-LICENSE.md"
+
 # Package the driver into a branded helper with its own bundle identifier and
 # TCC identity. The helper is copied out of the host bundle before launch; that
 # top-level copy is what macOS shows in Accessibility and Screen Recording.
@@ -419,6 +431,9 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
   printf '%s\n' "$CMUX_CUA_HELPER_OWNER_VALUE" > "$HELPER_APP/Contents/Resources/$CMUX_CUA_HELPER_OWNER_FILE"
   cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
   chmod 0755 "$HELPER_APP/Contents/MacOS/$HELPER_EXECUTABLE"
+  # The helper bundle is copied out of the host app before launch, so it must
+  # carry its own copy of the upstream MIT notice.
+  cp "$CUA_LICENSE_SRC" "$HELPER_APP/Contents/Resources/LICENSE.md"
 
   _helper_icon="$REPO_ROOT/Resources/ComputerUseHelperIcon.icns"
   if [ -f "$_helper_icon" ]; then

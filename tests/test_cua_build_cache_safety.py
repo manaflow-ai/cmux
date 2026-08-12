@@ -43,6 +43,7 @@ if [[ "${{1:-}}" == "clone" ]]; then
   target="${{@: -1}}"
   mkdir -p "$target/.git" "$target/libs/cua-driver/rust"
   : > "$target/libs/cua-driver/rust/Cargo.toml"
+  : > "$target/LICENSE.md"
   exit 0
 fi
 if [[ "${{1:-}}" == "-C" ]]; then
