@@ -1738,7 +1738,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         : > "$CMUX_TEST_GROUP/cancel"
-        printf '1|1|K_1_1\\n' > "$CMUX_TEST_GROUP/cleanup.owner"
+        printf '%s|1|K_1_1\\n' "$$" > "$CMUX_TEST_GROUP/cleanup.owner"
         cmux_ssh_auth_stable_identity() { return 1; }
         if cmux_ssh_auth_group_cleanup_is_abandoned "$CMUX_TEST_GROUP"; then exit 97; fi
         """
