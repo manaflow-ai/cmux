@@ -682,9 +682,9 @@ struct CMUXMobileRootView: View {
             switch action {
             case .presentAutoConnectMigrationIfIdle:
                 diagnosticLog?.recordAppEvent(.autoConnectMigrationPresented)
-            case .continueWithAutoConnect:
+            case .useAutoConnect:
                 diagnosticLog?.recordAppEvent(.autoConnectMigrationAccepted)
-            case .openConnectionSettings:
+            case .setUpTailscale:
                 diagnosticLog?.recordAppEvent(.autoConnectMigrationDismissed)
             case .sheetDidRequestDismissal
                 where previousPresentation == .autoConnectMigrationIntroduction:

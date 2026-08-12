@@ -110,6 +110,8 @@ extension MobilePairingFailureCategory: DiagnosticFailureProviding {
         switch self {
         case .offline:
             .offline
+        case .tailscaleUnavailable:
+            .endpointUnavailable
         case .hostUnreachable:
             .hostUnreachable
         case .listenerNotRunning:
