@@ -31,9 +31,12 @@ public enum TerminalCommandClickArbitrator {
     /// The effect the release handler should perform for a gesture's final
     /// state.
     public enum ReleaseAction: Equatable {
-        /// No wrapped candidate was in play; fall through to the existing
-        /// word-under-cursor release logic.
-        case none
+        /// No candidate claimed the native callback; fall through to the
+        /// existing word-under-cursor release logic.
+        case fallThroughToWordUnderCursor
+        /// Ghostty already handled the click; finish without opening another
+        /// path or invoking the word-under-cursor fallback.
+        case finishWithoutFallback
         /// Open this resolved wrapped-path candidate through the shared
         /// fallback path.
         case openWrappedCandidate(TerminalWrappedPathResolution)
@@ -81,7 +84,9 @@ public enum TerminalCommandClickArbitrator {
     /// `.overridePending` and `.prepared` with `ghosttyConsumed == false`
     /// both open the same candidate through the same helper, so a click on
     /// either wrapped row ends up opening exactly once under the same
-    /// policy.
+    /// policy. `.nativePassthrough` is distinct from a missing state:
+    /// Ghostty already handled that click and the host must not fall through
+    /// to a second word-under-cursor open.
     ///
     /// - Parameters:
     ///   - finalState: The state after Ghostty's release call and any
@@ -93,12 +98,14 @@ public enum TerminalCommandClickArbitrator {
         ghosttyConsumed: Bool
     ) -> ReleaseAction {
         switch finalState {
-        case .none, .nativePassthrough:
-            return .none
+        case .none:
+            return .fallThroughToWordUnderCursor
+        case .nativePassthrough:
+            return .finishWithoutFallback
         case .overridePending(let candidate):
             return .openWrappedCandidate(candidate)
         case .prepared(let candidate):
-            return ghosttyConsumed ? .none : .openWrappedCandidate(candidate)
+            return ghosttyConsumed ? .finishWithoutFallback : .openWrappedCandidate(candidate)
         }
     }
 }

@@ -7994,8 +7994,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             finalState: commandClickState,
             ghosttyConsumed: ghosttyConsumed
         ) {
-        case .none:
+        case .fallThroughToWordUnderCursor:
             break
+        case .finishWithoutFallback:
+            return nil
         case .openWrappedCandidate(let candidate):
             commitWrappedCandidate(candidate)
             return nil

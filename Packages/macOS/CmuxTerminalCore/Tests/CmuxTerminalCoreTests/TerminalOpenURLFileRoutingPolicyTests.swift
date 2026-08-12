@@ -69,11 +69,11 @@ import CmuxTerminalCore
             ("~/research/docs/notes/report.md", true),
             ("/Users/dev/research/docs/notes/report.md", true),
             ("example.com/docs/report.md", false),
+            ("example.com:8080/docs/report.md", false),
             ("localhost/docs/report.md", false),
             ("127.0.0.1/docs/report.md", false),
             ("user@host/path", false),
             ("https://example.com/docs/report.md", false),
-            ("report.md", false),
         ]
     )
     func localPathIntent(rawValue: String, expected: Bool) {

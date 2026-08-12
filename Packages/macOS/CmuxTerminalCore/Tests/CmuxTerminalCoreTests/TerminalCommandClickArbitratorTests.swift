@@ -115,23 +115,23 @@ struct TerminalCommandClickArbitratorTests {
 
     // MARK: releaseAction
 
-    @Test("nil final state defers to the existing word-under-cursor logic")
+    @Test("nil final state falls through to the existing word-under-cursor logic")
     func nilFinalStateDefers() {
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(finalState: nil, ghosttyConsumed: false) == .none
+            TerminalCommandClickArbitrator.releaseAction(finalState: nil, ghosttyConsumed: false) == .fallThroughToWordUnderCursor
         )
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(finalState: nil, ghosttyConsumed: true) == .none
+            TerminalCommandClickArbitrator.releaseAction(finalState: nil, ghosttyConsumed: true) == .fallThroughToWordUnderCursor
         )
     }
 
-    @Test("nativePassthrough final state never opens the wrapped candidate")
-    func nativePassthroughFinalStateOpensNothing() {
+    @Test("nativePassthrough final state finishes without a fallback open")
+    func nativePassthroughFinalStateFinishesWithoutFallback() {
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(finalState: .nativePassthrough, ghosttyConsumed: false) == .none
+            TerminalCommandClickArbitrator.releaseAction(finalState: .nativePassthrough, ghosttyConsumed: false) == .finishWithoutFallback
         )
         #expect(
-            TerminalCommandClickArbitrator.releaseAction(finalState: .nativePassthrough, ghosttyConsumed: true) == .none
+            TerminalCommandClickArbitrator.releaseAction(finalState: .nativePassthrough, ghosttyConsumed: true) == .finishWithoutFallback
         )
     }
 
@@ -163,7 +163,7 @@ struct TerminalCommandClickArbitratorTests {
             TerminalCommandClickArbitrator.releaseAction(
                 finalState: .prepared(Self.candidate),
                 ghosttyConsumed: true
-            ) == .none
+            ) == .finishWithoutFallback
         )
     }
 

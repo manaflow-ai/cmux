@@ -3215,17 +3215,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             let topSegment = String(expectedPath.prefix(cols))
             let bottomSegment = String(expectedPath.dropFirst(cols))
-            guard !bottomSegment.isEmpty else { return nil }
+            guard !bottomSegment.isEmpty,
+                  let physicalRows = terminalPanel.hostedView.debugReadPhysicalRows(),
+                  physicalRows.count == rows else { return nil }
 
             for row in 0..<(rows - 1) {
-                guard let rowText = terminalPanel.hostedView.debugReadPhysicalRow(row),
-                      rowText == topSegment,
-                      let nextRowText = terminalPanel.hostedView.debugReadPhysicalRow(row + 1) else {
+                let rowText = physicalRows[row]
+                let nextRowText = physicalRows[row + 1]
+                guard rowText == topSegment else {
                     continue
                 }
                 let nextTrimmed = nextRowText.trimmingCharacters(in: CharacterSet(charactersIn: " "))
                 guard nextTrimmed == bottomSegment else { continue }
-
                 let topY = pointClampY(yInset + (CGFloat(row) * cellHeight) + (cellHeight / 2))
                 let topX = pointClampX(xInset + (CGFloat(cols - 1) * cellWidth) + (cellWidth / 2))
                 let bottomY = pointClampY(yInset + (CGFloat(row + 1) * cellHeight) + (cellHeight / 2))

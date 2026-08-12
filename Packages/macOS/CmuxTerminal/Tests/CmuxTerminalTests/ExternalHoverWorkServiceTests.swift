@@ -2037,4 +2037,11 @@ import Testing
         #expect(resolveLine.contains("evaluatorReason=fullnessGuardRejected"))
         #expect(counts.setterCalls == 0)
     }
+    @Test("Empty physical-row reads report zero raw entries")
+    func emptyReadMetricsHaveNoEntries() {
+        #expect(
+            ExternalHoverWorkService.defaultReadMetrics("").rawEntryCount == 0
+        )
+    }
+
 }

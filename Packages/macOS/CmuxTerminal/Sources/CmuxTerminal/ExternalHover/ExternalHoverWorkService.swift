@@ -142,11 +142,12 @@ public actor ExternalHoverWorkService {
     private let callClear: CallClear
     private let drainDiagnostics: DrainDiagnostics
     private let diagnosticsEnabled: DiagnosticsEnabled
-    /// (C) diagnostics — review round3 B3. NOT YET routed through by
-    /// `resolveFully` (still computes inline) — wiring it in is the fix
-    /// half of this finding; this property's own addition is scaffolding
-    /// only, so the regression test can observe the invocation count
-    /// before the routing change exists.
+    /// (C) diagnostics — review round3 B3. `resolveFully` routes its
+    /// `stage=read` metrics through this calculator only when diagnostics
+    /// are enabled; the default closure calls the real
+    /// `defaultReadMetrics` implementation. Tests wrap it with a counting
+    /// double so "gate OFF ⇒ zero invocations, gate ON ⇒ exactly one
+    /// invocation with the real values" remains observable.
     private let readMetricsCalculator: ReadMetricsCalculator
 
     /// (C) diagnostics — review B5: shared with `teardownCoordinator`'s

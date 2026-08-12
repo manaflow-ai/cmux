@@ -233,9 +233,18 @@ final class TerminalCmdClickUITests: XCTestCase {
             XCTFail("Expected open capture after stationary OSC 8 cmd-click. result=\(result)")
             return
         }
+        XCTAssertEqual(
+            openedURLs.count,
+            1,
+            "Expected exactly one stationary OSC 8 open. opened=\(openedURLs)"
+        )
         XCTAssertTrue(
             openedURLs.contains(expectedURL),
             "Expected stationary OSC 8 cmd-click to open \(expectedURL). opened=\(openedURLs)"
+        )
+        XCTAssertTrue(
+            waitForOpenCountToStay(1, timeout: 1.0, path: openURLCapturePath),
+            "Expected exactly one OSC 8 open throughout the stability window. opened=\(loadCapturedOpenPaths(path: openURLCapturePath))"
         )
     }
 
@@ -564,6 +573,10 @@ final class TerminalCmdClickUITests: XCTestCase {
             1,
             "Expected the hard-wrapped path to open exactly once. opened=\(openedPaths)"
         )
+        guard waitForOpenCountToStay(1, timeout: 1.0) else {
+            XCTFail("Expected exactly one wrapped-path open throughout the stability window. opened=\(loadCapturedOpenPaths())")
+            return
+        }
         XCTAssertTrue(
             openedPaths.contains(expectedResolvedPath),
             "Expected the joined path to open. opened=\(openedPaths) expected=\(expectedResolvedPath)"
@@ -989,7 +1002,7 @@ final class TerminalCmdClickUITests: XCTestCase {
             "action": action,
         ]
         let data = try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
-        try data.write(to: URL(fileURLWithPath: wrapCommandPath))
+        try data.write(to: URL(fileURLWithPath: wrapCommandPath), options: .atomic)
 
         var result: [String: Any]?
         let matched = waitForCondition(timeout: timeout) {
@@ -1058,15 +1071,19 @@ final class TerminalCmdClickUITests: XCTestCase {
         return openedPaths
     }
 
-    private func waitForOpenCountToStay(_ expectedCount: Int, timeout: TimeInterval) -> Bool {
+    private func waitForOpenCountToStay(
+        _ expectedCount: Int,
+        timeout: TimeInterval,
+        path: String? = nil
+    ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if loadCapturedOpenPaths().count != expectedCount {
+            if loadCapturedOpenPaths(path: path).count != expectedCount {
                 return false
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        return loadCapturedOpenPaths().count == expectedCount
+        return loadCapturedOpenPaths(path: path).count == expectedCount
     }
 
     private func waitForHoverDiagnostics(timeout: TimeInterval) -> [String: Any]? {

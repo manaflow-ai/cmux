@@ -37,7 +37,7 @@ extension ExternalHoverWorkService {
         return ExternalHoverReadMetrics(
             textBytes: text.utf8.count,
             newlineCount: newlineCount,
-            rawEntryCount: newlineCount + 1
+            rawEntryCount: text.isEmpty ? 0 : newlineCount + 1
         )
     }
 }
