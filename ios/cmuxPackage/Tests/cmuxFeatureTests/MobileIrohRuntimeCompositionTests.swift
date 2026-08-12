@@ -63,6 +63,18 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func discoveryIncludesEveryCompatibleDevelopmentTag() {
+        #expect(MobileIrohRuntimeComposition.discoveryPeerTags(for: .development(
+            expectedInstanceTag: "afive",
+            additionalInstanceTags: ["sibling-b", "sibling-a"]
+        )) == ["afive", "sibling-a", "sibling-b"])
+        #expect(MobileIrohRuntimeComposition.discoveryPeerTags(for: .official) == [
+            "default", "nightly",
+        ])
+        #expect(MobileIrohRuntimeComposition.discoveryPeerTags(for: nil) == nil)
+    }
+
+    @Test
     func initialAuthenticationAndFirstConnectionDoNotReplayTheSameAuthState() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
 
