@@ -112,6 +112,37 @@ source "$SCRIPT_DIR/lib/mobile-attach.sh"
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 cmux_attach_validate_dev_tag "$TAG"
 
+# Some hosted macOS runners terminate a quiet xcodebuild after a few minutes.
+# Keep the release-gate build observable without changing the build or runtime
+# timeout. The child command still owns its exit status and receives signals
+# from the parent normally.
+run_build_with_heartbeat() {
+  local label="$1"
+  shift
+  local child_pid heartbeat_pid status
+
+  "$@" &
+  child_pid=$!
+  (
+    while kill -0 "$child_pid" 2>/dev/null; do
+      sleep 60
+      if kill -0 "$child_pid" 2>/dev/null; then
+        printf '==> %s build still running\n' "$label"
+      fi
+    done
+  ) &
+  heartbeat_pid=$!
+
+  if wait "$child_pid"; then
+    status=0
+  else
+    status=$?
+  fi
+  kill "$heartbeat_pid" 2>/dev/null || true
+  wait "$heartbeat_pid" 2>/dev/null || true
+  return "$status"
+}
+
 if [[ "$PRINT_PLAN" -eq 1 ]]; then
   printf '%s\n' "$GATE_PLAN"
   exit 0
@@ -342,16 +373,18 @@ xcrun simctl bootstatus "$SIMULATOR_ID" -b
 
 if [[ "$SKIP_BUILD" -ne 1 ]]; then
   if [[ "$PRODUCTION" -eq 1 ]]; then
-    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
-    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+    run_build_with_heartbeat Mac env \
+      CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
+      CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./scripts/reload.sh \
         --tag "$TAG" \
         --prod-auth \
         --credentials-file "$PROD_CREDENTIALS_FILE"
-    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
-    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+    run_build_with_heartbeat iOS env \
+      CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
+      CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
@@ -359,13 +392,15 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
         --prod-auth \
         --no-launch
   else
-    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
-    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+    run_build_with_heartbeat Mac env \
+      CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
+      CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./scripts/reload.sh --tag "$TAG"
-    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
-    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+    run_build_with_heartbeat iOS env \
+      CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
+      CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./ios/scripts/reload.sh \
         --tag "$TAG" \
         --simulator "$SIMULATOR_NAME" \
