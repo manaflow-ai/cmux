@@ -8,6 +8,7 @@ struct MobileAutoConnectMigrationSheet: View {
     let showsLayoutProbe: Bool
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var contentHeight: CGFloat = 1
 
     var body: some View {
         ViewThatFits(in: .vertical) {
@@ -27,6 +28,7 @@ struct MobileAutoConnectMigrationSheet: View {
         }
         #endif
         .modifier(MobileAutoConnectMigrationPresentationSizing(
+            contentHeight: contentHeight,
             usesPageSizing: dynamicTypeSize.isAccessibilitySize
         ))
         .presentationContentInteraction(.scrolls)
@@ -40,18 +42,29 @@ struct MobileAutoConnectMigrationSheet: View {
             setUpTailscale: setUpTailscale
         )
         .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { newHeight in
+            guard newHeight.isFinite, newHeight > 0 else { return }
+            contentHeight = newHeight
+        }
     }
 }
 
 private struct MobileAutoConnectMigrationPresentationSizing: ViewModifier {
+    let contentHeight: CGFloat
     let usesPageSizing: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if usesPageSizing {
-            content.presentationSizing(.page)
+            content
+                .presentationSizing(.page)
+                .presentationDetents([.large])
         } else {
-            content.presentationSizing(.fitted)
+            content
+                .presentationSizing(.fitted)
+                .presentationDetents([.height(contentHeight)])
         }
     }
 }
