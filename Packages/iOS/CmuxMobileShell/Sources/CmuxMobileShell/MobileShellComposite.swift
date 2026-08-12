@@ -867,7 +867,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// older A→B cleanup from clearing a newer A→B handoff after rapid reversal.
     /// The stored handoff retains its client, so an entry can never name a
     /// deallocated address that a later client could reuse.
-    private var terminalSubscriptionHandoffFences:
+    var terminalSubscriptionHandoffFences:
         [ObjectIdentifier: PendingTerminalSubscriptionHandoff] = [:]
     /// Focus-transition maintenance (session-purpose sync, demoted-control
     /// activation) keyed by the client it maintains. A newer transition for the
@@ -4341,10 +4341,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case let .received(receivedStatus):
             status = receivedStatus
         case .transientFailure:
-            await client.disconnect()
+            await disconnectSecondaryClientAndDrain(client)
             return .transientFailure
         case .permanentFailure:
-            await client.disconnect()
+            await disconnectSecondaryClientAndDrain(client)
             return .permanentFailure
         }
         if macInstanceTagAuthority.secondaryStatusAuthority(
@@ -4362,10 +4362,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case let .received(receivedStatus):
                 status = receivedStatus
             case .transientFailure:
-                await client.disconnect()
+                await disconnectSecondaryClientAndDrain(client)
                 return .transientFailure
             case .permanentFailure:
-                await client.disconnect()
+                await disconnectSecondaryClientAndDrain(client)
                 return .permanentFailure
             }
         }
@@ -4378,13 +4378,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .accepted:
             break
         case .identityUnavailable:
-            await client.disconnect()
+            await disconnectSecondaryClientAndDrain(client)
             return .permanentFailure
         case .rejected:
             mobileShellLog.warning(
                 "secondary client rejected mismatched authenticated identity mac=\(mac.macDeviceID, privacy: .private)"
             )
-            await client.disconnect()
+            await disconnectSecondaryClientAndDrain(client)
             return .permanentFailure
         }
         let capabilities = Set(status.capabilities)
@@ -4411,6 +4411,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
             )
         ))
+    }
+
+    /// A candidate secondary client owns a physical route before it is
+    /// published to the registry. Wait for its transport admission and close
+    /// work before allowing a replacement flight to reuse that route.
+    private func disconnectSecondaryClientAndDrain(
+        _ client: MobileCoreRPCClient
+    ) async {
+        await client.disconnectAndWaitForTransportDrain()
     }
 
     private func fetchSecondaryHostStatus(
@@ -5363,6 +5372,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let flightID = UUID()
         let task = Task { @MainActor [weak self] in
+            defer {
+                if let self,
+                   self.secondaryMacEstablishmentFlights[flightKey]?.id
+                       == flightID {
+                    self.secondaryMacEstablishmentFlights[flightKey] = nil
+                    if Task.isCancelled, self.foregroundRefreshIsActive {
+                        self.scheduleSecondaryAggregation()
+                    }
+                }
+            }
             guard let self else {
                 return SecondaryMacEstablishmentOutcome.superseded
             }
@@ -5379,11 +5398,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mac: mac,
                 task: task
             )
-        let outcome = await task.value
-        if secondaryMacEstablishmentFlights[flightKey]?.id == flightID {
-            secondaryMacEstablishmentFlights[flightKey] = nil
-        }
-        return outcome
+        return await task.value
     }
 
     private func performSecondaryMacSubscriptionEstablishment(
@@ -5442,7 +5457,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   instanceTag: mac.instanceTag,
                   scope: scope
               ) else {
-            await client.disconnect()
+            await disconnectSecondaryClientAndDrain(client)
             return .superseded
         }
         if persistAuthenticatedDiscovery {
@@ -5459,7 +5474,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard accepted,
                   !Task.isCancelled,
                   await isAggregationScopeValid(scope) else {
-                await client.disconnect()
+                await disconnectSecondaryClientAndDrain(client)
                 return .superseded
             }
         }
@@ -5480,7 +5495,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
             })
         } catch {
-            await client.disconnect()
+            await disconnectSecondaryClientAndDrain(client)
             guard await isAggregationScopeValid(scope) else {
                 return .superseded
             }
@@ -5499,7 +5514,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   instanceTag: handle.storedInstanceTag,
                   scope: scope
               ) else {
-            await client.disconnect()
+            await disconnectSecondaryClientAndDrain(client)
             return .superseded
         }
         guard let currentMac,
@@ -5508,7 +5523,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   handle.storedInstanceTag
               ) else {
             markSecondaryMacUnavailableIfUnowned(ownerKey)
-            await client.disconnect()
+            await disconnectSecondaryClientAndDrain(client)
             return .permanentFailure
         }
         // Presence reconciliation may run while the client is dialing.
@@ -5521,7 +5536,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 scope: scope
             ) else {
                 markSecondaryMacUnavailableIfUnowned(ownerKey)
-                await client.disconnect()
+                await disconnectSecondaryClientAndDrain(client)
                 return .superseded
             }
         }
@@ -5542,7 +5557,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   maximumControlCount:
                       Self.maximumWarmControlConnectionCount
               ) else {
-            await client.disconnect()
+            await disconnectSecondaryClientAndDrain(client)
             return .superseded
         }
         let displayName = mac.displayName
@@ -6208,8 +6223,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryPresenceAggregationTask = nil
         secondaryPresencePendingMacIDs = []
 
+        // Keep canceled flights registered until their transport cleanup has
+        // settled. Foreground connection recovery waits on conflicting flights
+        // before dialing, so it cannot race a stale route lease.
         let establishmentFlights = Array(secondaryMacEstablishmentFlights.values)
-        secondaryMacEstablishmentFlights = [:]
         for flight in establishmentFlights {
             flight.task.cancel()
         }
@@ -6604,7 +6621,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for flight in secondaryMacEstablishmentFlights.values {
             flight.task.cancel()
         }
-        secondaryMacEstablishmentFlights = [:]
         secondaryAggregationAfterPushedRoutesOperationID = UUID()
         secondaryAggregationAfterPushedRoutesTask?.cancel()
         secondaryAggregationAfterPushedRoutesTask = nil
@@ -6884,11 +6900,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
 
-    func terminalSubscriptionHandoffFenceIDForTesting(
-        on client: MobileCoreRPCClient
-    ) -> UUID? {
-        terminalSubscriptionHandoffFences[ObjectIdentifier(client)]?.fenceID
-    }
     func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
         connections[macDeviceID]?.route
     }

@@ -3432,15 +3432,15 @@ import Testing
         // Isolate the fence token: the older handoff's release must be a no-op
         // while the newer fence still owns the client.
         #expect(
-            shell.terminalSubscriptionHandoffFenceIDForTesting(on: client)
-                == newer.fenceID
+            shell.terminalSubscriptionHandoffFences[ObjectIdentifier(client)]?
+                .fenceID == newer.fenceID
         )
         shell.startTerminalRefreshPolling()
         #expect(shell.terminalEventListenerTask == nil)
 
         shell.finishTerminalSubscriptionHandoff(newer)
         #expect(
-            shell.terminalSubscriptionHandoffFenceIDForTesting(on: client)
+            shell.terminalSubscriptionHandoffFences[ObjectIdentifier(client)]
                 == nil
         )
         shell.startTerminalRefreshPolling()

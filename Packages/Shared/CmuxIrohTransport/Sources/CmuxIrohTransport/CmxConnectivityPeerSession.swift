@@ -91,10 +91,16 @@ actor CmxConnectivityPeerSession {
                     purpose: request.sessionPurpose
                 )
                 try Task.checkCancellation()
-                return try await connectedSession(
+                let session = try await connectedSession(
                     for: request,
                     preservesControlOwnerOnClosed: true
                 )
+                // The dial can finish while the caller's cancellation
+                // handler is waiting to release the owner. Do not hand a
+                // newly installed session back to that cancelled caller; the
+                // catch path below will synchronously retire its ownership.
+                try Task.checkCancellation()
+                return session
             } onCancel: {
                 // `pendingConnection` is an unstructured, peer-owned dial. A
                 // cancelled RPC owner cannot rely on cancellation propagating
