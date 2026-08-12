@@ -14,7 +14,7 @@ import Foundation
 /// boundary — the same portable-envelope approach as
 /// ``AgentResumeArgv/portableClaudeResumeShellCommand(posixCommand:)``
 /// (issue #5639) and the `/bin/zsh <launcher-script>` startup inputs.
-public struct NushellTypedShellCommand {
+nonisolated public struct NushellTypedShellCommand: Sendable {
     /// The renderer is stateless; construct at the call site.
     public init() {}
 
