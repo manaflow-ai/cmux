@@ -314,20 +314,32 @@ final class ChatArtifactViewerModel {
         await temporaryFileStore.remove(temporaryFileURL)
     }
 
-    private static func state(
+    static func state(
         for error: any Error,
         stat: ChatArtifactStat?
     ) -> ChatArtifactViewerState {
         guard let artifactError = error as? ChatArtifactError else {
-            return .macUnreachable
+            // The RPC round-tripped but produced something undecodable;
+            // blaming connectivity here would be inaccurate.
+            return .failed(code: nil)
         }
         switch artifactError {
         case .fileNotFound:
             return .fileMissing
         case .forbidden:
             return .forbidden
-        case .macUnreachable, .unavailable, .unsupported, .sessionNotFound, .invalidParams:
+        case .macUnreachable:
             return .macUnreachable
+        case .sessionNotFound:
+            return .notFound
+        case .unsupported:
+            return .unsupported
+        case .unavailable:
+            return .unavailable
+        case .invalidParams:
+            return .failed(code: "invalid_params")
+        case .unknown(let code):
+            return .failed(code: code)
         case .unsupportedMedia:
             return .unsupportedMedia
         case .tooLarge(let limitBytes):

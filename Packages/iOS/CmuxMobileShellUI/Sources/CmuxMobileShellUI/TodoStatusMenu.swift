@@ -33,9 +33,19 @@ struct TodoStatusMenu: View {
             HStack(spacing: 5) {
                 Image(systemName: chipSystemImage)
                     .font(.caption.weight(.semibold))
-                Text(chipTitle)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
+                // The chip is sized to the widest possible title up front, so
+                // switching lanes (or the menu's first presentation) never
+                // clips the label while the capsule resizes.
+                ZStack {
+                    ForEach(Self.sizingTitles, id: \.self) { title in
+                        Text(title)
+                            .font(.caption.weight(.semibold))
+                            .hidden()
+                    }
+                    Text(chipTitle)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                }
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 8, weight: .bold))
                     .opacity(0.7)
@@ -64,4 +74,9 @@ struct TodoStatusMenu: View {
     private var chipTint: Color {
         statusHidden ? .secondary : status.tint
     }
+
+    /// Every title the chip can present, for width reservation.
+    static let sizingTitles: [String] =
+        MobileTodoStatus.allCases.map(\.displayName)
+            + [L10n.string("mobile.todo.status.hidden", defaultValue: "No Status")]
 }

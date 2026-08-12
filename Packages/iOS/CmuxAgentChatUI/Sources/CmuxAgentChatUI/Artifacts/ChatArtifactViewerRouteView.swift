@@ -207,6 +207,30 @@ struct ChatArtifactViewerRouteView: View {
                 message: forbiddenMessage,
                 retry: false
             )
+        case .notFound:
+            unavailableView(
+                title: notFoundTitle,
+                message: notFoundMessage,
+                retry: false
+            )
+        case .unsupported:
+            unavailableView(
+                title: String(localized: "chat.artifact.unsupported.title", defaultValue: "Update cmux on your Mac", bundle: .module),
+                message: String(localized: "chat.artifact.unsupported.message", defaultValue: "The connected Mac's cmux version can't preview this file.", bundle: .module),
+                retry: false
+            )
+        case .unavailable:
+            unavailableView(
+                title: String(localized: "chat.artifact.unavailable.title", defaultValue: "Transfer unavailable", bundle: .module),
+                message: String(localized: "chat.artifact.unavailable.message", defaultValue: "File transfer is temporarily unavailable on your Mac. Try again shortly.", bundle: .module),
+                retry: true
+            )
+        case .failed(let code):
+            unavailableView(
+                title: String(localized: "chat.artifact.failed.title", defaultValue: "Couldn't load file", bundle: .module),
+                message: failedMessage(code: code),
+                retry: true
+            )
         }
     }
 
@@ -361,6 +385,50 @@ struct ChatArtifactViewerRouteView: View {
             get: { snapshot.goToLineText },
             set: { actions.setGoToLineText($0) }
         )
+    }
+
+    private var notFoundTitle: String {
+        switch scope {
+        case .panel:
+            String(
+                localized: "chat.artifact.not_found.panel_title",
+                defaultValue: "Panel closed",
+                bundle: .module
+            )
+        case .chat, .terminal:
+            String(
+                localized: "chat.artifact.not_found.title",
+                defaultValue: "Source unavailable",
+                bundle: .module
+            )
+        }
+    }
+
+    private var notFoundMessage: String {
+        switch scope {
+        case .panel:
+            String(
+                localized: "chat.artifact.not_found.panel_message",
+                defaultValue: "That file panel is no longer open on your Mac.",
+                bundle: .module
+            )
+        case .chat, .terminal:
+            String(
+                localized: "chat.artifact.not_found.message",
+                defaultValue: "This file's source is no longer available on your Mac.",
+                bundle: .module
+            )
+        }
+    }
+
+    private func failedMessage(code: String?) -> String {
+        let base = String(
+            localized: "chat.artifact.failed.message",
+            defaultValue: "Something went wrong loading this file.",
+            bundle: .module
+        )
+        guard let code, !code.isEmpty else { return base }
+        return base + " (\(code))"
     }
 
     private var forbiddenMessage: String {

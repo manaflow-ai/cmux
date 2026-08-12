@@ -10,8 +10,6 @@ import UIKit
 /// Native iOS renderer for a Mac workspace todo surface.
 struct TodoSurfaceView: View {
     let surface: MobileSurfacePreview
-    let canOpenOnMac: Bool
-    let openOnMac: () async -> Bool
     @State private var model: TodoSurfaceModel
     @State private var pendingItemText = ""
     @FocusState private var composerFocused: Bool
@@ -19,13 +17,9 @@ struct TodoSurfaceView: View {
     init(
         surface: MobileSurfacePreview,
         todo: MobileTodoSnapshot,
-        canOpenOnMac: Bool,
-        openOnMac: @escaping () async -> Bool,
         mutate: @escaping @MainActor (MobileTodoMutation) async throws -> Void
     ) {
         self.surface = surface
-        self.canOpenOnMac = canOpenOnMac
-        self.openOnMac = openOnMac
         _model = State(initialValue: TodoSurfaceModel(snapshot: todo, mutate: mutate))
     }
 
@@ -35,9 +29,7 @@ struct TodoSurfaceView: View {
             MacSurfaceHeader(
                 kind: .todo,
                 title: surface.title,
-                subtitle: progressSubtitle(snapshot),
-                canOpenOnMac: canOpenOnMac,
-                openOnMac: openOnMac
+                subtitle: progressSubtitle(snapshot)
             ) {
                 TodoStatusMenu(
                     status: snapshot.status,

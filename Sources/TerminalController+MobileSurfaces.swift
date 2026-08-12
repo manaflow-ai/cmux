@@ -387,6 +387,17 @@ extension TerminalController {
             currentFilePath: currentFilePath,
             requestedPath: requestedPath
         ) else {
+            // A vanished file also fails authorization (its grant drops when
+            // canonicalization fails), but the phone must hear the accurate
+            // story: the file is gone, not that access was denied.
+            if !FileManager.default.fileExists(atPath: currentFilePath) {
+                return (nil, mobilePanelArtifactFileError(
+                    code: "file_not_found",
+                    key: "mobile.chat.artifact.error.fileNotFound",
+                    defaultValue: "That file is no longer available on the Mac.",
+                    path: requestedPath
+                ))
+            }
             return (nil, .err(
                 code: "forbidden",
                 message: String(

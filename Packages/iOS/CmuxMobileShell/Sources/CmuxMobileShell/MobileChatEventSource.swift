@@ -482,8 +482,12 @@ public actor MobileChatEventSource: ChatEventSource {
                 return .unsupportedMedia
             case "unavailable":
                 return .unavailable
-            default:
-                return .macUnreachable
+            case "method_not_found":
+                // The Mac answered but predates this RPC; not a connectivity
+                // problem, so never present it as unreachable.
+                return .unsupported
+            case let code:
+                return .unknown(code: code)
             }
         }
     }

@@ -14,8 +14,6 @@ struct MarkdownSurfaceView: View {
     let surface: MobileSurfacePreview
     let path: String
     let loader: ChatArtifactLoader
-    let canOpenOnMac: Bool
-    let openOnMac: () async -> Bool
 
     @State private var model = MarkdownSurfaceModel()
     @State private var retryCount = 0
@@ -25,9 +23,7 @@ struct MarkdownSurfaceView: View {
             MacSurfaceHeader(
                 kind: surface.kind,
                 title: surface.title,
-                subtitle: MacSurfaceFileContext.subtitle(title: surface.title, path: path),
-                canOpenOnMac: canOpenOnMac,
-                openOnMac: openOnMac
+                subtitle: MacSurfaceFileContext.subtitle(title: surface.title, path: path)
             )
             content
         }
@@ -109,12 +105,68 @@ struct MarkdownSurfaceView: View {
                 ),
                 message: tooLargeMessage(actualSize: actualSize, limit: limit)
             )
+        case .panelClosed:
+            MacSurfaceMessageView(
+                systemImage: "rectangle.slash",
+                title: L10n.string(
+                    "mobile.surface.panelClosed.title",
+                    defaultValue: "Panel closed"
+                ),
+                message: L10n.string(
+                    "mobile.surface.panelClosed.message",
+                    defaultValue: "That file panel is no longer open on your Mac."
+                )
+            )
+        case .macNeedsUpdate:
+            MacSurfaceMessageView(
+                systemImage: "arrow.down.circle",
+                title: L10n.string(
+                    "mobile.surface.macNeedsUpdate.title",
+                    defaultValue: "Update cmux on your Mac"
+                ),
+                message: L10n.string(
+                    "mobile.surface.macNeedsUpdate.message",
+                    defaultValue: "The connected Mac's cmux version can't preview this file."
+                )
+            )
+        case .transferUnavailable:
+            MacSurfaceMessageView(
+                systemImage: "arrow.triangle.2.circlepath",
+                title: L10n.string(
+                    "mobile.surface.transferUnavailable.title",
+                    defaultValue: "Transfer unavailable"
+                ),
+                message: L10n.string(
+                    "mobile.surface.transferUnavailable.message",
+                    defaultValue: "File transfer is temporarily unavailable on your Mac. Try again shortly."
+                ),
+                retry: { retryCount += 1 }
+            )
+        case .loadFailed(let code):
+            MacSurfaceMessageView(
+                systemImage: "exclamationmark.triangle",
+                title: L10n.string(
+                    "mobile.surface.loadFailed.title",
+                    defaultValue: "Couldn't load file"
+                ),
+                message: loadFailedMessage(code: code),
+                retry: { retryCount += 1 }
+            )
         }
     }
 
     private var progressValue: Double? {
         guard let total = model.totalBytes, total > 0 else { return nil }
         return Double(model.fetchedBytes) / Double(total)
+    }
+
+    private func loadFailedMessage(code: String?) -> String {
+        let base = L10n.string(
+            "mobile.surface.loadFailed.message",
+            defaultValue: "Something went wrong loading this file."
+        )
+        guard let code, !code.isEmpty else { return base }
+        return base + " (\(code))"
     }
 
     private func tooLargeMessage(actualSize: Int64?, limit: Int64) -> String {

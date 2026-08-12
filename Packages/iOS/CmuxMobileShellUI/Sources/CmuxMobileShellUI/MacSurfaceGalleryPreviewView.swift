@@ -29,17 +29,13 @@ public struct MacSurfaceGalleryPreviewView: View {
             PanelFileSurfaceView(
                 surface: Self.fileSurface,
                 path: Self.textPath,
-                loader: Self.fixtureLoader,
-                canOpenOnMac: true,
-                openOnMac: { true }
+                loader: Self.fixtureLoader
             )
         case "markdown":
             MarkdownSurfaceView(
                 surface: Self.markdownSurface,
                 path: Self.markdownPath,
-                loader: Self.fixtureLoader,
-                canOpenOnMac: true,
-                openOnMac: { true }
+                loader: Self.fixtureLoader
             )
         case "fallback":
             SurfaceFallbackCardView(
@@ -54,8 +50,6 @@ public struct MacSurfaceGalleryPreviewView: View {
             TodoSurfaceView(
                 surface: Self.todoSurface,
                 todo: Self.todoSnapshot,
-                canOpenOnMac: true,
-                openOnMac: { true },
                 mutate: { _ in }
             )
         }

@@ -154,6 +154,40 @@
         }
       }
     },
+    "chat.artifact.failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong loading this file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルの読み込み中に問題が発生しました。"
+          }
+        }
+      }
+    },
+    "chat.artifact.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めませんでした"
+          }
+        }
+      }
+    },
     "chat.artifact.file_actions": {
       "extractionState": "manual",
       "localizations": {
@@ -613,6 +647,74 @@
         }
       }
     },
+    "chat.artifact.not_found.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file's source is no longer available on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルのソースはMac上で利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "chat.artifact.not_found.panel_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file panel is no longer open on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルパネルはMac上で開かれていません。"
+          }
+        }
+      }
+    },
+    "chat.artifact.not_found.panel_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel closed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルは閉じられました"
+          }
+        }
+      }
+    },
+    "chat.artifact.not_found.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソースを利用できません"
+          }
+        }
+      }
+    },
     "chat.artifact.ok": {
       "extractionState": "manual",
       "localizations": {
@@ -898,6 +1000,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "ファイルが大きすぎてプレビューできません"
+          }
+        }
+      }
+    },
+    "chat.artifact.unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File transfer is temporarily unavailable on your Mac. Try again shortly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのファイル転送は一時的に利用できません。しばらくしてからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfer unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "転送を利用できません"
+          }
+        }
+      }
+    },
+    "chat.artifact.unsupported.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connected Mac's cmux version can't preview this file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のMacのcmuxバージョンではこのファイルをプレビューできません。"
+          }
+        }
+      }
+    },
+    "chat.artifact.unsupported.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmuxをアップデートしてください"
           }
         }
       }

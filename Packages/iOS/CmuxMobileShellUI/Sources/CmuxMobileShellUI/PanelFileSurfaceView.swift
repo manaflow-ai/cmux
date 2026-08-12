@@ -13,17 +13,13 @@ struct PanelFileSurfaceView: View {
     let surface: MobileSurfacePreview
     let path: String
     let loader: ChatArtifactLoader
-    let canOpenOnMac: Bool
-    let openOnMac: () async -> Bool
 
     var body: some View {
         VStack(spacing: 0) {
             MacSurfaceHeader(
                 kind: surface.kind,
                 title: surface.title,
-                subtitle: MacSurfaceFileContext.subtitle(title: surface.title, path: path),
-                canOpenOnMac: canOpenOnMac,
-                openOnMac: openOnMac
+                subtitle: MacSurfaceFileContext.subtitle(title: surface.title, path: path)
             )
             ChatArtifactEmbeddedPreview(
                 path: path,

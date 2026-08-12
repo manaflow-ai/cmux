@@ -90,9 +90,7 @@ extension WorkspaceDetailView {
         case .todo(let todo):
             TodoSurfaceView(
                 surface: macSurface,
-                todo: todo,
-                canOpenOnMac: canOpenOnMac,
-                openOnMac: openOnMac
+                todo: todo
             ) { mutation in
                 try await store.performTodoMutation(mutation, workspaceID: workspace.id)
             }
@@ -104,9 +102,7 @@ extension WorkspaceDetailView {
                 loader: panelArtifactLoader(
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
                     surfaceID: macSurface.id.rawValue
-                ),
-                canOpenOnMac: canOpenOnMac,
-                openOnMac: openOnMac
+                )
             )
             .id(macSurface.id.rawValue)
         case .markdown(let path):
@@ -116,9 +112,7 @@ extension WorkspaceDetailView {
                 loader: panelArtifactLoader(
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
                     surfaceID: macSurface.id.rawValue
-                ),
-                canOpenOnMac: canOpenOnMac,
-                openOnMac: openOnMac
+                )
             )
             .id(macSurface.id.rawValue)
         case .fallbackCard:

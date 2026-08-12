@@ -14,6 +14,14 @@ final class MarkdownSurfaceModel {
         case forbidden
         case macUnreachable
         case tooLarge(actualSize: Int64?, limit: Int64)
+        /// The panel that authorized this file is no longer open.
+        case panelClosed
+        /// The Mac answered but predates the panel preview RPCs.
+        case macNeedsUpdate
+        /// The Mac's transfer service is temporarily unavailable.
+        case transferUnavailable
+        /// The Mac answered with an unrecognized or malformed error.
+        case loadFailed(code: String?)
     }
 
     enum Phase: Equatable {
@@ -82,9 +90,11 @@ final class MarkdownSurfaceModel {
             : chunk.offset + Int64(chunk.data.count)
     }
 
-    private static func failure(for error: any Error) -> Failure {
+    static func failure(for error: any Error) -> Failure {
         guard let artifactError = error as? ChatArtifactError else {
-            return .macUnreachable
+            // The Mac replied with something undecodable; connectivity was
+            // fine, so the message must not claim the Mac is unreachable.
+            return .loadFailed(code: nil)
         }
         switch artifactError {
         case .fileNotFound:
@@ -93,9 +103,22 @@ final class MarkdownSurfaceModel {
             return .forbidden
         case .tooLarge(let limitBytes):
             return .tooLarge(actualSize: nil, limit: limitBytes)
-        case .macUnreachable, .unavailable, .unsupported, .sessionNotFound,
-             .invalidParams, .unsupportedMedia:
+        case .macUnreachable:
             return .macUnreachable
+        case .sessionNotFound:
+            return .panelClosed
+        case .unsupported:
+            return .macNeedsUpdate
+        case .unavailable:
+            return .transferUnavailable
+        case .invalidParams:
+            return .loadFailed(code: "invalid_params")
+        case .unknown(let code):
+            return .loadFailed(code: code)
+        case .unsupportedMedia:
+            // A markdown panel path that stops decoding as text is a data
+            // problem on the Mac side, not connectivity.
+            return .loadFailed(code: "unsupported_media")
         }
     }
 }
