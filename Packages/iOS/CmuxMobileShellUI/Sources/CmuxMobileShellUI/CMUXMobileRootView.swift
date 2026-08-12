@@ -228,7 +228,13 @@ struct CMUXMobileRootView: View {
     }
 
     var body: some View {
-        rootContent
+        // A concrete container owns the root presentation modifier. Attaching
+        // it directly to `rootContent` lets SwiftUI discard the presenting
+        // controller when that conditional tree exchanges the workspace shell
+        // for the no-computers shell after the final computer is forgotten.
+        ZStack {
+            rootContent
+        }
         #if os(iOS)
         .environment(
             \.mobileChildPresentationProvider,
