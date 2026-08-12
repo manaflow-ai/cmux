@@ -89,7 +89,13 @@ def main() -> int:
         for index, test_name in enumerate(tests, start=1):
             print(f"[{index}/{len(tests)}] {test_name}", flush=True)
             subprocess.run(
-                [str(binary), test_name, "--exact", "--test-threads=1"],
+                [
+                    str(binary),
+                    test_name,
+                    "--exact",
+                    "--include-ignored",
+                    "--test-threads=1",
+                ],
                 check=True,
                 cwd=core_root,
             )
