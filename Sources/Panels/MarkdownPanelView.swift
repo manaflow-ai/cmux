@@ -140,6 +140,17 @@ struct MarkdownPanelView: View {
                 onCopyMarkdown: { copyAsMarkdown() },
                 onCopyHTML: { copyAsHTML() }
             )
+            if panel.canOpenInTerminalEditor {
+                PanelHeaderIconButton(
+                    systemName: "terminal",
+                    label: String(
+                        localized: "filePreview.openInTerminalEditor",
+                        defaultValue: "Open in Terminal Editor"
+                    ),
+                    isDisabled: panel.isFileUnavailable,
+                    action: { panel.openInTerminalEditor() }
+                )
+            }
             FileExternalOpenMenu(
                 fileURL: URL(fileURLWithPath: panel.filePath),
                 isDisabled: panel.isFileUnavailable

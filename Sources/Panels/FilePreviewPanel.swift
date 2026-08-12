@@ -999,6 +999,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     var fileChangeReloadTask: Task<Void, Never>?
     /// The one container currently projecting this panel's tab metadata.
     weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?
+    weak var terminalEditorHost: (any TerminalEditorOpeningHost)?
     var lastObservedFileState: FilePreviewFileState?
     var isClosed = false
     weak var textView: NSTextView?
@@ -1438,6 +1439,18 @@ struct FilePreviewPanelView: View {
                 label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
                 action: { panel.reloadFromDisk() }
             )
+
+            if panel.canOpenInTerminalEditor {
+                PanelHeaderIconButton(
+                    systemName: "terminal",
+                    label: String(
+                        localized: "filePreview.openInTerminalEditor",
+                        defaultValue: "Open in Terminal Editor"
+                    ),
+                    isDisabled: panel.isFileUnavailable,
+                    action: { panel.openInTerminalEditor() }
+                )
+            }
 
             FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
         }

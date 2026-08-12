@@ -1538,6 +1538,13 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        },
+        "terminalEditorPlacement": {
+          "type": "string",
+          "enum": ["afterSource", "endOfTabStrip"],
+          "default": "afterSource",
+          "description": "Where \"Open in Terminal Editor\" puts the editor. `afterSource` opens the editor immediately to the right of the file surface, which stays open so quitting the editor lands back on it. `endOfTabStrip` opens the editor at the end of the pane's tab strip.",
+          "descriptionKey": "schemaDescriptions.fileEditor.terminalEditorPlacement"
         }
       }
     },

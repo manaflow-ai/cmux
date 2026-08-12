@@ -520,6 +520,7 @@ extension CmuxSettingsFileStore {
         "canvas.paneGap",
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
+        "fileEditor.terminalEditorPlacement",
         "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
     ]

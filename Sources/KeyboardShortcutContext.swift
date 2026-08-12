@@ -191,6 +191,18 @@ extension AppDelegate {
         return tabManager?.focusedMarkdownPanel
     }
 
+    /// The focused file surface that can hand its file to a terminal editor,
+    /// in either preview or raw-text mode.
+    func shortcutEventTerminalEditorPanel(_ event: NSEvent) -> (any TerminalEditorOpenablePanel)? {
+        let window = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.panels[panelId] as? any TerminalEditorOpenablePanel else {
+            return nil
+        }
+        return panel
+    }
+
     private func shortcutFocusedFilePreviewTextEditor(in window: NSWindow?) -> Bool {
         guard let focusedFilePreviewPanel = shortcutContextTabManager(in: window)?.focusedTextFilePreviewPanel,
               let textView = shortcutFocusedSavingTextView(in: window),

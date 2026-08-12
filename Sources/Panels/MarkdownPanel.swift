@@ -24,6 +24,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
 
+    /// The container that opens this file in a terminal editor, when it can.
+    weak var terminalEditorHost: (any TerminalEditorOpeningHost)?
+
     /// Current markdown content read from the file.
     @Published private(set) var content: String = ""
 

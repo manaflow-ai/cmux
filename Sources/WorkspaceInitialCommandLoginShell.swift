@@ -8,6 +8,12 @@ enum WorkspaceInitialCommandLoginShell {
     /// so the user's profile cannot contribute tools such as Homebrew-installed agents.
     /// Ghostty prepends `exec -l`, so the returned command starts with the quoted shell path.
     static func wrap(_ command: String) -> String {
+        wrap(command, userShell: resolvedUserShell())
+    }
+
+    /// The user's login shell, from the account record with the environment and
+    /// zsh as fallbacks.
+    static func resolvedUserShell() -> String {
         let databaseShell: String?
         if let record = getpwuid(getuid()),
            let shell = record.pointee.pw_shell {
@@ -17,10 +23,17 @@ enum WorkspaceInitialCommandLoginShell {
             databaseShell = nil
         }
 
-        let userShell = databaseShell
+        return databaseShell
             ?? ProcessInfo.processInfo.environment["SHELL"]
             ?? "/bin/zsh"
-        return wrap(command, userShell: userShell)
+    }
+
+    /// Wraps a command in an *interactive* login shell.
+    ///
+    /// Values such as `$EDITOR` are commonly exported from interactive-only
+    /// configuration (`.zshrc`), which a plain login shell never reads.
+    static func wrapInteractive(_ command: String, userShell: String?) -> String {
+        wrap(command, userShell: userShell, interactive: true)
     }
 
     /// Wraps a command in a supported login shell while preserving the command verbatim.
@@ -32,6 +45,14 @@ enum WorkspaceInitialCommandLoginShell {
     /// unconditionally after profiles run; a duplicate PATH entry is harmless and
     /// matches what interactive shell integration already produces.
     static func wrap(_ command: String, userShell: String?) -> String {
+        wrap(command, userShell: userShell, interactive: false)
+    }
+
+    private static func wrap(
+        _ command: String,
+        userShell: String?,
+        interactive: Bool
+    ) -> String {
         var shellPath: String
         if let userShell, userShell.hasPrefix("/") {
             shellPath = userShell
@@ -59,7 +80,8 @@ enum WorkspaceInitialCommandLoginShell {
             """
         }
 
-        return "\(shellSingleQuoted(shellPath)) -lc \(shellSingleQuoted(payload))"
+        let flags = interactive ? "-ilc" : "-lc"
+        return "\(shellSingleQuoted(shellPath)) \(flags) \(shellSingleQuoted(payload))"
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {

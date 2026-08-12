@@ -13,6 +13,17 @@ extension CmuxSettingsFileStore {
         } else if section.keys.contains("wordWrap") {
             logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
         }
+
+        if let raw = jsonString(section["terminalEditorPlacement"]) {
+            if let placement = TerminalEditorPlacement(rawValue: raw) {
+                snapshot.managedUserDefaults[TerminalEditorPlacementSettings.key] =
+                    .string(placement.rawValue)
+            } else {
+                logInvalid("fileEditor.terminalEditorPlacement", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("terminalEditorPlacement") {
+            logInvalid("fileEditor.terminalEditorPlacement", sourcePath: sourcePath)
+        }
     }
 
     func parseFileExplorerSection(

@@ -14,12 +14,14 @@ extension FilePreviewPanel {
     /// Replaces the current container binding and immediately projects current state.
     func bindTabMetadata(to host: any FilePreviewTabMetadataHost) {
         tabMetadataHost = host
+        terminalEditorHost = host as? any TerminalEditorOpeningHost
         host.applyFilePreviewTabMetadata(currentTabMetadata, panelId: id)
     }
 
     /// Clears the current container binding during transfer or teardown.
     func unbindTabMetadata() {
         tabMetadataHost = nil
+        terminalEditorHost = nil
     }
 
     /// Projects the consolidated snapshot through the panel's single active host.

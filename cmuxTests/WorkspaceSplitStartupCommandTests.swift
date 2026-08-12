@@ -1,5 +1,6 @@
 import XCTest
 import CmuxTerminal
+import CmuxWorkspaces
 import Bonsplit
 import AppKit
 import SwiftUI
@@ -347,5 +348,267 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id })
         XCTAssertNil(panelSnapshot.terminal?.tmuxStartCommand)
         XCTAssertNil(Workspace.restorableTmuxStartCommand(genericCommand))
+    }
+
+    // MARK: - Terminal editor handoff
+
+    private func makeScratchFile(contents: String = "") throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-editor-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+        let fileURL = directoryURL.appendingPathComponent("notes.txt")
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
+
+    private func terminalPanels(in workspace: Workspace) -> [TerminalPanel] {
+        workspace.panels.values.compactMap { $0 as? TerminalPanel }
+    }
+
+    func testTerminalEditorSurfaceRunsEditorInTheFileDirectoryAndClosesOnExit() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let fileURL = try makeScratchFile()
+        let previewPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path
+        ))
+
+        let editorPanel = try XCTUnwrap(workspace.openTerminalEditorSurface(
+            forPanelId: previewPanel.id,
+            userShell: "/bin/zsh",
+            resolvedEditor: nil,
+            placement: .endOfTabStrip
+        ))
+
+        let startupCommand = try XCTUnwrap(editorPanel.surface.debugInitialCommand())
+        XCTAssertTrue(
+            startupCommand.hasPrefix("'/bin/zsh' -ilc "),
+            "The editor must resolve in an interactive login shell, since a GUI app "
+                + "process has none of the user's shell configuration: \(startupCommand)"
+        )
+        XCTAssertTrue(startupCommand.contains("exec ${VISUAL:-${EDITOR:-vi}}"), startupCommand)
+        XCTAssertTrue(startupCommand.contains(fileURL.lastPathComponent), startupCommand)
+        XCTAssertEqual(
+            editorPanel.requestedWorkingDirectory,
+            fileURL.deletingLastPathComponent().path
+        )
+        XCTAssertFalse(
+            editorPanel.surface.debugWaitAfterCommand(),
+            "The editor surface must close when the editor exits, not linger on a spent PTY"
+        )
+        XCTAssertEqual(workspace.paneId(forPanelId: editorPanel.id)?.id, paneId.id)
+    }
+
+    func testTerminalEditorSurfaceOpensForMarkdownSurfaces() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let fileURL = try makeScratchFile(contents: "# Notes\n")
+        let markdownPanel = try XCTUnwrap(workspace.newMarkdownSurface(
+            inPane: paneId,
+            filePath: fileURL.path
+        ))
+
+        let editorPanel = try XCTUnwrap(workspace.openTerminalEditorSurface(
+            forPanelId: markdownPanel.id,
+            userShell: "/opt/homebrew/bin/fish",
+            resolvedEditor: nil,
+            placement: .endOfTabStrip
+        ))
+
+        let startupCommand = try XCTUnwrap(editorPanel.surface.debugInitialCommand())
+        XCTAssertTrue(startupCommand.hasPrefix("'/opt/homebrew/bin/fish' -ilc "), startupCommand)
+        XCTAssertTrue(startupCommand.contains("set -l cmux_editor $VISUAL"), startupCommand)
+    }
+
+    func testEditorOpensImmediatelyToTheRightOfTheFileSurface() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let fileURL = try makeScratchFile()
+        let previewPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path
+        ))
+        let previewIndex = try XCTUnwrap(workspace.indexInPane(forPanelId: previewPanel.id))
+
+        let editorPanel = try XCTUnwrap(workspace.openTerminalEditorSurface(
+            forPanelId: previewPanel.id,
+            userShell: "/bin/zsh",
+            resolvedEditor: nil,
+            placement: .afterSource
+        ))
+
+        XCTAssertEqual(
+            workspace.indexInPane(forPanelId: editorPanel.id),
+            previewIndex + 1,
+            "The editor opens to the right of the file surface"
+        )
+        XCTAssertEqual(workspace.indexInPane(forPanelId: previewPanel.id), previewIndex)
+        XCTAssertNotNil(
+            workspace.panels[previewPanel.id],
+            "The preview must survive so quitting the editor returns to it, and so the "
+                + "editor is never the workspace's last panel"
+        )
+    }
+
+    func testAResolvedEditorLaunchesWithNoShellAtAll() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let fileURL = try makeScratchFile()
+        let previewPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path
+        ))
+
+        let editorPanel = try XCTUnwrap(workspace.openTerminalEditorSurface(
+            forPanelId: previewPanel.id,
+            userShell: "/bin/zsh",
+            resolvedEditor: ResolvedTerminalEditor(
+                executablePath: "/opt/homebrew/bin/nvim",
+                arguments: [],
+                pathEnvironment: "/opt/homebrew/bin:/usr/bin"
+            ),
+            placement: .afterSource
+        ))
+
+        let startupCommand = try XCTUnwrap(editorPanel.surface.debugInitialCommand())
+        XCTAssertEqual(startupCommand, "'/opt/homebrew/bin/nvim' '\(fileURL.path)'")
+        XCTAssertFalse(
+            startupCommand.hasPrefix("exec "),
+            "Ghostty prepends `exec -l`; a leading exec makes it run a program named exec"
+        )
+        XCTAssertFalse(startupCommand.contains("zsh"), startupCommand)
+        XCTAssertEqual(
+            editorPanel.surface.startupEnvironmentValue("PATH"),
+            "/opt/homebrew/bin:/usr/bin",
+            "The editor needs the shell's PATH to find language servers it spawns"
+        )
+    }
+
+    func testEndOfTabStripPlacementKeepsThePreviewOpen() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let fileURL = try makeScratchFile()
+        let previewPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path
+        ))
+        let tabCountBefore = workspace.bonsplitController.tabs(inPane: paneId).count
+
+        _ = try XCTUnwrap(workspace.openTerminalEditorSurface(
+            forPanelId: previewPanel.id,
+            userShell: "/bin/zsh",
+            resolvedEditor: nil,
+            placement: .endOfTabStrip
+        ))
+
+        XCTAssertNotNil(workspace.panels[previewPanel.id])
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: paneId).count, tabCountBefore + 1)
+    }
+
+    func testPlacementSettingDefaultsToAfterSource() {
+        XCTAssertEqual(TerminalEditorPlacementSettings.defaultValue, .afterSource)
+        XCTAssertEqual(TerminalEditorPlacementSettings.placement(forRawValue: nil), .afterSource)
+        XCTAssertEqual(TerminalEditorPlacementSettings.placement(forRawValue: "nonsense"), .afterSource)
+        XCTAssertEqual(TerminalEditorPlacementSettings.placement(forRawValue: "endOfTabStrip"), .endOfTabStrip)
+    }
+
+    func testStartupCommandSurfacesStillWaitAfterCommandByDefault() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+
+        let panel = try XCTUnwrap(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            initialCommand: "sleep 600"
+        ))
+
+        XCTAssertTrue(
+            panel.surface.debugWaitAfterCommand(),
+            "A failing startup command must stay readable instead of respawning a login shell"
+        )
+    }
+
+    func testDirtyPreviewCancelsTheHandoffWhenTheSavePromptIsDeclined() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let fileURL = try makeScratchFile(contents: "on disk")
+        let previewPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path
+        ))
+        previewPanel.updateTextContent("unsaved edit")
+        XCTAssertTrue(previewPanel.isDirty)
+        let terminalCountBefore = terminalPanels(in: workspace).count
+
+        previewPanel.openInTerminalEditor(confirmSaveBeforeOpen: { false })
+
+        XCTAssertEqual(terminalPanels(in: workspace).count, terminalCountBefore)
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "on disk")
+    }
+
+    func testDirtyPreviewSavesBeforeOpeningWhenThePromptIsAccepted() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let fileURL = try makeScratchFile(contents: "on disk")
+        let previewPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path
+        ))
+        previewPanel.updateTextContent("unsaved edit")
+        let terminalCountBefore = terminalPanels(in: workspace).count
+
+        previewPanel.openInTerminalEditor(confirmSaveBeforeOpen: { true })
+
+        let deadline = Date.now.addingTimeInterval(5.0)
+        while terminalPanels(in: workspace).count == terminalCountBefore, Date.now < deadline {
+            _ = RunLoop.current.run(
+                mode: .default,
+                before: min(Date.now.addingTimeInterval(0.01), deadline)
+            )
+        }
+
+        XCTAssertEqual(terminalPanels(in: workspace).count, terminalCountBefore + 1)
+        XCTAssertEqual(
+            try String(contentsOf: fileURL, encoding: .utf8),
+            "unsaved edit",
+            "The editor reads from disk, so the confirmed save must land first"
+        )
+    }
+
+    func testTerminalEditorShortcutResolvesThroughTheRealLookup() throws {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .openInTerminalEditor)
+
+        XCTAssertFalse(
+            shortcut.isUnbound,
+            "Defaults resolve through CmuxSettings.ShortcutAction; an action missing there "
+                + "is unbound no matter what Action.defaultShortcut returns"
+        )
+        XCTAssertEqual(shortcut.key, "e")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.control)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+    }
+
+    func testDockHostedPreviewsHideTheTerminalEditorAction() throws {
+        let fileURL = try makeScratchFile()
+        let workspace = Workspace()
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = FilePreviewPanel(
+            workspaceId: workspace.id,
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+
+        panel.bindTabMetadata(to: dock)
+        XCTAssertFalse(
+            panel.canOpenInTerminalEditor,
+            "The Dock owns no terminal-capable surface tree"
+        )
+
+        panel.bindTabMetadata(to: workspace)
+        XCTAssertTrue(panel.canOpenInTerminalEditor)
     }
 }

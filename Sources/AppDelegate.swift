@@ -1379,6 +1379,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             telemetryEnabled: telemetryEnabled
         )
         let isRunningUnderXCTest = sentryStartupPolicy.isRunningUnderXCTest
+        if !isRunningUnderXCTest {
+            TerminalEditorResolutionStore.refreshInBackground()
+        }
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",
             fields: [
@@ -14981,6 +14984,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .markdownZoomReset) {
             return shortcutEventMarkdownPanel(event)?.resetZoom() ?? false
+        }
+
+        if matchConfiguredShortcut(event: event, action: .openInTerminalEditor) {
+            guard let panel = shortcutEventTerminalEditorPanel(event),
+                  panel.canOpenInTerminalEditor else {
+                return false
+            }
+            panel.openInTerminalEditor()
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
