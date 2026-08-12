@@ -26,7 +26,15 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testStackAuthEntryUsesStableIdentifiers() throws {
-        let app = launchApp(mockData: false, clearAuth: true)
+        let app = launchApp(
+            mockData: false,
+            clearAuth: true,
+            launchArguments: [
+                "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+                "complete",
+            ]
+        )
+        defer { app.terminate() }
 
         XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["signin.google"].exists)
