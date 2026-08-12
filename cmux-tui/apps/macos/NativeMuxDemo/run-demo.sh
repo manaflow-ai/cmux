@@ -247,6 +247,11 @@ if [[ "$REUSE_BUILD" == "1" ]]; then
       exit 1
     fi
   done
+  if [[ ! -d "$APP_BUNDLE/Contents/Resources/NativeMuxDemo_NativeMuxDemo.bundle" ]]; then
+    echo "Reusable NativeMuxDemo resource bundle is missing." >&2
+    echo "Run this launcher without --reuse-build once to assemble the localized app." >&2
+    exit 1
+  fi
 else
   echo "Building cmux-tui and the shared native frontend library..."
   (cd "$TUI_ROOT" && cargo +1.97.1 build --target-dir "$RUST_BUILD_ROOT" -p cmux-tui)
@@ -266,7 +271,8 @@ else
     --show-bin-path)"
 
   APP_BINARY="$SWIFT_BIN_PATH/NativeMuxDemo"
-  for artifact in "$CMUX_TUI" "$STATIC_LIBRARY" "$APP_BINARY"; do
+  SWIFT_RESOURCE_BUNDLE="$SWIFT_BIN_PATH/NativeMuxDemo_NativeMuxDemo.bundle"
+  for artifact in "$CMUX_TUI" "$STATIC_LIBRARY" "$APP_BINARY" "$SWIFT_RESOURCE_BUNDLE"; do
     if [[ ! -e "$artifact" ]]; then
       echo "Expected build artifact is missing: $artifact" >&2
       exit 1
@@ -281,10 +287,7 @@ else
     "$APP_BUNDLE/Contents/Resources/en.lproj/InfoPlist.strings"
   cp "$SCRIPT_DIR/Support/ja.lproj/InfoPlist.strings" \
     "$APP_BUNDLE/Contents/Resources/ja.lproj/InfoPlist.strings"
-  cp "$SCRIPT_DIR/Sources/NativeMuxDemo/Resources/en.lproj/Localizable.strings" \
-    "$APP_BUNDLE/Contents/Resources/en.lproj/Localizable.strings"
-  cp "$SCRIPT_DIR/Sources/NativeMuxDemo/Resources/ja.lproj/Localizable.strings" \
-    "$APP_BUNDLE/Contents/Resources/ja.lproj/Localizable.strings"
+  cp -R "$SWIFT_RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/"
   cp "$APP_BINARY" "$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
   codesign --force --sign - --timestamp=none "$APP_BUNDLE" >/dev/null
 fi

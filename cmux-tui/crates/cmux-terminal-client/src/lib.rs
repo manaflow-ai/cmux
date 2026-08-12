@@ -1410,10 +1410,16 @@ async fn receive_frames(
     stream: Arc<ServiceStream>,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
+    send_lock: Arc<tokio::sync::Mutex<()>>,
 ) -> StreamOutcome {
     let mut decoder = FrameDecoder::new(MAX_FRAME_PAYLOAD);
     loop {
-        match stream.receive().await {
+        let received = stream.receive().await;
+        // Input admission and epoch advancement share this lock. A sender
+        // that wins the lock completes on the old stream before restart;
+        // a sender that loses rechecks the new epoch before it can write.
+        let _send_guard = send_lock.lock().await;
+        match received {
             Ok(Some(chunk)) => {
                 if chunk.lane != Lane::Interactive {
                     set_restart_status(&state, &updates, "wrong-lane".into());
@@ -1501,10 +1507,17 @@ async fn supervise_terminal_stream(
     closed: Arc<AtomicBool>,
     state: Arc<Mutex<ClientState>>,
     updates: Arc<ClientUpdates>,
+    send_lock: Arc<tokio::sync::Mutex<()>>,
 ) {
     let mut stream = initial_stream;
     loop {
-        let outcome = receive_frames(stream.clone(), state.clone(), updates.clone()).await;
+        let outcome = receive_frames(
+            stream.clone(),
+            state.clone(),
+            updates.clone(),
+            send_lock.clone(),
+        )
+        .await;
         let current = streams.send_replace(None);
         if let Some(current) = current {
             let _ = current.close().await;
@@ -1669,6 +1682,7 @@ fn start_terminal_tasks(
     let (streams, command_streams) = tokio::sync::watch::channel(Some(stream.clone()));
     let resize_streams = streams.subscribe();
     let resize_delivery = Arc::new(ResizeDelivery::default());
+    let send_lock = Arc::new(tokio::sync::Mutex::new(()));
     {
         let mut state = state.lock().unwrap();
         state.resize_delivery = Some(resize_delivery.clone());
@@ -1682,6 +1696,7 @@ fn start_terminal_tasks(
         closed.clone(),
         state.clone(),
         updates.clone(),
+        send_lock.clone(),
     ));
     let (command_sender, mut commands) = tokio::sync::mpsc::channel::<TerminalCommand>(256);
     let command_queue_bytes = Arc::new(AtomicUsize::new(0));
@@ -1689,7 +1704,6 @@ fn start_terminal_tasks(
     let command_state = state.clone();
     let command_updates = updates.clone();
     let command_closed = closed.clone();
-    let send_lock = Arc::new(tokio::sync::Mutex::new(()));
     let command_send_lock = send_lock.clone();
     let command_task = runtime.spawn(async move {
         while let Some(command) = commands.recv().await {
@@ -1697,25 +1711,25 @@ fn start_terminal_tasks(
                 queued_bytes: command_task_queue_bytes.clone(),
                 bytes: command.payload.len(),
             };
-            if command_closed.load(Ordering::Acquire) {
-                return;
-            }
-            let current = command_streams.borrow().clone();
-            let (ready, input_epoch) = {
-                let state = command_state.lock().unwrap();
-                (client_state_accepts_terminal_commands(&state), state.input_epoch)
-            };
-            if !terminal_command_is_current(
-                &command,
-                current.as_ref().map(|stream| stream.id()),
-                input_epoch,
-                ready,
-            ) {
-                continue;
-            }
-            let Some(current) = current else { continue };
             let send_result = {
                 let _guard = command_send_lock.lock().await;
+                if command_closed.load(Ordering::Acquire) {
+                    return;
+                }
+                let current = command_streams.borrow().clone();
+                let (ready, input_epoch) = {
+                    let state = command_state.lock().unwrap();
+                    (client_state_accepts_terminal_commands(&state), state.input_epoch)
+                };
+                if !terminal_command_is_current(
+                    &command,
+                    current.as_ref().map(|stream| stream.id()),
+                    input_epoch,
+                    ready,
+                ) {
+                    continue;
+                }
+                let Some(current) = current else { continue };
                 current.send(command.payload).await
             };
             if let Err(error) = send_result {
@@ -3370,6 +3384,7 @@ mod tests {
                 stream,
                 state.clone(),
                 Arc::new(ClientUpdates::default()),
+                Arc::new(tokio::sync::Mutex::new(())),
             ));
 
             let encoded =
@@ -3420,7 +3435,12 @@ mod tests {
             let observation_context =
                 (&observation as *const ReadyObservation).cast_mut().cast::<c_void>();
             updates.set_callback(Some(observe_ready), observation_context);
-            let receiver = tokio::spawn(receive_frames(stream, state.clone(), updates.clone()));
+            let receiver = tokio::spawn(receive_frames(
+                stream,
+                state.clone(),
+                updates.clone(),
+                Arc::new(tokio::sync::Mutex::new(())),
+            ));
 
             let boundary = 10;
             let frames = [
