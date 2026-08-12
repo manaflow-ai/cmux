@@ -403,6 +403,7 @@ extension MobileShellComposite {
     ) {
         let ownerKey = MacPairingKey(pairingID: macDeviceID)
         guard secondaryMacSubscriptions[ownerKey]?.client === client,
+              client !== remoteClient,
               secondaryMacSubscriptions[ownerKey]?.supportedHostCapabilities.contains(Self.notificationFeedCapability) == true else { return }
         _ = scheduleNotificationFeedRefresh(
             macDeviceID: macDeviceID,
@@ -424,6 +425,7 @@ extension MobileShellComposite {
               !subscription.isTransitioningToFocus else {
             return false
         }
+        if client === remoteClient { return true }
         guard subscription.supportedHostCapabilities.contains(
             Self.notificationFeedCapability
         ) else {
@@ -1033,7 +1035,10 @@ extension MobileShellComposite {
             ))
         }
         for (ownerKey, subscription) in secondaryMacSubscriptions
-        where subscription.supportedHostCapabilities.contains(Self.notificationFeedCapability) {
+        where subscription.client !== remoteClient
+            && subscription.supportedHostCapabilities.contains(
+                Self.notificationFeedCapability
+            ) {
             targets.append(NotificationFeedClientTarget(
                 macDeviceID: subscription.macDeviceID,
                 instanceTag: subscription.storedInstanceTag,
@@ -1144,7 +1149,15 @@ extension MobileShellComposite {
     }
 
     private func resolvedNotificationFeedStatus() -> MobileNotificationFeedStatus {
-        let connectedClientCount = (remoteClient == nil ? 0 : 1) + secondaryMacSubscriptions.count
+        var connectedClientIDs = Set(
+            secondaryMacSubscriptions.map {
+                ObjectIdentifier($0.value.client)
+            }
+        )
+        if let remoteClient {
+            connectedClientIDs.insert(ObjectIdentifier(remoteClient))
+        }
+        let connectedClientCount = connectedClientIDs.count
         guard connectedClientCount > 0 else { return .unavailable }
         let targets = notificationFeedTargets()
         guard !targets.isEmpty else { return .requiresMacUpdate }

@@ -1,11 +1,11 @@
 import Foundation
 import Observation
 
-/// One authoritative entry per connected Mac.
+/// One authoritative session entry per connected Mac.
 ///
-/// A focused entry owns the terminal render subscription. A control entry owns
-/// only aggregate-state subscriptions and command RPCs. Replacing an entry's
-/// role never requires replacing its underlying RPC client.
+/// Control and focused work are independent capabilities on the same RPC
+/// client. A focus handoff can therefore add terminal work without replacing
+/// the peer connection or stopping its aggregate-state subscription.
 @MainActor
 @Observable
 final class MobileMacConnectionRegistry {
@@ -25,26 +25,27 @@ final class MobileMacConnectionRegistry {
 
     var controlEntries: [ControlSubscriptions.Element] {
         entriesByOwnerKey.compactMap { ownerKey, entry in
-            guard case .control(let subscription) = entry else { return nil }
+            guard let subscription = entry.controlSubscription else {
+                return nil
+            }
             return (key: ownerKey, value: subscription)
         }
     }
 
     var controlEntryCount: Int {
         entriesByOwnerKey.values.reduce(into: 0) { count, entry in
-            if case .control = entry {
-                count += 1
-            }
+            if entry.controlSubscription != nil { count += 1 }
         }
+    }
+
+    var sessionCount: Int {
+        entriesByOwnerKey.count
     }
 
     func controlSubscription(
         for ownerKey: MacPairingKey
     ) -> SecondaryMacSubscription? {
-        guard case .control(let subscription) = entriesByOwnerKey[ownerKey] else {
-            return nil
-        }
-        return subscription
+        entriesByOwnerKey[ownerKey]?.controlSubscription
     }
 
     func setControlSubscription(
@@ -52,16 +53,37 @@ final class MobileMacConnectionRegistry {
         for ownerKey: MacPairingKey
     ) {
         if let subscription {
-            // Compatibility setters may refresh their own role, but cannot
-            // silently destroy the opposite owner. Cross-role changes use the
-            // explicit transition methods below.
-            if case .focused = entriesByOwnerKey[ownerKey] {
+            var entry = entriesByOwnerKey[ownerKey] ?? Entry()
+            guard entry.focusedConnection == nil
+                    || entry.focusedConnection?.client === subscription.client else {
                 return
             }
-            entriesByOwnerKey[ownerKey] = .control(subscription)
-        } else if case .control = entriesByOwnerKey[ownerKey] {
-            entriesByOwnerKey[ownerKey] = nil
+            entry.controlSubscription = subscription
+            entriesByOwnerKey[ownerKey] = entry
+            return
         }
+        guard var entry = entriesByOwnerKey[ownerKey],
+              entry.controlSubscription != nil else {
+            return
+        }
+        entry.controlSubscription = nil
+        entriesByOwnerKey[ownerKey] = entry.isEmpty ? nil : entry
+    }
+
+    /// Remove one exact control capability without touching a focused
+    /// capability that may share the same peer entry.
+    @discardableResult
+    func removeControlSubscription(
+        ifMatching subscription: SecondaryMacSubscription
+    ) -> Bool {
+        let ownerKey = subscription.ownerKey
+        guard var entry = entriesByOwnerKey[ownerKey],
+              entry.controlSubscription === subscription else {
+            return false
+        }
+        entry.controlSubscription = nil
+        entriesByOwnerKey[ownerKey] = entry.isEmpty ? nil : entry
+        return true
     }
 
     /// Publish a newly established control owner only while the pool still has
@@ -71,30 +93,31 @@ final class MobileMacConnectionRegistry {
         _ subscription: SecondaryMacSubscription,
         maximumControlCount: Int
     ) -> Bool {
+        let focusedSessionAllowance = entriesByOwnerKey.values.contains {
+            $0.focusedConnection != nil
+        } ? 1 : 0
         guard entriesByOwnerKey[subscription.ownerKey] == nil,
-              controlEntryCount < maximumControlCount else {
+              sessionCount
+                < maximumControlCount + focusedSessionAllowance else {
             return false
         }
-        entriesByOwnerKey[subscription.ownerKey] = .control(subscription)
+        entriesByOwnerKey[subscription.ownerKey] = Entry(
+            controlSubscription: subscription
+        )
         return true
     }
 
     func focusedConnection(for ownerKey: MacPairingKey) -> MacConnection? {
-        guard case .focused(let connection) = entriesByOwnerKey[ownerKey] else {
-            return nil
-        }
-        return connection
+        entriesByOwnerKey[ownerKey]?.focusedConnection
     }
 
     /// The focused connection on the given physical device, regardless of
     /// instance tag. Safe as a device-level read because the registry holds at
     /// most one focused entry; writes must always name the exact pairing.
     func focusedConnection(onDevice macDeviceID: String) -> MacConnection? {
-        for (ownerKey, entry) in entriesByOwnerKey {
-            if case .focused(let connection) = entry,
-               ownerKey.isOnDevice(macDeviceID) {
-                return connection
-            }
+        for (ownerKey, entry) in entriesByOwnerKey
+        where ownerKey.isOnDevice(macDeviceID) {
+            if let connection = entry.focusedConnection { return connection }
         }
         return nil
     }
@@ -104,28 +127,81 @@ final class MobileMacConnectionRegistry {
         for ownerKey: MacPairingKey
     ) {
         if let connection {
-            if case .control = entriesByOwnerKey[ownerKey] {
+            var entry = entriesByOwnerKey[ownerKey] ?? Entry()
+            guard entry.controlSubscription == nil
+                    || entry.controlSubscription?.client === connection.client else {
                 return
             }
-            entriesByOwnerKey[ownerKey] = .focused(connection)
-        } else if case .focused = entriesByOwnerKey[ownerKey] {
-            entriesByOwnerKey[ownerKey] = nil
+            entry.focusedConnection = connection
+            entriesByOwnerKey[ownerKey] = entry
+            return
         }
+        guard var entry = entriesByOwnerKey[ownerKey],
+              entry.focusedConnection != nil else {
+            return
+        }
+        entry.focusedConnection = nil
+        entriesByOwnerKey[ownerKey] = entry.isEmpty ? nil : entry
     }
 
-    /// Atomically publish focus and return any control owner it displaced.
-    /// Callers synchronously retire that owner before yielding again.
+    /// Publish focus with the legacy exclusive-role behavior and return the
+    /// control owner it displaced.
     func transitionToFocused(
         _ connection: MacConnection
     ) -> SecondaryMacSubscription? {
-        let displaced: SecondaryMacSubscription?
-        if case .control(let subscription) = entriesByOwnerKey[connection.ownerKey] {
-            displaced = subscription
-        } else {
-            displaced = nil
-        }
-        entriesByOwnerKey[connection.ownerKey] = .focused(connection)
+        var entry = entriesByOwnerKey[connection.ownerKey] ?? Entry()
+        let displaced = entry.controlSubscription
+        entry.controlSubscription = nil
+        entry.focusedConnection = connection
+        entriesByOwnerKey[connection.ownerKey] = entry
         return displaced
+    }
+
+    /// Move the single focus lease while preserving every same-client control
+    /// subscription. Existing peer connections stay admitted throughout the
+    /// handoff.
+    func transitionToFocusedPreservingControl(
+        _ connection: MacConnection
+    ) -> Bool {
+        var target = entriesByOwnerKey[connection.ownerKey] ?? Entry()
+        guard target.controlSubscription == nil
+                || target.controlSubscription?.client === connection.client else {
+            return false
+        }
+
+        var updated = entriesByOwnerKey
+        let previousFocusKeys = updated.compactMap { ownerKey, entry in
+            ownerKey != connection.ownerKey && entry.focusedConnection != nil
+                ? ownerKey
+                : nil
+        }
+        for ownerKey in previousFocusKeys {
+            guard var entry = updated[ownerKey] else { continue }
+            entry.focusedConnection = nil
+            updated[ownerKey] = entry.isEmpty ? nil : entry
+        }
+        target.focusedConnection = connection
+        updated[connection.ownerKey] = target
+        entriesByOwnerKey = updated
+        return true
+    }
+
+    /// Add control work to the same client while it still owns focus. This does
+    /// not consume another peer slot because the transport session is unchanged.
+    func installControlAlongsideFocus(
+        _ subscription: SecondaryMacSubscription,
+        replacing connection: MacConnection
+    ) -> Bool {
+        guard var entry = entriesByOwnerKey[connection.ownerKey],
+              let current = entry.focusedConnection,
+              current.client === connection.client,
+              current.generation == connection.generation,
+              subscription.client === connection.client else {
+            return false
+        }
+        entry.controlSubscription = subscription
+        entriesByOwnerKey[connection.ownerKey] = entry
+        return true
     }
 
     /// Atomically demote the expected focused owner to control. A different
@@ -135,63 +211,76 @@ final class MobileMacConnectionRegistry {
         replacing connection: MacConnection,
         maximumControlCount: Int
     ) -> Bool {
-        guard case .focused(let current) =
-                entriesByOwnerKey[connection.ownerKey],
+        guard var entry = entriesByOwnerKey[connection.ownerKey],
+              let current = entry.focusedConnection,
               current.client === connection.client,
-              current.generation == connection.generation,
-              controlEntryCount < maximumControlCount else {
+              current.generation == connection.generation else {
             return false
         }
-        entriesByOwnerKey[connection.ownerKey] = .control(subscription)
+        if let existingControl = entry.controlSubscription {
+            guard existingControl.client === connection.client else { return false }
+        } else {
+            guard controlEntryCount < maximumControlCount else { return false }
+            entry.controlSubscription = subscription
+        }
+        entry.focusedConnection = nil
+        entriesByOwnerKey[connection.ownerKey] = entry
         return true
     }
 
     /// Vacate the control slot being promoted and demote the prepared focus in
-    /// one registry publication. The control count is unchanged, so a full
-    /// pool can switch focus without exposing two focused owners or exceeding
-    /// its resource cap.
+    /// one registry publication. This retains the legacy teardown-based path for
+    /// transports that cannot multiplex peer lanes.
     func exchangePromotedControlForDemotedFocus(
         promotedControl: SecondaryMacSubscription,
         demotedControl: SecondaryMacSubscription,
         replacing focusedConnection: MacConnection
     ) -> Bool {
-        guard promotedControl.ownerKey
-                != focusedConnection.ownerKey,
-              case .control(let currentPromoted) =
-                entriesByOwnerKey[promotedControl.ownerKey],
-              currentPromoted === promotedControl,
-              case .focused(let currentFocused) =
-                entriesByOwnerKey[focusedConnection.ownerKey],
+        guard promotedControl.ownerKey != focusedConnection.ownerKey,
+              var promotedEntry = entriesByOwnerKey[promotedControl.ownerKey],
+              promotedEntry.controlSubscription === promotedControl,
+              var focusedEntry = entriesByOwnerKey[focusedConnection.ownerKey],
+              let currentFocused = focusedEntry.focusedConnection,
               currentFocused.client === focusedConnection.client,
-              currentFocused.generation
-                == focusedConnection.generation else {
+              currentFocused.generation == focusedConnection.generation else {
             return false
         }
+        promotedEntry.controlSubscription = nil
+        focusedEntry.focusedConnection = nil
+        if let existingControl = focusedEntry.controlSubscription {
+            guard existingControl.client === focusedConnection.client else {
+                return false
+            }
+        } else {
+            focusedEntry.controlSubscription = demotedControl
+        }
         var updated = entriesByOwnerKey
-        updated[promotedControl.ownerKey] = nil
-        updated[focusedConnection.ownerKey] =
-            .control(demotedControl)
+        updated[promotedControl.ownerKey] = promotedEntry.isEmpty
+            ? nil
+            : promotedEntry
+        updated[focusedConnection.ownerKey] = focusedEntry
         entriesByOwnerKey = updated
         return true
     }
 
-    /// Remove only the focused owner that the caller actually prepared.
-    /// A newer focus generation, including one reusing the same client, is left
-    /// untouched.
+    /// Remove only the focused owner that the caller actually prepared. A newer
+    /// focus generation, including one reusing the same client, is untouched.
     @discardableResult
     func removeFocused(ifMatching connection: MacConnection) -> Bool {
-        guard case .focused(let current) = entriesByOwnerKey[connection.ownerKey],
+        guard var entry = entriesByOwnerKey[connection.ownerKey],
+              let current = entry.focusedConnection,
               current.client === connection.client,
               current.generation == connection.generation else {
             return false
         }
-        entriesByOwnerKey[connection.ownerKey] = nil
+        entry.focusedConnection = nil
+        entriesByOwnerKey[connection.ownerKey] = entry.isEmpty ? nil : entry
         return true
     }
 
     func isFocused(ifMatching connection: MacConnection) -> Bool {
-        guard case .focused(let current) =
-                entriesByOwnerKey[connection.ownerKey] else {
+        guard let current = entriesByOwnerKey[connection.ownerKey]?
+                .focusedConnection else {
             return false
         }
         return current.client === connection.client
@@ -199,34 +288,31 @@ final class MobileMacConnectionRegistry {
     }
 
     func ownsClient(of connection: MacConnection) -> Bool {
-        switch entriesByOwnerKey[connection.ownerKey] {
-        case .focused(let current):
-            return current.client === connection.client
-        case .control(let current):
-            return current.client === connection.client
-        case nil:
+        guard let entry = entriesByOwnerKey[connection.ownerKey] else {
             return false
         }
+        return entry.focusedConnection?.client === connection.client
+            || entry.controlSubscription?.client === connection.client
     }
 
     func removeAllControlSubscriptions() {
-        let controlKeys = entriesByOwnerKey.compactMap { ownerKey, entry -> MacPairingKey? in
-            if case .control = entry { return ownerKey }
-            return nil
+        var updated = entriesByOwnerKey
+        for (ownerKey, entry) in updated where entry.controlSubscription != nil {
+            var entry = entry
+            entry.controlSubscription = nil
+            updated[ownerKey] = entry.isEmpty ? nil : entry
         }
-        for ownerKey in controlKeys {
-            entriesByOwnerKey[ownerKey] = nil
-        }
+        entriesByOwnerKey = updated
     }
 
     func removeAllFocusedConnections() {
-        let focusedKeys = entriesByOwnerKey.compactMap { ownerKey, entry -> MacPairingKey? in
-            if case .focused = entry { return ownerKey }
-            return nil
+        var updated = entriesByOwnerKey
+        for (ownerKey, entry) in updated where entry.focusedConnection != nil {
+            var entry = entry
+            entry.focusedConnection = nil
+            updated[ownerKey] = entry.isEmpty ? nil : entry
         }
-        for ownerKey in focusedKeys {
-            entriesByOwnerKey[ownerKey] = nil
-        }
+        entriesByOwnerKey = updated
     }
 
     func removeAll() {
@@ -234,23 +320,11 @@ final class MobileMacConnectionRegistry {
     }
 
     private func rebuildSnapshots() {
-        snapshots = entriesByOwnerKey.map { ownerKey, entry in
-            switch entry {
-            case .control(let subscription):
+        snapshots = entriesByOwnerKey.compactMap { ownerKey, entry in
+            if let connection = entry.focusedConnection {
                 return MobileMacConnectionSnapshot(
                     macDeviceID: ownerKey.canonicalMacDeviceID,
-                    displayName: mobileMacConnectionDisplayName(
-                        subscription.displayName,
-                        fallback: ownerKey.canonicalMacDeviceID
-                    ),
-                    instanceTag: subscription.authenticatedInstanceTag
-                        ?? subscription.storedInstanceTag,
-                    role: .control
-                )
-            case .focused(let connection):
-                return MobileMacConnectionSnapshot(
-                    macDeviceID: ownerKey.canonicalMacDeviceID,
-                    displayName: mobileMacConnectionDisplayName(
+                    displayName: Self.displayName(
                         connection.displayName,
                         fallback: ownerKey.canonicalMacDeviceID
                     ),
@@ -258,6 +332,19 @@ final class MobileMacConnectionRegistry {
                     role: .focused
                 )
             }
+            guard let subscription = entry.controlSubscription else {
+                return nil
+            }
+            return MobileMacConnectionSnapshot(
+                macDeviceID: ownerKey.canonicalMacDeviceID,
+                displayName: Self.displayName(
+                    subscription.displayName,
+                    fallback: ownerKey.canonicalMacDeviceID
+                ),
+                instanceTag: subscription.authenticatedInstanceTag
+                    ?? subscription.storedInstanceTag,
+                role: .control
+            )
         }
         .sorted {
             if $0.role != $1.role { return $0.role == .focused }
@@ -266,15 +353,14 @@ final class MobileMacConnectionRegistry {
         }
     }
 
-}
-
-private func mobileMacConnectionDisplayName(
-    _ value: String?,
-    fallback: String
-) -> String {
-    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !value.isEmpty else {
-        return fallback
+    private static func displayName(
+        _ value: String?,
+        fallback: String
+    ) -> String {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return fallback
+        }
+        return value
     }
-    return value
 }
