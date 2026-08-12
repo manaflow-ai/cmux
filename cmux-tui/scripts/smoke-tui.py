@@ -578,9 +578,9 @@ text = render_text_snapshot(output)
 assert "example.com" in text, text[-800:]
 os.write(fd, b"\x1b")
 drain(0.5)
-# Close the browser TAB. prefix-X since the tmux-alignment flip: x kills the
-# pane (which here is the only pane and would end the session), X the tab.
-os.write(fd, b"\x02X")
+# Close the browser tab. Lowercase x owns CloseTab; uppercase X owns
+# ClosePane, which would remove this only pane and leave the screen empty.
+os.write(fd, b"\x02x")
 screen0 = wait_for_active_screen(
     lambda screen: bool(screen.get("panes"))
     and len(screen["panes"][0]["tabs"]) == before_tabs,
