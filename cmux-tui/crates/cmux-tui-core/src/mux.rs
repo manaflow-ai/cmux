@@ -20377,7 +20377,7 @@ mod tests {
     }
 
     #[test]
-    fn kitty_quota_worker_rebalances_after_retiring_surface_failure() {
+    fn kitty_quota_close_rebalances_without_updating_retired_surface() {
         let mux = test_mux();
         let survivor = mux.new_workspace(None, Some((80, 24))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(survivor.id).unwrap());
@@ -20413,8 +20413,8 @@ mod tests {
         assert!(!budget.worker_running, "Kitty quota worker did not settle");
         assert_eq!(
             attempts.load(Ordering::Acquire),
-            usize::try_from(KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS).unwrap(),
-            "Kitty quota worker did not exhaust the retiring surface retry budget"
+            0,
+            "Kitty quota worker tried to update a retired surface"
         );
         assert!(
             !budget.entries.contains_key(&retiring.id),
