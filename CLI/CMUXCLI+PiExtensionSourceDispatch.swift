@@ -440,9 +440,11 @@ class PiCmuxCommandDispatcher {
         });
         child.stdout.setEncoding("utf8");
         child.stderr.setEncoding("utf8");
+        child.stdout.on("error", () => {});
         child.stdout.on("data", (chunk) => {
           stdout = appendOutput(stdout, chunk);
         });
+        child.stderr.on("error", () => {});
         child.stderr.on("data", (chunk) => {
           stderr = appendOutput(stderr, chunk);
         });
