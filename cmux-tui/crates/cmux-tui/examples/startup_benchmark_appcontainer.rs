@@ -2050,9 +2050,13 @@ fn parent_security_unchanged(path: &Path, information: u32, before: &[usize]) ->
 fn validate_config(config: &BrokerConfig, expected_nonce: &str) -> Result<()> {
     validate_nonce(&config.nonce)?;
     validate_profile_name(&config.profile_name)?;
-    if config.schema_version != EVIDENCE_SCHEMA_VERSION
-        || config.nonce != expected_nonce
-        || config.target_sha256 != sha256_file(&config.target)?
+    if config.schema_version != EVIDENCE_SCHEMA_VERSION || config.nonce != expected_nonce {
+        bail!("AppContainer broker config violated its identity boundary");
+    }
+    let observed_target_sha256 = sha256_file(&config.target).with_context(|| {
+        format!("validate staged AppContainer target hash: {}", config.target.display())
+    })?;
+    if config.target_sha256 != observed_target_sha256
         || config.target.parent() != Some(config.staging_root.as_path())
         || config.staging_root == config.fixture_root
         || config.staging_root.parent() != config.fixture_root.parent()
@@ -2061,12 +2065,16 @@ fn validate_config(config: &BrokerConfig, expected_nonce: &str) -> Result<()> {
     {
         bail!("AppContainer broker config violated its identity boundary");
     }
-    let target = fs::symlink_metadata(&config.target)?;
+    let target = fs::symlink_metadata(&config.target).with_context(|| {
+        format!("validate staged AppContainer target metadata: {}", config.target.display())
+    })?;
     if !target.file_type().is_file() || target.file_type().is_symlink() {
         bail!("staged AppContainer target was not one regular file");
     }
-    let expected_sid = derive_profile_sid(&config.profile_name)?;
-    let observed = OwnedSid::from_string(&config.appcontainer_sid)?;
+    let expected_sid = derive_profile_sid(&config.profile_name)
+        .context("derive expected AppContainer profile SID")?;
+    let observed = OwnedSid::from_string(&config.appcontainer_sid)
+        .context("parse AppContainer profile SID from broker config")?;
     if unsafe { EqualSid(expected_sid.0, observed.0) } == 0 {
         bail!("AppContainer broker config profile SID changed");
     }
@@ -2430,13 +2438,16 @@ fn validate_profile_name(name: &str) -> Result<()> {
 }
 
 fn sha256_file(path: &Path) -> Result<String> {
-    let metadata = fs::symlink_metadata(path)?;
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("read file metadata for {}", path.display()))?;
     if !metadata.file_type().is_file() {
         bail!("AppContainer executable must be one regular file");
     }
-    let mut file = File::open(path)?;
+    let mut file =
+        File::open(path).with_context(|| format!("open file for hashing: {}", path.display()))?;
     let mut digest = Sha256::new();
-    io::copy(&mut file, &mut digest)?;
+    io::copy(&mut file, &mut digest)
+        .with_context(|| format!("read file for hashing: {}", path.display()))?;
     Ok(format!("{:x}", digest.finalize()))
 }
 
