@@ -65,6 +65,7 @@ struct SidebarAppKitRowCellTests {
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
         latestConversationMessage: String? = nil,
+        latestNotificationText: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
         shortcutHintText: String? = nil,
@@ -89,7 +90,7 @@ struct SidebarAppKitRowCellTests {
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
-            latestNotificationText: nil,
+            latestNotificationText: latestNotificationText,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
             rowSpacing: 8,
             isBeingDragged: false,
@@ -2077,6 +2078,25 @@ struct SidebarAppKitRowCellTests {
         #expect(Self.descendants(of: cell)
             .compactMap { $0 as? SidebarRowTextView }
             .allSatisfy { $0.isHidden || $0.stringValue != "last agent message" })
+    }
+
+    @Test
+    func structuredAgentActivityHidesNotificationPreviewButKeepsDescription() {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: "sidebarShowAgentActivity")
+        let model = Self.makeModel(
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            customDescription: "Explicit workspace description",
+            latestNotificationText: "Kimi Code task complete"
+        )
+        let cell = Self.configuredCell(model: model)
+        let visibleText = Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .filter { !$0.isHidden }
+            .map(\.stringValue)
+
+        #expect(visibleText.contains("Explicit workspace description"))
+        #expect(!visibleText.contains("Kimi Code task complete"))
     }
 }
 

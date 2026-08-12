@@ -453,6 +453,17 @@ struct WorkspaceSidebarObservationTests {
         ) == "last agent message")
     }
 
+    @Test func agentActivityReplacesNotificationSubtitle() {
+        #expect(SidebarAgentActivitySummary().notificationSubtitle(
+            showsAgentActivity: true,
+            message: "Kimi Code task complete"
+        ) == nil)
+        #expect(SidebarAgentActivitySummary().notificationSubtitle(
+            showsAgentActivity: false,
+            message: "Kimi Code task complete"
+        ) == "Kimi Code task complete")
+    }
+
     @Test func visibleActiveCodingAgentCountReturnsZeroWhenSettingIsDisabled() {
         let panelId = UUID()
         let statesByPanelId = [
