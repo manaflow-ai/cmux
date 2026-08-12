@@ -3612,7 +3612,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Notifications"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayToday"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeedDayYesterday"].exists)
-        XCTAssertTrue(app.staticTexts["Build Mac"].exists)
+        XCTAssertTrue(app.staticTexts["Build Mac"].waitForExistence(timeout: 3))
 
         let approvalTitle = app.staticTexts["Codex needs approval"]
         let approvalWorkspace = app.staticTexts["cmux iOS"]
