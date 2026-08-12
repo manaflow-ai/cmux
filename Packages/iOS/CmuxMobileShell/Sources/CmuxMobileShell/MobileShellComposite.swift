@@ -2852,7 +2852,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Visible store rows for identity-sensitive paths; ``pairedMacs`` is display-coalesced.
     private var storedPairedMacs: [MobilePairedMac] = []
     /// Every scoped SQLite row, including hidden rows, for route refresh and hidden presentation.
-    @ObservationIgnored var storedPairedMacsIncludingHidden: [MobilePairedMac] = []
+    @ObservationIgnored var storedPairedMacsIncludingHidden: [MobilePairedMac] = [] {
+        didSet {
+            hasStoredUsableTailscaleAuthorization = Self
+                .hasUsableTailscaleAuthorization(in: storedPairedMacsIncludingHidden)
+        }
+    }
+    /// Cached local Tailscale readiness for the current paired-Mac snapshot.
+    var hasStoredUsableTailscaleAuthorization = false
     /// Load status for ``pairedMacs`` in the current signed-in account/team scope.
     public internal(set) var pairedMacLoadState: PairedMacLoadState = .notLoaded
     /// Visible representative id to all stored ids for that logical paired Mac.
@@ -3907,7 +3914,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 client: client,
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
-                instanceTag: payload.macInstanceTag
+                instanceTag: payload.macInstanceTag,
+                macAppVersion: payload.macAppVersion
             )
         }
     }
@@ -3927,7 +3935,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         client: MobileCoreRPCClient,
         deviceID: String?,
         displayName: String?,
-        instanceTag: String?
+        instanceTag: String?,
+        macAppVersion: String? = nil
     ) async {
         guard remoteClient === client,
               let rawReportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -3968,7 +3977,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard remoteClient === client else { return }
         let resolvedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard macBuildIsCompatible(instanceTag: resolvedTag) else {
+        guard authenticatedMacBuildIsCompatible(
+            instanceTag: resolvedTag,
+            macAppVersion: macAppVersion,
+            client: client
+        ) else {
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
             return
         }
@@ -8349,7 +8362,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     let hasAuthenticatedIdentity = reportedDeviceID?.isEmpty == false
                     let reportedInstanceTag = hasAuthenticatedIdentity ? status.macInstanceTag : nil
-                    guard macBuildIsCompatible(instanceTag: reportedInstanceTag) else {
+                    guard authenticatedMacBuildIsCompatible(
+                        instanceTag: reportedInstanceTag,
+                        macAppVersion: status.macAppVersion,
+                        client: client
+                    ) else {
                         mobileShellLog.error(
                             "rejecting route from incompatible Mac build reported=\(reportedInstanceTag ?? "missing", privacy: .public)"
                         )
@@ -10586,7 +10603,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 client: client,
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
-                instanceTag: payload.macInstanceTag
+                instanceTag: payload.macInstanceTag,
+                macAppVersion: payload.macAppVersion
             )
             guard isCurrentRemoteConnection(
                 client: client,
