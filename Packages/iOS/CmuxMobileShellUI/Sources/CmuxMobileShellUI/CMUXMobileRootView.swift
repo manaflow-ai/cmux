@@ -448,9 +448,7 @@ struct CMUXMobileRootView: View {
                     setupHelpHighlight: disconnectedSetupHelpHighlight,
                     store: store,
                     isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
-                    dismissTailscalePairingBanner: {
-                        isTailscalePairingBannerDismissed = true
-                    },
+                    dismissTailscalePairingBanner: dismissTailscalePairingBanner,
                     showSettings: showSettings,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
@@ -472,9 +470,7 @@ struct CMUXMobileRootView: View {
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
                     isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
-                    dismissTailscalePairingBanner: {
-                        isTailscalePairingBannerDismissed = true
-                    },
+                    dismissTailscalePairingBanner: dismissTailscalePairingBanner,
                     showSettings: showSettings,
                     deviceTreePresentation: childSheetPresentation(
                         for: .workspaceDeviceTree
@@ -489,6 +485,10 @@ struct CMUXMobileRootView: View {
                 )
             }
         }
+    }
+
+    private func dismissTailscalePairingBanner() {
+        isTailscalePairingBannerDismissed = true
     }
 
     #if os(macOS)
