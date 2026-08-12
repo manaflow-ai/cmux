@@ -13,8 +13,11 @@ protocol PaneDropContainer: AnyObject {
         in paneId: PaneID
     ) -> (panelId: UUID, panel: any Panel)?
 
-    /// Returns whether this container accepts the portal transfer.
-    func canPerformPortalPaneDrop(_ transfer: PaneDragTransfer) -> Bool
+    /// Returns whether this container accepts the resolved live transfer source.
+    func canPerformPortalPaneDrop(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source
+    ) -> Bool
 
     /// Resolves the effective target zone for a portal transfer.
     func portalPaneDropZone(
@@ -58,11 +61,6 @@ protocol PaneDropContainer: AnyObject {
 }
 
 extension PaneDropContainer {
-    /// Accepts only transfers created by this cmux process by default.
-    func canPerformPortalPaneDrop(_ transfer: PaneDragTransfer) -> Bool {
-        transfer.isFromCurrentProcess
-    }
-
     /// Declines simulator routing for containers without simulator panels.
     func simulatorFileDropOperation(
         urls _: [URL],
@@ -168,6 +166,14 @@ extension PaneDropContainer {
 }
 
 extension Workspace: PaneDropContainer {
+    /// The workspace dispatcher handles every source admitted by the shared resolver.
+    func canPerformPortalPaneDrop(
+        _: PaneDragTransfer,
+        source _: PaneTransferSourceResolver.Source
+    ) -> Bool {
+        true
+    }
+
     /// Returns the workspace panel selected in the target pane.
     func selectedPanelForPaneDrop(
         in paneId: PaneID
@@ -230,12 +236,20 @@ extension DockSplitStore: PaneDropContainer {
     }
 
     /// Accepts Dock-local transfers and valid transfers from another container.
-    func canPerformPortalPaneDrop(_ transfer: PaneDragTransfer) -> Bool {
-        if containsPane(transfer.sourcePaneId) { return true }
-        return AppDelegate.shared?.canMoveSurfaceIntoDock(
-            sourceTabId: transfer.tabId,
-            destinationDock: self
-        ) == true
+    func canPerformPortalPaneDrop(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source
+    ) -> Bool {
+        switch source {
+        case .vaultSession, .filePreview:
+            return false
+        case .surface:
+            if containsPane(transfer.sourcePaneId) { return true }
+            return AppDelegate.shared?.canMoveSurfaceIntoDock(
+                sourceTabId: transfer.tabId,
+                destinationDock: self
+            ) == true
+        }
     }
 
     /// Applies the Dock focus transaction after inserting dropped text.

@@ -2458,13 +2458,9 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 
 // MARK: - Drag cancel monitor
 
-/// Clears `dragCoordinator.draggedKey` after any mouseUp OR Escape keypress,
-/// so a cancelled drag (user releases outside any valid drop target, or
-/// presses Esc mid-drag) doesn't leave the section stuck at 0.45 opacity.
-/// Successful drops clear the key themselves via
-/// `SectionGapDropDelegate.performDrop` and that clear happens under
-/// `DispatchQueue.main.async`, so the drop path always wins the race
-/// against this fallback.
+/// Ends folder-header and Vault-row drag ownership after mouseUp or Escape.
+/// Successful drops consume their Vault entry before this deferred fallback;
+/// an ID-matched discard cannot clear a newer drag that already superseded it.
 private struct DragCancelMonitor: NSViewRepresentable {
     let dragCoordinator: SessionDragCoordinator
 
@@ -2498,8 +2494,11 @@ private struct DragCancelMonitor: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(
                 matching: [.leftMouseUp, .otherMouseUp, .keyDown]
             ) { [weak self] event in
-                guard let coordinator = self?.dragCoordinator,
-                      coordinator.draggedKey != nil else { return event }
+                guard let coordinator = self?.dragCoordinator else { return event }
+                let activeVaultDragID = SessionDragRegistry.shared.activeDragID
+                guard coordinator.draggedKey != nil || activeVaultDragID != nil else {
+                    return event
+                }
                 if event.type == .keyDown, event.keyCode != 53 { // 53 = kVK_Escape
                     return event
                 }
@@ -2507,6 +2506,9 @@ private struct DragCancelMonitor: NSViewRepresentable {
                 // main actor wins first; this path only matters when no drop
                 // fires, i.e. the drag was cancelled.
                 DispatchQueue.main.async {
+                    if let activeVaultDragID {
+                        SessionDragRegistry.shared.discard(id: activeVaultDragID)
+                    }
                     coordinator.draggedKey = nil
                 }
                 return event

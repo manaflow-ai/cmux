@@ -234,6 +234,7 @@ final class WindowBrowserHostView: NSView {
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
+    private let paneTransferSourceResolver = PaneTransferSourceResolver()
 
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
@@ -471,15 +472,19 @@ final class WindowBrowserHostView: NSView {
 #endif
             return nil
         }
-        // Mirror terminal portal routing: while tab-reorder drags are active,
-        // pass through to SwiftUI drop targets behind the portal host.
-        // Browser hover routing also arrives as cursor/enter events and may not
-        // report a pressed-button state, so include that path here.
+        // Live pane transfers stay in the portal so every source reaches the
+        // same BrowserPaneDropTargetView router. Sidebar reorder and stale or
+        // unknown transfer payloads still pass through to the SwiftUI layers.
         if routingContext.allowsBrowserPortalDragRouting,
            Self.shouldPassThroughToDragTargets(
             pasteboardTypes: dragPasteboard.types,
             eventType: eventType
            ) {
+            if let transfer = PaneDragTransfer.decode(from: dragPasteboard),
+               paneTransferSourceResolver.source(for: transfer) != nil,
+               let paneDropTarget = paneDropTarget(at: point) {
+                return paneDropTarget
+            }
             return nil
         }
 
@@ -832,6 +837,18 @@ final class WindowBrowserHostView: NSView {
             pasteboardTypes: pasteboardTypes,
             eventType: eventType
         )
+    }
+
+    private func paneDropTarget(at point: NSPoint) -> BrowserPaneDropTargetView? {
+        for subview in subviews.reversed() {
+            guard let slotView = subview as? WindowBrowserSlotView,
+                  !slotView.isHidden else { continue }
+            let pointInSlot = slotView.convert(point, from: self)
+            if let target = slotView.paneDropTargetForDrop(at: pointInSlot) {
+                return target
+            }
+        }
+        return nil
     }
 
     private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {

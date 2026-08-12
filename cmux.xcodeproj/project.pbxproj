@@ -1554,6 +1554,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		6313B5A0 /* PaneMemorySample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B5A1 /* PaneMemorySample.swift */; };
 		6313B6A0 /* PaneMemoryWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B6A1 /* PaneMemoryWarning.swift */; };
 		469200024692000146920001 /* PaneTransferDropRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200024692000146920002 /* PaneTransferDropRouter.swift */; };
+		469200034692000146920001 /* PaneTransferSourceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200034692000146920002 /* PaneTransferSourceResolver.swift */; };
 		E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */; };
 		B88350000000000000000003 /* PasteboardThreadSignalingDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */; };
 		B8835700000000000000000B /* PastePreparationFailureProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000C /* PastePreparationFailureProbe.swift */; };
@@ -4312,6 +4313,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		6313B5A1 /* PaneMemorySample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemorySample.swift; sourceTree = "<group>"; };
 		6313B6A1 /* PaneMemoryWarning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryWarning.swift; sourceTree = "<group>"; };
 		469200024692000146920002 /* PaneTransferDropRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneTransferDropRouter.swift; sourceTree = "<group>"; };
+		469200034692000146920002 /* PaneTransferSourceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneTransferSourceResolver.swift; sourceTree = "<group>"; };
 		E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassthroughWindowOverlayContainerView.swift; sourceTree = "<group>"; };
 		B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardThreadSignalingDataProvider.swift; sourceTree = "<group>"; };
 		B8835700000000000000000C /* PastePreparationFailureProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastePreparationFailureProbe.swift; sourceTree = "<group>"; };
@@ -6612,6 +6614,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D0B752900000000000000001 /* PaneDropRoutingRegistration.swift */,
 				D0B752900000000000000003 /* PaneDropRoutingSession.swift */,
 				D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */,
+				469200034692000146920002 /* PaneTransferSourceResolver.swift */,
 				469200024692000146920002 /* PaneTransferDropRouter.swift */,
 				A5001531 /* TerminalWindowPortal.swift */,
 				D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */,
@@ -9805,6 +9808,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6313B5A0 /* PaneMemorySample.swift in Sources */,
 				6313B6A0 /* PaneMemoryWarning.swift in Sources */,
 				469200024692000146920001 /* PaneTransferDropRouter.swift in Sources */,
+				469200034692000146920001 /* PaneTransferSourceResolver.swift in Sources */,
 				E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */,
 				A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */,
 				9923B0049923B0049923B004 /* PendingTerminalStartupRestore.swift in Sources */,

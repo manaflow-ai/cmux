@@ -15,19 +15,25 @@ final class PaneTransferDropRouter {
     struct Plan: Equatable {
         let context: PaneDropContext
         let transfer: PaneDragTransfer
+        let source: PaneTransferSourceResolver.Source
         let zone: DropZone
     }
 
     typealias ContainerResolver = @MainActor (PaneDropContext) -> (any PaneDropContainer)?
 
     private let containerResolver: ContainerResolver
+    private let sourceResolver: PaneTransferSourceResolver
     private weak var activeContainer: (any PaneDropContainer)?
     private var activeContext: PaneDropContext?
 
-    init(containerResolver: @escaping ContainerResolver = { context in
-        AppDelegate.shared?.paneDropContainer(for: context)
-    }) {
+    init(
+        containerResolver: @escaping ContainerResolver = { context in
+            AppDelegate.shared?.paneDropContainer(for: context)
+        },
+        sourceResolver: PaneTransferSourceResolver = PaneTransferSourceResolver()
+    ) {
         self.containerResolver = containerResolver
+        self.sourceResolver = sourceResolver
     }
 
     /// Pins pane ownership at drag entry so every later phase uses the same owner.
@@ -54,9 +60,9 @@ final class PaneTransferDropRouter {
         guard let transfer = PaneDragTransfer.decode(from: pasteboard) else {
             return .notTransfer
         }
-        guard transfer.isFromCurrentProcess,
+        guard let source = sourceResolver.source(for: transfer),
               let container = container(for: context),
-              container.canPerformPortalPaneDrop(transfer) else {
+              container.canPerformPortalPaneDrop(transfer, source: source) else {
             return .rejected
         }
         let zone = container.portalPaneDropZone(
@@ -65,7 +71,12 @@ final class PaneTransferDropRouter {
             targetPane: context.paneId,
             proposedZone: proposedZone
         )
-        return .accepted(Plan(context: context, transfer: transfer, zone: zone))
+        return .accepted(Plan(
+            context: context,
+            transfer: transfer,
+            source: source,
+            zone: zone
+        ))
     }
 
     /// Executes a previously accepted transfer through the same pane owner.
