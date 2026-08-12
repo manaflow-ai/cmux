@@ -22,10 +22,13 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertTrue(deny.waitForExistence(timeout: 3))
         XCTAssertTrue(deny.isHittable)
         deny.tap()
+        waitForExistence(permissionCard, expected: false)
+        app.buttons["All Activity"].tap()
         XCTAssertTrue(permissionCard.waitForExistence(timeout: 3))
         let resolvedExpand = app.buttons[permissionExpandID]
         XCTAssertEqual(app.buttons.matching(identifier: permissionExpandID).count, 1)
         XCTAssertTrue(resolvedExpand.label.contains("Resolved: Deny"))
+        XCTAssertFalse(app.buttons[denyID].exists)
         XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedPreviewAgentDestination"].exists)
 
         app.terminate()
@@ -45,7 +48,7 @@ final class AgentFeedUITests: XCTestCase {
 
     @MainActor
     func testAgentFeedMultiQuestionRequiresEveryAnswerAndSupportsOther() throws {
-        let app = launchFixture()
+        let app = launchFixture(scenario: "questions")
         defer { app.terminate() }
 
         let suffix = "mac-3-00000000-0000-0000-0000-000000000103"
@@ -65,11 +68,15 @@ final class AgentFeedUITests: XCTestCase {
         other.typeText("Oldest blocked request")
         waitForEnabled(submit, expected: true)
         submit.tap()
+        waitForExistence(expand, expected: false)
+        app.buttons["All Activity"].tap()
+        XCTAssertTrue(expand.waitForExistence(timeout: 3))
         let resolved = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label CONTAINS %@", "Resolved"),
             object: expand
         )
         XCTAssertEqual(XCTWaiter.wait(for: [resolved], timeout: 5), .completed)
+        XCTAssertFalse(submit.exists)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "agent-feed-multi-question-resolved"
@@ -269,7 +276,12 @@ final class AgentFeedUITests: XCTestCase {
         let manual = app.buttons["MobileAgentFeedPlan-manual-\(planSuffix)"]
         makeHittable(manual, in: app)
         manual.tap()
-        XCTAssertTrue(app.buttons["MobileAgentFeedExpand-\(planSuffix)"].label.contains("Resolved"))
+        let planExpand = app.buttons["MobileAgentFeedExpand-\(planSuffix)"]
+        waitForExistence(planExpand, expected: false)
+        app.buttons["All Activity"].tap()
+        XCTAssertTrue(planExpand.waitForExistence(timeout: 3))
+        XCTAssertTrue(planExpand.label.contains("Resolved"))
+        XCTAssertFalse(feedback.exists)
         app.terminate()
 
         app = launchFixture(scenario: "reply")
@@ -328,6 +340,18 @@ final class AgentFeedUITests: XCTestCase {
     ) {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "enabled == %@", NSNumber(value: expected)),
+            object: element
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: timeout), .completed)
+    }
+
+    private func waitForExistence(
+        _ element: XCUIElement,
+        expected: Bool,
+        timeout: TimeInterval = 3
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == %@", NSNumber(value: expected)),
             object: element
         )
         XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: timeout), .completed)
