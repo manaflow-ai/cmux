@@ -1243,7 +1243,11 @@ import Testing
             environment: environment,
             timeout: 5,
             afterLaunch: {
-                usleep(100_000)
+                // The old restore path only retried connects for 350ms. Keep
+                // the listener unavailable beyond that window so this test
+                // proves restore waits for the startup lifecycle instead of
+                // returning the generic "still opening" error immediately.
+                usleep(700_000)
                 close(startupSocketFD)
                 startupSocketFD = -1
                 unlink(socketPath)
