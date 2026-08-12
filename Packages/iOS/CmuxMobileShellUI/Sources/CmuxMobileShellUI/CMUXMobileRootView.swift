@@ -500,9 +500,7 @@ struct CMUXMobileRootView: View {
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
                     showSettings: showSettings,
-                    deviceTreePresentation: childSheetPresentation(
-                        for: .workspaceDeviceTree
-                    ),
+                    showComputers: showComputers,
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
@@ -591,6 +589,14 @@ struct CMUXMobileRootView: View {
             )
         case .settings:
             settingsSheet(initialFocus: nil)
+        case .computers:
+            DeviceTreeView(
+                store: store,
+                selectWorkspace: selectWorkspaceFromComputers,
+                showAddDevice: addComputerAction,
+                dismissAction: dismissComputers,
+                didForgetComputer: didForgetComputer
+            )
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
         case .child, .dismissingChild, nil:
@@ -635,6 +641,30 @@ struct CMUXMobileRootView: View {
     /// Requests root Settings without depending on the currently mounted shell.
     private func showSettings() {
         handleRootPresentation(.presentSettings)
+    }
+
+    /// The Computers screen and the root routes it can open share this one
+    /// presenter, so changing the underlying authenticated shell cannot orphan
+    /// modal ownership.
+    private func showComputers() {
+        handleRootPresentation(.presentComputers)
+    }
+
+    private func dismissComputers() {
+        handleRootPresentation(.dismissComputers)
+    }
+
+    /// Forget completes its durable cleanup before this callback fires. Route
+    /// the final-row transition through the same root owner as Done, so the
+    /// authenticated shell and its toolbar become visible together.
+    private func didForgetComputer() {
+        guard !store.hasKnownPairedMac, !store.hasHiddenComputers else { return }
+        dismissComputers()
+    }
+
+    private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {
+        store.selectedWorkspaceID = id
+        dismissComputers()
     }
 
     /// Presents only after the authenticated shell owns the screen and no

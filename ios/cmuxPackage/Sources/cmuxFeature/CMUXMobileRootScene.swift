@@ -423,6 +423,16 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
+        let resolvedPersonalIrohForget: (any MobileIrohMacForgetting)?
+        #if DEBUG
+        if UITestConfig.successfulComputerForgetEnabled {
+            resolvedPersonalIrohForget = SuccessfulComputerForgetUITestStub()
+        } else {
+            resolvedPersonalIrohForget = personalIrohForget
+        }
+        #else
+        resolvedPersonalIrohForget = personalIrohForget
+        #endif
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -431,7 +441,7 @@ public struct CMUXMobileRootScene: View {
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
-            personalIrohForget: personalIrohForget,
+            personalIrohForget: resolvedPersonalIrohForget,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
