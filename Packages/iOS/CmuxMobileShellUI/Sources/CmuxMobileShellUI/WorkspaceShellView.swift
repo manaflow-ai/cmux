@@ -1000,6 +1000,7 @@ struct WorkspaceShellView: View {
         switch tab {
         case .workspaces: .workspaces
         case .notifications: .notifications
+        case .feed: .feed
         case .search: .search
         }
     }
