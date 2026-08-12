@@ -1216,7 +1216,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # Eight segments of eight records put a fixed 64-group limit on
           # pending recovery work. Check only that bounded window for duplicates.
           if [ "$cmux_ssh_auth_recovery_segment_span" -ge 8 ]; then
-            return \(Self.recoveryQueueCapacityStatus)
+            return \#(Self.recoveryQueueCapacityStatus)
           fi
           cmux_ssh_auth_recovery_check_index="$cmux_ssh_auth_recovery_read_index_value"
           while [ "$cmux_ssh_auth_recovery_check_index" -le \
@@ -1250,7 +1250,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           esac
           if [ "$cmux_ssh_auth_recovery_segment_count" -ge 8 ]; then
             if [ "$cmux_ssh_auth_recovery_segment_span" -ge 7 ]; then
-              return \(Self.recoveryQueueCapacityStatus)
+              return \#(Self.recoveryQueueCapacityStatus)
             fi
             cmux_ssh_auth_recovery_write_index=$((cmux_ssh_auth_recovery_write_index + 1))
             cmux_ssh_auth_recovery_write_segment="$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_write_index"
@@ -1296,9 +1296,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_recovery_unlock
             return "$cmux_ssh_auth_create_append_status"
           fi
-          if (umask 077; /bin/mkdir "$cmux_ssh_auth_create_dir") 2>/dev/null; then
-            :
-          else
+          if ! (umask 077; /bin/mkdir "$cmux_ssh_auth_create_dir") 2>/dev/null; then
             cmux_ssh_auth_recovery_unlock
             return 1
           fi
