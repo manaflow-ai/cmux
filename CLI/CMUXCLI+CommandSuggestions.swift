@@ -155,6 +155,7 @@ extension CMUXCLI {
         "popup",
         "previous-window",
         "read-screen",
+        "read-selection",
         "refresh-surfaces",
         "reload-config",
         "remote-daemon-status",

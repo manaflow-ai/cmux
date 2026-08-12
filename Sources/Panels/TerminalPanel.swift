@@ -5,6 +5,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
+import GhosttyKit
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
@@ -108,6 +109,31 @@ final class TerminalPanel: Panel, ObservableObject {
 
     var displayIcon: String? {
         "terminal.fill"
+    }
+
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        guard let liveSurface = surface.liveSurfaceForGhosttyAccess(
+            reason: "readSurfaceSelection"
+        ) else {
+            return .unavailable
+        }
+
+        var selection = ghostty_text_s()
+        guard ghostty_surface_read_selection(liveSurface, &selection) else {
+            return .snapshot(.none(kind: .terminal))
+        }
+        defer { ghostty_surface_free_text(liveSurface, &selection) }
+
+        let text: String
+        if let bytes = selection.text, selection.text_len > 0 {
+            text = String(
+                decoding: Data(bytes: bytes, count: Int(selection.text_len)),
+                as: UTF8.self
+            )
+        } else {
+            text = ""
+        }
+        return .snapshot(.selected(kind: .terminal, text: text))
     }
 
     func updateShellActivityState(_ state: PanelShellActivityState) {

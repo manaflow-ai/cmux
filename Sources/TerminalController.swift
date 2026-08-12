@@ -1087,6 +1087,14 @@ class TerminalController {
                     return response
                 }
             }
+            if request.method == "surface.read_selection" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 5
+                ) {
+                    await self.v2SurfaceReadSelection(params: parsedRequest.params)
+                }
+            }
             if request.method == "mobile.task.models.list" {
                 return v2AsyncResultCall(
                     id: request.id,
@@ -2764,6 +2772,7 @@ class TerminalController {
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
+            "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
             "pane.list",
@@ -3778,7 +3787,7 @@ class TerminalController {
         return Self.v2Encoder.encode(value)
     }
 
-    private func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
+    func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
         controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
     }
 

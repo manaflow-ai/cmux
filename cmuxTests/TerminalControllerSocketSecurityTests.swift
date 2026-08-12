@@ -114,6 +114,28 @@ private func XCTFail(
 }
 
 @MainActor
+private final class SocketSurfaceSelectionPanel: Panel {
+    let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let panelType: PanelType = .filePreview
+    let displayTitle = "Selection fixture"
+    let selection: SurfaceSelectionSnapshot
+
+    init(selection: SurfaceSelectionSnapshot) {
+        self.selection = selection
+    }
+
+    func close() {}
+    func focus() {}
+    func unfocus() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        .snapshot(selection)
+    }
+}
+
+@MainActor
 @Suite(.serialized)
 final class TerminalControllerSocketSecurityTests {
     private var teardownBlocks: [() -> Void] = []
@@ -889,6 +911,54 @@ final class TerminalControllerSocketSecurityTests {
         let error = try XCTUnwrap(envelope["error"] as? [String: Any])
         XCTAssertEqual(error["code"] as? String, "unavailable")
         XCTAssertEqual(error["message"] as? String, "Failed to read terminal selection")
+    }
+
+    @Test func testSurfaceReadSelectionRoutesAnyPanelAndReturnsTheCommonShape() async throws {
+        let socketPath = makeSocketPath("v2-read-selection-shape")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let panel = SocketSurfaceSelectionPanel(selection: .selected(
+            kind: .filePreview,
+            text: "let answer = 42",
+            filePath: "/tmp/Answer.swift",
+            lineRange: SurfaceSelectionLineRange(start: 7, end: 7)
+        ))
+        workspace.panels[panel.id] = panel
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let envelope = try await sendV2RequestAsync(
+            method: "surface.read_selection",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panel.id.uuidString,
+            ],
+            to: socketPath
+        )
+        XCTAssertEqual(envelope["ok"] as? Bool, true)
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any])
+        XCTAssertEqual(result["has_selection"] as? Bool, true)
+        XCTAssertEqual(result["kind"] as? String, "filepreview")
+        XCTAssertEqual(result["text"] as? String, "let answer = 42")
+        XCTAssertEqual(result["file_path"] as? String, "/tmp/Answer.swift")
+        XCTAssertEqual(result["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, panel.id.uuidString)
+        let lineRange = try XCTUnwrap(result["line_range"] as? [String: Any])
+        XCTAssertEqual((lineRange["start"] as? NSNumber)?.intValue, 7)
+        XCTAssertEqual((lineRange["end"] as? NSNumber)?.intValue, 7)
+        let encoded = try XCTUnwrap(result["base64"] as? String)
+        let decoded = try XCTUnwrap(Data(base64Encoded: encoded))
+        XCTAssertEqual(String(decoding: decoded, as: UTF8.self), "let answer = 42")
     }
 
     @Test func testV1SetStatusIsServicedOnWorkerLaneWhileMainThreadIsBlocked() throws {

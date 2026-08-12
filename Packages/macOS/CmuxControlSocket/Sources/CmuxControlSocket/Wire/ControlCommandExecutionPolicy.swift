@@ -120,6 +120,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // Selection providers own AppKit/WebKit state on the main actor, then
+        // return one immutable snapshot for response shaping on this worker.
+        // The async bridge must never be entered inline by a main-thread caller.
+        "surface.read_selection",
         // `workspace.env` is a read that resolves a workspace and copies its
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.

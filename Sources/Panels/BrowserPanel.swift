@@ -6833,6 +6833,19 @@ extension BrowserPanel {
         try await webView.evaluateJavaScript(script)
     }
 
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        let url = preferredURLStringForOmnibar()
+        guard hasCommittedDocumentSinceWebViewReplacement ||
+                webView.backForwardList.currentItem != nil else {
+            return .snapshot(.none(kind: .browser, url: url))
+        }
+        return await WebSurfaceSelectionReader().read(
+            webView: webView,
+            kind: .browser,
+            url: url
+        )
+    }
+
     // MARK: - Find in Page
 
     func startFind() {

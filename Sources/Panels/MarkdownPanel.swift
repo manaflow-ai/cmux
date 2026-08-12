@@ -268,6 +268,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         }
     }
 
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        switch displayMode {
+        case .text:
+            return .snapshot(NativeTextSurfaceSelectionReader().read(
+                textView: textView,
+                kind: .markdown,
+                filePath: filePath
+            ))
+        case .preview:
+            return await rendererSession.readSurfaceSelection(filePath: filePath)
+        }
+    }
+
     /// Re-reads the file without discarding an unsaved TextEdit buffer.
     func reloadFromDisk() {
         loadFileContent(replacingDirtyContent: false)

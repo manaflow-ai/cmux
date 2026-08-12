@@ -1074,6 +1074,15 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         focusCoordinator.unregisterAll()
     }
 
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        guard previewMode == .text else { return .unsupported }
+        return .snapshot(NativeTextSurfaceSelectionReader().read(
+            textView: textView,
+            kind: .filePreview,
+            filePath: filePath
+        ))
+    }
+
     /// Retargets container-scoped identity after a live panel transfer.
     func updateWorkspaceId(_ workspaceId: UUID) {
         self.workspaceId = workspaceId

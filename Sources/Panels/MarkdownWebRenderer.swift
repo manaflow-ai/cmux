@@ -340,6 +340,17 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             return await evaluateString("window.__cmuxRenderedText && window.__cmuxRenderedText()")
         }
 
+        func readSurfaceSelection(filePath: String) async -> SurfaceSelectionReadResult {
+            guard isLoaded, let webView else {
+                return .snapshot(.none(kind: .markdown, filePath: filePath))
+            }
+            return await WebSurfaceSelectionReader().read(
+                webView: webView,
+                kind: .markdown,
+                filePath: filePath
+            )
+        }
+
         private func evaluateString(_ script: String) async -> String? {
             guard let webView else { return nil }
             do {
