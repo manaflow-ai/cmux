@@ -205,7 +205,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
-        let command = SSHPTYAttachStartupCommandBuilder.command(
+        let generatedCommand = SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-test-session",
             foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: "user@example.test",
@@ -214,6 +214,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 sshOptions: [],
                 token: "foreground-auth-token"
             )
+        )
+        XCTAssertTrue(generatedCommand.contains("/usr/bin/ssh"), generatedCommand)
+        let command = generatedCommand.replacingOccurrences(
+            of: "/usr/bin/ssh",
+            with: fakeSSH.path
         )
         let result = runProcess(
             executablePath: "/bin/sh",
@@ -275,7 +280,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let generatedScript = try persistentSSHInitialStartupScriptForReconnectTest()
         let bundledCLI = try bundledCLIPath()
-        let rewrittenScript = generatedScript.replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
+        XCTAssertTrue(generatedScript.contains("/usr/bin/ssh"), generatedScript)
+        let rewrittenScript = generatedScript
+            .replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeAuth.path)
         XCTAssertNotEqual(rewrittenScript, generatedScript, "Expected generated wrapper to reference the bundled CLI")
         try writeSSHPTYReconnectTestShell(at: fakeStartup, contents: rewrittenScript)
         for executable in [fakeStartup, fakeAuth, fakeAttach, fakeSleep] {

@@ -53654,124 +53654,16 @@
     "cli.ssh.manualReconnectPrompt.detail": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] ربما تم إيقاف الجهاز الافتراضي البعيد مؤقتًا أو حذفه أو فقد الاتصال بالشبكة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] udaljeni VM je možda pauziran, uništen ili je izgubio mrežu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] den eksterne VM kan være sat på pause, slettet eller have mistet netværket."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] die Remote-VM wurde möglicherweise angehalten, gelöscht oder hat die Netzwerkverbindung verloren."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] the remote VM may have been paused, destroyed, or lost network."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] la VM remota puede estar pausada, destruida o sin conexión de red."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] la VM distante a peut-être été suspendue, détruite ou a perdu le réseau."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] la VM remota potrebbe essere stata messa in pausa, eliminata o aver perso la rete."
+            "value": "[cmux] the SSH connection ended; the remote session may still be running."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] リモート VM は一時停止、削除、またはネットワーク切断された可能性があります。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] VM ពីចម្ងាយអាចត្រូវបានផ្អាក លុបចោល ឬបាត់បង់បណ្តាញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 원격 VM이 일시 중지, 삭제되었거나 네트워크 연결이 끊겼을 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] den eksterne VM-en kan være satt på pause, slettet eller ha mistet nettverket."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] zdalna VM mogła zostać wstrzymana, usunięta lub utracić sieć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] a VM remota pode ter sido pausada, destruída ou perdido a rede."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] удаленная VM могла быть приостановлена, удалена или потерять сеть."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] VM ระยะไกลอาจถูกพัก ถูกลบ หรือสูญเสียการเชื่อมต่อเครือข่าย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] uzak VM duraklatılmış, silinmiş veya ağ bağlantısını kaybetmiş olabilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] віддалену VM могло бути призупинено, видалено або вона втратила мережу."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 远程 VM 可能已暂停、被销毁或失去网络连接。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 遠端 VM 可能已暫停、被刪除或失去網路連線。"
+            "value": "[cmux] SSH 接続が終了しました。リモートセッションはまだ実行中の可能性があります。"
           }
         }
       }
@@ -54776,6 +54668,23 @@
         }
       }
     },
+    "cli.ssh.terminalExitPrompt.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] press Enter to close this pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 閉じるには Enter を押してください。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.bridgeClosedReattaching": {
       "extractionState": "manual",
       "localizations": {
@@ -54789,6 +54698,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.bridgeClosedSessionRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH terminal connection ended; the remote session may still be running."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナル接続が終了しました。リモートセッションはまだ実行中の可能性があります。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.bridgeClosedSessionRunningReconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH terminal connection ended while the remote session is still running; cmux is reconnecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナル接続が終了しましたが、リモートセッションは引き続き実行中です。再接続します。"
           }
         }
       }
@@ -54844,6 +54787,23 @@
         }
       }
     },
+    "cli.sshPtyAttach.reconciliationUnavailableReattach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH terminal connection ended before the remote session state could be confirmed; preserving the remote session for reconnection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートセッションの状態を確認できる前に SSH ターミナル接続が終了しました。再接続のためセッションを維持します。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.remoteSessionLostRespawn": {
       "extractionState": "manual",
       "localizations": {
@@ -54857,6 +54817,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
+          }
+        }
+      }
+    },
+    "cli.sshSessionList.remoteStateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote PTY session state is unavailable for one or more workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つ以上のワークスペースでリモート PTY セッションの状態を取得できません。"
           }
         }
       }
