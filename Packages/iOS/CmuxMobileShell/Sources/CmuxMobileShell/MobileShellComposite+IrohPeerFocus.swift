@@ -264,15 +264,19 @@ extension MobileShellComposite {
 
     /// Apply the transport's current role and retry if focus moved while the
     /// session actor accepted that update. Rapid reversals therefore converge
-    /// on the latest owner instead of letting a stale task win.
+    /// on the latest owner instead of letting a stale task win. A newer focus
+    /// transition replaces this per-client maintenance task, so a fixed retry
+    /// budget prevents pathological churn from retaining the old task.
     func synchronizeTransportSessionPurpose(
         _ client: MobileCoreRPCClient
     ) async {
-        while !Task.isCancelled {
+        for _ in 0 ..< 3 {
+            guard !Task.isCancelled else { return }
             let isForeground = remoteClient === client
             await client.updateTransportSessionPurpose(
                 isForeground ? .foregroundControl : .backgroundControl
             )
+            guard !Task.isCancelled else { return }
             guard (remoteClient === client) != isForeground else { return }
         }
     }

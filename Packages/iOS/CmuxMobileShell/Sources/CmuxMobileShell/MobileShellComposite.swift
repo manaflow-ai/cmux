@@ -41,6 +41,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let maximumLiveMacConnectionCount = 5
     static let maximumWarmControlConnectionCount =
         maximumLiveMacConnectionCount - 1
+    static let maximumSecondaryReconciliationConcurrency =
+        maximumWarmControlConnectionCount
 
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
@@ -4816,15 +4818,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
-        // Reconcile every wanted secondary Mac concurrently. The registry and
-        // per-pairing establishment flights remain the publication owners, so
-        // parallel network waits cannot install duplicates or exceed the pool
-        // cap. A sleeping phone can therefore probe, drain, and redial all stale
-        // peers in one bounded wave instead of multiplying the timeout by the
-        // number of Macs.
-        let reconciliationMacs = macs.filter {
+        // Reconcile the bounded warm pool concurrently. Keep the task-group
+        // width explicit here as a second resource boundary if target
+        // selection changes later.
+        let reconciliationMacs = Array(macs.lazy.filter {
             wanted.contains(MacPairingKey($0))
-        }
+        }.prefix(Self.maximumSecondaryReconciliationConcurrency))
         let reconciliationResults = await withTaskGroup(
             of: SecondaryMacReconciliationResult.self,
             returning: [SecondaryMacReconciliationResult].self
