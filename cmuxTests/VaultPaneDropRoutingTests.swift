@@ -199,6 +199,144 @@ struct VaultPaneDropRoutingTests {
         }
     }
 
+    @Test("A live Vault drag reaches the portal-hosted browser pane target")
+    private func liveVaultDragReachesBrowserPortalTarget() throws {
+        let entry = Self.makeEntry(
+            id: "codex:/tmp/portal-route/session.jsonl",
+            sessionID: "portal-route-session",
+            title: "Portal-routed Vault row"
+        )
+        let dragID = SessionDragRegistry.shared.register(entry)
+        defer { _ = SessionDragRegistry.shared.consume(id: dragID) }
+
+        let pasteboard = try vaultPasteboard(dragID: dragID)
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let root = NSView(frame: frame)
+        window.contentView = root
+        let host = WindowBrowserHostView(frame: root.bounds)
+        root.addSubview(host)
+        let slot = WindowBrowserSlotView(frame: host.bounds)
+        host.addSubview(slot)
+        slot.setPaneDropContext(BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID()
+        ))
+        host.layoutSubtreeIfNeeded()
+        slot.layoutSubtreeIfNeeded()
+
+        let point = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
+        let pointInHost = host.convert(point, from: slot)
+        let pointInWindow = host.convert(pointInHost, to: nil)
+        let event = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: pointInWindow,
+            window: window
+        )
+
+        let hit = host.performHitTest(
+            at: pointInHost,
+            currentEvent: event,
+            dragPasteboard: pasteboard
+        )
+
+        #expect(hit is BrowserPaneDropTargetView)
+    }
+
+    @Test("A canceled Vault drag cannot poison the next duplicate row")
+    private func canceledVaultDragDoesNotPoisonNextDuplicate() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            workspace.teardownAllPanels()
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let initialPanelID = try #require(workspace.focusedPanelId)
+        let targetPane = try #require(workspace.paneId(forPanelId: initialPanelID))
+        let browser = try #require(workspace.newBrowserSurface(
+            inPane: targetPane,
+            url: URL(string: "about:blank"),
+            focus: true,
+            creationPolicy: .restoration,
+            allowsExternalBrowserFallback: false
+        ))
+        let context = BrowserPaneDropContext(
+            workspaceId: workspace.id,
+            panelId: browser.id,
+            paneId: targetPane
+        )
+
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let root = NSView(frame: frame)
+        window.contentView = root
+        let slot = WindowBrowserSlotView(frame: root.bounds)
+        root.addSubview(slot)
+        slot.setPaneDropContext(context)
+        slot.layoutSubtreeIfNeeded()
+        let localPoint = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
+        let target = try #require(slot.paneDropTargetForDrop(at: localPoint))
+
+        let duplicate = Self.makeEntry(
+            id: "codex:/tmp/repeated-folder/duplicate.jsonl",
+            sessionID: "repeated-folder-duplicate",
+            title: "Duplicate Vault row"
+        )
+        let canceledDragID = SessionDragRegistry.shared.register(duplicate)
+        let canceledPasteboard = try vaultPasteboard(dragID: canceledDragID)
+        #expect(SessionDragRegistry.shared.consume(id: canceledDragID) == duplicate)
+        let canceledDragInfo = MockDraggingInfo(
+            window: window,
+            location: slot.convert(localPoint, to: nil),
+            pasteboard: canceledPasteboard
+        )
+
+        #expect(target.draggingEntered(canceledDragInfo).isEmpty)
+        #expect(!target.prepareForDragOperation(canceledDragInfo))
+        target.draggingExited(canceledDragInfo)
+
+        let nextDragID = SessionDragRegistry.shared.register(duplicate)
+        defer { _ = SessionDragRegistry.shared.consume(id: nextDragID) }
+        let nextPasteboard = try vaultPasteboard(dragID: nextDragID)
+        let nextDragInfo = MockDraggingInfo(
+            window: window,
+            location: slot.convert(localPoint, to: nil),
+            pasteboard: nextPasteboard
+        )
+        let baselinePanelIDs = Set(workspace.panels.keys)
+
+        #expect(target.draggingEntered(nextDragInfo) == .move)
+        #expect(target.prepareForDragOperation(nextDragInfo))
+        #expect(target.performDragOperation(nextDragInfo))
+
+        let createdPanelIDs = Set(workspace.panels.keys).subtracting(baselinePanelIDs)
+        #expect(createdPanelIDs.count == 1)
+        let createdPanelID = try #require(createdPanelIDs.first)
+        let terminal = try #require(workspace.terminalPanel(for: createdPanelID))
+        #expect(terminal.surface.debugInitialInputForTesting() == duplicate.resumeLaunch?.initialInput)
+    }
+
     private func performDrop(
         targetKind: TargetKind,
         placement: Placement,
@@ -260,6 +398,27 @@ struct VaultPaneDropRoutingTests {
         case .right:
             NSPoint(x: bounds.maxX - 4, y: bounds.midY)
         }
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ) else {
+            fatalError("Failed to create mouse event")
+        }
+        return event
     }
 
     private func vaultPasteboard(dragID: UUID) throws -> NSPasteboard {

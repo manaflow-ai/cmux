@@ -385,7 +385,21 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let routingContext = WindowInputRoutingContext(event: NSApp.currentEvent)
+        performHitTest(
+            at: point,
+            currentEvent: NSApp.currentEvent,
+            dragPasteboard: NSPasteboard(name: .drag)
+        )
+    }
+
+    // Treat the event and drag pasteboard as one routing snapshot; AppKit can
+    // otherwise advance either ambient value during nested hit testing.
+    func performHitTest(
+        at point: NSPoint,
+        currentEvent: NSEvent?,
+        dragPasteboard: NSPasteboard
+    ) -> NSView? {
+        let routingContext = WindowInputRoutingContext(event: currentEvent)
         guard routingContext.allowsPortalPointerHitTesting else {
             let hitView = super.hitTest(point)
             return hitView === self ? nil : hitView
@@ -463,7 +477,7 @@ final class WindowBrowserHostView: NSView {
         // report a pressed-button state, so include that path here.
         if routingContext.allowsBrowserPortalDragRouting,
            Self.shouldPassThroughToDragTargets(
-            pasteboardTypes: NSPasteboard(name: .drag).types,
+            pasteboardTypes: dragPasteboard.types,
             eventType: eventType
            ) {
             return nil
