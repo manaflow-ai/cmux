@@ -14,6 +14,7 @@ final class BrowserPaneDropTargetView: NSView {
     }
     private var activeZone: DropZone?
     private let transferDropRouter = PaneTransferDropRouter()
+    private let dropRoutingRegistration = PaneDropRoutingRegistration()
     weak var activeFileDropWebView: NSView?
     weak var preparedFileDropWebView: NSView?
     weak var performedFileDropWebView: NSView?
@@ -38,6 +39,14 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     deinit {}
+
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview == nil {
+            dropRoutingRegistration.clear()
+            transferDropRouter.clear()
+        }
+        super.viewWillMove(toSuperview: newSuperview)
+    }
 
     @MainActor
     static func shouldCaptureHitTesting(
@@ -95,14 +104,19 @@ final class BrowserPaneDropTargetView: NSView {
         } else {
             transferDropRouter.clear()
         }
-        return updateDragState(sender, phase: "entered")
+        let operation = updateDragState(sender, phase: "entered")
+        dropRoutingRegistration.update(sender, operation: operation, targetView: self)
+        return operation
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        updateDragState(sender, phase: "updated")
+        let operation = updateDragState(sender, phase: "updated")
+        dropRoutingRegistration.update(sender, operation: operation, targetView: self)
+        return operation
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dropRoutingRegistration.clear(sender)
         exitActiveFileDropWebView(sender)
         didRequestWebViewRestoreForDrag = false
         clearDragState(phase: "exited")
@@ -111,6 +125,7 @@ final class BrowserPaneDropTargetView: NSView {
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         super.draggingEnded(sender)
+        dropRoutingRegistration.clear(sender)
         exitActiveFileDropWebView(sender)
         didRequestWebViewRestoreForDrag = false
         clearDragState(phase: "ended")
@@ -162,6 +177,7 @@ final class BrowserPaneDropTargetView: NSView {
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer {
+            dropRoutingRegistration.clear(sender)
             didRequestWebViewRestoreForDrag = false
             clearDragState(phase: "perform.clear")
             transferDropRouter.clear()
@@ -243,7 +259,7 @@ final class BrowserPaneDropTargetView: NSView {
         }
         let handled = container.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
             urls: urls,
-            destination: PaneDropRouting.filePreviewDestination(
+            destination: PaneDropRouting.destination(
                 targetPane: dropContext.paneId,
                 zone: zone
             )
@@ -259,6 +275,7 @@ final class BrowserPaneDropTargetView: NSView {
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         defer {
+            dropRoutingRegistration.clear(sender)
             activeFileDropWebView = nil
             preparedFileDropWebView = nil
             performedFileDropWebView = nil

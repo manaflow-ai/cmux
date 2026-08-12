@@ -1,42 +1,57 @@
 import Foundation
 
-/// Resolves the live in-process owner behind an opaque pane-transfer payload.
-@MainActor
+/// Resolves the live in-process source behind an opaque pane-transfer payload.
 struct PaneTransferSourceResolver {
     enum Source: Equatable {
-        case vaultSession
-        case filePreview
+        case vaultSession(SessionEntry)
+        case filePreview(FilePreviewDragEntry)
         case surface
     }
 
+    typealias VaultSessionLookup = @MainActor (UUID) -> SessionEntry?
+    typealias FilePreviewLookup = @MainActor (UUID) -> FilePreviewDragEntry?
     typealias LivenessLookup = @MainActor (UUID) -> Bool
 
-    private let vaultSessionIsLive: LivenessLookup
-    private let filePreviewIsLive: LivenessLookup
+    private let vaultSession: VaultSessionLookup
+    private let filePreview: FilePreviewLookup
     private let surfaceIsLive: LivenessLookup
 
     init(
-        vaultSessionIsLive: @escaping LivenessLookup = { id in
-            SessionDragRegistry.shared.contains(id: id)
+        vaultSession: @escaping VaultSessionLookup = { id in
+            SessionDragRegistry.shared.entry(id: id)
         },
-        filePreviewIsLive: @escaping LivenessLookup = { id in
-            FilePreviewDragRegistry.shared.contains(id: id)
+        filePreview: @escaping FilePreviewLookup = { id in
+            FilePreviewDragRegistry.shared.entry(id: id)
         },
         surfaceIsLive: @escaping LivenessLookup = { id in
             AppDelegate.shared?.locateContainerSurface(tabId: id) != nil
         }
     ) {
-        self.vaultSessionIsLive = vaultSessionIsLive
-        self.filePreviewIsLive = filePreviewIsLive
+        self.vaultSession = vaultSession
+        self.filePreview = filePreview
         self.surfaceIsLive = surfaceIsLive
     }
 
-    /// Rejects serialized lookalikes unless their source is still owned by cmux.
+    /// Captures the live source value so execution does not re-read mutable drag state.
+    @MainActor
     func source(for transfer: PaneDragTransfer) -> Source? {
         guard transfer.isFromCurrentProcess else { return nil }
-        if vaultSessionIsLive(transfer.tabId) { return .vaultSession }
-        if filePreviewIsLive(transfer.tabId) { return .filePreview }
+        if let entry = vaultSession(transfer.tabId) { return .vaultSession(entry) }
+        if let entry = filePreview(transfer.tabId) { return .filePreview(entry) }
         if surfaceIsLive(transfer.tabId) { return .surface }
         return nil
+    }
+
+    /// Ends registry ownership only after the resolved source was handled.
+    @MainActor
+    func finish(_ source: Source, id: UUID) {
+        switch source {
+        case .vaultSession:
+            SessionDragRegistry.shared.discard(id: id)
+        case .filePreview:
+            FilePreviewDragRegistry.shared.discard(id: id)
+        case .surface:
+            break
+        }
     }
 }

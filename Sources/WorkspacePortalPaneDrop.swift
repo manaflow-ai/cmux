@@ -27,7 +27,7 @@ extension Workspace {
     }
 
     @discardableResult
-    func performPortalPaneDrop(
+    func performPortalSurfaceDrop(
         tabId: UUID,
         sourcePaneId: UUID,
         targetPane paneId: PaneID,

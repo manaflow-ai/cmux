@@ -246,7 +246,7 @@ final class PaneDropTargetView: NSView {
         let zone = paneDropZone(for: sender)
         let handled = container.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
             urls: urls,
-            destination: PaneDropRouting.filePreviewDestination(
+            destination: PaneDropRouting.destination(
                 targetPane: dropContext.paneId,
                 zone: zone
             )

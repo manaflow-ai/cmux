@@ -2459,8 +2459,8 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 // MARK: - Drag cancel monitor
 
 /// Ends folder-header and Vault-row drag ownership after mouseUp or Escape.
-/// Successful drops consume their Vault entry before this deferred fallback;
-/// an ID-matched discard cannot clear a newer drag that already superseded it.
+/// Pane targets retain their accepted transfer plan through mouse-up, so this
+/// cleanup can be immediate without racing successful drop execution.
 private struct DragCancelMonitor: NSViewRepresentable {
     let dragCoordinator: SessionDragCoordinator
 
@@ -2502,15 +2502,10 @@ private struct DragCancelMonitor: NSViewRepresentable {
                 if event.type == .keyDown, event.keyCode != 53 { // 53 = kVK_Escape
                     return event
                 }
-                // Defer the clear so any `performDrop` already queued on the
-                // main actor wins first; this path only matters when no drop
-                // fires, i.e. the drag was cancelled.
-                DispatchQueue.main.async {
-                    if let activeVaultDragID {
-                        SessionDragRegistry.shared.discard(id: activeVaultDragID)
-                    }
-                    coordinator.draggedKey = nil
+                if let activeVaultDragID {
+                    SessionDragRegistry.shared.discard(id: activeVaultDragID)
                 }
+                coordinator.draggedKey = nil
                 return event
             }
         }

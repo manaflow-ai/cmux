@@ -235,6 +235,7 @@ final class WindowBrowserHostView: NSView {
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
     private let paneTransferSourceResolver = PaneTransferSourceResolver()
+    let paneDropRoutingSession = PaneDropRoutingSession()
 
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
@@ -475,11 +476,16 @@ final class WindowBrowserHostView: NSView {
         // Live pane transfers stay in the portal so every source reaches the
         // same BrowserPaneDropTargetView router. Sidebar reorder and stale or
         // unknown transfer payloads still pass through to the SwiftUI layers.
-        if routingContext.allowsBrowserPortalDragRouting,
-           Self.shouldPassThroughToDragTargets(
+        if Self.shouldPassThroughToDragTargets(
             pasteboardTypes: dragPasteboard.types,
-            eventType: eventType
-           ) {
+            eventType: eventType,
+            hasActiveDropDrag: hasActivePaneDropDrag
+        ) {
+            if routingContext.eventKind == .pointerUp,
+               hasActivePaneDropDrag,
+               let paneDropTarget = paneDropTarget(at: point) {
+                return paneDropTarget
+            }
             if let transfer = PaneDragTransfer.decode(from: dragPasteboard),
                paneTransferSourceResolver.source(for: transfer) != nil,
                let paneDropTarget = paneDropTarget(at: point) {
@@ -831,11 +837,13 @@ final class WindowBrowserHostView: NSView {
 
     static func shouldPassThroughToDragTargets(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false
     ) -> Bool {
         DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
-            eventType: eventType
+            eventType: eventType,
+            hasActiveDropDrag: hasActiveDropDrag
         )
     }
 

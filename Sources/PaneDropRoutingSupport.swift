@@ -51,7 +51,11 @@ struct PaneDragTransfer: Equatable {
 typealias TerminalPaneDragTransfer = PaneDragTransfer
 
 @MainActor
-extension WindowTerminalHostView {
+protocol PaneDropRoutingHost: AnyObject {
+    var paneDropRoutingSession: PaneDropRoutingSession { get }
+}
+
+extension PaneDropRoutingHost {
     var hasActivePaneDropDrag: Bool {
         paneDropRoutingSession.hasActiveDropDrag
     }
@@ -68,6 +72,9 @@ extension WindowTerminalHostView {
         paneDropRoutingSession.clearActiveDropDrag(sequenceNumber: sequenceNumber)
     }
 }
+
+extension WindowTerminalHostView: PaneDropRoutingHost {}
+extension WindowBrowserHostView: PaneDropRoutingHost {}
 
 enum PaneDropRouting {
     private static func fullPaneSize(for size: CGSize, topChromeHeight: CGFloat) -> CGSize {
@@ -93,7 +100,7 @@ enum PaneDropRouting {
         }
     }
 
-    static func filePreviewDestination(
+    static func destination(
         targetPane paneId: PaneID,
         zone: DropZone
     ) -> BonsplitController.ExternalTabDropRequest.Destination {

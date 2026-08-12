@@ -13,11 +13,8 @@ protocol PaneDropContainer: AnyObject {
         in paneId: PaneID
     ) -> (panelId: UUID, panel: any Panel)?
 
-    /// Returns whether this container accepts the resolved live transfer source.
-    func canPerformPortalPaneDrop(
-        _ transfer: PaneDragTransfer,
-        source: PaneTransferSourceResolver.Source
-    ) -> Bool
+    /// Returns whether this container can move the resolved live surface.
+    func canPerformPortalSurfaceDrop(_ transfer: PaneDragTransfer) -> Bool
 
     /// Resolves the effective target zone for a portal transfer.
     func portalPaneDropZone(
@@ -27,12 +24,18 @@ protocol PaneDropContainer: AnyObject {
         proposedZone: DropZone
     ) -> DropZone
 
-    /// Performs a portal transfer within or into this container.
-    func performPortalPaneDrop(
+    /// Performs a live surface transfer within or into this container.
+    func performPortalSurfaceDrop(
         tabId: UUID,
         sourcePaneId: UUID,
         targetPane paneId: PaneID,
         zone: DropZone
+    ) -> Bool
+
+    /// Creates the terminal represented by a Vault entry at this destination.
+    func performPortalVaultSessionDrop(
+        entry: SessionEntry,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool
 
     /// Returns the drag operation for a simulator file destination, if present.
@@ -61,6 +64,52 @@ protocol PaneDropContainer: AnyObject {
 }
 
 extension PaneDropContainer {
+    /// Applies one acceptance matrix to every pane owner and target kind.
+    func canPerformPortalPaneDrop(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source
+    ) -> Bool {
+        switch source {
+        case .vaultSession, .filePreview:
+            return true
+        case .surface:
+            return canPerformPortalSurfaceDrop(transfer)
+        }
+    }
+
+    /// Dispatches every resolved source through the same destination mapping.
+    func performPortalPaneDrop(
+        tabId: UUID,
+        sourcePaneId: UUID,
+        targetPane paneId: PaneID,
+        zone: DropZone,
+        source: PaneTransferSourceResolver.Source
+    ) -> Bool {
+        let destination = PaneDropRouting.destination(
+            targetPane: paneId,
+            zone: zone
+        )
+        switch source {
+        case .vaultSession(let entry):
+            return performPortalVaultSessionDrop(
+                entry: entry,
+                destination: destination
+            )
+        case .filePreview(let entry):
+            return handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
+                urls: [URL(fileURLWithPath: entry.filePath)],
+                destination: destination
+            ))
+        case .surface:
+            return performPortalSurfaceDrop(
+                tabId: tabId,
+                sourcePaneId: sourcePaneId,
+                targetPane: paneId,
+                zone: zone
+            )
+        }
+    }
+
     /// Declines simulator routing for containers without simulator panels.
     func simulatorFileDropOperation(
         urls _: [URL],
@@ -166,12 +215,17 @@ extension PaneDropContainer {
 }
 
 extension Workspace: PaneDropContainer {
-    /// The workspace dispatcher handles every source admitted by the shared resolver.
-    func canPerformPortalPaneDrop(
-        _: PaneDragTransfer,
-        source _: PaneTransferSourceResolver.Source
-    ) -> Bool {
+    /// A live surface can always ask the workspace dispatcher to move it.
+    func canPerformPortalSurfaceDrop(_: PaneDragTransfer) -> Bool {
         true
+    }
+
+    /// Uses the same restore-aware launch as every existing workspace Vault drop.
+    func performPortalVaultSessionDrop(
+        entry: SessionEntry,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        handleSessionDrop(entry: entry, destination: destination)
     }
 
     /// Returns the workspace panel selected in the target pane.
@@ -235,21 +289,13 @@ extension DockSplitStore: PaneDropContainer {
         return (panelId, panel)
     }
 
-    /// Accepts Dock-local transfers and valid transfers from another container.
-    func canPerformPortalPaneDrop(
-        _ transfer: PaneDragTransfer,
-        source: PaneTransferSourceResolver.Source
-    ) -> Bool {
-        switch source {
-        case .vaultSession, .filePreview:
-            return false
-        case .surface:
-            if containsPane(transfer.sourcePaneId) { return true }
-            return AppDelegate.shared?.canMoveSurfaceIntoDock(
-                sourceTabId: transfer.tabId,
-                destinationDock: self
-            ) == true
-        }
+    /// Accepts Dock-local surfaces and valid surfaces from another container.
+    func canPerformPortalSurfaceDrop(_ transfer: PaneDragTransfer) -> Bool {
+        if containsPane(transfer.sourcePaneId) { return true }
+        return AppDelegate.shared?.canMoveSurfaceIntoDock(
+            sourceTabId: transfer.tabId,
+            destinationDock: self
+        ) == true
     }
 
     /// Applies the Dock focus transaction after inserting dropped text.

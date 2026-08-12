@@ -108,11 +108,24 @@ struct VaultPaneTransferLifecycleTests {
 
             let dock = fixture.workspace.dockSplit
             let targetPane = try #require(dock.bonsplitController.allPaneIds.first)
-            let targetPanelID = try #require(dock.newSurface(
-                kind: .terminal,
-                inPane: targetPane,
-                focus: false
-            ))
+            let targetPanelID: UUID
+            switch dropCase.targetKind {
+            case .terminal:
+                targetPanelID = try #require(dock.newSurface(
+                    kind: .terminal,
+                    inPane: targetPane,
+                    focus: false
+                ))
+            case .browser:
+                targetPanelID = try #require(dock.newSurface(
+                    kind: .browser,
+                    inPane: targetPane,
+                    url: URL(string: "about:blank"),
+                    focus: false,
+                    allowsExternalBrowserFallback: false
+                ))
+                #expect(dock.panels[targetPanelID] is BrowserPanel)
+            }
             let context = PaneDropContext(
                 workspaceId: fixture.workspace.id,
                 panelId: targetPanelID,

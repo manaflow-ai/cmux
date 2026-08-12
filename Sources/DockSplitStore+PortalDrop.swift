@@ -4,7 +4,7 @@ import CmuxWorkspaces
 import Foundation
 
 /// Portal pane-drop routing for the Dock — the Dock equivalent of
-/// `Workspace.portalPaneDropZone` / `performPortalPaneDrop`.
+/// `Workspace.portalPaneDropZone` / `performPortalSurfaceDrop`.
 ///
 /// Dock terminals are portal-hosted and share `PaneDropTargetView` with the
 /// main area. Without this, every tab dropped onto a Dock pane was routed to
@@ -44,7 +44,7 @@ extension DockSplitStore {
     /// - External drag (source is the main area or another Dock): route through
     ///   `moveSurfaceIntoDock` so the live panel transfers in.
     @discardableResult
-    func performPortalPaneDrop(
+    func performPortalSurfaceDrop(
         tabId: UUID,
         sourcePaneId: UUID,
         targetPane paneId: PaneID,
@@ -80,6 +80,37 @@ extension DockSplitStore {
             scheduleDockPortalReconcile(reason: "dock.portalPaneDrop")
         }
         return didMove
+    }
+
+    /// Creates a restore-aware Vault terminal in the requested Dock position.
+    func performPortalVaultSessionDrop(
+        entry: SessionEntry,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        guard let launch = entry.resumeLaunch else { return false }
+        switch destination {
+        case .insert(let paneId, _):
+            return newSurface(
+                kind: .terminal,
+                inPane: paneId,
+                workingDirectory: launch.workingDirectory,
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent,
+                focus: true
+            ) != nil
+        case .split(let paneId, let orientation, let insertFirst):
+            let sourcePanelId = selectedPanelForPaneDrop(in: paneId)?.panelId
+            return newSplit(
+                kind: .terminal,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                sourcePanelId: sourcePanelId,
+                workingDirectory: launch.workingDirectory,
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent,
+                focus: true
+            ) != nil
+        }
     }
 
     private static func externalDropDestination(
