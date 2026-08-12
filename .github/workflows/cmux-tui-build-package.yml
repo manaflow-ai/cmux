@@ -750,7 +750,7 @@ jobs:
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
           python3 cmux-tui/dist/scripts/verify_artifact_identity.py \
             --binary /tmp/cmux-tui-wheel-smoke/bin/cmux \
-            --version "$NPM_VERSION" \
+            --version "$PYPI_VERSION" \
             --build-commit "$(git rev-parse HEAD)" \
             --ghostty-commit "$(git rev-parse HEAD:ghostty)"
 
