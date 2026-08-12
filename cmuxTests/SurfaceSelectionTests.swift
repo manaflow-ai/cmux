@@ -200,6 +200,23 @@ struct SurfaceSelectionTests {
         #expect(window.firstResponder === neighboringFirstResponder)
         #expect(window.makeFirstResponder(panel.webView))
 
+        let clearedBrowserSelection = try await panel.evaluateJavaScript(
+            """
+            (() => {
+              document.getElementById('passage').dispatchEvent(
+                new Event('pointerdown', { bubbles: true })
+              );
+              window.getSelection().removeAllRanges();
+              document.dispatchEvent(new Event('selectionchange'));
+              return window.getSelection().isCollapsed;
+            })()
+            """
+        )
+        #expect(clearedBrowserSelection as? Bool == true)
+        let clearedBrowserSnapshot = try snapshot(from: await panel.readSurfaceSelection())
+        #expect(!clearedBrowserSnapshot.hasSelection)
+        #expect(clearedBrowserSnapshot.text.isEmpty)
+
         let preparedFrameSelection = try await panel.evaluateJavaScript(
             """
             (() => {
