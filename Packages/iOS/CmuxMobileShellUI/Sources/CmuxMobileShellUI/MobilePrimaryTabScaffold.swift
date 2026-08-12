@@ -8,6 +8,7 @@ import SwiftUI
 struct MobilePrimaryTabScaffold<
     Workspaces: View,
     Notifications: View,
+    Feed: View,
     WorkspaceSearch: View,
     NotificationSearch: View
 >: View {
@@ -15,9 +16,11 @@ struct MobilePrimaryTabScaffold<
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
+    let agentFeedNeedsInputCount: Int
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
     let notifications: Notifications
+    let feed: Feed
     let workspaceSearch: WorkspaceSearch
     let notificationSearch: NotificationSearch
 
@@ -25,18 +28,22 @@ struct MobilePrimaryTabScaffold<
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
+        agentFeedNeedsInputCount: Int,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder notifications: () -> Notifications,
+        @ViewBuilder feed: () -> Feed,
         @ViewBuilder workspaceSearch: () -> WorkspaceSearch,
         @ViewBuilder notificationSearch: () -> NotificationSearch
     ) {
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
+        self.agentFeedNeedsInputCount = agentFeedNeedsInputCount
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
         self.notifications = notifications()
+        self.feed = feed()
         self.workspaceSearch = workspaceSearch()
         self.notificationSearch = notificationSearch()
     }
@@ -103,7 +110,7 @@ struct MobilePrimaryTabScaffold<
             get: { selection },
             set: { newValue in
                 if (selection == .search || searchCoordinator.isPresented),
-                   newValue.searchScope != nil {
+                   newValue != .search {
                     searchCoordinator.deactivateCurrentSearch()
                 }
                 selection = newValue
@@ -194,12 +201,23 @@ struct MobilePrimaryTabScaffold<
             notifications
         } label: {
             Label(
+                L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
+                systemImage: "bell"
+            )
+            .accessibilityIdentifier("MobilePrimaryTabNotifications")
+        }
+        .badge(notificationUnreadCount)
+
+        Tab(value: MobilePrimaryTab.feed) {
+            feed
+        } label: {
+            Label(
                 agentFeedLocalizer.string("mobile.tabs.feed", defaultValue: "Feed"),
                 systemImage: "text.bubble"
             )
             .accessibilityIdentifier("MobilePrimaryTabFeed")
         }
-        .badge(notificationUnreadCount)
+        .badge(agentFeedNeedsInputCount)
     }
 }
 

@@ -8,7 +8,7 @@ public struct AgentFeedPreviewView: View {
     @Environment(\.agentFeedLocalizer) private var localizer
     private let scenario: AgentFeedPreviewScenario
     private let hostEventCount: Int
-    @State private var selectedTab: MobilePrimaryTab = .notifications
+    @State private var selectedTab: MobilePrimaryTab = .feed
     @State private var searchCoordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
     @State private var filter: MobileAgentFeedFilter
     @State private var items: [MobileAgentFeedItem]
@@ -17,6 +17,12 @@ public struct AgentFeedPreviewView: View {
     @State private var mutationStates: [MobileAgentFeedItemID: MobileAgentFeedMutationState] = [:]
     @State private var openedItem: MobileAgentFeedItem?
     @State private var performanceProbe = AgentFeedPerformanceProbe()
+    @AppStorage(MobileAgentFeedDesign.storageKey) private var designRawValue =
+        MobileAgentFeedDesign.timeline.rawValue
+
+    private var design: MobileAgentFeedDesign {
+        MobileAgentFeedDesign(rawValue: designRawValue) ?? .timeline
+    }
 
     public init() {
         let configuration = AgentFeedPreviewConfiguration.current()
@@ -31,10 +37,13 @@ public struct AgentFeedPreviewView: View {
         MobilePrimaryTabScaffold(
             selection: $selectedTab,
             searchCoordinator: searchCoordinator,
-            notificationUnreadCount: items.lazy.filter(\.isActionable).count
+            notificationUnreadCount: 0,
+            agentFeedNeedsInputCount: MobileAgentFeedFilter.needsInput.apply(to: items).count
         ) {
             Text(localizer.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
         } notifications: {
+            Text(localizer.string("mobile.tabs.notifications", defaultValue: "Notifications"))
+        } feed: {
             NavigationStack {
                 scenarioFeed
                     .navigationDestination(isPresented: Binding(
@@ -54,7 +63,7 @@ public struct AgentFeedPreviewView: View {
         } workspaceSearch: {
             Text(localizer.string("mobile.agentFeed.fixture.title", defaultValue: "Agent Feed fixture"))
         } notificationSearch: {
-            scenarioFeed
+            Text(localizer.string("mobile.tabs.notifications", defaultValue: "Notifications"))
         }
         .dynamicTypeSize(scenario == .accessibility ? .accessibility3 : .large)
         .accessibilityIdentifier("AgentFeedScenarioScreen-\(scenario.rawValue)")
@@ -87,10 +96,16 @@ public struct AgentFeedPreviewView: View {
     private var fixtureControls: some View {
         switch scenario {
         case .empty:
-            Button("Complete first load") { status = .ready }
+            Button(localizer.string(
+                "mobile.agentFeed.fixture.completeFirstLoad",
+                defaultValue: "Complete first load"
+            )) { status = .ready }
                 .accessibilityIdentifier("AgentFeedFixtureCompleteFirstLoad")
         case .newActivity:
-            Button("Inject 100-event burst") {
+            Button(localizer.string(
+                "mobile.agentFeed.fixture.injectBurst",
+                defaultValue: "Inject 100-event burst"
+            )) {
                 performanceProbe.start(
                     burst: AgentFeedPreviewConfiguration.injectedActivityBurst()
                 ) { burst in
@@ -111,14 +126,20 @@ public struct AgentFeedPreviewView: View {
             }
         case .reply:
             if mutationStates.values.contains(.sending) {
-                Button("Acknowledge reply") {
+                Button(localizer.string(
+                    "mobile.agentFeed.fixture.acknowledgeReply",
+                    defaultValue: "Acknowledge reply"
+                )) {
                     drafts.removeAll()
                     mutationStates.removeAll()
                 }
                 .accessibilityIdentifier("AgentFeedFixtureAcknowledgeReply")
             }
         case .reconnect:
-            Button("Finish reconciliation") {
+            Button(localizer.string(
+                "mobile.agentFeed.fixture.finishReconciliation",
+                defaultValue: "Finish reconciliation"
+            )) {
                 items = AgentFeedPreviewConfiguration.reconciledItems()
                 status = .ready
             }
@@ -132,6 +153,7 @@ public struct AgentFeedPreviewView: View {
         AgentFeedView(
             items: items,
             status: status,
+            design: design,
             filter: $filter,
             drafts: drafts,
             mutationStates: mutationStates,

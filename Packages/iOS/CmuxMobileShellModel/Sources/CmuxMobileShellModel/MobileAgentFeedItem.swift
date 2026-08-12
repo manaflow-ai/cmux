@@ -26,5 +26,21 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
         self.wire = wire
     }
 
-    public var isActionable: Bool { wire.status.isPending }
+    /// Whether this row can represent work awaiting a response. Turn-complete
+    /// rows still need collection context so only the latest turn is offered.
+    public var isActionable: Bool {
+        wire.status.isPending || isTurnCompletion
+    }
+
+    /// Whether this row marks a point where another prompt can continue the agent.
+    public var isTurnCompletion: Bool {
+        switch wire.payload {
+        case .stop:
+            return true
+        case .lifecycle:
+            return wire.kind == "sessionEnd"
+        default:
+            return false
+        }
+    }
 }

@@ -16,6 +16,8 @@ struct AgentFeedRowActions {
 
 struct AgentFeedRow: View, Equatable {
     let item: MobileAgentFeedItem
+    let design: MobileAgentFeedDesign
+    let requiresResponse: Bool
     let isExpanded: Bool
     let draft: String
     let mutationState: MobileAgentFeedMutationState
@@ -30,6 +32,8 @@ struct AgentFeedRow: View, Equatable {
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.item == rhs.item
+            && lhs.design == rhs.design
+            && lhs.requiresResponse == rhs.requiresResponse
             && lhs.isExpanded == rhs.isExpanded
             && lhs.draft == rhs.draft
             && lhs.mutationState == rhs.mutationState
@@ -40,29 +44,49 @@ struct AgentFeedRow: View, Equatable {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            DisclosureGroup(
-                isExpanded: Binding(
-                    get: { isExpanded },
-                    set: { newValue in actions.setExpanded(newValue) }
-                )
-            ) {
-                actionArea
-            } label: {
-                VStack(alignment: .leading, spacing: 10) {
-                    AgentFeedRowHeader(item: item, localizer: localizer)
-                    AgentFeedContext(item: item, isExpanded: isExpanded, localizer: localizer)
+        AgentFeedRowChrome(
+            design: design,
+            sourceLabel: copy.sourceLabel(item.wire.source),
+            isActionable: requiresResponse,
+            actionNeededLabel: localizer.string(
+                "mobile.agentFeed.chrome.actionNeeded",
+                defaultValue: "Action needed"
+            ),
+            activityLabel: localizer.string(
+                "mobile.agentFeed.chrome.activity",
+                defaultValue: "Activity"
+            )
+        ) {
+            VStack(alignment: .leading, spacing: design == .compact ? 6 : 10) {
+                DisclosureGroup(
+                    isExpanded: Binding(
+                        get: { isExpanded },
+                        set: { newValue in actions.setExpanded(newValue) }
+                    )
+                ) {
+                    actionArea
+                } label: {
+                    VStack(alignment: .leading, spacing: design == .compact ? 6 : 10) {
+                        AgentFeedRowHeader(
+                            item: item,
+                            design: design,
+                            requiresResponse: requiresResponse,
+                            localizer: localizer
+                        )
+                        AgentFeedContext(item: item, isExpanded: isExpanded, localizer: localizer)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(disclosureAccessibilityLabel)
+                    .accessibilityIdentifier("MobileAgentFeedExpand-\(suffix)")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(disclosureAccessibilityLabel)
-                .accessibilityIdentifier("MobileAgentFeedExpand-\(suffix)")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            footer
+                footer
+            }
+            .padding(.vertical, design == .compact ? 2 : 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileAgentFeedCard-\(suffix)")
@@ -107,16 +131,25 @@ struct AgentFeedRow: View, Equatable {
     @ViewBuilder
     private var actionArea: some View {
         switch item.wire.payload {
-        case .permission(_, let toolName, let safeInput, let supportedModes):
+        case .permission(_, let toolName, let safeInput, let supportedModes)
+            where requiresResponse:
             VStack(alignment: .leading, spacing: 8) {
                 Text(toolName).font(.headline)
                 if !safeInput.isEmpty { Text(safeInput).font(.caption).foregroundStyle(.secondary) }
-                ViewThatFits {
-                    HStack { permissionButtons(supportedModes) }
-                    VStack(alignment: .leading) { permissionButtons(supportedModes) }
+                if supportedModes.isEmpty {
+                    Text(localizer.string(
+                        "mobile.agentFeed.permission.malformed",
+                        defaultValue: "No inline permission options were provided. Open Agent to respond."
+                    ))
+                    .foregroundStyle(.secondary)
+                } else {
+                    ViewThatFits {
+                        HStack { permissionButtons(supportedModes) }
+                        VStack(alignment: .leading) { permissionButtons(supportedModes) }
+                    }
                 }
             }
-        case .exitPlan(_, let plan, let summary, _):
+        case .exitPlan(_, let plan, let summary, _) where requiresResponse:
             VStack(alignment: .leading, spacing: 8) {
                 if let summary { Text(summary).font(.headline) }
                 Text(plan).font(.body).textSelection(.enabled)
@@ -133,7 +166,7 @@ struct AgentFeedRow: View, Equatable {
                     VStack(alignment: .leading) { planButtons }
                 }
             }
-        case .question(_, let questions):
+        case .question(_, let questions) where requiresResponse:
             if questions.isEmpty {
                 Text(localizer.string("mobile.agentFeed.question.malformed", defaultValue: "This question could not be displayed. Open the agent to respond."))
                     .foregroundStyle(.secondary)
@@ -149,10 +182,16 @@ struct AgentFeedRow: View, Equatable {
                     .accessibilityIdentifier("MobileAgentFeedQuestionSubmit-\(suffix)")
                 }
             }
-        case .stop:
+        case .stop where requiresResponse:
             replyComposer
-        case .lifecycle where item.wire.kind == "sessionEnd":
+        case .lifecycle where item.wire.kind == "sessionEnd" && requiresResponse:
             replyComposer
+        case .unknown where requiresResponse:
+            Text(localizer.string(
+                "mobile.agentFeed.action.unsupported",
+                defaultValue: "This request needs a newer version of cmux. Open Agent to respond."
+            ))
+            .foregroundStyle(.secondary)
         default:
             EmptyView()
         }
@@ -294,7 +333,7 @@ struct AgentFeedRow: View, Equatable {
     private var disclosureAccessibilityLabel: String {
         [
             copy.sourceLabel(item.wire.source),
-            copy.statusLabel(item.wire.status),
+            copy.statusLabel(for: item, requiresResponse: requiresResponse),
             item.macDisplayName,
             item.connectionStatus.label,
             item.wire.workstreamID,
@@ -312,13 +351,16 @@ struct AgentFeedRow: View, Equatable {
 
 private struct AgentFeedRowHeader: View {
     let item: MobileAgentFeedItem
+    let design: MobileAgentFeedDesign
+    let requiresResponse: Bool
     let localizer: AgentFeedLocalizer
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var copy: AgentFeedRowCopy { AgentFeedRowCopy(localizer: localizer) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: item.wire.status.isPending ? "exclamationmark.bubble.fill" : "bubble.left.and.text.bubble.right")
+            Image(systemName: requiresResponse ? "exclamationmark.bubble.fill" : "bubble.left.and.text.bubble.right")
+                .font(design == .compact ? .caption : .body)
             VStack(alignment: .leading) {
                 if dynamicTypeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: 5) {
@@ -350,7 +392,7 @@ private struct AgentFeedRowHeader: View {
     }
 
     private var statusLabel: some View {
-        Text(copy.statusLabel(item.wire.status))
+        Text(copy.statusLabel(for: item, requiresResponse: requiresResponse))
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
@@ -396,21 +438,13 @@ private struct AgentFeedContext: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             }
-            if let cwd = item.wire.cwd {
+            if isExpanded, let cwd = item.wire.cwd {
                 Text(cwd)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                     .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
             }
-            Text(copy.workspaceRouteLabel(item.wire.workspaceID))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-            Text(copy.surfaceRouteLabel(item.wire.surfaceID))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -452,6 +486,12 @@ private struct AgentFeedRowCopy {
         }
     }
 
+    func statusLabel(for item: MobileAgentFeedItem, requiresResponse: Bool) -> String {
+        requiresResponse
+            ? localizer.string("mobile.agentFeed.card.pending", defaultValue: "Needs input")
+            : statusLabel(item.wire.status)
+    }
+
     func sourceLabel(_ source: String) -> String {
         switch source {
         case "claude": return localizer.string("mobile.agentFeed.source.claude", defaultValue: "Claude")
@@ -470,7 +510,7 @@ private struct AgentFeedRowCopy {
     func payloadSummary(_ payload: MobileWorkstreamFeedPayload) -> String {
         switch payload {
         case .permission(_, let tool, let summary, _): return summary.isEmpty ? tool : "\(tool)\n\(summary)"
-        case .exitPlan(_, let plan, _, _): return plan
+        case .exitPlan(_, let plan, let summary, _): return summary ?? plan
         case .question(_, let questions): return questions.map(\.prompt).formatted()
         case .toolUse(let name, _):
             return localizer.string("mobile.agentFeed.activity.toolUse", defaultValue: "Using \(name)")

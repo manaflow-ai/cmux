@@ -743,12 +743,15 @@ public struct WorkspaceListLayoutPreviewView: View {
                         selection: $selectedPrimaryTab,
                         searchCoordinator: primarySearchCoordinator,
                         notificationUnreadCount: 0,
+                        agentFeedNeedsInputCount: 0,
                         taskComposerAction: {}
                     ) {
                         workspaceListStack
                     } notifications: {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)
+                    } feed: {
+                        Color.clear
                     } workspaceSearch: {
                         NavigationStack(path: $searchFixturePath) {
                             MobilePrimaryWorkspaceSearchContentHost(

@@ -61,7 +61,7 @@ struct AgentFeedPreviewConfiguration {
         case .reply:
             return one(scenario, item: replyItem)
         case .permission:
-            return one(scenario, item: permissionItem, filter: .allActivity)
+            return one(scenario, item: permissionItem)
         case .plan:
             return one(scenario, item: planItem)
         case .questions:
@@ -184,6 +184,7 @@ struct AgentFeedPreviewConfiguration {
         source: "opencode",
         kind: "stop",
         title: "OpenCode finished a turn",
+        status: .telemetry,
         payload: .stop(reason: "Implementation is ready for a reply."),
         macIndex: 3
     )

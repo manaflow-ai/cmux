@@ -43,7 +43,7 @@ struct MobileShellAgentFeedPagingTests {
         #expect(opened)
         #expect(store.selectedWorkspaceID == "workspace-row")
         #expect(store.selectedTerminalID == "surface")
-        #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .notificationFeed)
+        #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .agentFeed)
     }
 
     @Test("Phone retention limit removes paging and prevents another request")

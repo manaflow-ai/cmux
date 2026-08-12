@@ -8,11 +8,18 @@ struct AgentFeedStoreView: View {
     @Bindable var store: CMUXMobileShellStore
     private let localizer = AgentFeedLocalizer()
     @State private var filter: MobileAgentFeedFilter = .needsInput
+    @AppStorage(MobileAgentFeedDesign.storageKey) private var designRawValue =
+        MobileAgentFeedDesign.timeline.rawValue
+
+    private var design: MobileAgentFeedDesign {
+        MobileAgentFeedDesign(rawValue: designRawValue) ?? .timeline
+    }
 
     var body: some View {
         AgentFeedView(
             items: store.agentFeedItems,
             status: store.agentFeedStatus,
+            design: design,
             filter: $filter,
             drafts: store.agentFeedDrafts,
             mutationStates: store.agentFeedMutationStates,

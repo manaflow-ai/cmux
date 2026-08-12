@@ -16,6 +16,7 @@ struct AgentFeedActions {
 struct AgentFeedView: View {
     let items: [MobileAgentFeedItem]
     let status: MobileAgentFeedStatus
+    let design: MobileAgentFeedDesign
     @Binding var filter: MobileAgentFeedFilter
     let drafts: [MobileAgentFeedItemID: String]
     let mutationStates: [MobileAgentFeedItemID: MobileAgentFeedMutationState]
@@ -23,7 +24,7 @@ struct AgentFeedView: View {
     let canLoadOlder: Bool
     let isLoadingOlder: Bool
     let actions: AgentFeedActions
-    @State private var expandedIDs: Set<MobileAgentFeedItemID> = []
+    @State private var expansionOverrides: [MobileAgentFeedItemID: Bool] = [:]
     @State private var planFeedback: [MobileAgentFeedItemID: String] = [:]
     @State private var questionSelections: [MobileAgentFeedItemID: [String: Set<String>]] = [:]
     @State private var otherAnswers: [MobileAgentFeedItemID: [String: String]] = [:]
@@ -38,6 +39,7 @@ struct AgentFeedView: View {
     var body: some View {
         let source = AgentFeedSourceSnapshot(items: items, filter: filter)
         let visibleItems = renderedItems ?? source.visibleItems
+        let needsInputItemIDs = source.needsInputItemIDs
         VStack(spacing: 0) {
             AgentFeedStatusBanner(status: status, retry: actions.refresh, localizer: localizer)
             filterControl
@@ -61,7 +63,10 @@ struct AgentFeedView: View {
                             ForEach(visibleItems) { item in
                                 AgentFeedRow(
                                     item: item,
-                                    isExpanded: expandedIDs.contains(item.id),
+                                    design: design,
+                                    requiresResponse: needsInputItemIDs.contains(item.id),
+                                    isExpanded: expansionOverrides[item.id]
+                                        ?? needsInputItemIDs.contains(item.id),
                                     draft: drafts[item.id] ?? "",
                                     mutationState: mutationStates[item.id] ?? .idle,
                                     interactionsEnabled: interactionsEnabled(for: item),
@@ -179,10 +184,17 @@ struct AgentFeedView: View {
         }
         .navigationTitle(localizer.string("mobile.tabs.feed", defaultValue: "Feed"))
         .overlay(alignment: .topLeading) {
-            Color.clear
-                .frame(width: 1, height: 1)
-                .accessibilityElement(children: .ignore)
-                .accessibilityIdentifier("MobileAgentFeed")
+            ZStack {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("MobileAgentFeed")
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("MobileAgentFeedDesign-\(design.rawValue)")
+                    .accessibilityValue(design.title(using: localizer))
+            }
         }
     }
 
@@ -208,11 +220,7 @@ struct AgentFeedView: View {
     }
 
     private func setExpanded(_ isExpanded: Bool, id: MobileAgentFeedItemID) {
-        if isExpanded {
-            expandedIDs.insert(id)
-        } else {
-            expandedIDs.remove(id)
-        }
+        expansionOverrides[id] = isExpanded
     }
 
     private func interactionsEnabled(for item: MobileAgentFeedItem) -> Bool {
@@ -253,9 +261,20 @@ struct AgentFeedView: View {
 private struct AgentFeedSourceSnapshot: Equatable {
     let items: [MobileAgentFeedItem]
     let filter: MobileAgentFeedFilter
+    let needsInputItems: [MobileAgentFeedItem]
+
+    init(items: [MobileAgentFeedItem], filter: MobileAgentFeedFilter) {
+        self.items = items
+        self.filter = filter
+        needsInputItems = MobileAgentFeedFilter.needsInput.apply(to: items)
+    }
 
     var visibleItems: [MobileAgentFeedItem] {
-        filter.apply(to: items)
+        filter == .needsInput ? needsInputItems : items
+    }
+
+    var needsInputItemIDs: Set<MobileAgentFeedItemID> {
+        Set(needsInputItems.map(\.id))
     }
 }
 

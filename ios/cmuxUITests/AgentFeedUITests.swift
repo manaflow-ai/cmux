@@ -16,8 +16,6 @@ final class AgentFeedUITests: XCTestCase {
         let permissionExpandID = "MobileAgentFeedExpand-macbook-00000000-0000-0000-0000-000000000101"
         let permissionExpand = app.buttons[permissionExpandID]
         XCTAssertEqual(app.buttons.matching(identifier: permissionExpandID).count, 1)
-        makeHittable(permissionExpand, in: app)
-        permissionExpand.tap()
         let denyID = "MobileAgentFeedPermission-deny-macbook-00000000-0000-0000-0000-000000000101"
         let deny = app.buttons[denyID]
         XCTAssertEqual(app.buttons.matching(identifier: denyID).count, 1)
@@ -55,8 +53,6 @@ final class AgentFeedUITests: XCTestCase {
         let expand = app.buttons[expandID]
         XCTAssertEqual(app.buttons.matching(identifier: expandID).count, 1)
         XCTAssertTrue(expand.waitForExistence(timeout: 8))
-        makeHittable(expand, in: app)
-        expand.tap()
 
         let submit = app.buttons["MobileAgentFeedQuestionSubmit-\(suffix)"]
         XCTAssertTrue(submit.waitForExistence(timeout: 3))
@@ -168,7 +164,6 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertFalse(offlineLoadOlder.isEnabled)
         let expand = app.buttons["MobileAgentFeedExpand-macbook-00000000-0000-0000-0000-000000000107"]
         makeHittable(expand, in: app)
-        expand.tap()
         let action = app.buttons["MobileAgentFeedPermission-once-macbook-00000000-0000-0000-0000-000000000107"]
         XCTAssertTrue(action.waitForExistence(timeout: 3))
         XCTAssertFalse(action.isEnabled)
@@ -214,7 +209,6 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertTrue(expand.isHittable)
         XCTAssertTrue(expand.label.contains("Workspace ID: workspace-1"))
         XCTAssertTrue(expand.label.contains("Surface ID: surface-101"))
-        expand.tap()
         let denyID = "MobileAgentFeedPermission-deny-\(suffix)"
         let deny = app.buttons[denyID]
         XCTAssertEqual(app.buttons.matching(identifier: denyID).count, 1)
@@ -239,15 +233,74 @@ final class AgentFeedUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentFeedFiveDesignsKeepNotificationsSeparateAndActionsInline() throws {
+        for design in ["timeline", "cards", "compact", "conversation", "commandCenter"] {
+            let app = launchFixture(scenario: "permission", design: design)
+            XCTAssertTrue(
+                app.descendants(matching: .any)["MobileAgentFeedDesign-\(design)"]
+                    .waitForExistence(timeout: 8),
+                design
+            )
+            XCTAssertTrue(app.tabBars.buttons["Feed"].isSelected, design)
+            XCTAssertTrue(app.tabBars.buttons["Notifications"].exists, design)
+            let inlineAction = app.buttons[
+                "MobileAgentFeedPermission-deny-macbook-00000000-0000-0000-0000-000000000101"
+            ]
+            XCTAssertTrue(inlineAction.waitForExistence(timeout: 3), design)
+            makeHittable(inlineAction, in: app)
+
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "agent-feed-design-\(design)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testAgentFeedPlanAndCompletedTurnCanBeAnsweredInline() throws {
+        var app = launchFixture(scenario: "plan")
+        let planSuffix = "mac-studio-00000000-0000-0000-0000-000000000102"
+        let feedback = app.textFields["MobileAgentFeedPlanFeedback-\(planSuffix)"]
+        XCTAssertTrue(feedback.waitForExistence(timeout: 8))
+        makeHittable(feedback, in: app)
+        feedback.tap()
+        feedback.typeText("Cover the reconnect case")
+        let manual = app.buttons["MobileAgentFeedPlan-manual-\(planSuffix)"]
+        makeHittable(manual, in: app)
+        manual.tap()
+        XCTAssertTrue(app.buttons["MobileAgentFeedExpand-\(planSuffix)"].label.contains("Resolved"))
+        app.terminate()
+
+        app = launchFixture(scenario: "reply")
+        let replySuffix = "mac-4-00000000-0000-0000-0000-000000000104"
+        let composer = app.textFields["MobileAgentFeedReplyComposer-\(replySuffix)"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Needs input"].exists)
+        composer.tap()
+        composer.typeText("Please continue with the focused tests")
+        let send = app.buttons["MobileAgentFeedReplySubmit-\(replySuffix)"]
+        makeHittable(send, in: app)
+        send.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileAgentFeedSending-\(replySuffix)"]
+                .waitForExistence(timeout: 3)
+        )
+        app.terminate()
+    }
+
+    @MainActor
     private func launchFixture(
         scenario: String = "mixed",
         language: String = "en",
-        locale: String = "en_US"
+        locale: String = "en_US",
+        design: String = "timeline"
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "-AppleLanguages", "(\(language))",
             "-AppleLocale", locale,
+            "-cmux.labs.agentFeedDesign", design,
             "--agent-feed-scenario", scenario,
         ]
         app.launchEnvironment["CMUX_UITEST_AGENT_FEED_PREVIEW"] = "1"

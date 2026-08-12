@@ -1809,6 +1809,104 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "エージェントの場所を利用できません" } }
       }
     },
+    "mobile.agentFeed.action.unsupported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This request needs a newer version of cmux. Open Agent to respond." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このリクエストに応答するには新しいバージョンのcmuxが必要です。エージェントを開いて応答してください。" } }
+      }
+    },
+    "mobile.agentFeed.chrome.actionNeeded" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Action needed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "対応が必要" } }
+      }
+    },
+    "mobile.agentFeed.chrome.activity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Activity" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アクティビティ" } }
+      }
+    },
+    "mobile.agentFeed.design.timeline" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Timeline" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タイムライン" } }
+      }
+    },
+    "mobile.agentFeed.design.cards" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cards" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "カード" } }
+      }
+    },
+    "mobile.agentFeed.design.compact" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Compact" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンパクト" } }
+      }
+    },
+    "mobile.agentFeed.design.conversation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Conversation" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "会話" } }
+      }
+    },
+    "mobile.agentFeed.design.commandCenter" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Command Center" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コマンドセンター" } }
+      }
+    },
+    "mobile.agentFeed.permission.malformed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No inline permission options were provided. Open Agent to respond." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "インライン権限オプションがありません。エージェントを開いて応答してください。" } }
+      }
+    },
+    "mobile.agentFeed.fixture.completeFirstLoad" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Complete first load" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "初回読み込みを完了" } }
+      }
+    },
+    "mobile.agentFeed.fixture.injectBurst" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Inject 100-event burst" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "100件のイベントを追加" } }
+      }
+    },
+    "mobile.agentFeed.fixture.acknowledgeReply" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Acknowledge reply" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "返信を確認" } }
+      }
+    },
+    "mobile.agentFeed.fixture.finishReconciliation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Finish reconciliation" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "再同期を完了" } }
+      }
+    },
+    "mobile.tabs.notifications" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Notifications" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "通知" } }
+      }
+    },
     "mobile.tabs.feed" : {
       "extractionState" : "manual",
       "localizations" : {

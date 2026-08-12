@@ -180,7 +180,7 @@ extension MobileShellComposite {
               ) else { return false }
         guard let surfaceID = item.wire.surfaceID,
               workspace(workspaceID, containsSurfaceID: surfaceID) else { return false }
-        navigateToWorkspaceForDeeplink(workspaceID, origin: .notificationFeed)
+        navigateToWorkspaceForDeeplink(workspaceID, origin: .agentFeed)
         selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
         return true
     }

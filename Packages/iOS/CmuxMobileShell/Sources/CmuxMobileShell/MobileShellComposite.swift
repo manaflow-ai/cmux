@@ -384,10 +384,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Immutable, bounded coding-agent activity aggregated across every Mac.
     public internal(set) var agentFeedItems: [MobileAgentFeedItem] = [] {
         didSet {
-            agentFeedNeedsInputCount = agentFeedItems.lazy.filter(\.isActionable).count
+            agentFeedNeedsInputCount = MobileAgentFeedFilter.needsInput.apply(to: agentFeedItems).count
         }
     }
-    /// Count shown on the Feed tab badge. Telemetry and resolved rows never count.
+    /// Count shown on the Feed tab badge. Pending requests and replyable turn-complete rows count.
     public private(set) var agentFeedNeedsInputCount: Int = 0
     public internal(set) var agentFeedStatus: MobileAgentFeedStatus = .idle
     /// True when at least one Mac reports older persisted Feed history.

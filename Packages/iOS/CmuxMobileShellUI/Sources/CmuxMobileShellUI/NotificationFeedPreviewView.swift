@@ -41,7 +41,8 @@ public struct NotificationFeedPreviewView: View {
             MobilePrimaryTabScaffold(
                 selection: $selectedTab,
                 searchCoordinator: primarySearchCoordinator,
-                notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
+                notificationUnreadCount: items.lazy.filter { !$0.isRead }.count,
+                agentFeedNeedsInputCount: 0
             ) {
                 NotificationFeedPreviewWorkspacesView()
             } notifications: {
@@ -56,6 +57,8 @@ public struct NotificationFeedPreviewView: View {
                 .onChange(of: pendingSearchNotificationNavigationID) { _, _ in
                     consumePendingSearchNavigation(for: .notifications)
                 }
+            } feed: {
+                Color.clear
             } workspaceSearch: {
                 NotificationFeedPreviewWorkspacesView()
             } notificationSearch: {
@@ -198,7 +201,7 @@ public struct NotificationFeedPreviewView: View {
     ) -> Bool {
         let previousTab = selectedTab
         if (selectedTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
+           tab != .search {
             primarySearchCoordinator.deactivateCurrentSearch()
         }
         beforeSelection()
