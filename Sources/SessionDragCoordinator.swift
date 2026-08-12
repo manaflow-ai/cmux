@@ -41,11 +41,6 @@ final class SessionDragCoordinator {
         self.startDraggingSession = startDraggingSession
     }
 
-    var hasActiveSession: Bool {
-        guard case .dragging = sessionPhase else { return false }
-        return true
-    }
-
     func beginSessionDrag(
         _ entry: SessionEntry,
         from sourceView: NSView,

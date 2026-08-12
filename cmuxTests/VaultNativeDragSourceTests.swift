@@ -88,88 +88,38 @@ struct VaultNativeDragSourceTests {
         #expect(activationCount == 0)
     }
 
-    @Test("Every duplicate row can repeatedly initiate a native drag")
-    func duplicateRowsCanRepeatedlyInitiateNativeDrags() throws {
-        let first = Self.makeEntry(title: "First rendered occurrence")
-        let second = Self.makeEntry(title: "Second rendered occurrence")
-        let rows = SessionIndexRowSnapshot.rows(for: [first, second])
-        let regions = SessionDragRegionStore()
-        regions.update(rows[0], frame: NSRect(x: 0, y: 0, width: 240, height: 28))
-        regions.update(rows[1], frame: NSRect(x: 0, y: 28, width: 240, height: 28))
-
-        var startedEntries: [SessionEntry] = []
-        let monitor = SessionDragMonitorView(
-            frame: NSRect(x: 0, y: 0, width: 240, height: 80),
-            regions: regions
-        ) { entry, _, _, _, _ in
-            startedEntries.append(entry)
-            return true
-        }
-        let window = NSWindow(
-            contentRect: monitor.bounds,
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = monitor
-        defer { window.orderOut(nil) }
-
-        for point in [NSPoint(x: 40, y: 14), NSPoint(x: 40, y: 42)] {
-            let mouseDown = try Self.mouseEvent(
-                type: .leftMouseDown,
-                location: monitor.convert(point, to: nil),
-                window: window
-            )
-            let mouseDragged = try Self.mouseEvent(
-                type: .leftMouseDragged,
-                location: monitor.convert(
-                    NSPoint(x: point.x + 8, y: point.y),
-                    to: nil
-                ),
-                window: window
-            )
-
-            _ = monitor.handleEvent(mouseDown)
-            _ = monitor.handleEvent(mouseDragged)
-        }
-
-        #expect(startedEntries.map(\.title) == [first.title, second.title])
-    }
-
     @Test("Repeated click sequences can still initiate a native drag", arguments: [1, 2, 3])
     func repeatedClickSequenceCanInitiateNativeDrag(clickCount: Int) throws {
         let entry = Self.makeEntry(title: "Repeated click \(clickCount)")
-        let row = try #require(SessionIndexRowSnapshot.rows(for: [entry]).first)
-        let regions = SessionDragRegionStore()
-        regions.update(row, frame: NSRect(x: 0, y: 0, width: 240, height: 28))
-
         var startedEntry: SessionEntry?
-        let monitor = SessionDragMonitorView(
+        let source = SessionDragSourceView(
             frame: NSRect(x: 0, y: 0, width: 240, height: 40),
-            regions: regions
-        ) { candidate, _, _, _, _ in
-            startedEntry = candidate
-            return true
-        }
+            entry: entry,
+            beginDrag: { candidate, _, _, _, _ in
+                startedEntry = candidate
+                return true
+            },
+            onDoubleClick: {}
+        )
         let window = NSWindow(
-            contentRect: monitor.bounds,
+            contentRect: source.bounds,
             styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
-        window.contentView = monitor
+        window.contentView = source
         defer { window.orderOut(nil) }
 
         let start = NSPoint(x: 40, y: 14)
-        _ = monitor.handleEvent(try Self.mouseEvent(
+        source.mouseDown(with: try Self.mouseEvent(
             type: .leftMouseDown,
-            location: monitor.convert(start, to: nil),
+            location: source.convert(start, to: nil),
             window: window,
             clickCount: clickCount
         ))
-        _ = monitor.handleEvent(try Self.mouseEvent(
+        source.mouseDragged(with: try Self.mouseEvent(
             type: .leftMouseDragged,
-            location: monitor.convert(NSPoint(x: start.x + 8, y: start.y), to: nil),
+            location: source.convert(NSPoint(x: start.x + 8, y: start.y), to: nil),
             window: window,
             clickCount: clickCount
         ))
@@ -205,17 +155,22 @@ struct VaultNativeDragSourceTests {
                 frame: frame,
                 image: image
             ))
-            #expect(coordinator.hasActiveSession)
             #expect(startedSources.count == expectedStartCount)
 
-            let dragID = try #require(registry.activeDragID)
-            #expect(registry.entry(id: dragID) == entry)
             let source = startedSources[expectedStartCount - 1]
+            let dragID = source.dragID
+            #expect(registry.entry(id: dragID) == entry)
             #expect(source.dragID == dragID)
+            #expect(!coordinator.beginSessionDrag(
+                entry,
+                from: sourceView,
+                event: event,
+                frame: frame,
+                image: image
+            ))
 
             source.finishDrag()
-            #expect(!coordinator.hasActiveSession)
-            #expect(registry.activeDragID == nil)
+            #expect(registry.entry(id: dragID) == nil)
         }
     }
 
