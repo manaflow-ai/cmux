@@ -12128,6 +12128,12 @@ struct VerticalTabsSidebar: View, Equatable {
                 focusWorkspace: { workspaceId in
                     CustomSidebarWorkspaceFocusRouter(controller: TerminalController.shared)
                         .focus(workspaceId)
+                },
+                requestInputFocus: { window in
+                    AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(
+                        mode: .customSidebar,
+                        in: window
+                    )
                 }
             )
             // Only meaningful for a page that opted into full-bleed layout; a page laid out inside

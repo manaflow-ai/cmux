@@ -20,11 +20,13 @@ struct CustomSidebarInputWebViewTests {
         window.contentView?.addSubview(previousResponder)
         window.contentView?.addSubview(webView)
         #expect(window.makeFirstResponder(previousResponder))
+        let previousFirstResponder = try #require(window.firstResponder)
+        #expect(previousFirstResponder !== webView)
 
         var sequence: [String] = []
         webView.onRequestInputFocus = { focusedWindow in
             #expect(focusedWindow === window)
-            #expect(window.firstResponder === previousResponder)
+            #expect(window.firstResponder === previousFirstResponder)
             sequence.append("host")
         }
 

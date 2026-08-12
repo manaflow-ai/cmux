@@ -92,7 +92,11 @@ struct CustomSidebarPanelView: View {
     ) -> some View {
         switch decision {
         case let .web(webSource):
-            CustomSidebarWebView(source: webSource, reloadToken: reloadToken)
+            CustomSidebarWebView(
+                source: webSource,
+                reloadToken: reloadToken,
+                requestInputFocus: { _ in onRequestPanelFocus() }
+            )
         case let .interpreted(interpretedURL):
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
                 CustomSidebarSurface(

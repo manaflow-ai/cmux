@@ -47,6 +47,7 @@ public struct CustomSidebarWebView: NSViewRepresentable {
     private let insets: CustomSidebarWebInsets
     private let reloadToken: CustomSidebarWebReloadToken
     private let focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)?
+    private let requestInputFocus: (@MainActor (NSWindow) -> Void)?
 
     /// Creates the hosted sidebar.
     ///
@@ -60,16 +61,20 @@ public struct CustomSidebarWebView: NSViewRepresentable {
     ///     Supplying it offers the focus bridge; whether the bridge is actually registered still
     ///     depends on the source arming a ``CustomSidebarFocusScope``, so a public page cannot get
     ///     it by being passed a handler. Omit it to host a page with no native reach at all.
+    ///   - requestInputFocus: Records that this sidebar now owns the host window's keyboard focus.
+    ///     The web view itself becomes first responder immediately after this callback.
     public init(
         source: CustomSidebarWebSource,
         insets: CustomSidebarWebInsets = .zero,
         reloadToken: CustomSidebarWebReloadToken = .initial,
-        focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)? = nil
+        focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)? = nil,
+        requestInputFocus: (@MainActor (NSWindow) -> Void)? = nil
     ) {
         self.source = source
         self.insets = insets
         self.reloadToken = reloadToken
         self.focusWorkspace = focusWorkspace
+        self.requestInputFocus = requestInputFocus
     }
 
     public func makeNSView(context: Context) -> CustomSidebarWebContainerView {
@@ -86,7 +91,8 @@ public struct CustomSidebarWebView: NSViewRepresentable {
             )
         )
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = CustomSidebarInputWebView(frame: .zero, configuration: configuration)
+        webView.onRequestInputFocus = requestInputFocus
         // The page paints its own background. Letting the web view draw one flashes white on every
         // load, which is jarring against the sidebar's chrome in dark mode.
         webView.setValue(false, forKey: "drawsBackground")
@@ -114,6 +120,7 @@ public struct CustomSidebarWebView: NSViewRepresentable {
 
     public func updateNSView(_ container: CustomSidebarWebContainerView, context: Context) {
         context.coordinator.container = container
+        (container.webView as? CustomSidebarInputWebView)?.onRequestInputFocus = requestInputFocus
         if container.insets != insets {
             container.insets = insets
             // The page keeps rendering while the chrome resizes, so the variables are refreshed in
