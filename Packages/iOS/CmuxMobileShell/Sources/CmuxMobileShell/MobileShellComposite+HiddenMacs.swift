@@ -157,12 +157,30 @@ extension MobileShellComposite {
     /// capability is wired or the revoke fails, so the caller can surface an
     /// error instead of a silent no-op.
     public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
-        guard let personalIrohForget else { return false }
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.computerForgetStarted, correlationID: computer.id)
+        guard let personalIrohForget else {
+            recordAppEvent(
+                .computerForgetFailed,
+                correlationID: computer.id,
+                startedAt: startedAt,
+                failure: .unsupportedRoute
+            )
+            return false
+        }
         // Capture the scope BEFORE the network revoke so local cleanup targets the
         // account/team that owned the row, not whatever scope is current after the
         // await (the user can sign out or switch accounts while the call is in
         // flight).
-        guard let scope = await currentScopeSnapshot() else { return false }
+        guard let scope = await currentScopeSnapshot() else {
+            recordAppEvent(
+                .computerForgetFailed,
+                correlationID: computer.id,
+                startedAt: startedAt,
+                failure: .authorizationFailed
+            )
+            return false
+        }
         do {
             // Pin the revoke to the ROW's owning account, not the live session.
             // A row owned by account A can still be on screen right after auth
@@ -180,6 +198,12 @@ extension MobileShellComposite {
         } catch {
             hiddenMacsLog.error(
                 "forget hidden computer revoke failed: \(String(describing: error), privacy: .private)"
+            )
+            recordAppEvent(
+                .computerForgetFailed,
+                correlationID: computer.id,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
             )
             return false
         }
@@ -212,6 +236,12 @@ extension MobileShellComposite {
         if cleaned {
             await refreshAfterForget(displayScope: scope)
         }
+        recordAppEvent(
+            cleaned ? .computerForgetSucceeded : .computerForgetFailed,
+            correlationID: computer.id,
+            startedAt: startedAt,
+            failure: cleaned ? nil : .unknown
+        )
         return cleaned
     }
 
@@ -444,7 +474,18 @@ extension MobileShellComposite {
         _ macDeviceID: String,
         instanceTag: String?
     ) async {
-        guard let scope = await currentScopeSnapshot() else { return }
+        let correlationID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        guard let scope = await currentScopeSnapshot() else {
+            recordAppEvent(
+                .computerUnhidden,
+                correlationID: correlationID,
+                failure: .authorizationFailed
+            )
+            return
+        }
         await clearHiddenMacDeviceID(
             macDeviceID,
             instanceTag: instanceTag,
@@ -456,6 +497,7 @@ extension MobileShellComposite {
         await loadPairedMacs()
         guard !Task.isCancelled else { return }
         await loadRegistryDevices()
+        recordAppEvent(.computerUnhidden, correlationID: correlationID)
     }
 
     /// Hides the legacy untagged computer represented by a visible stored Mac id.
@@ -629,6 +671,7 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot
     ) async {
         guard !targets.isEmpty else { return }
+        let correlationID = targets[0].id
         let targetPairingIDs = Set(targets.map(\.id))
         let targetPhysicalIDs = Set(targets.map(\.macDeviceID))
         let teamlessLegacyIDs = Set(targets.filter { $0.teamID == nil }.map(\.id))
@@ -645,6 +688,12 @@ extension MobileShellComposite {
             for pairingID in targetPairingIDs {
                 await clearHiddenMacDeviceID(pairingID, scope: scope)
             }
+            recordAppEvent(
+                .computerHidden,
+                correlationID: correlationID,
+                failure: .cancelled,
+                count: targets.count
+            )
             return
         }
 
@@ -703,6 +752,11 @@ extension MobileShellComposite {
               !Task.isCancelled else { return }
         await loadPairedMacs()
         clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
+        recordAppEvent(
+            .computerHidden,
+            correlationID: correlationID,
+            count: targets.count
+        )
     }
 
     /// Removes every workspace snapshot owned by a hidden stored Mac identity.

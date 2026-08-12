@@ -112,13 +112,25 @@ extension MobileShellComposite {
             )
             return
         }
-        _ = try? await client.stopMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID)
-        recordSimulatorStream(
-            panelID: panelID,
-            state: .stopped,
-            ownership: currentSimulatorOwnership(panelID: panelID),
-            activeSessions: startedMobileSimulatorPanelIDs.count
-        )
+        do {
+            _ = try await client.stopMobileSimulatorStream(
+                panelID: panelID,
+                workspaceID: workspaceID
+            )
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .stopped,
+                ownership: currentSimulatorOwnership(panelID: panelID),
+                activeSessions: startedMobileSimulatorPanelIDs.count
+            )
+        } catch {
+            recordSimulatorStream(
+                panelID: panelID,
+                state: .stopFailed,
+                ownership: currentSimulatorOwnership(panelID: panelID),
+                activeSessions: startedMobileSimulatorPanelIDs.count
+            )
+        }
     }
 
     /// Appends one operation to the panel's chain. Each operation awaits its

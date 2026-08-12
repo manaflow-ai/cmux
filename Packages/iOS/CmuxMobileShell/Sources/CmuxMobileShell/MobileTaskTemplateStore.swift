@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import Foundation
@@ -11,6 +12,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     private nonisolated(unsafe) let defaults: UserDefaults
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private let diagnosticLog: DiagnosticLog?
 
     // v4 resets the unshipped seeds onto the environment-only prompt contract.
     private static let templatesKey = "cmux.mobile.taskTemplates.v4"
@@ -34,8 +36,9 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
 
     /// Creates a task template store backed by `defaults`.
     /// - Parameter defaults: The `UserDefaults` instance to persist into.
-    public init(defaults: UserDefaults) {
+    public init(defaults: UserDefaults, diagnosticLog: DiagnosticLog? = nil) {
         self.defaults = defaults
+        self.diagnosticLog = diagnosticLog
     }
 
     /// Returns all stored templates, seeding defaults on the first read.
@@ -147,7 +150,15 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     /// Returns the unsent task-composer draft, if one was saved.
     public func composerDraft() -> MobileTaskComposerDraft? {
         guard let data = defaults.data(forKey: Self.composerDraftKey) else { return nil }
-        return try? decoder.decode(MobileTaskComposerDraft.self, from: data)
+        do {
+            return try decoder.decode(MobileTaskComposerDraft.self, from: data)
+        } catch {
+            diagnosticLog?.recordAppEvent(
+                .draftPersistenceFailed,
+                failure: .protocolViolation
+            )
+            return nil
+        }
     }
 
     /// Stores or clears the unsent task-composer draft.
@@ -156,7 +167,13 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
             defaults.removeObject(forKey: Self.composerDraftKey)
             return
         }
-        guard let data = try? encoder.encode(draft) else { return }
+        guard let data = try? encoder.encode(draft) else {
+            diagnosticLog?.recordAppEvent(
+                .draftPersistenceFailed,
+                failure: .protocolViolation
+            )
+            return
+        }
         defaults.set(data, forKey: Self.composerDraftKey)
     }
 
@@ -200,11 +217,18 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     }
 
     private func loadTemplates() -> [MobileTaskTemplate] {
-        guard let data = defaults.data(forKey: Self.templatesKey),
-              let templates = try? decoder.decode([MobileTaskTemplate].self, from: data) else {
+        guard let data = defaults.data(forKey: Self.templatesKey) else {
             return []
         }
-        return templates
+        do {
+            return try decoder.decode([MobileTaskTemplate].self, from: data)
+        } catch {
+            diagnosticLog?.recordAppEvent(
+                .templatePersistenceFailed,
+                failure: .protocolViolation
+            )
+            return []
+        }
     }
 
     private func migrateBuiltInProtectionIfNeeded(
@@ -334,7 +358,13 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     }
 
     private func saveTemplates(_ templates: [MobileTaskTemplate]) {
-        guard let data = try? encoder.encode(templates) else { return }
+        guard let data = try? encoder.encode(templates) else {
+            diagnosticLog?.recordAppEvent(
+                .templatePersistenceFailed,
+                failure: .protocolViolation
+            )
+            return
+        }
         defaults.set(data, forKey: Self.templatesKey)
     }
 

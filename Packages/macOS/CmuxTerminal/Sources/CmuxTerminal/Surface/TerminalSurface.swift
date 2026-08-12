@@ -291,6 +291,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     weak var configurationReloadDeferredRuntimeSurfaceView:
         (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
+    var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
     var agentHibernationRuntimeTeardownReservation:
@@ -556,7 +557,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.runtimeFilesystem = dependencies.runtimeFilesystem
         self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
-        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy == .pacedSessionRestore
+        self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
+        self.startupRestoreAdmissionPhase = runtimeSpawnPolicy.requiresStartupRestoreAdmission
+            ? .awaitingAdmission
+            : .unrestricted
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey

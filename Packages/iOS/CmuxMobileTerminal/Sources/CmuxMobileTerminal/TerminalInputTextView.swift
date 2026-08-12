@@ -45,6 +45,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// *text* does not use this path; it rides ``onText``.
     var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
+    var onToolbarDiagnosticAction: ((TerminalToolbarDiagnosticAction) -> Void)?
     var onHideKeyboard: (() -> Void)?
     /// Fired by the trailing "customize" button so the SwiftUI host can present
     /// the toolbar shortcuts editor.
@@ -1099,6 +1100,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         _ action: TerminalInputAccessoryAction,
         sourceView: UIView? = nil
     ) {
+        onToolbarDiagnosticAction?(.accessory(action))
         if action == .composer {
             // Opening the composer moves first responder off this proxy, so clear
             // any armed modifier first (like Paste/Zoom do); otherwise a

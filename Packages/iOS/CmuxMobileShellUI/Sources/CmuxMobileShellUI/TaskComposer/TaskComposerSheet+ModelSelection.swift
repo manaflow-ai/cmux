@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShellModel
 
 extension TaskComposerSheet {
@@ -79,6 +80,10 @@ extension TaskComposerSheet {
             selectedModelID = selectedID
             explicitlySelectedModel = model
         }
+        store.recordAppEvent(
+            .taskModelSelected,
+            correlationID: validatedID
+        )
     }
 }
 #endif
