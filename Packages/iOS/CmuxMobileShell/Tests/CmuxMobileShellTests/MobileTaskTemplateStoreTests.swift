@@ -133,6 +133,42 @@ import CmuxMobileShellModel
         #expect(migrated.last?.isBuiltIn == false)
     }
 
+    @Test func completedProtectionMigrationRestoresAPreviouslyDeletedShellSeed() throws {
+        let defaults = Self.defaults()
+        var survivingSeeds = MobileTaskTemplate.seedDefaults(
+            claudeName: "Claude",
+            codexName: "Codex",
+            openCodeName: "OpenCode",
+            shellName: "Shell"
+        )
+        survivingSeeds.removeLast()
+        let custom = MobileTaskTemplate(
+            name: "Custom",
+            icon: "hammer",
+            command: "custom-agent"
+        )
+        defaults.set(
+            try JSONEncoder().encode(survivingSeeds + [custom]),
+            forKey: "cmux.mobile.taskTemplates.v4"
+        )
+        defaults.set(true, forKey: "cmux.mobile.taskTemplates.seeded.v4")
+        defaults.set(
+            true,
+            forKey: "cmux.mobile.taskTemplates.builtInProtectionMigrated.v1"
+        )
+
+        let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let reconciled = store.listTemplates()
+
+        #expect(reconciled.map(\.name) == ["Claude", "Codex", "OpenCode", "Shell", "Custom"])
+        let restoredShell = try #require(reconciled.first { $0.name == "Shell" })
+        #expect(restoredShell.isBuiltIn)
+        #expect(reconciled.first { $0.id == custom.id }?.isBuiltIn == false)
+
+        store.deleteTemplate(id: restoredShell.id)
+        #expect(store.listTemplates().contains { $0.id == restoredShell.id })
+    }
+
     @Test func mutationsCannotForgeOrRemoveBuiltInProvenance() throws {
         let store = UserDefaultsMobileTaskTemplateStore(defaults: Self.defaults())
         var builtIn = try #require(store.listTemplates().first)
