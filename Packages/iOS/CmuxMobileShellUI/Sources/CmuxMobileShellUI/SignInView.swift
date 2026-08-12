@@ -181,6 +181,7 @@ struct SignInView: View {
                         TextField(L10n.string("mobile.signIn.emailPlaceholder", defaultValue: "Email address"), text: $email)
                             .textFieldStyle(.plain)
                             .mobileEmailTextInput()
+                            .textContentType(.username)
                             .focused($isEmailFocused)
                             .accessibilityIdentifier("Email")
                     } onTap: {

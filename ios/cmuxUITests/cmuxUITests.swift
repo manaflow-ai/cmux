@@ -52,11 +52,14 @@ final class cmuxUITests: XCTestCase {
         try typeText("dogfood@example.com", into: emailField, in: app)
         XCTAssertTrue(emailCodeButton.isEnabled)
 
+        XCTAssertTrue(waitForHittable(usePasswordButton, timeout: 2))
         usePasswordButton.tap()
         let passwordField = app.secureTextFields["signin.password"]
         XCTAssertTrue(passwordField.waitForExistence(timeout: 2))
-        XCTAssertFalse(app.buttons["signin.passwordButton"].isEnabled)
-        XCTAssertTrue(app.buttons["signin.useAnotherMethod"].exists)
+        let passwordButton = app.buttons["signin.passwordButton"]
+        XCTAssertTrue(passwordButton.waitForExistence(timeout: 2))
+        XCTAssertFalse(passwordButton.isEnabled)
+        XCTAssertTrue(app.buttons["signin.useAnotherMethod"].waitForExistence(timeout: 2))
     }
 
     /// Exercises the complete first-run activation path without Stack auth,
