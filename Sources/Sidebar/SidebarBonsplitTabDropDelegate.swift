@@ -29,6 +29,7 @@ struct SidebarBonsplitTabDropDelegate: DropDelegate {
 
         if bonsplitSourceWorkspaceId(transfer.tab.id) == targetWorkspaceId {
             syncSidebarSelectionAfterDrop()
+            BonsplitTabDragSharing.finishAcceptedDrop()
             return true
         }
 
@@ -38,6 +39,7 @@ struct SidebarBonsplitTabDropDelegate: DropDelegate {
 
         selectTargetAfterDrop()
         syncSidebarSelectionAfterDrop()
+        BonsplitTabDragSharing.finishAcceptedDrop()
         return true
     }
 }

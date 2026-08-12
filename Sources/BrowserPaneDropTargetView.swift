@@ -213,6 +213,9 @@ final class BrowserPaneDropTargetView: NSView {
                 targetPane: dropContext.paneId,
                 zone: dockZone
             )
+            if handled {
+                BonsplitTabDragSharing.finishAcceptedDrop(from: sender.draggingPasteboard)
+            }
 #if DEBUG
             cmuxDebugLog(
                 "browser.paneDrop.perform.dock panel=\(dropContext.panelId.uuidString.prefix(5)) " +
@@ -267,6 +270,7 @@ final class BrowserPaneDropTargetView: NSView {
 
             switch action {
             case .noOp:
+                BonsplitTabDragSharing.finishAcceptedDrop(from: sender.draggingPasteboard)
 #if DEBUG
                 cmuxDebugLog(
                     "browser.paneDrop.perform allowed=1 panel=\(dropContext.panelId.uuidString.prefix(5)) " +
@@ -283,6 +287,9 @@ final class BrowserPaneDropTargetView: NSView {
                     focus: true,
                     focusWindow: true
                 ) ?? false
+                if moved {
+                    BonsplitTabDragSharing.finishAcceptedDrop(from: sender.draggingPasteboard)
+                }
 #if DEBUG
                 let splitLabel = splitTarget.map {
                     "\($0.orientation.rawValue):\($0.insertFirst ? 1 : 0)"

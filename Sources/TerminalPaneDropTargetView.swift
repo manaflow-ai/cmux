@@ -195,6 +195,9 @@ final class PaneDropTargetView: NSView {
                 targetPane: dropContext.paneId,
                 zone: zone
             )
+            if handled {
+                BonsplitTabDragSharing.finishAcceptedDrop(from: sender.draggingPasteboard)
+            }
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +
