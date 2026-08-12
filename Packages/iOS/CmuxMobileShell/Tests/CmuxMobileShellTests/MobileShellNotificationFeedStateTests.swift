@@ -186,6 +186,36 @@ struct MobileShellNotificationFeedStateTests {
         #expect(visibleItems.map(\.notificationID) == ["live"])
     }
 
+    @Test("Visible feed fails closed when one pairing exposes duplicate target rows")
+    func visibleFeedOmitsAmbiguousDuplicateWorkspaceTargets() throws {
+        var firstWorkspace = MobileWorkspacePreview(
+            id: "first-row",
+            macDeviceID: "mac",
+            name: "First",
+            terminals: []
+        )
+        firstWorkspace.macInstanceTag = "norph"
+        firstWorkspace.remoteWorkspaceID = "workspace"
+        var secondWorkspace = MobileWorkspacePreview(
+            id: "second-row",
+            macDeviceID: "mac",
+            name: "Second",
+            terminals: []
+        )
+        secondWorkspace.macInstanceTag = "norph"
+        secondWorkspace.remoteWorkspaceID = "workspace"
+        let store = MobileShellComposite(workspaces: [firstWorkspace, secondWorkspace])
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, id: "ambiguous", createdAt: 100),
+            macDeviceID: "mac\u{1F}norph",
+            displayName: "Mac"
+        ))
+
+        #expect(store.notificationFeedItems.map(\.notificationID) == ["ambiguous"])
+        #expect(store.notificationFeedItems(scopedTo: nil).isEmpty)
+    }
+
     @Test("Mark All targets all selected Macs before applying the visible feed cap")
     func markAllTargetsSelectedMacsBeforeVisibleFeedCap() async throws {
         let store = MobileShellComposite()
