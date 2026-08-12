@@ -79,12 +79,34 @@ struct MobileAgentFeedTests {
         #expect(rows.last?.wire.status == .resolved(decision: nil))
     }
 
-    @Test func needsInputBadgeProjectionCountsOnlyPendingRows() throws {
+    @Test func needsInputProjectionIncludesPendingDecisionsAndLatestCompletedTurns() throws {
         let pending = try item(id: 4, mac: "mac-a", status: "pending", kind: "question", extra: "\"request_id\":\"request-4\",\"questions\":[]")
         let activity = try item(id: 5, mac: "mac-b")
+        let stoppedTurn = try item(
+            id: 6,
+            mac: "mac-c",
+            kind: "stop",
+            extra: "\"reason\":\"Waiting for the next instruction\""
+        )
+        let endedSession = try item(
+            id: 7,
+            mac: "mac-d",
+            kind: "sessionEnd",
+            extra: "\"reason\":null"
+        )
+        let resumedTurn = try item(
+            id: 8,
+            mac: "mac-c",
+            createdAt: "2026-08-09T12:00:00Z"
+        )
 
-        #expect(MobileAgentFeedFilter.needsInput.apply(to: [pending, activity]).map(\.id) == [pending.id])
-        #expect(MobileAgentFeedFilter.allActivity.apply(to: [pending, activity]).count == 2)
+        let items = [resumedTurn, pending, activity, stoppedTurn, endedSession]
+
+        #expect(
+            MobileAgentFeedFilter.needsInput.apply(to: items).map(\.id)
+                == [pending.id, endedSession.id]
+        )
+        #expect(MobileAgentFeedFilter.allActivity.apply(to: items).count == 5)
     }
 
     @Test func aggregationCapsTwoThousandRowsAcrossTenAgents() throws {
