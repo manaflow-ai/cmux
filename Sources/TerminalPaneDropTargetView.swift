@@ -114,7 +114,6 @@ final class PaneDropTargetView: NSView {
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        super.draggingEnded(sender)
         dropRoutingRegistration.clear(sender)
         clearDragState(phase: "ended")
         transferDropRouter.clear()
