@@ -19,6 +19,19 @@ struct PaneDragTransfer: Equatable {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
+    init(tabDragTransfer: TabDragTransfer) {
+        tabId = tabDragTransfer.tab.id.uuid
+        sourcePaneId = tabDragTransfer.sourcePaneId.id
+        sourceProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
+    }
+
+    init(tabId: UUID, sourcePaneId: UUID, sourceProcessId: Int32) {
+        self.tabId = tabId
+        self.sourcePaneId = sourcePaneId
+        self.sourceProcessId = sourceProcessId
+    }
+
+    /// Decodes the legacy JSON representation used by older synthetic sources.
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
         if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
             return decode(from: data)

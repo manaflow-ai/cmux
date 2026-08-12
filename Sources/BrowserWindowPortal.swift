@@ -486,7 +486,7 @@ final class WindowBrowserHostView: NSView {
                let paneDropTarget = paneDropTarget(at: point) {
                 return paneDropTarget
             }
-            if let transfer = PaneDragTransfer.decode(from: dragPasteboard),
+            if let transfer = paneTransferSourceResolver.transfer(from: dragPasteboard),
                paneTransferSourceResolver.source(for: transfer) != nil,
                let paneDropTarget = paneDropTarget(at: point) {
                 return paneDropTarget

@@ -1,3 +1,5 @@
+import AppKit
+import Bonsplit
 import Foundation
 
 /// Resolves the live in-process source behind an opaque pane-transfer payload.
@@ -9,16 +11,21 @@ struct PaneTransferSourceResolver {
     }
 
     typealias VaultSessionRegistry = @MainActor () -> SessionDragRegistry?
+    typealias TabTransferRegistry = @MainActor () -> TabDragTransferRegistry?
     typealias FilePreviewLookup = @MainActor (UUID) -> FilePreviewDragEntry?
     typealias LivenessLookup = @MainActor (UUID) -> Bool
 
     private let vaultSessionRegistry: VaultSessionRegistry
+    private let tabTransferRegistry: TabTransferRegistry
     private let filePreview: FilePreviewLookup
     private let surfaceIsLive: LivenessLookup
 
     init(
         vaultSessionRegistry: @escaping VaultSessionRegistry = {
             AppDelegate.shared?.sessionDragRegistry
+        },
+        tabTransferRegistry: @escaping TabTransferRegistry = {
+            AppDelegate.shared?.tabDragTransferRegistry
         },
         filePreview: @escaping FilePreviewLookup = { id in
             FilePreviewDragRegistry.shared.entry(id: id)
@@ -28,8 +35,18 @@ struct PaneTransferSourceResolver {
         }
     ) {
         self.vaultSessionRegistry = vaultSessionRegistry
+        self.tabTransferRegistry = tabTransferRegistry
         self.filePreview = filePreview
         self.surfaceIsLive = surfaceIsLive
+    }
+
+    /// Normalizes opaque Bonsplit capabilities and legacy JSON onto one transfer model.
+    @MainActor
+    func transfer(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
+        if let transfer = tabTransferRegistry()?.resolve(from: pasteboard) {
+            return PaneDragTransfer(tabDragTransfer: transfer)
+        }
+        return PaneDragTransfer.decode(from: pasteboard)
     }
 
     /// Captures the live source value so execution does not re-read mutable drag state.

@@ -59,9 +59,13 @@ final class PaneTransferDropRouter {
         context: PaneDropContext,
         proposedZone: DropZone
     ) -> Resolution {
-        guard let transfer = PaneDragTransfer.decode(from: pasteboard) else {
+        guard DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboard.types) else {
             activePlan = nil
             return .notTransfer
+        }
+        guard let transfer = sourceResolver.transfer(from: pasteboard) else {
+            activePlan = nil
+            return .rejected
         }
         guard let container = container(for: context) else {
             activePlan = nil
