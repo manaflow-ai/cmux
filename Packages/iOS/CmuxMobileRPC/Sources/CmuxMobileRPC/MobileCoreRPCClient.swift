@@ -25,6 +25,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
+    /// Whether this session is bound to an exact Tailscale endpoint the user
+    /// authorized locally, rather than an endpoint learned through discovery.
+    public var usesLocallyAuthorizedTailscaleRoute: Bool {
+        guard route.kind == .tailscale else { return false }
+        switch transportRequest.authorizationMode {
+        case .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
+            return true
+        case .stackBearer, .transportAdmission:
+            return false
+        }
+    }
     private let allowsStackAuthFallback: Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.

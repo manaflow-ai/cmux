@@ -4826,6 +4826,110 @@ import Testing
         #expect(shell.connections["mac-late"]?.client === client)
     }
 
+    @Test func officialBuildAdoptsUntagged06417OnlyFromAuthorizedTailscale() async throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "legacy-tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.17", port: 58_465)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil
+        )
+        let authorization = try CmxUserTailscalePairingAuthorization(
+            host: "100.64.0.17",
+            port: 58_465
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            userTailscalePairingAuthorization: authorization
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            buildCompatibilityPolicy: .official
+        )
+        shell.remoteClient = client
+        shell.activeTicket = ticket
+        shell.activeRoute = route
+
+        await shell.applyHostReportedIdentity(
+            client: client,
+            deviceID: "legacy-mac",
+            displayName: "Legacy Mac",
+            instanceTag: nil,
+            macAppVersion: "0.64.17"
+        )
+
+        #expect(shell.remoteClient === client)
+        #expect(shell.foregroundMacDeviceIDForTesting() == "legacy-mac")
+        #expect(shell.activeMacInstanceTag == nil)
+    }
+
+    @Test func officialBuildRejectsUntagged06417WithoutLocalTailscaleAuthority() async throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "untrusted-tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.17", port: 58_465)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            buildCompatibilityPolicy: .official
+        )
+        shell.remoteClient = client
+        shell.activeTicket = ticket
+        shell.activeRoute = route
+
+        await shell.applyHostReportedIdentity(
+            client: client,
+            deviceID: "untrusted-mac",
+            displayName: "Untrusted Mac",
+            instanceTag: nil,
+            macAppVersion: "0.64.17"
+        )
+
+        #expect(shell.remoteClient == nil)
+        #expect(shell.foregroundMacDeviceIDForTesting() == nil)
+    }
+
     @Test func anonymousSameRouteRepairReleasesForegroundLeaseBeforeDial()
         async throws {
         let router = LivenessHostRouter()

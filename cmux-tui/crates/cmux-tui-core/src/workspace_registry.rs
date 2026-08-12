@@ -357,10 +357,12 @@ pub struct TerminalRegistryCommit {
     pub replayed: bool,
 }
 
-/// A host mutation replay cannot acquire a public-resource side effect that
-/// was not part of its original transaction.
+/// A replay cannot acquire a cross-domain side effect that was not part of
+/// its original transaction. Keep the receipt source explicit so the mux can
+/// reconcile only the revision owned by that receipt.
 pub(crate) enum TerminalResourceCloseCommit {
-    Replay(TerminalRegistryCommit),
+    TerminalReplay(TerminalRegistryCommit),
+    ResourceReplay { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
     Committed { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
 }
 
@@ -1304,7 +1306,7 @@ fn remove_reset_dir_children_from_handle(
             &child_display,
             &child_stat,
         )?;
-        ensure_reset_manifest_entry(
+        if let Err(error) = ensure_reset_manifest_entry(
             directory.as_raw_fd(),
             &staged_child.name,
             &child_relative,
@@ -1312,7 +1314,16 @@ fn remove_reset_dir_children_from_handle(
             &staged_child.stat,
             expected_entries,
             ignored_root_child,
-        )?;
+        ) {
+            return Err(restore_changed_reset_child(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &child_name,
+                &staged_child.display_path,
+                &child_display,
+                error,
+            ));
+        }
         if reset_stat_is_dir(&staged_child.stat) {
             let child_directory = open_reset_child_dir(
                 directory.as_raw_fd(),
@@ -1440,14 +1451,18 @@ fn stage_reset_child_for_deletion(
                     || reset_stat_inode(&stat) != reset_stat_inode(expected)
                     || reset_stat_kind(&stat) != reset_stat_kind(expected)
                 {
-                    let _ = reset_rename_child_exclusive(
+                    let error = anyhow::anyhow!(
+                        "reset path changed during reset: {}",
+                        display_path.display()
+                    );
+                    return Err(restore_changed_reset_child(
                         parent_fd,
                         &private_name,
                         name,
                         &private_display,
                         display_path,
-                    );
-                    anyhow::bail!("reset path changed during reset: {}", display_path.display());
+                        error,
+                    ));
                 }
                 return Ok(ResetStagedChild {
                     name: private_name,
@@ -1466,6 +1481,30 @@ fn stage_reset_child_for_deletion(
         }
     }
     anyhow::bail!("could not allocate private reset path for {}", display_path.display())
+}
+
+#[cfg(unix)]
+fn restore_changed_reset_child(
+    parent_fd: std::os::fd::RawFd,
+    private_name: &std::ffi::OsStr,
+    original_name: &std::ffi::OsStr,
+    private_display: &Path,
+    original_display: &Path,
+    verification_error: anyhow::Error,
+) -> anyhow::Error {
+    match reset_rename_child_exclusive(
+        parent_fd,
+        private_name,
+        original_name,
+        private_display,
+        original_display,
+    ) {
+        Ok(()) => verification_error,
+        Err(restore_error) => anyhow::anyhow!(
+            "{verification_error:#}; failed to restore changed reset path {}: {restore_error:#}",
+            original_display.display()
+        ),
+    }
 }
 
 #[cfg(unix)]
@@ -2986,9 +3025,10 @@ impl WorkspaceRegistry {
         let tx = self.connection.transaction()?;
         if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
             tx.commit()?;
-            return Ok(TerminalResourceCloseCommit::Replay(terminal));
+            return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
         }
-        if resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?.is_some()
+        if let Some(resource) =
+            resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?
         {
             let terminal =
                 read_terminal(&tx, terminal_id)?.context("terminal close state is unavailable")?;
@@ -3004,11 +3044,10 @@ impl WorkspaceRegistry {
                 "already_closed": true,
             });
             tx.commit()?;
-            return Ok(TerminalResourceCloseCommit::Replay(TerminalRegistryCommit {
-                revision,
-                result,
-                replayed: true,
-            }));
+            return Ok(TerminalResourceCloseCommit::ResourceReplay {
+                terminal: TerminalRegistryCommit { revision, result, replayed: true },
+                resource,
+            });
         }
         let terminal = close_terminal_in_transaction(
             &tx,

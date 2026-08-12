@@ -182,12 +182,14 @@ struct MobilePairingScannerSheet: View {
 #endif
 
 extension MobilePairingScannerSheet {
+    /// The localized Tailscale setup sequence shared by every pairing entrypoint.
     static var guidanceText: String {
         L10n.string(
-            "mobile.pairing.scannerInstruction",
+            "mobile.tailscalePairing.instructions",
             defaultValue: """
-            On your Mac, open Tailscale Pairing in cmux to show the QR. \
-            Install Tailscale on both devices and connect them to the same Tailscale network first.
+            Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, \
+            choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open \
+            Tailscale Pairing and scan its code here.
             """
         )
     }

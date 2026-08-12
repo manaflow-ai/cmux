@@ -588,6 +588,7 @@ struct MobileSettingsView: View {
         if let connectionMethodStore {
             MobileConnectionMethodSection(
                 store: connectionMethodStore,
+                hasUsableTailscaleAuthorization: store?.hasUsableTailscaleAuthorization ?? false,
                 startPairingScanner: startPairingScanner
             )
             .id(MobileSettingsFocus.connectionMethod)

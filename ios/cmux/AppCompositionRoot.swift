@@ -169,7 +169,27 @@ final class AppCompositionRoot {
             if fixtureDefaults.object(
                 forKey: MobileAutoConnectMigrationStore.resolutionKey
             ) == nil {
-                fixtureDefaults.removeObject(forKey: MobileConnectionMethodStore.methodKey)
+                if let persistedConnectionMethod = fixture.persistedConnectionMethod {
+                    fixtureDefaults.set(
+                        persistedConnectionMethod.rawValue,
+                        forKey: MobileConnectionMethodStore.methodKey
+                    )
+                } else {
+                    fixtureDefaults.removeObject(
+                        forKey: MobileConnectionMethodStore.methodKey
+                    )
+                }
+                // Keep this DEBUG fixture key aligned with the immutable v1
+                // schema so the UI test enters through real migration storage.
+                let legacyResolutionKey = "dev.cmux.mobile.autoConnectIntroduction.v1"
+                if let legacyResolution = fixture.legacyResolution {
+                    fixtureDefaults.set(
+                        legacyResolution.rawValue,
+                        forKey: legacyResolutionKey
+                    )
+                } else {
+                    fixtureDefaults.removeObject(forKey: legacyResolutionKey)
+                }
                 switch fixture.eligibility {
                 case .eligible:
                     fixtureDefaults.set(

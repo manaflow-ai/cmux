@@ -1167,6 +1167,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// recovery-scoped UI attributes flags to the exact pairing being
     /// redialed, never a healthy sibling build on the same physical Mac.
     private(set) var recoveryTargetInstanceTag: String?
+    /// The foreground pairing that a new connection attempt replaces. During
+    /// recovery the live identity is intentionally cleared before redial, so
+    /// the retained target remains the ownership authority for distinguishing
+    /// a same-Mac reconnect from a real Mac switch.
+    private var foregroundOrRecoveryMacKey: MacPairingKey {
+        guard foregroundMacDeviceID == nil,
+              let recoveryTargetMacDeviceID else {
+            return foregroundMacKey
+        }
+        return MacPairingKey(
+            macDeviceID: recoveryTargetMacDeviceID,
+            instanceTag: recoveryTargetInstanceTag
+        )
+    }
     /// Compatibility view over registry entries whose role is `.control`.
     var secondaryMacSubscriptions: MobileMacConnectionRegistry.ControlSubscriptions {
         macConnectionRegistry.controlSubscriptions
@@ -2838,7 +2852,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Visible store rows for identity-sensitive paths; ``pairedMacs`` is display-coalesced.
     private var storedPairedMacs: [MobilePairedMac] = []
     /// Every scoped SQLite row, including hidden rows, for route refresh and hidden presentation.
-    @ObservationIgnored var storedPairedMacsIncludingHidden: [MobilePairedMac] = []
+    @ObservationIgnored var storedPairedMacsIncludingHidden: [MobilePairedMac] = [] {
+        didSet {
+            hasStoredUsableTailscaleAuthorization = Self
+                .hasUsableTailscaleAuthorization(in: storedPairedMacsIncludingHidden)
+        }
+    }
+    /// Cached local Tailscale readiness for the current paired-Mac snapshot.
+    var hasStoredUsableTailscaleAuthorization = false
     /// Load status for ``pairedMacs`` in the current signed-in account/team scope.
     public internal(set) var pairedMacLoadState: PairedMacLoadState = .notLoaded
     /// Visible representative id to all stored ids for that logical paired Mac.
@@ -3893,7 +3914,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 client: client,
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
-                instanceTag: payload.macInstanceTag
+                instanceTag: payload.macInstanceTag,
+                macAppVersion: payload.macAppVersion
             )
         }
     }
@@ -3913,7 +3935,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         client: MobileCoreRPCClient,
         deviceID: String?,
         displayName: String?,
-        instanceTag: String?
+        instanceTag: String?,
+        macAppVersion: String? = nil
     ) async {
         guard remoteClient === client,
               let rawReportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -3954,7 +3977,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard remoteClient === client else { return }
         let resolvedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard macBuildIsCompatible(instanceTag: resolvedTag) else {
+        guard authenticatedMacBuildIsCompatible(
+            instanceTag: resolvedTag,
+            macAppVersion: macAppVersion,
+            client: client
+        ) else {
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
             return
         }
@@ -8020,7 +8047,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedMacDeviceID = pairedMacDeviceID
             ?? (ticketMacDeviceID.isEmpty ? nil : ticketMacDeviceID)
-        let previousForegroundKeyBeforeConnect = foregroundMacKey
+        let previousForegroundKeyBeforeConnect = foregroundOrRecoveryMacKey
         let currentFocusedConnection: MacConnection? =
             foregroundMacDeviceID.flatMap { macID in
                 guard let connection = connections[macID],
@@ -8335,7 +8362,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     let hasAuthenticatedIdentity = reportedDeviceID?.isEmpty == false
                     let reportedInstanceTag = hasAuthenticatedIdentity ? status.macInstanceTag : nil
-                    guard macBuildIsCompatible(instanceTag: reportedInstanceTag) else {
+                    guard authenticatedMacBuildIsCompatible(
+                        instanceTag: reportedInstanceTag,
+                        macAppVersion: status.macAppVersion,
+                        client: client
+                    ) else {
                         mobileShellLog.error(
                             "rejecting route from incompatible Mac build reported=\(reportedInstanceTag ?? "missing", privacy: .public)"
                         )
@@ -10572,7 +10603,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 client: client,
                 deviceID: payload.macDeviceID,
                 displayName: payload.macDisplayName,
-                instanceTag: payload.macInstanceTag
+                instanceTag: payload.macInstanceTag,
+                macAppVersion: payload.macAppVersion
             )
             guard isCurrentRemoteConnection(
                 client: client,
