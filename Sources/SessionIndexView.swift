@@ -376,29 +376,32 @@ struct IndexSectionView: View, Equatable {
     }
 
     var body: some View {
+        let rows = SessionIndexRowSnapshot.rows(
+            for: section.entries.prefix(rowLimit)
+        )
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader
             if !isCollapsed {
-                ForEach(Array(section.entries.prefix(rowLimit))) { entry in
+                ForEach(rows) { row in
                     SessionRow(
-                        entry: entry,
-                        isPreviewPresented: previewEntryId == entry.id,
-                        onPreview: { actions.onPreviewEntry(entry) },
+                        entry: row.entry,
+                        isPreviewPresented: previewEntryId == row.entry.id,
+                        onPreview: { actions.onPreviewEntry(row.entry) },
                         onResume: actions.onResume
                     )
                         .equatable()
-                        .id(entry.id)
+                        .id(row.id)
                         .onGeometryChange(for: CGRect.self) { proxy in
                             proxy.frame(in: .named(Self.popoverAnchorCoordinateSpace))
                         } action: { frame in
                             onPopoverAnchorChange(
-                                .transcript(section: section.key, entry: entry.id),
+                                .transcript(section: section.key, entry: row.entry.id),
                                 frame
                             )
                         }
                         .onDisappear {
                             onPopoverAnchorChange(
-                                .transcript(section: section.key, entry: entry.id),
+                                .transcript(section: section.key, entry: row.entry.id),
                                 nil
                             )
                         }
@@ -2062,9 +2065,9 @@ struct SectionPopoverView: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        ForEach(loaded) { entry in
-                            PopoverRow(entry: entry) {
-                                onResume?(entry)
+                        ForEach(SessionIndexRowSnapshot.rows(for: loaded)) { row in
+                            PopoverRow(entry: row.entry) {
+                                onResume?(row.entry)
                                 onDismiss()
                             }
                             .equatable()
