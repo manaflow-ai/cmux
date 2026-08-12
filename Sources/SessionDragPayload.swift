@@ -11,7 +11,7 @@ struct SessionDragPayload {
         with registry: TabDragTransferRegistry
     ) -> TabDragTransferRegistration? {
         registry.register(TabDragTransfer(
-            tab: Tab(
+            tab: Bonsplit.Tab(
                 id: TabID(uuid: dragID),
                 title: entry.displayTitle,
                 icon: "terminal.fill",
