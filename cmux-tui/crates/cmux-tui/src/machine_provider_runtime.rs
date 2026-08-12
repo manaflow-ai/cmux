@@ -49,6 +49,7 @@ struct PendingConnection {
     candidate: Option<OpenConnection>,
     rollback: Option<ProviderSelectionRollback>,
     retire_open_on_abort: bool,
+    clear_accepted_selection_on_commit: bool,
 }
 
 struct PendingExternalConnect {
@@ -61,6 +62,26 @@ struct PendingExternalConnect {
 struct AcceptedSelectionIntent {
     scope_id: Option<protocol::OpaqueId>,
     machine_id: Option<protocol::OpaqueId>,
+}
+
+fn apply_accepted_selection_if_ready(
+    intent: &AcceptedSelectionIntent,
+    snapshot: &mut protocol::SnapshotResult,
+) -> bool {
+    if intent.scope_id.as_ref().is_some_and(|scope_id| scope_id != &snapshot.selected_scope_id) {
+        return false;
+    }
+    let Some(machine_id) = intent.machine_id.as_ref() else {
+        return true;
+    };
+    // Missing, unavailable, stopped, and recoverable machines are not final
+    // owner states. Keep the intent until readiness or an explicit switch.
+    let machine_ready =
+        snapshot.machines.iter().any(|machine| &machine.id == machine_id && machine.connectable);
+    if machine_ready {
+        snapshot.selected_machine_id = Some(machine_id.clone());
+    }
+    machine_ready
 }
 
 #[derive(Default)]
@@ -210,7 +231,7 @@ impl ProviderMachineController {
         // the current provider/local session untouched.
         let session = self.local.connect(key)?;
         let label = self.local.name(key).unwrap_or("machine").to_string();
-        self.provider.stage_connection(None, None)?;
+        self.provider.stage_connection(None, None, true)?;
         self.pending_active_local = Some(Some(key));
         let ui = self.provider.ui_state_for_open_connection();
         let mut result =
@@ -395,21 +416,10 @@ impl ProviderMachineRuntime {
         let surface_snapshot_notice =
             !self.client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY)?;
         self.observe_snapshot_notice(snapshot.notice.clone(), surface_snapshot_notice);
-        let selection_applied = self.accepted_selection.as_ref().is_none_or(|intent| {
-            let scope_matches = intent
-                .scope_id
-                .as_ref()
-                .is_none_or(|scope_id| scope_id == &snapshot.selected_scope_id);
-            let machine_matches = intent.machine_id.as_ref().is_none_or(|machine_id| {
-                if snapshot.machines.iter().any(|machine| &machine.id == machine_id) {
-                    snapshot.selected_machine_id = Some(machine_id.clone());
-                    true
-                } else {
-                    false
-                }
-            });
-            scope_matches && machine_matches
-        });
+        let selection_applied = self
+            .accepted_selection
+            .as_ref()
+            .is_none_or(|intent| apply_accepted_selection_if_ready(intent, &mut snapshot));
         let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&self.client, &snapshot)?;
         let workspace_snapshot = load_workspace_snapshot(&self.client, &snapshot)?;
         self.snapshot = snapshot;
@@ -482,7 +492,7 @@ impl ProviderMachineRuntime {
                     }
                 };
                 let session_available = open.is_some();
-                self.stage_connection(open, Some(rollback))?;
+                self.stage_connection(open, Some(rollback), true)?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.take_notice();
                 let mut result = MachineActionResult::replace(ui, session, label);
@@ -1151,7 +1161,7 @@ impl ProviderMachineRuntime {
         match self.open_selected_candidate() {
             Ok((session, label, open)) => {
                 let session_available = open.is_some();
-                self.stage_connection(open, None)?;
+                self.stage_connection(open, None, false)?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.take_notice();
                 let mut result = MachineActionResult::replace(ui, session, label);
@@ -1202,23 +1212,10 @@ impl ProviderMachineRuntime {
                 load_workspace_snapshot(&client, &snapshot)?,
             )
         };
-        let selection_applied = if let Some(intent) = self.accepted_selection.as_ref() {
-            let scope_matches = intent
-                .scope_id
-                .as_ref()
-                .is_none_or(|scope_id| scope_id == &snapshot.selected_scope_id);
-            let machine_matches = intent.machine_id.as_ref().is_none_or(|machine_id| {
-                if snapshot.machines.iter().any(|machine| &machine.id == machine_id) {
-                    snapshot.selected_machine_id = Some(machine_id.clone());
-                    true
-                } else {
-                    false
-                }
-            });
-            scope_matches && machine_matches
-        } else {
-            true
-        };
+        let selection_applied = self
+            .accepted_selection
+            .as_ref()
+            .is_none_or(|intent| apply_accepted_selection_if_ready(intent, &mut snapshot));
         self.client = Arc::new(client);
         self.snapshot = snapshot;
         self.machine_lifecycle_snapshot = machine_lifecycle_snapshot;
@@ -1366,6 +1363,8 @@ impl ProviderMachineRuntime {
             }
         };
         if self.accepted_selection.is_some() {
+            // This is a one-shot control reconnect. A successful reconnect
+            // restarts owner updates without copying this request forward.
             result.ui.request = Some(MachineRequest::ReconnectProvider);
         }
         if let Some(mutation) = effects.session_mutation {
@@ -1397,6 +1396,7 @@ impl ProviderMachineRuntime {
         &mut self,
         candidate: Option<OpenConnection>,
         rollback: Option<ProviderSelectionRollback>,
+        clear_accepted_selection_on_commit: bool,
     ) -> anyhow::Result<()> {
         if self.pending.is_some() {
             if let Some(candidate) = candidate {
@@ -1407,15 +1407,24 @@ impl ProviderMachineRuntime {
             }
             anyhow::bail!(localization::catalog().sidebar.machine_replacement_pending)
         }
-        self.pending = Some(PendingConnection { candidate, rollback, retire_open_on_abort: false });
+        self.pending = Some(PendingConnection {
+            candidate,
+            rollback,
+            retire_open_on_abort: false,
+            clear_accepted_selection_on_commit,
+        });
         Ok(())
     }
 
     fn stage_mandatory_replacement(&mut self, candidate: Option<OpenConnection>) {
         debug_assert!(self.pending.is_none());
         self.abort_replacement();
-        self.pending =
-            Some(PendingConnection { candidate, rollback: None, retire_open_on_abort: true });
+        self.pending = Some(PendingConnection {
+            candidate,
+            rollback: None,
+            retire_open_on_abort: true,
+            clear_accepted_selection_on_commit: false,
+        });
     }
 
     fn commit_replacement(&mut self) -> anyhow::Result<()> {
@@ -1424,6 +1433,9 @@ impl ProviderMachineRuntime {
         })?;
         self.close_open_connection();
         self.open = pending.candidate;
+        if pending.clear_accepted_selection_on_commit {
+            self.accepted_selection = None;
+        }
         Ok(())
     }
 
@@ -2747,7 +2759,14 @@ mod tests {
             runtime.workspace_snapshot.as_ref().map(|snapshot| &snapshot.machine_id),
             Some(&id("created-machine"))
         );
-        assert!(runtime.accepted_selection.is_none());
+        assert_eq!(
+            runtime
+                .accepted_selection
+                .as_ref()
+                .and_then(|selection| selection.machine_id.as_ref())
+                .map(protocol::OpaqueId::as_str),
+            Some("created-machine")
+        );
         drop(runtime);
         server.join().unwrap();
     }
@@ -2869,7 +2888,12 @@ mod tests {
             runtime.workspace_snapshot.as_ref().map(|snapshot| &snapshot.machine_id),
             Some(&id("team-selected"))
         );
-        assert!(runtime.accepted_selection.is_none());
+        let selection = runtime.accepted_selection.as_ref().unwrap();
+        assert_eq!(selection.scope_id.as_ref().map(protocol::OpaqueId::as_str), Some("team-1"));
+        assert_eq!(
+            selection.machine_id.as_ref().map(protocol::OpaqueId::as_str),
+            Some("team-selected")
+        );
         drop(runtime);
         server.join().unwrap();
     }
@@ -3506,6 +3530,10 @@ mod tests {
         let local_key = MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START);
         assert_eq!(reconnected.ui.snapshot.active, Some(local_key));
         assert!(reconnected.ui.request.is_none());
+        assert!(
+            controller.provider.accepted_selection.is_some(),
+            "owner readiness remains pending without scheduling another reconnect"
+        );
 
         controller.provider.snapshot.machines[1].connectable = true;
         let provider_update = controller.provider.ui_state_for_open_connection();
@@ -3702,7 +3730,10 @@ mod tests {
         let listener = socket.listener();
         let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
         catalog.capabilities.connect_external_machine = true;
+        let mut ready_catalog = catalog.clone();
+        ready_catalog.machines[0].connectable = true;
         let server_catalog = catalog;
+        let (finish, finished) = mpsc::channel();
         let server = thread::spawn(move || {
             let first_mutation_id = {
                 let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
@@ -3746,6 +3777,13 @@ mod tests {
                 ),
             );
             serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, None);
+
+            let (_stream, _reader) = serve_initial_snapshot_with_capabilities(
+                &listener,
+                ready_catalog,
+                &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+            );
+            finished.recv().unwrap();
         });
 
         let provider = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
@@ -3781,7 +3819,14 @@ mod tests {
         controller.provider.reconnect_control().unwrap();
         let result = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
 
-        assert!(result.ui.request.is_some());
+        assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
+
+        controller.provider.reconnect_control().unwrap();
+        assert!(matches!(
+            controller.provider.ui_state_for_open_connection().request,
+            Some(MachineRequest::Switch(_))
+        ));
+        finish.send(()).unwrap();
         controller.close();
         server.join().unwrap();
     }
@@ -4423,7 +4468,7 @@ mod tests {
     }
 
     #[test]
-    fn switching_to_a_lifecycle_tombstone_disables_the_placeholder_session() {
+    fn explicit_provider_switch_to_tombstone_cancels_deferred_selection() {
         let socket = TestProviderSocket::bind();
         let listener = socket.listener();
         let catalog = snapshot(1, "Machine", protocol::MachineStatus::Running);
@@ -4447,23 +4492,27 @@ mod tests {
         let server = thread::spawn(move || {
             let (mut stream, mut reader) =
                 serve_initial_snapshot(&listener, server_catalog.clone());
+            for _ in 0..2 {
+                let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
+                assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
+                write_frame(
+                    &mut stream,
+                    &protocol::ResponseEnvelope::success(refresh.id, server_catalog.clone()),
+                );
 
-            let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
-            assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
-            write_frame(
-                &mut stream,
-                &protocol::ResponseEnvelope::success(refresh.id, server_catalog),
-            );
-
-            let lifecycle_request: protocol::RequestEnvelope = read_frame(&mut reader);
-            assert!(matches!(
-                lifecycle_request.request,
-                protocol::ProviderRequest::MachineLifecycleSnapshot(_)
-            ));
-            write_frame(
-                &mut stream,
-                &protocol::ResponseEnvelope::success(lifecycle_request.id, server_lifecycle),
-            );
+                let lifecycle_request: protocol::RequestEnvelope = read_frame(&mut reader);
+                assert!(matches!(
+                    lifecycle_request.request,
+                    protocol::ProviderRequest::MachineLifecycleSnapshot(_)
+                ));
+                write_frame(
+                    &mut stream,
+                    &protocol::ResponseEnvelope::success(
+                        lifecycle_request.id,
+                        server_lifecycle.clone(),
+                    ),
+                );
+            }
             finished.recv().unwrap();
         });
 
@@ -4471,15 +4520,28 @@ mod tests {
         runtime.machine_lifecycle_snapshot = lifecycle;
         runtime.reconcile_keys();
         let tombstone_key = key_for_id(&runtime.keys, &id("deleted-machine-uuid")).unwrap();
+        runtime.accepted_selection = Some(AcceptedSelectionIntent {
+            scope_id: Some(id("personal")),
+            machine_id: Some(id("machine-1")),
+        });
 
-        let result = runtime.perform_request(MachineRequest::Switch(tombstone_key)).unwrap();
+        let aborted = runtime.perform_request(MachineRequest::Switch(tombstone_key)).unwrap();
 
-        assert!(result.replacement.is_some());
-        assert_eq!(result.ui.snapshot.active, Some(tombstone_key));
-        assert!(!result.ui.session_available);
+        assert!(aborted.replacement.is_some());
+        assert_eq!(aborted.ui.snapshot.active, Some(tombstone_key));
+        assert!(!aborted.ui.session_available);
         assert!(runtime.open.is_none());
+        assert_eq!(runtime.desired_selection().1, Some(id("machine-1")));
+        runtime.abort_replacement();
+        assert_eq!(runtime.snapshot.selected_machine_id, Some(id("machine-1")));
+        assert_eq!(runtime.desired_selection().1, Some(id("machine-1")));
+        drop(aborted);
+
+        let committed = runtime.perform_request(MachineRequest::Switch(tombstone_key)).unwrap();
+        runtime.commit_replacement().unwrap();
+        assert_eq!(runtime.desired_selection().1, Some(id("deleted-machine-uuid")));
         finish.send(()).unwrap();
-        drop(result);
+        drop(committed);
         drop(runtime);
         server.join().unwrap();
     }
@@ -4937,6 +4999,7 @@ mod tests {
                     machine_id: id("machine-2"),
                 }),
                 Some(rollback),
+                false,
             )
             .unwrap();
         let candidate = crate::session::test_remote_session_without_provider_authority();
