@@ -2594,7 +2594,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let workQueue = outputQueue
         let scrollBoundaryTransactionID = preservesViewport ? makeSurfaceOperationID() : nil
         let currentBridge = bridge
-        let outputInteractionGeneration = viewportRestoreGate.withLock {
+        let viewportGate = viewportRestoreGate
+        let outputInteractionGeneration = viewportGate.withLock {
             $0.interactionGeneration
         }
         if let scrollBoundaryTransactionID {
@@ -2624,7 +2625,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
             var committedScrollbar = ghostty_surface_scrollbar_s()
-            let interactionStillOwnsViewport = viewportRestoreGate.withLock {
+            let interactionStillOwnsViewport = viewportGate.withLock {
                 $0.interactionGeneration == outputInteractionGeneration
             }
             if interactionStillOwnsViewport, let viewportAnchor {
@@ -2670,7 +2671,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 let publishedBoundary: TerminalScrollBoundary?
                 if let scrollBoundaryTransactionID, let committedBoundary {
-                    let currentInteractionGeneration = viewportRestoreGate.withLock {
+                    let currentInteractionGeneration = viewportGate.withLock {
                         $0.interactionGeneration
                     }
                     publishedBoundary = currentBridge.commitScrollBoundaryTransaction(
