@@ -602,7 +602,6 @@ impl Mux {
             .into_iter()
             .map(|terminal| (terminal.terminal_id.clone(), terminal))
             .collect::<HashMap<_, _>>();
-        let before_terminal_resources = registry.live_terminal_resource_ids()?;
         // Local UI mutations can attach resource-identified surfaces before
         // their reverse indexes are populated. Full projection is the
         // reconciliation boundary, so rebuild from the live tree first.
@@ -992,19 +991,6 @@ impl Mux {
                     changes.push(ResourceChange::TombstoneBrowser { public_id: id.clone() });
                 }
                 _ => {}
-            }
-        }
-        // A terminal can remain live after its last tab closes. An explicit
-        // terminal close must tombstone that detached catalog identity even
-        // though no tab in the topology snapshot still references it.
-        for (_, terminal_id) in before_terminal_resources {
-            if !live_terminals.contains(&terminal_id)
-                && tombstoned_terminals.insert(terminal_id.clone())
-            {
-                changes.push(ResourceChange::TombstoneTerminal {
-                    public_id: terminal_id,
-                    expected_incarnation: None,
-                });
             }
         }
         for pane in &before.panes {
