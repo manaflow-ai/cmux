@@ -8,8 +8,8 @@ struct NotificationFeedWorkspaceTargetIndex: Sendable {
     }
 
     private struct Target: Sendable {
-        var firstRowID: MobileWorkspacePreview.ID?
-        var exactRowsByInstanceTag: [String: MobileWorkspacePreview.ID] = [:]
+        var rowIDs: Set<MobileWorkspacePreview.ID> = []
+        var exactRowIDsByInstanceTag: [String: Set<MobileWorkspacePreview.ID>] = [:]
         var owners: Set<MacPairingKey> = []
         var ownerDevices: Set<String> = []
 
@@ -18,12 +18,9 @@ struct NotificationFeedWorkspaceTargetIndex: Sendable {
             macDeviceID: String,
             instanceTag: String?
         ) {
-            if firstRowID == nil {
-                firstRowID = rowID
-            }
-            if let instanceTag, !instanceTag.isEmpty,
-               exactRowsByInstanceTag[instanceTag] == nil {
-                exactRowsByInstanceTag[instanceTag] = rowID
+            rowIDs.insert(rowID)
+            if let instanceTag, !instanceTag.isEmpty {
+                exactRowIDsByInstanceTag[instanceTag, default: []].insert(rowID)
             }
             let owner = MacPairingKey(
                 macDeviceID: macDeviceID,
@@ -35,10 +32,12 @@ struct NotificationFeedWorkspaceTargetIndex: Sendable {
 
         func rowID(instanceTag: String?) -> MobileWorkspacePreview.ID? {
             if let instanceTag, !instanceTag.isEmpty {
-                return exactRowsByInstanceTag[instanceTag]
+                guard let exactRowIDs = exactRowIDsByInstanceTag[instanceTag],
+                      exactRowIDs.count == 1 else { return nil }
+                return exactRowIDs.first
             }
-            guard owners.count <= ownerDevices.count else { return nil }
-            return firstRowID
+            guard owners.count <= ownerDevices.count, rowIDs.count == 1 else { return nil }
+            return rowIDs.first
         }
     }
 
