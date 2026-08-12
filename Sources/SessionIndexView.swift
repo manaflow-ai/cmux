@@ -198,7 +198,7 @@ struct SessionIndexView: View {
                 onBeginDrag: { dragCoordinator.draggedKey = section.key },
                 beginSessionDrag: { entry, sourceView, event, frame, image in
                     guard let sessionDragRegistry else { return false }
-                    dragCoordinator.beginSessionDrag(
+                    return dragCoordinator.beginSessionDrag(
                         entry,
                         registry: sessionDragRegistry,
                         from: sourceView,
