@@ -141,6 +141,37 @@ struct MobileShellNotificationFeedStateTests {
         #expect(scopedItems.allSatisfy { $0.macDeviceID == "mac-b" })
     }
 
+    @Test("Visible feed omits notifications whose workspace no longer exists")
+    func visibleFeedOmitsDeletedWorkspaceNotifications() throws {
+        var liveWorkspace = MobileWorkspacePreview(
+            id: "live-workspace-row",
+            macDeviceID: "mac",
+            name: "Live workspace",
+            terminals: []
+        )
+        liveWorkspace.remoteWorkspaceID = "live-workspace"
+        let store = MobileShellComposite(workspaces: [liveWorkspace])
+        let response = try MobileNotificationFeedListResponse.decode(Data(
+            """
+            {"revision":1,"notifications":[
+            {"id":"deleted","workspace_id":"deleted-workspace","title":"Deleted","body":"Orphaned","created_at":200,"is_read":false},
+            {"id":"live","workspace_id":"live-workspace","title":"Live","body":"Reachable","created_at":100,"is_read":false}
+            ]}
+            """.utf8
+        ))
+
+        #expect(store.applyNotificationFeedSnapshot(
+            response,
+            macDeviceID: "mac",
+            displayName: "Mac"
+        ))
+        #expect(store.notificationFeedItems.map(\.notificationID) == ["deleted", "live"])
+
+        let visibleItems = store.notificationFeedItems(scopedTo: nil)
+
+        #expect(visibleItems.map(\.notificationID) == ["live"])
+    }
+
     @Test("Mark All targets all selected Macs before applying the visible feed cap")
     func markAllTargetsSelectedMacsBeforeVisibleFeedCap() async throws {
         let store = MobileShellComposite()
