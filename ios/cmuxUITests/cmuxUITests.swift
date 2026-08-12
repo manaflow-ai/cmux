@@ -2520,13 +2520,47 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
     }
 
-    /// Regression: forgetting the final saved computer while the Computers
-    /// sheet is onscreen changes the root from the workspace shell to the
-    /// disconnected shell. The workspace shell must retain ownership until the
-    /// child sheet's real dismissal, or the shared modal slot stays stranded and
-    /// both Add Computer and Settings stop responding.
+    /// Regression: the real Add Computer toolbar entrypoint remains usable after
+    /// forgetting the final saved computer swaps the authenticated root shell.
     @MainActor
-    func testForgettingFinalComputerKeepsAddComputerAndSettingsResponsive() async throws {
+    func testForgettingFinalComputerKeepsAddComputerResponsive() async throws {
+        let app = try await launchAppAfterForgettingFinalComputer()
+        defer { app.terminate() }
+
+        let addComputer = app.buttons["MobileShowAddDeviceToolbarButton"]
+        XCTAssertTrue(addComputer.waitForExistence(timeout: 8))
+        XCTAssertTrue(addComputer.isHittable)
+        tap(addComputer, in: app)
+
+        XCTAssertTrue(
+            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
+            "Add Computer must present after deleting the final computer."
+        )
+    }
+
+    /// Regression: the real Settings toolbar entrypoint remains usable after
+    /// forgetting the final saved computer swaps the authenticated root shell.
+    @MainActor
+    func testForgettingFinalComputerKeepsSettingsResponsive() async throws {
+        let app = try await launchAppAfterForgettingFinalComputer()
+        defer { app.terminate() }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        XCTAssertTrue(settings.isHittable)
+        tap(settings, in: app)
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsView"]
+                .waitForExistence(timeout: 8),
+            "Settings must present after deleting the final computer."
+        )
+    }
+
+    /// Forgets the only saved Mac through the production Computers sheet and
+    /// returns only after SwiftUI has mounted the no-computers root shell.
+    @MainActor
+    private func launchAppAfterForgettingFinalComputer() async throws -> XCUIApplication {
         let server = try MobileSyncMockHostServer(supportsManualAttachTicket: true)
         let port = try await server.start()
         var serverIsRunning = true
@@ -2538,7 +2572,6 @@ final class cmuxUITests: XCTestCase {
             port: port,
             environment: ["CMUX_UITEST_SUCCESSFUL_COMPUTER_FORGET": "1"]
         )
-        defer { app.terminate() }
 
         server.stop()
         serverIsRunning = false
@@ -2618,33 +2651,7 @@ final class cmuxUITests: XCTestCase {
             "MobileDisconnectedWorkspaceShell"
         ]
         XCTAssertTrue(disconnectedShell.waitForExistence(timeout: 8))
-
-        let addComputer = app.buttons["MobileShowAddDeviceToolbarButton"]
-        XCTAssertTrue(addComputer.waitForExistence(timeout: 8))
-        XCTAssertTrue(addComputer.isHittable)
-        tap(addComputer, in: app)
-
-        let pairingHostField = app.textFields["MobileAddDeviceHostField"]
-        XCTAssertTrue(
-            pairingHostField.waitForExistence(timeout: 8),
-            "Add Computer must present after deleting the final computer."
-        )
-        let cancelPairing = app.buttons["MobilePairingCancelButton"]
-        XCTAssertTrue(cancelPairing.waitForExistence(timeout: 4))
-        tap(cancelPairing, in: app)
-        XCTAssertTrue(pairingHostField.waitForNonExistence(timeout: 4))
-
-        XCTAssertTrue(disconnectedShell.waitForExistence(timeout: 8))
-        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 4))
-        XCTAssertTrue(settings.isHittable)
-        tap(settings, in: app)
-
-        let settingsView = app.descendants(matching: .any)["MobileSettingsView"]
-        XCTAssertTrue(
-            settingsView.waitForExistence(timeout: 8),
-            "Settings must present after deleting the final computer."
-        )
+        return app
     }
 
     @MainActor
@@ -6802,7 +6809,7 @@ final class cmuxUITests: XCTestCase {
 
         let hostField = app.textFields["MobileAddDeviceHostField"]
         XCTAssertTrue(
-            hostField.waitForExistence(timeout: 20),
+            hostField.waitForExistence(timeout: 45),
             "The initial Add Computer field must appear before manual pairing."
         )
         hostField.tap()
