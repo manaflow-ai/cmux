@@ -84,7 +84,7 @@ extension Workspace {
         ) else {
             return nil
         }
-        if effectiveBinding.isAgentHookBinding,
+        if effectiveBinding.isAgentHookBinding || effectiveBinding.isRemoteSynthesized,
            !AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) {
             return nil
         }

@@ -63,6 +63,14 @@ extension Workspace {
                     panelID: panelId,
                     persistentPTYSessionID: sessionID
                 )
+                // A synthesized directory-level continue command (#7989) has no
+                // session checkpoint the remote once-guard could reconcile
+                // against, so only inject it once the PTY is confirmed ended;
+                // a live PTY is attach-only.
+                let injectableResumeCommand =
+                    resumeBinding?.isRemoteSynthesized == true && !sessionEnded
+                        ? nil
+                        : approvedResumeCommand
                 let restartedShellCommand = sessionEnded
                     ? configuration.relayPort.map {
                         SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
@@ -73,7 +81,7 @@ extension Workspace {
                     : nil
                 command = remotePTYAttachStartupCommand(
                     sessionID: sessionID,
-                    remoteCommand: approvedResumeCommand ?? restartedShellCommand,
+                    remoteCommand: injectableResumeCommand ?? restartedShellCommand,
                     requireExisting: !sessionEnded
                 )
             } else {
