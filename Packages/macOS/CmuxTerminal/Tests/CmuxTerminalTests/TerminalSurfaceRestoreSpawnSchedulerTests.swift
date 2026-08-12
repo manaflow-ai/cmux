@@ -736,7 +736,12 @@ import CmuxTerminalCore
             scheduler: RecordingRestoreSpawnScheduler(),
             runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator()
         )
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in }
+        let freedPointerBits = OSAllocatedUnfairLock(initialState: [UInt]())
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { pointer in
+            freedPointerBits.withLock {
+                $0.append(UInt(bitPattern: pointer))
+            }
+        }
         defer {
             fixture.surface.releaseSurfaceForTesting()
             TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
@@ -754,6 +759,8 @@ import CmuxTerminalCore
         #expect(
             fixture.paneHost.activeRuntimeSurfaceCreationFailureMessage == nil
         )
+        fixture.surface.releaseSurfaceForTesting()
+        #expect(freedPointerBits.withLock { $0 } == [UInt(0x7542)])
     }
 
     @Test func stalledCloseWorkersFailDeferredCreationAndRecoverSafely() async throws {
