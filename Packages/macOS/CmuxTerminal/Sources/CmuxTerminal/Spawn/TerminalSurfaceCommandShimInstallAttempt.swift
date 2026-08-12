@@ -86,15 +86,13 @@ actor TerminalSurfaceCommandShimInstallAttempt {
                 surfaceID,
                 filesystem.agentCommandShimTemporaryDirectory
             )
+            let accepted = await self?.resolve(shims) == true
+            if !accepted, let shims {
+                await filesystem.adoptUnownedAgentCommandShims(shims)
+            }
             await installLease.release(installToken)
-            guard await self?.resolve(shims) == true else {
-                if let shims {
-                    await filesystem.cleanupUnownedAgentCommandShims(
-                        shims,
-                        retryClock: clock
-                    )
-                }
-                return
+            if !accepted, let shims {
+                await filesystem.cleanupUnownedAgentCommandShims(shims, retryClock: clock)
             }
         }
         deadlineTask = Task.detached(priority: .utility) { [weak self] in

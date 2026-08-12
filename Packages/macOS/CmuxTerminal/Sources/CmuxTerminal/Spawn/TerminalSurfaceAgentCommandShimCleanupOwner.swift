@@ -43,27 +43,34 @@ actor TerminalSurfaceAgentCommandShimCleanupOwner {
 
     deinit { retryTask?.cancel() }
 
+    @discardableResult
+    func adopt(
+        _ shims: TerminalSurfaceAgentCommandShimSet
+    ) -> TerminalSurfaceAgentCommandShimLease {
+        let directoryPath = shims.directoryPath
+        if let retainedLease = leases[directoryPath] {
+            return retainedLease.lease
+        }
+        let lease = TerminalSurfaceAgentCommandShimLease(
+            shims: shims,
+            removalAttemptLimit: removalAttemptLimit,
+            removalLane: removalLane,
+            remove: remove,
+            reportRemovalFailure: reportRemovalFailure
+        )
+        leases[directoryPath] = RetainedLease(
+            lease: lease,
+            revision: nextRevision()
+        )
+        return lease
+    }
+
     func cleanup(
         _ shims: TerminalSurfaceAgentCommandShimSet,
         retryClock: any Clock<Duration>
     ) async {
         let directoryPath = shims.directoryPath
-        let lease: TerminalSurfaceAgentCommandShimLease
-        if let retainedLease = leases[directoryPath] {
-            lease = retainedLease.lease
-        } else {
-            lease = TerminalSurfaceAgentCommandShimLease(
-                shims: shims,
-                removalAttemptLimit: removalAttemptLimit,
-                removalLane: removalLane,
-                remove: remove,
-                reportRemovalFailure: reportRemovalFailure
-            )
-            leases[directoryPath] = RetainedLease(
-                lease: lease,
-                revision: nextRevision()
-            )
-        }
+        let lease = adopt(shims)
 
         if await lease.release(removalClock: retryClock) {
             finish(directoryPath: directoryPath, lease: lease)

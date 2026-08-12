@@ -86,6 +86,12 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         await agentCommandShimCleanupOwner.cleanup(shims, retryClock: retryClock)
     }
 
+    func adoptUnownedAgentCommandShims(
+        _ shims: TerminalSurfaceAgentCommandShimSet
+    ) async {
+        _ = await agentCommandShimCleanupOwner.adopt(shims)
+    }
+
     func prepareAgentCommandShimInstall(
         retryClock: any Clock<Duration>
     ) async -> Bool {
