@@ -385,6 +385,8 @@ extension CMUXCLI {
         )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .startup)
         let executableCommand = shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux"))
+        let terminalModeReset = shellQuote(SSHTerminalModeResetSequence().shellPrintfFormat)
+        let terminalExitPrompt = shellQuote(sshTerminalExitPromptFormat())
         let terminalExitPromptCommand = [
             executableCommand,
             "__ssh-terminal-exit-prompt",
@@ -465,6 +467,7 @@ extension CMUXCLI {
             "export CMUX_SSH_AUTH_GROUP_DIR",
         ] + backoffBuilder.stateInitializationLines + [
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
+            "cmux_ssh_reset_terminal_modes() { if [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi; }",
             "cmux_ssh_register_attempt() { \(lifecycleLaunching); }",
             "cmux_ssh_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; cmux_ssh_attempt_registration_retry=0; while ! cmux_ssh_register_attempt; do cmux_ssh_attempt_registration_retry=$((cmux_ssh_attempt_registration_retry + 1)); if [ \"$cmux_ssh_attempt_registration_retry\" -ge 3 ]; then return 1; fi; /bin/sleep 0.1; done; }",
             "cmux_ssh_remove_auth_group_dir() { \(authGroupCleanupBody) }",
@@ -529,6 +532,7 @@ extension CMUXCLI {
             "  cmux_ssh_status=$?",
             "  CMUX_SSH_CHILD_PID=",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
+            "  cmux_ssh_reset_terminal_modes",
             "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
         ]
         if retryPTYAttachStatus {
@@ -567,7 +571,7 @@ extension CMUXCLI {
             "  trap 'cmux_ssh_prompt_signal_exit 129' HUP",
             "  trap 'cmux_ssh_prompt_signal_exit 130' INT",
             "  trap 'cmux_ssh_prompt_signal_exit 143' TERM",
-            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
+            "  printf \(terminalExitPrompt) \"$cmux_ssh_status\" >&2 || true",
             "  if [ -t 0 ]; then \(terminalExitPromptCommand) <&0; else exec \(terminalExitPromptCommand) <&0; fi",
             "  cmux_ssh_prompt_restore_tty",
             "  trap - EXIT HUP INT TERM",
