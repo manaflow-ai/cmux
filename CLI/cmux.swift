@@ -2720,13 +2720,13 @@ final class SocketClient {
         guard eventQueue >= 0 else {
             throw startupSocketTimeout(path: resolvePath())
         }
-        defer { close(eventQueue) }
+        defer { Darwin.close(eventQueue) }
 
         var watchedDirectoryFD: Int32 = -1
         var watchedDirectoryPath: String?
         defer {
             if watchedDirectoryFD >= 0 {
-                close(watchedDirectoryFD)
+                Darwin.close(watchedDirectoryFD)
             }
         }
 
@@ -2757,7 +2757,7 @@ final class SocketClient {
             if let directory = existingWatchDirectory(forPath: currentPath),
                directory != watchedDirectoryPath {
                 if watchedDirectoryFD >= 0 {
-                    close(watchedDirectoryFD)
+                    Darwin.close(watchedDirectoryFD)
                     watchedDirectoryFD = -1
                 }
                 watchedDirectoryFD = registerSocketDirectory(directory, queue: eventQueue) ?? -1
@@ -2802,7 +2802,7 @@ final class SocketClient {
             udata: nil
         )
         guard kevent(queue, &event, 1, nil, 0, nil) == 0 else {
-            close(descriptor)
+            Darwin.close(descriptor)
             return nil
         }
         return descriptor
