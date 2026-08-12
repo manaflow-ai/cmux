@@ -2885,6 +2885,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Enable JavaScript
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        WebSurfaceSelectionReader.installTracking(in: configuration.userContentController)
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: BrowserFileSystemAccessBridge.scriptSource,

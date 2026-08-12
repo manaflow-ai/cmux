@@ -166,6 +166,7 @@ struct SurfaceSelectionTests {
               const selection = window.getSelection();
               selection.removeAllRanges();
               selection.addRange(range);
+              document.dispatchEvent(new Event('selectionchange'));
               return selection.toString();
             })()
             """
@@ -190,6 +191,15 @@ struct SurfaceSelectionTests {
         #expect(markdownSnapshot.text == "selected browser words")
         #expect(markdownSnapshot.filePath == "/tmp/guide.md")
 
+        let neighboringSurface = SurfaceSelectionFirstResponderView(frame: .zero)
+        hostView.addSubview(neighboringSurface)
+        #expect(window.makeFirstResponder(neighboringSurface))
+        let neighboringFirstResponder = window.firstResponder
+        let retainedBrowserSnapshot = try snapshot(from: await panel.readSurfaceSelection())
+        #expect(retainedBrowserSnapshot.text == "selected browser words")
+        #expect(window.firstResponder === neighboringFirstResponder)
+        #expect(window.makeFirstResponder(panel.webView))
+
         let preparedFrameSelection = try await panel.evaluateJavaScript(
             """
             (() => {
@@ -205,6 +215,7 @@ struct SurfaceSelectionTests {
               selection.removeAllRanges();
               selection.addRange(range);
               childWindow.focus();
+              childWindow.document.dispatchEvent(new Event('selectionchange'));
               return `${document.activeElement === frame}|${selection.toString()}`;
             })()
             """
@@ -220,6 +231,7 @@ struct SurfaceSelectionTests {
               const start = editor.value.indexOf('selected editable words');
               editor.focus();
               editor.setSelectionRange(start, start + 'selected editable words'.length);
+              editor.dispatchEvent(new Event('select', { bubbles: true }));
               const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd);
               return `${document.activeElement === editor}|${selected}`;
             })()
@@ -237,6 +249,7 @@ struct SurfaceSelectionTests {
               const password = document.getElementById('password');
               password.focus();
               password.setSelectionRange(0, password.value.length);
+              password.dispatchEvent(new Event('select', { bubbles: true }));
               return true;
             })()
             """
@@ -259,6 +272,10 @@ struct SurfaceSelectionTests {
 
 private enum SurfaceSelectionTestError: Error {
     case expectedSnapshot
+}
+
+private final class SurfaceSelectionFirstResponderView: NSView {
+    override var acceptsFirstResponder: Bool { true }
 }
 
 @MainActor

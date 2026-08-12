@@ -50,6 +50,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
+        WebSurfaceSelectionReader.installTracking(in: config.userContentController)
         // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
         // (mermaid / vega-lite). Swift fetches the bundled source from the
         // app bundle and injects it via evaluateJavaScript.

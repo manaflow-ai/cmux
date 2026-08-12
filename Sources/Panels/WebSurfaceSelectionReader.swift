@@ -13,55 +13,207 @@ nonisolated struct WebSurfaceSelectionReader {
         }
     }
 
-    private static let script = """
+    private static let contentWorldName = "cmux.surface-selection"
+
+    private static let trackingBootstrapScript = """
     (() => {
+      if (globalThis.__cmuxSurfaceSelectionRuntime) return true;
+
       const empty = () => ({ has_selection: false, text: '' });
-      const readSelection = (targetWindow) => {
+      const unreadable = () => ({ has_selection: false, text: '', blocks_fallback: true });
+      const selected = (text, sourceDocument = null) => ({
+        has_selection: true,
+        text: String(text || ''),
+        source_document: sourceDocument
+      });
+      const deepestActiveElement = (targetDocument) => {
+        let active = targetDocument.activeElement;
+        while (active?.shadowRoot?.activeElement) {
+          active = active.shadowRoot.activeElement;
+        }
+        return active;
+      };
+      const readLiveSelection = (targetWindow) => {
         let targetDocument;
         try {
           targetDocument = targetWindow.document;
         } catch (_) {
-          return empty();
+          return unreadable();
         }
 
-        const active = targetDocument.activeElement;
+        const active = deepestActiveElement(targetDocument);
         const activeTag = String(active?.tagName || '').toLowerCase();
         if (activeTag === 'iframe' || activeTag === 'frame') {
           try {
             const childWindow = active.contentWindow;
-            return childWindow ? readSelection(childWindow) : empty();
+            return childWindow ? readLiveSelection(childWindow) : unreadable();
           } catch (_) {
-            return empty();
+            return unreadable();
           }
         }
 
         const isInput = activeTag === 'input';
         const isTextControl = isInput || activeTag === 'textarea';
         const isPassword = isInput && String(active.type || '').toLowerCase() === 'password';
-        if (isPassword) {
-          return empty();
-        }
+        if (isPassword) return unreadable();
         if (isTextControl &&
             typeof active.selectionStart === 'number' &&
             typeof active.selectionEnd === 'number' &&
             active.selectionEnd > active.selectionStart) {
-          return {
-            has_selection: true,
-            text: String(active.value || '').slice(active.selectionStart, active.selectionEnd)
-          };
+          return selected(
+            String(active.value || '').slice(active.selectionStart, active.selectionEnd),
+            targetDocument
+          );
         }
 
         const selection = targetWindow.getSelection();
-        const hasSelection = !!selection && selection.rangeCount > 0 && !selection.isCollapsed;
-        return {
-          has_selection: hasSelection,
-          text: hasSelection ? selection.toString() : ''
-        };
+        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+          return selected(selection.toString(), targetDocument);
+        }
+        return empty();
       };
 
-      return JSON.stringify(readSelection(window));
+      let retainedSelection = empty();
+      let retainedDocument = null;
+      const clear = (sourceDocument = null) => {
+        if (sourceDocument && retainedDocument !== sourceDocument) return;
+        retainedSelection = empty();
+        retainedDocument = null;
+      };
+      const retain = (live) => {
+        retainedSelection = selected(live.text);
+        retainedDocument = live.source_document || null;
+      };
+      const documentHasFocus = (targetDocument) => {
+        try {
+          return targetDocument.hasFocus();
+        } catch (_) {
+          return false;
+        }
+      };
+      const capture = (targetWindow) => {
+        const live = readLiveSelection(targetWindow);
+        if (live.blocks_fallback) {
+          clear();
+        } else if (live.has_selection) {
+          retain(live);
+        } else {
+          let targetDocument = null;
+          try {
+            targetDocument = targetWindow.document;
+          } catch (_) {}
+          // WebKit can collapse a DOM selection when native focus leaves the
+          // web view. Keep the last snapshot through that handoff, but clear a
+          // collapse that occurred while the page still owned focus.
+          if (!targetDocument || documentHasFocus(targetDocument)) clear();
+        }
+      };
+      const read = () => {
+        const live = readLiveSelection(window);
+        if (live.blocks_fallback) {
+          clear();
+          return empty();
+        }
+        if (live.has_selection) {
+          retain(live);
+          return retainedSelection;
+        }
+        return retainedSelection;
+      };
+
+      const trackedDocuments = new WeakSet();
+      const documentObservers = new WeakMap();
+      let installDocument;
+      const installFrame = (frame) => {
+        try {
+          if (frame?.contentDocument) installDocument(frame.contentDocument);
+        } catch (_) {}
+      };
+      const scanFrames = (root) => {
+        try {
+          const rootTag = String(root?.tagName || '').toLowerCase();
+          if (rootTag === 'iframe' || rootTag === 'frame') installFrame(root);
+          const frames = root?.querySelectorAll?.('iframe, frame') || [];
+          for (const frame of frames) installFrame(frame);
+        } catch (_) {}
+      };
+      installDocument = (targetDocument) => {
+        if (!targetDocument || trackedDocuments.has(targetDocument)) return;
+        trackedDocuments.add(targetDocument);
+        const captureDocument = () => {
+          const targetWindow = targetDocument.defaultView;
+          if (targetWindow) capture(targetWindow);
+        };
+        targetDocument.addEventListener('selectionchange', captureDocument, true);
+        targetDocument.addEventListener('select', captureDocument, true);
+        targetDocument.addEventListener('focusin', captureDocument, true);
+        targetDocument.addEventListener('input', captureDocument, true);
+        targetDocument.addEventListener('load', (event) => {
+          const target = event?.target;
+          const tag = String(target?.tagName || '').toLowerCase();
+          if (tag === 'iframe' || tag === 'frame') {
+            installFrame(target);
+            captureDocument();
+          }
+        }, true);
+        targetDocument.addEventListener('DOMContentLoaded', () => {
+          scanFrames(targetDocument);
+          captureDocument();
+        }, { once: true });
+        scanFrames(targetDocument);
+        const observer = new MutationObserver((records) => {
+          for (const record of records) {
+            for (const node of record.addedNodes || []) scanFrames(node);
+          }
+        });
+        observer.observe(targetDocument, { childList: true, subtree: true });
+        documentObservers.set(targetDocument, observer);
+
+        const targetWindow = targetDocument.defaultView;
+        targetWindow?.addEventListener('beforeunload', () => {
+          if (targetDocument === document) {
+            clear();
+          } else {
+            clear(targetDocument);
+          }
+          documentObservers.get(targetDocument)?.disconnect();
+          documentObservers.delete(targetDocument);
+        }, true);
+      };
+
+      globalThis.__cmuxSurfaceSelectionRuntime = { read };
+      installDocument(document);
+      capture(window);
+      return true;
     })()
     """
+
+    private static let script = """
+    (() => {
+      const runtime = globalThis.__cmuxSurfaceSelectionRuntime;
+      if (!runtime || typeof runtime.read !== 'function') return null;
+      const result = runtime.read();
+      return JSON.stringify({
+        has_selection: result?.has_selection === true,
+        text: result?.has_selection === true ? String(result.text || '') : ''
+      });
+    })()
+    """
+
+    @MainActor
+    private static var contentWorld: WKContentWorld {
+        WKContentWorld.world(name: contentWorldName)
+    }
+
+    @MainActor
+    static func installTracking(in userContentController: WKUserContentController) {
+        userContentController.addUserScript(WKUserScript(
+            source: trackingBootstrapScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true,
+            in: contentWorld
+        ))
+    }
 
     @MainActor
     func read(
@@ -73,7 +225,7 @@ nonisolated struct WebSurfaceSelectionReader {
         do {
             guard let encoded = try await webView.evaluateJavaScript(
                 Self.script,
-                contentWorld: .page
+                contentWorld: Self.contentWorld
             ) as? String,
             let data = encoded.data(using: .utf8) else {
                 return .unavailable
