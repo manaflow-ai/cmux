@@ -984,8 +984,14 @@ reload_device() {
         # signed app in the install queue so it lands on unlock/reconnect,
         # notify, and exit promptly with the deferred-delivery code. Never
         # watch for unlock here. Only claim "queued" if the enqueue succeeded.
-        if ! "$QUEUE_SCRIPT" enqueue --tag "$TAG" --app "$device_app_path" \
-            --device-id "$selected_device_install_id" --checkout "$(cd "$IOS_DIR/.." && pwd)"; then
+        # Preserve the caller's --no-attach so the queued drain honors the
+        # human-authorized unpaired intent instead of escalating to ensure-mac
+        # (this branch only runs with NO_SETUP=0 and NO_SIGN_IN=0).
+        local deferred_enqueue_args
+        deferred_enqueue_args=(enqueue --tag "$TAG" --app "$device_app_path" \
+          --device-id "$selected_device_install_id" --checkout "$(cd "$IOS_DIR/.." && pwd)")
+        [[ "$NO_ATTACH" -eq 1 ]] && deferred_enqueue_args+=(--no-attach)
+        if ! "$QUEUE_SCRIPT" "${deferred_enqueue_args[@]}"; then
           echo "error: iPhone is locked/offline AND the build could NOT be queued; nothing will auto-install" >&2
           echo "error: retry after unlocking: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
           return 1
