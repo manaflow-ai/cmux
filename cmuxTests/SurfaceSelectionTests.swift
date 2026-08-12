@@ -314,6 +314,7 @@ struct SurfaceSelectionTests {
 
 private enum SurfaceSelectionTestError: Error {
     case expectedSnapshot
+    case navigationFailed(String)
 }
 
 private final class SurfaceSelectionFirstResponderView: NSView {
@@ -321,51 +322,50 @@ private final class SurfaceSelectionFirstResponderView: NSView {
 }
 
 @MainActor
-private final class SurfaceSelectionNavigationLoader: NSObject, WKNavigationDelegate {
+private final class SurfaceSelectionNavigationLoader {
     private var continuation: CheckedContinuation<Void, any Error>?
-    private weak var previousNavigationDelegate: (any WKNavigationDelegate)?
+    private weak var navigationDelegate: BrowserNavigationDelegate?
+    private var previousDidFinish: ((WKWebView) -> Void)?
+    private var previousDidFailNavigation: ((WKWebView, String, String, WKNavigation?) -> Void)?
 
     func load(
         _ html: String,
         baseURL: URL,
         in webView: WKWebView
     ) async throws {
-        previousNavigationDelegate = webView.navigationDelegate
-        webView.navigationDelegate = self
+        guard let navigationDelegate = webView.navigationDelegate as? BrowserNavigationDelegate else {
+            throw SurfaceSelectionTestError.navigationFailed("Browser navigation delegate unavailable")
+        }
+        self.navigationDelegate = navigationDelegate
+        previousDidFinish = navigationDelegate.didFinish
+        previousDidFailNavigation = navigationDelegate.didFailNavigation
         try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
+            navigationDelegate.didFinish = { [weak self, weak webView] finishedWebView in
+                self?.previousDidFinish?(finishedWebView)
+                guard finishedWebView === webView else { return }
+                self?.finish(with: .success(()))
+            }
+            navigationDelegate.didFailNavigation = {
+                [weak self, weak webView] failedWebView, failedURL, message, navigation in
+                self?.previousDidFailNavigation?(failedWebView, failedURL, message, navigation)
+                guard failedWebView === webView else { return }
+                self?.finish(with: .failure(
+                    SurfaceSelectionTestError.navigationFailed(message)
+                ))
+            }
             webView.loadHTMLString(html, baseURL: baseURL)
         }
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        finish(with: .success(()), webView: webView)
-    }
-
-    func webView(
-        _ webView: WKWebView,
-        didFail navigation: WKNavigation!,
-        withError error: any Error
-    ) {
-        finish(with: .failure(error), webView: webView)
-    }
-
-    func webView(
-        _ webView: WKWebView,
-        didFailProvisionalNavigation navigation: WKNavigation!,
-        withError error: any Error
-    ) {
-        finish(with: .failure(error), webView: webView)
-    }
-
-    private func finish(
-        with result: Result<Void, any Error>,
-        webView: WKWebView
-    ) {
+    private func finish(with result: Result<Void, any Error>) {
         guard let continuation else { return }
         self.continuation = nil
-        webView.navigationDelegate = previousNavigationDelegate
-        previousNavigationDelegate = nil
+        navigationDelegate?.didFinish = previousDidFinish
+        navigationDelegate?.didFailNavigation = previousDidFailNavigation
+        navigationDelegate = nil
+        previousDidFinish = nil
+        previousDidFailNavigation = nil
         continuation.resume(with: result)
     }
 }
