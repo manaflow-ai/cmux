@@ -1511,13 +1511,8 @@ async fn supervise_terminal_stream(
 ) {
     let mut stream = initial_stream;
     loop {
-        let outcome = receive_frames(
-            stream.clone(),
-            state.clone(),
-            updates.clone(),
-            send_lock.clone(),
-        )
-        .await;
+        let outcome =
+            receive_frames(stream.clone(), state.clone(), updates.clone(), send_lock.clone()).await;
         let current = streams.send_replace(None);
         if let Some(current) = current {
             let _ = current.close().await;
