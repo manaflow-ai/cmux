@@ -140,7 +140,7 @@ nonisolated struct WebSurfaceSelectionReader {
           const targetWindow = targetDocument.defaultView;
           if (targetWindow) capture(targetWindow);
         };
-        const reconcileDocument = () => {
+        const reconcileInput = () => {
           const targetWindow = targetDocument.defaultView;
           if (targetWindow) capture(targetWindow, true);
         };
@@ -150,14 +150,15 @@ nonisolated struct WebSurfaceSelectionReader {
         // Concrete page interaction owns clearing; a later non-empty change
         // replaces the retained immutable snapshot.
         targetDocument.addEventListener('selectionchange', captureDocument, true);
-        targetDocument.addEventListener('select', reconcileDocument, true);
+        targetDocument.addEventListener('select', captureDocument, true);
         targetDocument.addEventListener('selectstart', clearForInteraction, true);
         targetDocument.addEventListener('pointerdown', clearForInteraction, true);
+        targetDocument.addEventListener('mousedown', clearForInteraction, true);
         targetDocument.addEventListener('keydown', (event) => {
           if (keyChangesSelection(event)) clear();
         }, true);
-        targetDocument.addEventListener('focusin', reconcileDocument, true);
-        targetDocument.addEventListener('input', reconcileDocument, true);
+        targetDocument.addEventListener('focusin', captureDocument, true);
+        targetDocument.addEventListener('input', reconcileInput, true);
         targetDocument.addEventListener('load', (event) => {
           const target = event?.target;
           const tag = String(target?.tagName || '').toLowerCase();
