@@ -88,24 +88,24 @@ When we change the fork, update this document and the parent submodule SHA.
   (owner coordinator, work service, dropped-count tracker) and
   `Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Lifecycle/TerminalSurfaceRuntimeTeardownCoordinator.swift`
   (diagnostics draining on teardown).
-- Ghostty-side tests: 92 `ExternalHover`-filtered tests green
-  (`zig build test -Dtest-filter="ExternalHover"`).
+- Round-two hardening: transition delivery now runs after every successful
+  renderer update, inactive transitions retain the invalidated token, scope
+  and snapshot bounds are overflow/resource-safe, C/C++ POD layouts are pinned
+  by size and field-offset assertions, and queue-render failure invalidates
+  the accepted activation.
+- Ghostty-side focused tests passed for the transition, snapshot, setter-range,
+  and ABI changes (`zig build test -Dtest-filter=...`). The full macOS
+  `xcodebuild test` attempt was terminated with exit 137 by the environment.
 
-**Current pin (temporary, pending PR #197):** `0100e59a7`, PR #197's branch
-tip (now the former `cmux/external-hover` branch, which already contained
-`cmux/physical-row-read` as its base) rebased onto fork `main` at
-`f76c132e5` (which itself already includes the Hangul NFC/NFD fix, the VT
-stream-boundary visibility change, the iOS startup locale fix, the
-empty-opener-stderr fix, the theme-picker/semantic-prompt merge, and the
-hidden-renderer/font-binding integration described below — see "Hangul
-NFC/NFD canonical font resolution" onward for that lineage). This is a
-deliberate, temporary exception to this doc's usual "pin the fork-main
-merge commit" pattern: `manaflow-ai/cmux#9868` (the consumer of both APIs
-above) needs a pushed, buildable commit now, before PR #197 has gone
-through review and merge. **Once PR #197 merges, re-pin to the resulting
-fork-main merge commit and update this entry** — do not leave the pin on a
-branch tip indefinitely, since that branch can be rebased or deleted after
-merge.
+**Current pin (temporary, pending PR #197):** `90dc81ad4`, the pushed
+  `cmux/physical-row-read` branch tip on `YosukeIida/ghostty`, containing the
+  round-two fixes above. This is a deliberate, temporary exception to this
+  doc's usual "pin the fork-main merge commit" pattern: `manaflow-ai/cmux#9868`
+  (the consumer of both APIs above) needs a pushed, buildable commit now,
+  before PR #197 has gone through review and merge. **Once PR #197 merges,
+  re-pin to the resulting fork-main merge commit and update this entry** — do
+  not leave the pin on a branch tip indefinitely, since that branch can be
+  rebased or deleted after merge.
 
 Note on branch history: an earlier commit on this branch (`e196afa43`,
 the physical-row-read API alone) described the external-hover
