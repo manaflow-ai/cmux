@@ -1514,6 +1514,69 @@
         }
       }
     },
+    "mobile.attachment.error.globalCapacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attachment capacity is full. Send or remove an attachment and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルの容量が上限に達しました。添付ファイルを送信または削除してから、もう一度お試しください。" } }
+      }
+    },
+    "mobile.attachment.error.itemSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Each attachment must be 32 MB or smaller." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "各添付ファイルは32 MB以下にしてください。" } }
+      }
+    },
+    "mobile.attachment.error.terminalCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "You can attach up to 10 files to this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルに添付できるファイルは10個までです。" } }
+      }
+    },
+    "mobile.attachment.error.terminalTotalSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attachments in this terminal can use up to 64 MB in total." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルの添付ファイルの合計サイズは64 MBまでです。" } }
+      }
+    },
+    "mobile.attachment.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Add Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを追加できませんでした" } }
+      }
+    },
+    "mobile.attachment.error.accountMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in to the same cmux account on this device and Mac to send attachments." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを送信するには、このデバイスとMacで同じcmuxアカウントにサインインしてください。" } }
+      }
+    },
+    "mobile.attachment.error.authorizationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again to send this attachment." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この添付ファイルを送信するには、もう一度サインインしてください。" } }
+      }
+    },
+    "mobile.attachment.error.transferFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The attachment couldn’t be sent. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを送信できませんでした。もう一度お試しください。" } }
+      }
+    },
+    "mobile.attachment.error.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The selected file couldn’t be read." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択したファイルを読み込めませんでした。" } }
+      }
+    },
     "mobile.common.ok": {
       "extractionState": "manual",
       "localizations": {
@@ -10684,8 +10747,8 @@
     "mobile.taskComposer.attachments.fileTooLarge": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Choose a file smaller than 32 MB." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "32 MB未満のファイルを選択してください。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Choose a file 32 MB or smaller." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "32 MB以下のファイルを選択してください。" } }
       }
     },
     "mobile.taskComposer.attachments.imageRejected": {

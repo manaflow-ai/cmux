@@ -56,6 +56,32 @@ private actor FailingChatEventSource: ChatEventSource {
     func answer(optionIndex: Int, sessionID: String) async throws {}
 }
 
+/// Fails once and records the stable attachment identities seen by each attempt.
+private actor AttachmentRetryIdentityEventSource: ChatEventSource {
+    struct SendError: Error {}
+    private var attempts: [[UUID]] = []
+    private var operationAttempts: [[UUID]] = []
+
+    func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
+        ChatHistoryPage(messages: [], hasMore: false)
+    }
+
+    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
+        AsyncStream { $0.finish() }
+    }
+
+    func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+        attempts.append(attachments.map(\.uploadID))
+        operationAttempts.append(attachments.map(\.operationID))
+        if attempts.count == 1 { throw SendError() }
+    }
+
+    func recordedAttempts() -> [[UUID]] { attempts }
+    func recordedOperationAttempts() -> [[UUID]] { operationAttempts }
+    func interrupt(sessionID: String, hard: Bool) async throws {}
+    func answer(optionIndex: Int, sessionID: String) async throws {}
+}
+
 /// A `ChatEventSource` whose `send` suspends until released, so tests can
 /// observe the optimistic `.sending` state deterministically.
 private actor GatedChatEventSource: ChatEventSource {
@@ -194,7 +220,12 @@ struct ChatConversationStoreTests {
         source: any ChatEventSource,
         lastReadSeq: Int? = nil,
         pageSize: Int = 10,
-        maxWindowCount: Int = 600
+        maxWindowCount: Int = 600,
+        releaseStagedFileURLs: @escaping ([URL]) -> Void = { urls in
+            for url in urls {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
     ) -> ChatConversationStore {
         ChatConversationStore(
             descriptor: descriptor(),
@@ -202,7 +233,8 @@ struct ChatConversationStoreTests {
             lastReadSeq: lastReadSeq,
             pageSize: pageSize,
             maxWindowCount: maxWindowCount,
-            now: { baseTime }
+            now: { baseTime },
+            releaseStagedFileURLs: releaseStagedFileURLs
         )
     }
 
@@ -455,6 +487,141 @@ struct ChatConversationStoreTests {
         #expect(store.lastErrorDescription == nil)
     }
 
+    @Test("attachment retry reuses its upload identity")
+    func attachmentRetryReusesUploadIdentity() async {
+        let source = AttachmentRetryIdentityEventSource()
+        let store = Self.makeStore(source: source)
+        let attachment = ChatOutboundAttachment(data: Data([0x89]), format: .png)
+
+        await store.send(text: "retry this file", attachments: [attachment])
+        guard let pending = Self.pendingItems(store.rows).first,
+              case .failed = pending.delivery else {
+            Issue.record("expected first attachment delivery to fail")
+            return
+        }
+        await store.retry(pendingID: pending.id)
+
+        let attempts = await source.recordedAttempts()
+        let operationAttempts = await source.recordedOperationAttempts()
+        #expect(attempts.count == 2)
+        #expect(attempts[0] == [attachment.uploadID])
+        #expect(attempts[1] == attempts[0])
+        #expect(operationAttempts.count == 2)
+        #expect(operationAttempts[1] == operationAttempts[0])
+    }
+
+    @Test("a staged attachment stays retryable until its successful send echoes")
+    func stagedAttachmentLifetimeEndsAtEchoReconciliation() async throws {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-owned-attachment-\(UUID()).txt")
+        try Data("owned bytes".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let attachment = ChatOutboundAttachment(
+            localFileURL: fileURL,
+            byteCount: 11,
+            fileName: "owned.txt",
+            kind: .file
+        )
+
+        await store.send(text: "inspect this", attachments: [attachment])
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+
+        await source.emit(.appended([Self.prose(seq: 0, role: .user, text: "/tmp/owned.txt inspect this")]))
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @Test("one transcript batch releases all reconciled attachment files together")
+    func reconciliationBatchesAttachmentCleanup() async throws {
+        let source = SilentSendEventSource()
+        var releaseBatches: [[URL]] = []
+        let store = Self.makeStore(source: source) { urls in
+            releaseBatches.append(urls)
+        }
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        let firstURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-batch-first-\(UUID()).txt")
+        let secondURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-batch-second-\(UUID()).txt")
+        try Data("first".utf8).write(to: firstURL)
+        try Data("second".utf8).write(to: secondURL)
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        await store.send(text: "first", attachments: [ChatOutboundAttachment(
+            localFileURL: firstURL,
+            byteCount: 5,
+            fileName: "first.txt",
+            kind: .file
+        )])
+        await store.send(text: "second", attachments: [ChatOutboundAttachment(
+            localFileURL: secondURL,
+            byteCount: 6,
+            fileName: "second.txt",
+            kind: .file
+        )])
+        await source.emit(.appended([
+            Self.prose(seq: 0, role: .user, text: "/tmp/first.txt first"),
+            Self.prose(seq: 1, role: .user, text: "/tmp/second.txt second"),
+        ]))
+
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+        #expect(releaseBatches.count == 1)
+        #expect(Set(releaseBatches[0]) == Set([firstURL, secondURL]))
+    }
+
+    @Test("reset releases delivered staged attachments but preserves failed retry files")
+    func resetReleasesOnlyDeliveredStagedAttachments() async throws {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        let deliveredURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-reset-delivered-\(UUID()).txt")
+        let failedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chat-reset-failed-\(UUID()).txt")
+        try Data("delivered".utf8).write(to: deliveredURL)
+        try Data("failed".utf8).write(to: failedURL)
+        defer {
+            try? FileManager.default.removeItem(at: deliveredURL)
+            try? FileManager.default.removeItem(at: failedURL)
+        }
+
+        await store.send(text: "delivered", attachments: [ChatOutboundAttachment(
+            localFileURL: deliveredURL,
+            byteCount: 9,
+            fileName: "delivered.txt",
+            kind: .file
+        )])
+        await source.setSendFailure(true)
+        await store.send(text: "failed", attachments: [ChatOutboundAttachment(
+            localFileURL: failedURL,
+            byteCount: 6,
+            fileName: "failed.txt",
+            kind: .file
+        )])
+
+        await source.emit(.reset)
+        #expect(await TestPoller.waitUntil {
+            Self.pendingItems(store.rows).count == 1
+        })
+        #expect(!FileManager.default.fileExists(atPath: deliveredURL.path))
+        #expect(FileManager.default.fileExists(atPath: failedURL.path))
+    }
+
     @Test("retry while the agent is working re-queues instead of delivering")
     func retryWhileWorkingRequeues() async {
         let source = SilentSendEventSource()
@@ -537,16 +704,36 @@ struct ChatConversationStoreTests {
     func discardRemovesFailedPending() async {
         let source = FailingChatEventSource(failuresRemaining: .max)
         let store = Self.makeStore(source: source)
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("discarded-chat-attachment-\(UUID()).txt")
+        try? Data("draft bytes".utf8).write(to: fileURL)
+        let attachment = ChatOutboundAttachment(
+            localFileURL: fileURL,
+            byteCount: 11,
+            fileName: "draft.txt",
+            kind: .file
+        )
 
-        await store.send(text: "doomed prompt")
+        await store.send(text: "doomed prompt", attachments: [attachment])
         let failed = Self.pendingItems(store.rows)
         guard let item = failed.first, case .failed = item.delivery else {
             Issue.record("expected a failed pending row, got \(failed)")
             return
         }
 
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
         store.discard(pendingID: item.id)
         #expect(Self.pendingItems(store.rows).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @Test("legacy in-memory attachments do not duplicate full payloads as thumbnails")
+    func legacyAttachmentDoesNotDuplicatePayloadAsThumbnail() {
+        let bytes = Data(repeating: 0xAB, count: 1024)
+        let attachment = ChatOutboundAttachment(data: bytes, format: .png)
+
+        #expect(attachment.thumbnailData == nil)
+        #expect(attachment.byteCount == bytes.count)
     }
 
     // MARK: - Pagination

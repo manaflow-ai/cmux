@@ -35,5 +35,7 @@ public struct MobileComposerFieldContainer<Field: View, Trailing: View>: View {
         .padding(.vertical, 6)
         .frame(minHeight: minHeight, alignment: .top)
         .mobileGlassField(cornerRadius: cornerRadius)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileComposerFieldContainer")
     }
 }

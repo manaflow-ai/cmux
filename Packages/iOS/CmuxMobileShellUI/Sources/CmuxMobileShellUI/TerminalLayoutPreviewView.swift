@@ -1,5 +1,8 @@
 #if canImport(UIKit) && DEBUG
 import CMUXMobileCore
+import CmuxMobileShell
+import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
@@ -63,8 +66,13 @@ struct TerminalLayoutPreviewView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            TerminalLayoutPreviewSurface(theme: previewTheme)
+        if ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_COMPOSER"
+        ] == "1" {
+            TerminalAttachmentComposerAccessibilityHost()
+        } else {
+            NavigationStack {
+                TerminalLayoutPreviewSurface(theme: previewTheme)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // Fill the whole window, INCLUDING under the status bar and nav
                 // bar, with the terminal color (#272822) — exactly like
@@ -111,6 +119,87 @@ struct TerminalLayoutPreviewView: View {
                 }
                 .tint(previewTheme.terminalChromeForegroundColor)
                 .mobileTerminalNavigationChrome(theme: previewTheme)
+            }
+        }
+    }
+}
+
+/// Constrained DEBUG host for the production terminal composer on phones and iPads.
+private struct TerminalAttachmentComposerAccessibilityHost: View {
+    private static let terminalID = "attachment-fixture-terminal"
+    @State private var store: CMUXMobileShellStore
+    @State private var attachmentPreparationFixture: MobileAttachmentPreparationAccessibilityFixture?
+
+    init() {
+        let terminal = MobileTerminalPreview(
+            id: .init(rawValue: Self.terminalID),
+            name: "Attachment fixture",
+            isFocused: true
+        )
+        let workspace = MobileWorkspacePreview(
+            id: "attachment-fixture-workspace",
+            name: "Attachment fixture",
+            terminals: [terminal]
+        )
+        let store = CMUXMobileShellStore(
+            isSignedIn: true,
+            workspaces: [workspace]
+        )
+        if let draft = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_DRAFT"
+        ] {
+            store.terminalInputText = draft
+        }
+        let attachmentFixtures = MobileAttachmentAccessibilityFixtures()
+        let attachments = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_TERMINAL_ATTACHMENT_FIXTURE"
+        ] == "overflow"
+            ? attachmentFixtures.overflow()
+            : attachmentFixtures.basic()
+        for attachment in attachments {
+            store.addPendingAttachment(attachment, forTerminalID: Self.terminalID)
+        }
+        _store = State(initialValue: store)
+        _attachmentPreparationFixture = State(
+            initialValue: ProcessInfo.processInfo.environment[
+                "CMUX_UITEST_TERMINAL_PREPARING_ATTACHMENTS"
+            ] == "1"
+                ? MobileAttachmentPreparationAccessibilityFixture(
+                    attachment: attachmentFixtures.delayedResult()
+                )
+                : nil
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                TerminalComposerView(
+                    store: store,
+                    terminalID: Self.terminalID,
+                    requestHeightRemeasure: {},
+                    requestInputFocus: {},
+                    inputFocusChanged: { _ in },
+                    photoPickerWillPresent: {},
+                    photoPickerDidPresent: {},
+                    photoPickerDidDismiss: {},
+                    attachmentPreparationProvider: attachmentPreparationFixture.map { fixture in
+                        { await fixture.prepare() }
+                    }
+                )
+                .frame(maxWidth: 560)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("Attachment fixture")
+            .overlay(alignment: .topTrailing) {
+                if let attachmentPreparationFixture {
+                    MobileAttachmentPreparationAccessibilityControls(
+                        fixture: attachmentPreparationFixture
+                    )
+                    .padding(.trailing, 8)
+                }
+            }
         }
     }
 }

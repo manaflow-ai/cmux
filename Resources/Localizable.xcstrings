@@ -137228,6 +137228,41 @@
         }
       }
     },
+    "mobile.attachment.host.invalidIdentity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The attachment identity is missing or invalid." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルの識別情報がないか、無効です。" } }
+      }
+    },
+    "mobile.attachment.host.invalidRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The attachment request is invalid." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルのリクエストが無効です。" } }
+      }
+    },
+    "mobile.attachment.host.invalidUploadParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Missing or invalid attachment upload parameters" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルのアップロードパラメータがないか、無効です" } }
+      }
+    },
+    "mobile.attachment.host.storageFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The attachment couldn’t be stored." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを保存できませんでした。" } }
+      }
+    },
+    "mobile.attachment.host.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The attachment is unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付ファイルを利用できません。" } }
+      }
+    },
     "mobile.chat.error.answerNotAccepted": {
       "extractionState": "manual",
       "localizations": {

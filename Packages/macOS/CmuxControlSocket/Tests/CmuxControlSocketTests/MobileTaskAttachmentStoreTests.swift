@@ -48,6 +48,85 @@ struct MobileTaskAttachmentStoreTests {
         #expect(retry.receivedBytes == 5)
     }
 
+    @Test func retryFromZeroRestartsAnIncompleteUpload() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+
+        _ = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 0,
+            dataBase64: Data("old".utf8).base64EncodedString(),
+            isLast: false
+        ))
+        let restarted = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 0,
+            dataBase64: Data("ne".utf8).base64EncodedString(),
+            isLast: false
+        ))
+        #expect(restarted.receivedBytes == 2)
+
+        let completed = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 2,
+            dataBase64: Data("wer".utf8).base64EncodedString(),
+            isLast: true
+        ))
+        let path = try #require(completed.path)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == Data("newer".utf8))
+    }
+
+    @Test func retryFromZeroStillRejectsChangedMetadata() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+
+        _ = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 0,
+            dataBase64: Data("he".utf8).base64EncodedString(),
+            isLast: false
+        ))
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.upload(.init(
+                operationID: operationID,
+                uploadID: uploadID,
+                fileName: "changed.txt",
+                totalBytes: 5,
+                offset: 0,
+                dataBase64: Data("ne".utf8).base64EncodedString(),
+                isLast: false
+            ))
+        }
+
+        let completed = try fixture.store.upload(.init(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "notes.txt",
+            totalBytes: 5,
+            offset: 2,
+            dataBase64: Data("llo".utf8).base64EncodedString(),
+            isLast: true
+        ))
+        let path = try #require(completed.path)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == Data("hello".utf8))
+    }
+
     @Test func duplicateNamesReceiveNumericSuffixes() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -68,6 +147,156 @@ struct MobileTaskAttachmentStoreTests {
 
         #expect(URL(fileURLWithPath: try #require(first.path)).lastPathComponent == "report.txt")
         #expect(URL(fileURLWithPath: try #require(second.path)).lastPathComponent == "report-2.txt")
+    }
+
+    @Test func emptyFinalChunkProducesACompletedRegularFile() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let result = try fixture.store.upload(.init(
+            operationID: UUID(),
+            uploadID: UUID(),
+            fileName: "empty.txt",
+            totalBytes: 0,
+            offset: 0,
+            dataBase64: "",
+            isLast: true
+        ))
+
+        let path = try #require(result.path)
+        #expect(result.receivedBytes == 0)
+        #expect(try URL(fileURLWithPath: path).resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: path)).isEmpty)
+    }
+
+    @Test func completedAttachmentLookupReturnsOnlyValidatedUploadBytes() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+        let completed = try fixture.complete(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "- prompt 'quoted' 資料 📎.txt",
+            contents: "exact staged bytes"
+        )
+
+        let resolved = try fixture.store.completedAttachmentURL(
+            operationID: operationID,
+            uploadID: uploadID
+        )
+
+        #expect(resolved.path == completed.path)
+        #expect(resolved.lastPathComponent == "- prompt 'quoted' 資料 📎.txt")
+        #expect(try Data(contentsOf: resolved) == Data("exact staged bytes".utf8))
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.completedAttachmentURL(
+                operationID: operationID,
+                uploadID: UUID()
+            )
+        }
+    }
+
+    @Test func completedAttachmentLookupRejectsSymlinksEscapingTheOperationDirectory() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+        let completed = try fixture.complete(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "inside.txt",
+            contents: "inside"
+        )
+        let completedURL = URL(fileURLWithPath: try #require(completed.path))
+        let outsideURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-attachment-outside-\(UUID()).txt")
+        try Data("outside".utf8).write(to: outsideURL)
+        defer { try? FileManager.default.removeItem(at: outsideURL) }
+        try FileManager.default.removeItem(at: completedURL)
+        try FileManager.default.createSymbolicLink(at: completedURL, withDestinationURL: outsideURL)
+
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.completedAttachmentURL(
+                operationID: operationID,
+                uploadID: uploadID
+            )
+        }
+    }
+
+    @Test func completedAttachmentLookupReturnsResolvedInRootRegularFile() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+        let completed = try fixture.complete(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "linked.txt",
+            contents: "linked"
+        )
+        let completedURL = URL(fileURLWithPath: try #require(completed.path))
+        let targetURL = completedURL.deletingLastPathComponent()
+            .appendingPathComponent("resolved.txt")
+        try FileManager.default.moveItem(at: completedURL, to: targetURL)
+        try FileManager.default.createSymbolicLink(at: completedURL, withDestinationURL: targetURL)
+
+        let resolved = try fixture.store.completedAttachmentURL(
+            operationID: operationID,
+            uploadID: uploadID
+        )
+
+        #expect(resolved == targetURL.resolvingSymlinksInPath().standardizedFileURL)
+        #expect(try Data(contentsOf: resolved) == Data("linked".utf8))
+    }
+
+    @Test func completedAttachmentLookupRejectsOperationDirectorySymlinkEscape() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let uploadID = UUID()
+        let completed = try fixture.complete(
+            operationID: operationID,
+            uploadID: uploadID,
+            fileName: "escaped.txt",
+            contents: "escaped"
+        )
+        let completedURL = URL(fileURLWithPath: try #require(completed.path))
+        let operationURL = completedURL.deletingLastPathComponent()
+        let outsideOperationURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-operation-outside-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: outsideOperationURL) }
+        try FileManager.default.moveItem(at: operationURL, to: outsideOperationURL)
+        try FileManager.default.createSymbolicLink(
+            at: operationURL,
+            withDestinationURL: outsideOperationURL
+        )
+
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.completedAttachmentURL(
+                operationID: operationID,
+                uploadID: uploadID
+            )
+        }
+    }
+
+    @Test func batchLookupFailsBeforeReturningAnyPathWhenLaterReferenceIsInvalid() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let operationID = UUID()
+        let firstID = UUID()
+        _ = try fixture.complete(
+            operationID: operationID,
+            uploadID: firstID,
+            fileName: "first.txt",
+            contents: "first"
+        )
+
+        #expect(throws: MobileTaskAttachmentStoreError.self) {
+            try fixture.store.completedAttachmentURLs(references: [
+                .init(operationID: operationID, uploadID: firstID),
+                .init(operationID: operationID, uploadID: UUID()),
+            ])
+        }
     }
 
     @Test func rejectsOutOfOrderAndOversizedRequests() throws {

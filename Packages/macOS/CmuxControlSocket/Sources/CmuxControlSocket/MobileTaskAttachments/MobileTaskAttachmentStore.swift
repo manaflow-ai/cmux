@@ -1,5 +1,16 @@
 public import Foundation
 
+/// Untrusted wire identities resolved as one batch before any terminal mutation.
+public struct MobileTaskAttachmentReference: Sendable, Equatable {
+    public let operationID: UUID
+    public let uploadID: UUID
+
+    public init(operationID: UUID, uploadID: UUID) {
+        self.operationID = operationID
+        self.uploadID = uploadID
+    }
+}
+
 /// Filesystem-backed staging and finalization for mobile task attachments.
 ///
 /// The store carries no shared runtime state. Upload identity, progress, and
@@ -169,7 +180,13 @@ public struct MobileTaskAttachmentStore {
                     throw storageFailure("Could not create attachment staging file")
                 }
             }
-            let currentBytes = try fileSize(at: stagedFileURL)
+            var currentBytes = try fileSize(at: stagedFileURL)
+            if request.offset == 0, currentBytes > 0 {
+                let handle = try FileHandle(forWritingTo: stagedFileURL)
+                defer { try? handle.close() }
+                try handle.truncate(atOffset: 0)
+                currentBytes = 0
+            }
             guard currentBytes == request.offset else {
                 throw invalidParams("Attachment chunks must use contiguous offsets")
             }
@@ -213,6 +230,57 @@ public struct MobileTaskAttachmentStore {
             throw error
         } catch {
             throw storageFailure("Could not store task attachment")
+        }
+    }
+
+    /// Resolves a completed upload through its validated operation and upload identities.
+    ///
+    /// Callers use this instead of accepting a client-provided host path. The
+    /// completion record is created only after contiguous chunks reach the
+    /// declared byte count, and the resolved regular file must remain inside
+    /// the operation directory.
+    ///
+    /// - Parameters:
+    ///   - operationID: Upload operation identity.
+    ///   - uploadID: Completed attachment identity.
+    /// - Returns: The validated completed file URL.
+    /// - Throws: ``MobileTaskAttachmentStoreError`` when no safe completed file exists.
+    public func completedAttachmentURL(
+        operationID: UUID,
+        uploadID: UUID
+    ) throws -> URL {
+        let operationURL = operationDirectory(for: operationID)
+        let completedURL = operationURL.appendingPathComponent(".completed", isDirectory: true)
+        guard let result = try completedResult(
+            uploadID: uploadID,
+            operationURL: operationURL,
+            completedURL: completedURL
+        ), let path = result.path else {
+            throw invalidParams("Attachment upload is not complete")
+        }
+        let resolvedRootURL = rootURL.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedOperationURL = operationURL.resolvingSymlinksInPath().standardizedFileURL
+        let candidate = URL(fileURLWithPath: path)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let parent = candidate.deletingLastPathComponent().standardizedFileURL
+        guard resolvedOperationURL.deletingLastPathComponent() == resolvedRootURL,
+              parent == resolvedOperationURL,
+              try candidate.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+            throw invalidParams("Attachment path is invalid")
+        }
+        return candidate
+    }
+
+    /// Resolves every reference in order, throwing before returning any paths.
+    public func completedAttachmentURLs(
+        references: [MobileTaskAttachmentReference]
+    ) throws -> [URL] {
+        try references.map {
+            try completedAttachmentURL(
+                operationID: $0.operationID,
+                uploadID: $0.uploadID
+            )
         }
     }
 

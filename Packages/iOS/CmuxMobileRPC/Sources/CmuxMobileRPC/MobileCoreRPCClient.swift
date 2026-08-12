@@ -713,6 +713,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
+             "mobile.terminal.paste_attachment", "terminal.paste_attachment",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
              "mobile.terminal.artifact.scan",

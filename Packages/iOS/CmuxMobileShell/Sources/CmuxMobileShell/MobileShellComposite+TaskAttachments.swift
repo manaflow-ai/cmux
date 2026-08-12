@@ -1,3 +1,4 @@
+internal import CmuxMobileAttachmentTransfer
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 public import Foundation
@@ -90,66 +91,27 @@ extension MobileShellComposite {
             return .failure(.unsupported(hostDisplayName: context.hostDisplayName))
         }
 
-        let data: Data
-        do {
-            data = try await loadTaskAttachmentData(
-                from: attachment.localStagedFileURL
-            )
-        } catch {
-            return .failure(.rejected(hostDisplayName: context.hostDisplayName))
-        }
-        guard data.count == attachment.byteCount,
-              data.count <= TaskComposerAttachment.maximumFileBytes else {
+        guard attachment.byteCount <= TaskComposerAttachment.maximumFileBytes else {
             return .failure(.rejected(hostDisplayName: context.hostDisplayName))
         }
 
-        let plan = MobileTaskAttachmentChunkPlan(totalByteCount: data.count)
         do {
-            var finalPath: String?
-            for (index, range) in plan.ranges.enumerated() {
-                try Task.checkCancellation()
-                let isLast = index == plan.ranges.count - 1
-                let params: [String: Any] = [
-                    "operation_id": operationID.uuidString,
-                    "upload_id": attachment.id.uuidString,
-                    "file_name": attachment.displayName,
-                    "total_bytes": data.count,
-                    "offset": range.lowerBound,
-                    "data_b64": data.subdata(in: range).base64EncodedString(),
-                    "last": isLast,
-                ]
-                let response = try await context.client.sendRequest(
-                    MobileCoreRPCClient.requestData(
-                        method: "mobile.task.attachment.upload",
-                        params: params
-                    )
-                )
-                guard context.isCurrent(
-                    macDeviceID: foregroundMacDeviceID,
-                    instanceTag: activeMacInstanceTag,
-                    client: remoteClient,
-                    generation: connectionGeneration
-                ), isSignedIn else {
-                    return .failure(.notConnected(
-                        hostDisplayName: context.hostDisplayName
-                    ))
-                }
-                guard let object = try JSONSerialization.jsonObject(with: response)
-                        as? [String: Any] else {
-                    throw MobileShellConnectionError.invalidResponse
-                }
-                if isLast {
-                    guard let path = object["path"] as? String,
-                          path.hasPrefix("/") else {
-                        throw MobileShellConnectionError.invalidResponse
-                    }
-                    finalPath = path
-                }
+            let receipt = try await MobileAttachmentRPCUploader(client: context.client).upload(
+                fileURL: attachment.localStagedFileURL,
+                byteCount: attachment.byteCount,
+                fileName: attachment.displayName,
+                operationID: operationID,
+                uploadID: attachment.id
+            )
+            guard context.isCurrent(
+                macDeviceID: foregroundMacDeviceID,
+                instanceTag: activeMacInstanceTag,
+                client: remoteClient,
+                generation: connectionGeneration
+            ), isSignedIn else {
+                return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
             }
-            guard let finalPath else {
-                return .failure(.rejected(hostDisplayName: context.hostDisplayName))
-            }
-            return .success(finalPath)
+            return .success(receipt.hostPath)
         } catch {
             if context.isCurrent(
                 macDeviceID: foregroundMacDeviceID,
@@ -172,16 +134,4 @@ extension MobileShellComposite {
         }
     }
 
-    private func loadTaskAttachmentData(from url: URL) async throws -> Data {
-        try await withThrowingTaskGroup(of: Data.self) { group in
-            group.addTask(priority: .utility) {
-                try Task.checkCancellation()
-                return try Data(contentsOf: url, options: .mappedIfSafe)
-            }
-            guard let data = try await group.next() else {
-                throw CancellationError()
-            }
-            return data
-        }
-    }
 }
