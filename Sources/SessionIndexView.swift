@@ -52,6 +52,7 @@ enum SessionEntryResumeCoordinator {
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
     @Environment(\.sessionDragRegistry) private var sessionDragRegistry
+    @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     /// Lives alongside the store but is owned by this view so drag-state
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
@@ -197,10 +198,12 @@ struct SessionIndexView: View {
             let sectionActions = IndexSectionActions(
                 onBeginDrag: { dragCoordinator.draggedKey = section.key },
                 beginSessionDrag: { entry, sourceView, event, frame, image in
-                    guard let sessionDragRegistry else { return false }
+                    guard let sessionDragRegistry,
+                          let tabDragTransferRegistry else { return false }
                     return dragCoordinator.beginSessionDrag(
                         entry,
                         registry: sessionDragRegistry,
+                        tabDragTransferRegistry: tabDragTransferRegistry,
                         from: sourceView,
                         event: event,
                         frame: frame,

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 /// Retained native source whose terminal callback owns Vault drag completion.
 @MainActor
@@ -10,16 +11,22 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
 
     let dragID: UUID
     private let registry: SessionDragRegistry
+    private let transferRegistration: TabDragTransferRegistration
+    private let transferRegistry: TabDragTransferRegistry
     private let onFinish: @MainActor (UUID) -> Void
     private var phase: Phase = .active
 
     init(
         dragID: UUID,
         registry: SessionDragRegistry,
+        transferRegistration: TabDragTransferRegistration,
+        transferRegistry: TabDragTransferRegistry,
         onFinish: @escaping @MainActor (UUID) -> Void
     ) {
         self.dragID = dragID
         self.registry = registry
+        self.transferRegistration = transferRegistration
+        self.transferRegistry = transferRegistry
         self.onFinish = onFinish
     }
 
@@ -46,6 +53,7 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
     func finishDrag() {
         guard case .active = phase else { return }
         phase = .finished
+        transferRegistry.end(transferRegistration)
         registry.discard(id: dragID)
         onFinish(dragID)
     }

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Observation
 
 typealias SessionDragBeginAction = @MainActor (
@@ -41,6 +42,7 @@ final class SessionDragCoordinator {
     func beginSessionDrag(
         _ entry: SessionEntry,
         registry: SessionDragRegistry,
+        tabDragTransferRegistry: TabDragTransferRegistry,
         from sourceView: NSView,
         event: NSEvent,
         frame: NSRect,
@@ -53,10 +55,17 @@ final class SessionDragCoordinator {
         }
 
         let dragID = registry.register(entry)
-        guard let pasteboardItem = SessionDragPayload(
+        guard let transferRegistration = SessionDragPayload(
             entry: entry,
             dragID: dragID
-        ).pasteboardItem(publishingTo: NSPasteboard(name: .drag)) else {
+        ).register(with: tabDragTransferRegistry) else {
+            registry.discard(id: dragID)
+            return false
+        }
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+        guard transferRegistration.write(to: dragPasteboard) else {
+            tabDragTransferRegistry.end(transferRegistration)
             registry.discard(id: dragID)
             return false
         }
@@ -64,13 +73,17 @@ final class SessionDragCoordinator {
         let source = SessionDragSessionSource(
             dragID: dragID,
             registry: registry,
+            transferRegistration: transferRegistration,
+            transferRegistry: tabDragTransferRegistry,
             onFinish: { [weak self] finishedID in
                 self?.finishSession(id: finishedID)
             }
         )
         sessionPhase = .dragging(id: dragID, source: source)
 
-        let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        let item = NSDraggingItem(
+            pasteboardWriter: transferRegistration.pasteboardItem
+        )
         item.setDraggingFrame(frame, contents: image)
 #if DEBUG
         cmuxDebugLog(

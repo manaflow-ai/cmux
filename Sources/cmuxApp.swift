@@ -196,6 +196,7 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         let tabManager = TabManager(
+            tabDragTransferRegistry: appDelegate.tabDragTransferRegistry,
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )

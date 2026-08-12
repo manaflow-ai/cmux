@@ -87,8 +87,8 @@ struct VaultPaneTransferLifecycleTests {
         }
     }
 
-    @Test("Browser portal preserves an accepted Vault target through mouse-up")
-    func browserPortalPreservesAcceptedVaultTargetThroughMouseUp() async throws {
+    @Test("Browser portal passes a shared Vault capability through every pointer phase")
+    func browserPortalPassesSharedCapabilityThroughPointerPhases() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
@@ -96,12 +96,12 @@ struct VaultPaneTransferLifecycleTests {
             let targetPanelID = try #require(fixture.workspace.focusedPanelId)
             let targetPane = try #require(fixture.workspace.paneId(forPanelId: targetPanelID))
             let entry = Self.makeEntry(sessionID: "browser-portal-mouse-up")
-            let dragID = fixture.appDelegate.sessionDragRegistry.register(entry)
-            defer { fixture.appDelegate.sessionDragRegistry.discard(id: dragID) }
-            let pasteboard = try dropHarness.vaultPasteboard(
+            let drag = try dropHarness.beginVaultDrag(
                 entry: entry,
-                dragID: dragID
+                sessionRegistry: fixture.appDelegate.sessionDragRegistry,
+                tabDragTransferRegistry: fixture.appDelegate.tabDragTransferRegistry
             )
+            defer { drag.finish() }
 
             let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
             let window = NSWindow(
@@ -127,29 +127,32 @@ struct VaultPaneTransferLifecycleTests {
             let blocker = OccludingBrowserContentView(frame: slot.bounds)
             slot.addSubview(blocker, positioned: .above, relativeTo: nil)
             let pointInSlot = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
-            let target = try #require(slot.paneDropTargetForDrop(at: pointInSlot))
             let pointInHost = host.convert(pointInSlot, from: slot)
             let pointInWindow = host.convert(pointInHost, to: nil)
-            let dragInfo = VaultPaneDraggingInfo(
-                window: window,
+            let mouseDragged = try dropHarness.mouseEvent(
+                type: .leftMouseDragged,
                 location: pointInWindow,
-                pasteboard: pasteboard
+                window: window
             )
-
-            #expect(target.draggingEntered(dragInfo) == .move)
             let mouseUp = try dropHarness.mouseEvent(
                 type: .leftMouseUp,
                 location: pointInWindow,
                 window: window
             )
-            let hit = host.performHitTest(
+            let dragHit = host.performHitTest(
+                at: pointInHost,
+                currentEvent: mouseDragged,
+                dragPasteboard: drag.pasteboard
+            )
+            let mouseUpHit = host.performHitTest(
                 at: pointInHost,
                 currentEvent: mouseUp,
-                dragPasteboard: pasteboard
+                dragPasteboard: drag.pasteboard
             )
 
-            #expect(hit === target)
-            target.draggingEnded(dragInfo)
+            #expect(dragHit == nil)
+            #expect(mouseUpHit == nil)
+            #expect(drag.resolvedTransfer?.tab.id.uuid == drag.dragID)
         }
     }
 
@@ -182,32 +185,28 @@ struct VaultPaneTransferLifecycleTests {
                 ))
                 #expect(dock.panels[targetPanelID] is BrowserPanel)
             }
-            let context = PaneDropContext(
-                workspaceId: fixture.workspace.id,
-                panelId: targetPanelID,
-                paneId: targetPane
-            )
             let entry = Self.makeEntry(
                 sessionID: "dock-\(dropCase.targetKind)-\(dropCase.placement)"
             )
             let launch = try #require(entry.resumeLaunch)
-            let dragID = fixture.appDelegate.sessionDragRegistry.register(entry)
-            defer { fixture.appDelegate.sessionDragRegistry.discard(id: dragID) }
-            let pasteboard = try dropHarness.vaultPasteboard(
+            let drag = try dropHarness.beginVaultDrag(
                 entry: entry,
-                dragID: dragID
+                sessionRegistry: fixture.appDelegate.sessionDragRegistry,
+                tabDragTransferRegistry: fixture.appDelegate.tabDragTransferRegistry
             )
+            defer { drag.finish() }
             let baselinePanelIDs = Set(dock.panels.keys)
             let baselinePaneCount = dock.bonsplitController.allPaneIds.count
-
-            let handled = try dropHarness.performDrop(
-                targetKind: dropCase.targetKind,
+            let request = try dropHarness.dropRequest(
+                for: drag,
                 placement: dropCase.placement,
-                context: context,
-                pasteboard: pasteboard
+                targetPane: targetPane
             )
+            let dropHandler = try #require(dock.bonsplitController.onExternalTabDrop)
+            let handled = dropHandler(request)
 
             #expect(handled)
+            #expect(fixture.appDelegate.sessionDragRegistry.entry(id: drag.dragID) == nil)
             let createdPanelIDs = Set(dock.panels.keys).subtracting(baselinePanelIDs)
             #expect(createdPanelIDs.count == 1)
             let createdPanelID = try #require(createdPanelIDs.first)
@@ -236,19 +235,13 @@ struct VaultPaneTransferLifecycleTests {
 
             let initialPanelID = try #require(fixture.workspace.focusedPanelId)
             let targetPane = try #require(fixture.workspace.paneId(forPanelId: initialPanelID))
-            let browser = try #require(fixture.workspace.newBrowserSurface(
+            _ = try #require(fixture.workspace.newBrowserSurface(
                 inPane: targetPane,
                 url: URL(string: "about:blank"),
                 focus: true,
                 creationPolicy: .restoration,
                 allowsExternalBrowserFallback: false
             ))
-            let context = PaneDropContext(
-                workspaceId: fixture.workspace.id,
-                panelId: browser.id,
-                paneId: targetPane
-            )
-
             let duplicate = Self.makeEntry(sessionID: "repeated-folder-duplicate")
             let rows = SessionIndexRowSnapshot.rows(for: [
                 duplicate,
@@ -257,50 +250,26 @@ struct VaultPaneTransferLifecycleTests {
             ])
             #expect(Set(rows.map(\.id)).count == rows.count)
 
-            let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-            let window = NSWindow(
-                contentRect: frame,
-                styleMask: [.titled, .closable],
-                backing: .buffered,
-                defer: false
-            )
-            defer { window.orderOut(nil) }
-            let root = try #require(window.contentView)
-            let host = WindowBrowserHostView(frame: root.bounds)
-            root.addSubview(host)
-            let slot = WindowBrowserSlotView(frame: host.bounds)
-            host.addSubview(slot)
-            slot.setPaneDropContext(context)
-            host.layoutSubtreeIfNeeded()
-            slot.layoutSubtreeIfNeeded()
-            let point = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
-            let target = try #require(slot.paneDropTargetForDrop(at: point))
-
-            for (index, row) in rows.enumerated() {
-                let registry = fixture.appDelegate.sessionDragRegistry
-                let dragID = registry.register(row.entry)
-                defer { registry.discard(id: dragID) }
-                let pasteboard = try dropHarness.vaultPasteboard(
+            for row in rows {
+                let drag = try dropHarness.beginVaultDrag(
                     entry: row.entry,
-                    dragID: dragID
+                    sessionRegistry: fixture.appDelegate.sessionDragRegistry,
+                    tabDragTransferRegistry: fixture.appDelegate.tabDragTransferRegistry
                 )
-                let dragInfo = VaultPaneDraggingInfo(
-                    window: window,
-                    location: slot.convert(point, to: nil),
-                    pasteboard: pasteboard,
-                    sequenceNumber: index + 1
-                )
+                defer { drag.finish() }
                 let baselinePanelIDs = Set(fixture.workspace.panels.keys)
-
-                #expect(target.draggingEntered(dragInfo) == .move)
-                if index == 0 {
-                    // Model release-time cleanup after the target already accepted
-                    // the drag. Execution must use that resolved plan, not re-read
-                    // mutable process-wide drag state.
-                    registry.discard(id: dragID)
-                }
-                #expect(target.prepareForDragOperation(dragInfo))
-                #expect(target.performDragOperation(dragInfo))
+                let request = try dropHarness.dropRequest(
+                    for: drag,
+                    placement: .center,
+                    targetPane: targetPane
+                )
+                let dropHandler = try #require(
+                    fixture.workspace.bonsplitController.onExternalTabDrop
+                )
+                #expect(dropHandler(request))
+                #expect(
+                    fixture.appDelegate.sessionDragRegistry.entry(id: drag.dragID) == nil
+                )
 
                 let createdPanelIDs = Set(fixture.workspace.panels.keys)
                     .subtracting(baselinePanelIDs)

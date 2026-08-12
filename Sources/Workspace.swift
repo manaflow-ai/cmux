@@ -2184,6 +2184,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
+    /// Process/window composition capability registry shared with every pane target.
+    let tabDragTransferRegistry: TabDragTransferRegistry
 
     /// Backing store for `dockSplit`, created on first access. Kept optional so
     /// workspace teardown can tear down the Dock only when it was actually used
@@ -2208,6 +2210,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
                 )
             },
+            tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder
@@ -3199,6 +3202,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
         allowTextBoxFocusDefault: Bool = true,
+        tabDragTransferRegistry: TabDragTransferRegistry = TabDragTransferRegistry(),
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
@@ -3218,6 +3222,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
+        self.tabDragTransferRegistry = tabDragTransferRegistry
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: resolvedID,
             lifecycle: restoredAgentLifecycle,
@@ -3258,7 +3263,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             newTabPosition: .current,
             appearance: appearance
         )
-        self.bonsplitController = BonsplitController(configuration: config)
+        self.bonsplitController = BonsplitController(
+            configuration: config,
+            tabDragTransferRegistry: tabDragTransferRegistry
+        )
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
@@ -11801,13 +11809,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
-        // Session-index drag → spawn a brand new terminal at the destination instead
-        // of moving an existing tab.
-        if let entry = AppDelegate.shared?.sessionDragRegistry.consume(id: request.tabId.uuid) {
-            return handleSessionDrop(entry: entry, destination: request.destination)
-        }
-        if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {
-            return handleFilePreviewDrop(entry: entry, destination: request.destination)
+        if let handled = performRegisteredPaneTransferDrop(request) {
+            return handled
         }
 
         guard let app = AppDelegate.shared else { return false }

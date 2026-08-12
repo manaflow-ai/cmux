@@ -36,11 +36,20 @@ struct PaneTransferSourceResolver {
     @MainActor
     func source(for transfer: PaneDragTransfer) -> Source? {
         guard transfer.isFromCurrentProcess else { return nil }
-        if let entry = vaultSessionRegistry()?.entry(id: transfer.tabId) {
+        if let source = registeredSource(id: transfer.tabId) {
+            return source
+        }
+        if surfaceIsLive(transfer.tabId) { return .surface }
+        return nil
+    }
+
+    /// Resolves a synthetic source registered outside Bonsplit's live tab model.
+    @MainActor
+    func registeredSource(id: UUID) -> Source? {
+        if let entry = vaultSessionRegistry()?.entry(id: id) {
             return .vaultSession(entry)
         }
-        if let entry = filePreview(transfer.tabId) { return .filePreview(entry) }
-        if surfaceIsLive(transfer.tabId) { return .surface }
+        if let entry = filePreview(id) { return .filePreview(entry) }
         return nil
     }
 

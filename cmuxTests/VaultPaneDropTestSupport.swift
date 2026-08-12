@@ -28,58 +28,59 @@ struct VaultPaneDropTestHarness {
         pasteboardNamePrefix = "cmux.test.vault-pane-drop.\(suiteName)"
     }
 
-    func performDrop(
-        targetKind: TargetKind,
-        placement: Placement,
-        context: PaneDropContext,
-        pasteboard: NSPasteboard,
-        sequenceNumber: Int = 1
-    ) throws -> Bool {
-        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        let window = NSWindow(
-            contentRect: frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let root = try #require(window.contentView)
-
-        switch targetKind {
-        case .terminal:
-            let target = PaneDropTargetView(frame: root.bounds)
-            target.dropContext = context
-            root.addSubview(target)
-            let point = dropPoint(for: placement, in: target.bounds)
-            let dragInfo = VaultPaneDraggingInfo(
-                window: window,
-                location: target.convert(point, to: nil),
-                pasteboard: pasteboard,
-                sequenceNumber: sequenceNumber
-            )
-            #expect(target.draggingEntered(dragInfo) == .move)
-            defer { target.draggingEnded(dragInfo) }
-            #expect(target.prepareForDragOperation(dragInfo))
-            return target.performDragOperation(dragInfo)
-
-        case .browser:
-            let slot = WindowBrowserSlotView(frame: root.bounds)
-            root.addSubview(slot)
-            slot.setPaneDropContext(context)
-            slot.layoutSubtreeIfNeeded()
-            let point = dropPoint(for: placement, in: slot.bounds)
-            let target = try #require(slot.paneDropTargetForDrop(at: point))
-            let dragInfo = VaultPaneDraggingInfo(
-                window: window,
-                location: slot.convert(point, to: nil),
-                pasteboard: pasteboard,
-                sequenceNumber: sequenceNumber
-            )
-            #expect(target.draggingEntered(dragInfo) == .move)
-            defer { target.draggingEnded(dragInfo) }
-            #expect(target.prepareForDragOperation(dragInfo))
-            return target.performDragOperation(dragInfo)
+    func beginVaultDrag(
+        entry: SessionEntry,
+        sessionRegistry: SessionDragRegistry,
+        tabDragTransferRegistry: TabDragTransferRegistry
+    ) throws -> VaultPaneTestDrag {
+        let dragID = sessionRegistry.register(entry)
+        guard let registration = SessionDragPayload(
+            entry: entry,
+            dragID: dragID
+        ).register(with: tabDragTransferRegistry) else {
+            sessionRegistry.discard(id: dragID)
+            throw VaultPaneTestDrag.Error.registrationFailed
         }
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(
+            "\(pasteboardNamePrefix).\(UUID().uuidString)"
+        ))
+        pasteboard.clearContents()
+        guard registration.write(to: pasteboard) else {
+            tabDragTransferRegistry.end(registration)
+            sessionRegistry.discard(id: dragID)
+            throw VaultPaneTestDrag.Error.pasteboardWriteFailed
+        }
+        return VaultPaneTestDrag(
+            dragID: dragID,
+            pasteboard: pasteboard,
+            registration: registration,
+            sessionRegistry: sessionRegistry,
+            tabDragTransferRegistry: tabDragTransferRegistry
+        )
+    }
+
+    func dropRequest(
+        for drag: VaultPaneTestDrag,
+        placement: Placement,
+        targetPane: PaneID
+    ) throws -> BonsplitController.ExternalTabDropRequest {
+        let transfer = try #require(drag.resolvedTransfer)
+        let destination: BonsplitController.ExternalTabDropRequest.Destination
+        switch placement {
+        case .center:
+            destination = .insert(targetPane: targetPane, targetIndex: nil)
+        case .right:
+            destination = .split(
+                targetPane: targetPane,
+                orientation: .horizontal,
+                insertFirst: false
+            )
+        }
+        return BonsplitController.ExternalTabDropRequest(
+            tabId: transfer.tab.id,
+            sourcePaneId: transfer.sourcePaneId,
+            destination: destination
+        )
     }
 
     func dropPoint(for placement: Placement, in bounds: NSRect) -> NSPoint {
@@ -110,72 +111,47 @@ struct VaultPaneDropTestHarness {
         ))
     }
 
-    func vaultPasteboard(entry: SessionEntry, dragID: UUID) throws -> NSPasteboard {
-        let item = try #require(SessionDragPayload(
-            entry: entry,
-            dragID: dragID
-        ).pasteboardItem())
-        let data = try #require(item.data(
-            forType: DragOverlayRoutingPolicy.bonsplitTabTransferType
-        ))
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name(
-            "\(pasteboardNamePrefix).\(UUID().uuidString)"
-        ))
-        pasteboard.clearContents()
-        pasteboard.setData(
-            data,
-            forType: DragOverlayRoutingPolicy.bonsplitTabTransferType
-        )
-        return pasteboard
-    }
 }
 
-/// Configurable AppKit drag session used by the shared Vault drop harness.
+/// Retains both capability leases for one synthetic native Vault drag.
 @MainActor
-final class VaultPaneDraggingInfo: NSObject, NSDraggingInfo {
-    let draggingDestinationWindow: NSWindow?
-    let draggingSourceOperationMask: NSDragOperation = .move
-    let draggingLocation: NSPoint
-    let draggedImageLocation: NSPoint
-    let draggedImage: NSImage? = nil
-    nonisolated(unsafe) let draggingPasteboard: NSPasteboard
-    nonisolated(unsafe) let draggingSource: Any? = nil
-    let draggingSequenceNumber: Int
-    var draggingFormation: NSDraggingFormation = .default
-    var animatesToDestination = false
-    var numberOfValidItemsForDrop = 1
-    let springLoadingHighlight: NSSpringLoadingHighlight = .none
+final class VaultPaneTestDrag {
+    enum Error: Swift.Error {
+        case registrationFailed
+        case pasteboardWriteFailed
+    }
+
+    let dragID: UUID
+    let pasteboard: NSPasteboard
+    private let registration: TabDragTransferRegistration
+    private let sessionRegistry: SessionDragRegistry
+    private let tabDragTransferRegistry: TabDragTransferRegistry
+    private var isFinished = false
+
+    var resolvedTransfer: TabDragTransfer? {
+        tabDragTransferRegistry.resolve(from: pasteboard)
+    }
 
     init(
-        window: NSWindow,
-        location: NSPoint,
+        dragID: UUID,
         pasteboard: NSPasteboard,
-        sequenceNumber: Int = 1
+        registration: TabDragTransferRegistration,
+        sessionRegistry: SessionDragRegistry,
+        tabDragTransferRegistry: TabDragTransferRegistry
     ) {
-        draggingDestinationWindow = window
-        draggingLocation = location
-        draggedImageLocation = location
-        draggingPasteboard = pasteboard
-        draggingSequenceNumber = sequenceNumber
+        self.dragID = dragID
+        self.pasteboard = pasteboard
+        self.registration = registration
+        self.sessionRegistry = sessionRegistry
+        self.tabDragTransferRegistry = tabDragTransferRegistry
     }
 
-    func slideDraggedImage(to screenPoint: NSPoint) {}
-
-    override func namesOfPromisedFilesDropped(
-        atDestination dropDestination: URL
-    ) -> [String]? {
-        nil
+    func finish() {
+        guard !isFinished else { return }
+        isFinished = true
+        tabDragTransferRegistry.end(registration)
+        sessionRegistry.discard(id: dragID)
     }
-
-    func enumerateDraggingItems(
-        options enumOpts: NSDraggingItemEnumerationOptions = [],
-        for view: NSView?,
-        classes classArray: [AnyClass],
-        searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
-        using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
-    ) {}
-
-    func resetSpringLoading() {}
 }
 
 /// Isolated app composition root shared by Vault pane-drop behavior tests.
@@ -194,7 +170,10 @@ final class VaultPaneAppFixture {
     init() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            tabDragTransferRegistry: appDelegate.tabDragTransferRegistry
+        )
         guard let workspace = manager.selectedWorkspace else {
             throw FixtureError.missingSelectedWorkspace
         }

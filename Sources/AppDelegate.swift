@@ -560,6 +560,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WorkspaceTerminalFontSizeArbiter()
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
+    /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
+    let tabDragTransferRegistry = TabDragTransferRegistry()
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
@@ -9097,6 +9099,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
+            tabDragTransferRegistry: tabDragTransferRegistry,
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
@@ -9180,6 +9183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
             .environment(\.sessionDragRegistry, sessionDragRegistry)
+            .environment(\.tabDragTransferRegistry, tabDragTransferRegistry)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it

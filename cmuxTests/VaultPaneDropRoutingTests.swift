@@ -40,19 +40,17 @@ struct VaultPaneDropRoutingTests {
 
         let initialPanelID = try #require(workspace.focusedPanelId)
         let targetPane = try #require(workspace.paneId(forPanelId: initialPanelID))
-        let targetPanelID: UUID
         switch dropCase.targetKind {
         case .terminal:
-            targetPanelID = initialPanelID
+            #expect(workspace.terminalPanel(for: initialPanelID) != nil)
         case .browser:
-            let browser = try #require(workspace.newBrowserSurface(
+            _ = try #require(workspace.newBrowserSurface(
                 inPane: targetPane,
                 url: URL(string: "about:blank"),
                 focus: true,
                 creationPolicy: .restoration,
                 allowsExternalBrowserFallback: false
             ))
-            targetPanelID = browser.id
         }
 
         let sessionID = "vault-pane-drop-\(UUID().uuidString)"
@@ -74,26 +72,24 @@ struct VaultPaneDropRoutingTests {
             )
         )
         let launch = try #require(entry.resumeLaunch)
-        let dragID = appDelegate.sessionDragRegistry.register(entry)
-        defer { appDelegate.sessionDragRegistry.discard(id: dragID) }
-
-        let pasteboard = try dropHarness.vaultPasteboard(entry: entry, dragID: dragID)
+        let drag = try dropHarness.beginVaultDrag(
+            entry: entry,
+            sessionRegistry: appDelegate.sessionDragRegistry,
+            tabDragTransferRegistry: appDelegate.tabDragTransferRegistry
+        )
+        defer { drag.finish() }
         let baselinePanelIDs = Set(workspace.panels.keys)
         let baselinePaneCount = workspace.bonsplitController.allPaneIds.count
-        let context = PaneDropContext(
-            workspaceId: workspace.id,
-            panelId: targetPanelID,
-            paneId: targetPane
-        )
-
-        let handled = try dropHarness.performDrop(
-            targetKind: dropCase.targetKind,
+        let request = try dropHarness.dropRequest(
+            for: drag,
             placement: dropCase.placement,
-            context: context,
-            pasteboard: pasteboard
+            targetPane: targetPane
         )
+        let dropHandler = try #require(workspace.bonsplitController.onExternalTabDrop)
+        let handled = dropHandler(request)
 
         #expect(handled)
+        #expect(appDelegate.sessionDragRegistry.entry(id: drag.dragID) == nil)
         let createdPanelIDs = Set(workspace.panels.keys).subtracting(baselinePanelIDs)
         #expect(createdPanelIDs.count == 1)
         let createdPanelID = try #require(createdPanelIDs.first)
@@ -122,19 +118,13 @@ struct VaultPaneDropRoutingTests {
 
         let initialPanelID = try #require(workspace.focusedPanelId)
         let targetPane = try #require(workspace.paneId(forPanelId: initialPanelID))
-        let browser = try #require(workspace.newBrowserSurface(
+        _ = try #require(workspace.newBrowserSurface(
             inPane: targetPane,
             url: URL(string: "about:blank"),
             focus: true,
             creationPolicy: .restoration,
             allowsExternalBrowserFallback: false
         ))
-        let context = PaneDropContext(
-            workspaceId: workspace.id,
-            panelId: browser.id,
-            paneId: targetPane
-        )
-
         let duplicate = Self.makeEntry(
             id: "codex:/tmp/repeated-folder/duplicate.jsonl",
             sessionID: "repeated-folder-duplicate",
@@ -156,22 +146,23 @@ struct VaultPaneDropRoutingTests {
 
         for row in rows {
             let launch = try #require(row.entry.resumeLaunch)
-            let dragID = appDelegate.sessionDragRegistry.register(row.entry)
-            let pasteboard = try dropHarness.vaultPasteboard(
+            let drag = try dropHarness.beginVaultDrag(
                 entry: row.entry,
-                dragID: dragID
+                sessionRegistry: appDelegate.sessionDragRegistry,
+                tabDragTransferRegistry: appDelegate.tabDragTransferRegistry
             )
+            defer { drag.finish() }
             let baselinePanelIDs = Set(workspace.panels.keys)
-
-            let handled = try dropHarness.performDrop(
-                targetKind: .browser,
+            let request = try dropHarness.dropRequest(
+                for: drag,
                 placement: .center,
-                context: context,
-                pasteboard: pasteboard
+                targetPane: targetPane
             )
+            let dropHandler = try #require(workspace.bonsplitController.onExternalTabDrop)
+            let handled = dropHandler(request)
 
             #expect(handled)
-            #expect(appDelegate.sessionDragRegistry.entry(id: dragID) == nil)
+            #expect(appDelegate.sessionDragRegistry.entry(id: drag.dragID) == nil)
             let createdPanelIDs = Set(workspace.panels.keys).subtracting(baselinePanelIDs)
             #expect(createdPanelIDs.count == 1)
             let createdPanelID = try #require(createdPanelIDs.first)
@@ -191,10 +182,12 @@ struct VaultPaneDropRoutingTests {
             sessionID: "portal-route-session",
             title: "Portal-routed Vault row"
         )
-        let dragID = appDelegate.sessionDragRegistry.register(entry)
-        defer { appDelegate.sessionDragRegistry.discard(id: dragID) }
-
-        let pasteboard = try dropHarness.vaultPasteboard(entry: entry, dragID: dragID)
+        let drag = try dropHarness.beginVaultDrag(
+            entry: entry,
+            sessionRegistry: appDelegate.sessionDragRegistry,
+            tabDragTransferRegistry: appDelegate.tabDragTransferRegistry
+        )
+        defer { drag.finish() }
         let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let window = NSWindow(
             contentRect: frame,
@@ -230,10 +223,11 @@ struct VaultPaneDropRoutingTests {
         let hit = host.performHitTest(
             at: pointInHost,
             currentEvent: event,
-            dragPasteboard: pasteboard
+            dragPasteboard: drag.pasteboard
         )
 
-        #expect(hit is BrowserPaneDropTargetView)
+        #expect(hit == nil)
+        #expect(drag.resolvedTransfer?.tab.id.uuid == drag.dragID)
     }
 
     @Test("A canceled Vault drag cannot poison the next duplicate row")
@@ -245,73 +239,42 @@ struct VaultPaneDropRoutingTests {
 
         let initialPanelID = try #require(workspace.focusedPanelId)
         let targetPane = try #require(workspace.paneId(forPanelId: initialPanelID))
-        let browser = try #require(workspace.newBrowserSurface(
+        _ = try #require(workspace.newBrowserSurface(
             inPane: targetPane,
             url: URL(string: "about:blank"),
             focus: true,
             creationPolicy: .restoration,
             allowsExternalBrowserFallback: false
         ))
-        let context = BrowserPaneDropContext(
-            workspaceId: workspace.id,
-            panelId: browser.id,
-            paneId: targetPane
-        )
-
-        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        let window = NSWindow(
-            contentRect: frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let root = NSView(frame: frame)
-        window.contentView = root
-        let slot = WindowBrowserSlotView(frame: root.bounds)
-        root.addSubview(slot)
-        slot.setPaneDropContext(context)
-        slot.layoutSubtreeIfNeeded()
-        let localPoint = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
-        let target = try #require(slot.paneDropTargetForDrop(at: localPoint))
-
         let duplicate = Self.makeEntry(
             id: "codex:/tmp/repeated-folder/duplicate.jsonl",
             sessionID: "repeated-folder-duplicate",
             title: "Duplicate Vault row"
         )
-        let canceledDragID = appDelegate.sessionDragRegistry.register(duplicate)
-        let canceledPasteboard = try dropHarness.vaultPasteboard(
+        let canceledDrag = try dropHarness.beginVaultDrag(
             entry: duplicate,
-            dragID: canceledDragID
+            sessionRegistry: appDelegate.sessionDragRegistry,
+            tabDragTransferRegistry: appDelegate.tabDragTransferRegistry
         )
-        #expect(appDelegate.sessionDragRegistry.consume(id: canceledDragID) == duplicate)
-        let canceledDragInfo = VaultPaneDraggingInfo(
-            window: window,
-            location: slot.convert(localPoint, to: nil),
-            pasteboard: canceledPasteboard
-        )
+        #expect(canceledDrag.resolvedTransfer != nil)
+        canceledDrag.finish()
+        #expect(canceledDrag.resolvedTransfer == nil)
+        #expect(appDelegate.sessionDragRegistry.entry(id: canceledDrag.dragID) == nil)
 
-        #expect(target.draggingEntered(canceledDragInfo).isEmpty)
-        #expect(!target.prepareForDragOperation(canceledDragInfo))
-        target.draggingExited(canceledDragInfo)
-
-        let nextDragID = appDelegate.sessionDragRegistry.register(duplicate)
-        defer { appDelegate.sessionDragRegistry.discard(id: nextDragID) }
-        let nextPasteboard = try dropHarness.vaultPasteboard(
+        let nextDrag = try dropHarness.beginVaultDrag(
             entry: duplicate,
-            dragID: nextDragID
+            sessionRegistry: appDelegate.sessionDragRegistry,
+            tabDragTransferRegistry: appDelegate.tabDragTransferRegistry
         )
-        let nextDragInfo = VaultPaneDraggingInfo(
-            window: window,
-            location: slot.convert(localPoint, to: nil),
-            pasteboard: nextPasteboard
-        )
+        defer { nextDrag.finish() }
         let baselinePanelIDs = Set(workspace.panels.keys)
-
-        #expect(target.draggingEntered(nextDragInfo) == .move)
-        #expect(target.prepareForDragOperation(nextDragInfo))
-        #expect(target.performDragOperation(nextDragInfo))
+        let request = try dropHarness.dropRequest(
+            for: nextDrag,
+            placement: .center,
+            targetPane: targetPane
+        )
+        let dropHandler = try #require(workspace.bonsplitController.onExternalTabDrop)
+        #expect(dropHandler(request))
 
         let createdPanelIDs = Set(workspace.panels.keys).subtracting(baselinePanelIDs)
         #expect(createdPanelIDs.count == 1)

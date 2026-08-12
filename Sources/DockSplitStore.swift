@@ -292,6 +292,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
         terminalTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
+        tabDragTransferRegistry: TabDragTransferRegistry = TabDragTransferRegistry(),
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
@@ -323,7 +324,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
             settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
         })
-        self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
+        self.bonsplitController = BonsplitController(
+            configuration: Self.makeConfiguration(),
+            tabDragTransferRegistry: tabDragTransferRegistry
+        )
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.contextMenuShortcuts = Workspace.buildContextMenuShortcuts()
@@ -339,6 +343,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         // so Bonsplit routes it here; the live panel is moved (not copied).
         self.bonsplitController.onExternalTabDrop = { [weak self] request in
             guard let self else { return false }
+            if let handled = self.performRegisteredPaneTransferDrop(request) {
+                return handled
+            }
             return AppDelegate.shared?.moveSurfaceIntoDock(
                 sourceTabId: request.tabId.uuid,
                 destinationDock: self,

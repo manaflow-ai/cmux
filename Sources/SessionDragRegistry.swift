@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 import SwiftUI
 
@@ -48,10 +49,20 @@ private struct SessionDragRegistryEnvironmentKey: EnvironmentKey {
     static let defaultValue: SessionDragRegistry? = nil
 }
 
+private struct TabDragTransferRegistryEnvironmentKey: EnvironmentKey {
+    static let defaultValue: TabDragTransferRegistry? = nil
+}
+
 extension EnvironmentValues {
     /// The composition-root-owned registry for process-local Vault drags.
     var sessionDragRegistry: SessionDragRegistry? {
         get { self[SessionDragRegistryEnvironmentKey.self] }
         set { self[SessionDragRegistryEnvironmentKey.self] = newValue }
+    }
+
+    /// The composition-root-owned registry shared by Vault and pane controllers.
+    var tabDragTransferRegistry: TabDragTransferRegistry? {
+        get { self[TabDragTransferRegistryEnvironmentKey.self] }
+        set { self[TabDragTransferRegistryEnvironmentKey.self] = newValue }
     }
 }

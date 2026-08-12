@@ -64,6 +64,43 @@ protocol PaneDropContainer: AnyObject {
 }
 
 extension PaneDropContainer {
+    /// Handles synthetic capabilities before the caller's normal surface move.
+    ///
+    /// Returning `nil` means the transfer is a live Bonsplit surface. A non-nil
+    /// result is authoritative even when handling fails, so a Vault id can never
+    /// fall through and be mistaken for a movable surface.
+    func performRegisteredPaneTransferDrop(
+        _ request: BonsplitController.ExternalTabDropRequest,
+        sourceResolver: PaneTransferSourceResolver = PaneTransferSourceResolver()
+    ) -> Bool? {
+        let id = request.tabId.uuid
+        guard let source = sourceResolver.registeredSource(id: id) else {
+            return nil
+        }
+
+        let handled: Bool
+        switch source {
+        case .vaultSession(let entry):
+            handled = performPortalVaultSessionDrop(
+                entry: entry,
+                destination: request.destination
+            )
+        case .filePreview(let entry):
+            handled = handleExternalFileDrop(
+                BonsplitController.ExternalFileDropRequest(
+                    urls: [URL(fileURLWithPath: entry.filePath)],
+                    destination: request.destination
+                )
+            )
+        case .surface:
+            return nil
+        }
+        if handled {
+            sourceResolver.finish(source, id: id)
+        }
+        return handled
+    }
+
     /// Applies one acceptance matrix to every pane owner and target kind.
     func canPerformPortalPaneDrop(
         _ transfer: PaneDragTransfer,

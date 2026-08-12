@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 import Testing
 
@@ -232,6 +233,7 @@ struct VaultNativeDragSourceTests {
     @Test("A completed native drag releases ownership before the next duplicate drag")
     func completedDragReleasesOwnershipForNextDuplicate() throws {
         let registry = SessionDragRegistry()
+        let tabDragTransferRegistry = TabDragTransferRegistry()
         var startedSources: [SessionDragSessionSource] = []
         let coordinator = SessionDragCoordinator(
             startDraggingSession: { _, _, _, source in
@@ -252,6 +254,7 @@ struct VaultNativeDragSourceTests {
             #expect(coordinator.beginSessionDrag(
                 entry,
                 registry: registry,
+                tabDragTransferRegistry: tabDragTransferRegistry,
                 from: sourceView,
                 event: event,
                 frame: frame,
@@ -266,6 +269,7 @@ struct VaultNativeDragSourceTests {
             #expect(!coordinator.beginSessionDrag(
                 entry,
                 registry: registry,
+                tabDragTransferRegistry: tabDragTransferRegistry,
                 from: sourceView,
                 event: event,
                 frame: frame,
