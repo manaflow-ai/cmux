@@ -257,6 +257,21 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// durable Release log cannot capture terminal contents, credentials,
     /// account identifiers, file paths, URLs, workspace titles, or error text.
     case appFeatureAction = 65
+
+    // MARK: Relay-free bootstrap diagnostics
+
+    /// A privacy-safe count of public/private dial candidates before dialing.
+    case transportDialPlanBuilt = 71
+    /// A configured private address was joined to an authenticated endpoint.
+    case transportPrivateAddressJoin = 72
+    /// LAN discovery completed without retaining addresses in diagnostics.
+    case transportLANDiscovery = 73
+    /// One direct/private dial leg succeeded.
+    case transportDialLegSucceeded = 74
+    /// One direct/private dial leg failed. `b` is ``DiagnosticFailureKind``.
+    case transportDialLegFailed = 75
+    /// Mac LAN publication changed state without exposing addresses.
+    case lanPublicationState = 76
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

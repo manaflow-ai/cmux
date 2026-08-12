@@ -323,7 +323,7 @@ public struct DiagnosticEventPresentation: Sendable {
 
     /// Event codes whose `b` slot carries a ``DiagnosticFailureKind``.
     private static let codesWithFailureB: Set<DiagnosticEventCode> = [
-        .pairFail, .transportDialFailed, .recoveryFailed, .endpointFailed,
+        .pairFail, .transportDialFailed, .transportDialLegFailed, .recoveryFailed, .endpointFailed,
         .relayPolicyRefreshFailed, .sessionClosed, .routeUnavailable,
         .discoveryFailed, .admissionFailed, .hostAuthenticationFailed,
         .rpcFailed, .transportCloseAttribution, .appFeatureAction,
@@ -463,6 +463,18 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.simulatorOwnershipChanged", defaultValue: "Simulator control ownership changed")
         case .appFeatureAction:
             localized("diagnostics.event.appFeatureAction", defaultValue: "App feature event")
+        case .transportDialPlanBuilt:
+            localized("diagnostics.event.transportDialPlanBuilt", defaultValue: "Transport dial plan built")
+        case .transportPrivateAddressJoin:
+            localized("diagnostics.event.transportPrivateAddressJoin", defaultValue: "Private address candidate joined")
+        case .transportLANDiscovery:
+            localized("diagnostics.event.transportLANDiscovery", defaultValue: "LAN discovery completed")
+        case .transportDialLegSucceeded:
+            localized("diagnostics.event.transportDialLegSucceeded", defaultValue: "Direct dial leg succeeded")
+        case .transportDialLegFailed:
+            localized("diagnostics.event.transportDialLegFailed", defaultValue: "Direct dial leg failed")
+        case .lanPublicationState:
+            localized("diagnostics.event.lanPublicationState", defaultValue: "LAN publication state changed")
         }
     }
 
