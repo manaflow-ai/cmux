@@ -13,6 +13,7 @@ struct SidebarAppKitRowCellTests {
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
+        latestConversationMessage: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -30,7 +31,7 @@ struct SidebarAppKitRowCellTests {
             remoteStateHelpText: "",
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
-            latestConversationMessage: nil,
+            latestConversationMessage: latestConversationMessage,
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
             latestLog: nil,
@@ -62,6 +63,7 @@ struct SidebarAppKitRowCellTests {
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
+        latestConversationMessage: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
         shortcutHintText: String? = nil,
@@ -75,6 +77,7 @@ struct SidebarAppKitRowCellTests {
             snapshot: makeSnapshot(
                 customDescription: customDescription,
                 isPinned: isPinned,
+                latestConversationMessage: latestConversationMessage,
                 metadataEntries: metadataEntries,
                 metadataBlocks: metadataBlocks
             ),
@@ -2057,6 +2060,22 @@ struct SidebarAppKitRowCellTests {
             #expect(!Self.makeSwiftUIRow(settings: settings).settings.details[keyPath: detailKey])
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
+    }
+
+    @Test
+    func structuredAgentActivityHidesConversationPreview() {
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: IMessageModeSettings.key)
+        defaults.set(true, forKey: "sidebarShowAgentActivity")
+        let model = Self.makeModel(
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            latestConversationMessage: "last agent message"
+        )
+        let cell = Self.configuredCell(model: model)
+
+        #expect(Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .allSatisfy { $0.isHidden || $0.stringValue != "last agent message" })
     }
 }
 
