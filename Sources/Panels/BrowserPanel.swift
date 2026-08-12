@@ -1050,8 +1050,10 @@ func browserExternalNavigationAction(for url: URL) -> BrowserExternalNavigationA
 }
 
 private func browserCopyExternalNavigationURL(_ url: URL) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    GhosttyApp.terminalPasteboard.writeString(
+        url.absoluteString,
+        to: .general
+    )
 }
 
 typealias BrowserAlertPresenter = (
@@ -2301,9 +2303,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 && self?.webView.url != nil
         },
         clipboardWriter: { prompt in
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            return pasteboard.setString(prompt, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                prompt,
+                to: .general
+            )
         },
         onActivityChanged: { [weak self] in
             self?.handleDesignModeActivityChanged()

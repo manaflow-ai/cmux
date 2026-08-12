@@ -440,6 +440,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                    for: isolatedHibernationReservation
                ),
                !activeHibernationTeardownsBySlot.keys.contains(executionSlot) {
+                await Self.invalidateRuntimeClipboardRequestsBeforeFree(request)
                 startTeardown(
                     request,
                     executionLane: .isolatedHibernation,
@@ -457,6 +458,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         case .boundedClose:
             break
         }
+        await Self.invalidateRuntimeClipboardRequestsBeforeFree(request)
         queuedCloseRequests.append(request)
         startAvailableCloseTeardowns()
     }
@@ -650,6 +652,19 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             .failRecoveriesForAllStalledCloseTeardowns()
         recoveryRescanScheduler.failPendingOverflowCreations()
         recoveryFailureDrain.enqueue(failures)
+    }
+
+    private nonisolated static func invalidateRuntimeClipboardRequestsBeforeFree(
+        _ request: TerminalSurfaceRuntimeTeardownRequest
+    ) async {
+        if request.callbackContext != nil {
+            await MainActor.run {
+                request.callbackContext?.takeUnretainedValue()
+                    .invalidateRuntimeClipboardRequests(
+                        completingNativeRequests: true
+                    )
+            }
+        }
     }
 
     private nonisolated func freeNativeSurface(

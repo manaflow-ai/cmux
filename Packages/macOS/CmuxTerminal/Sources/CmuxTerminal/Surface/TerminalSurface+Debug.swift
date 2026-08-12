@@ -180,6 +180,7 @@ extension TerminalSurface {
     @MainActor
     public func releaseSurfaceForTesting() {
         let callbackContext = surfaceCallbackContext
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext = nil
         let runtimeOwnershipReservation =
             runtimeSurfaceOwnershipReservation
@@ -213,6 +214,7 @@ extension TerminalSurface {
         guard !runtimeSurfaceFreedOutOfBandForTesting else { return }
 
         let callbackContext = surfaceCallbackContext
+        invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext = nil
         let runtimeOwnershipReservation =
             runtimeSurfaceOwnershipReservation
@@ -270,6 +272,11 @@ extension TerminalSurface {
             surfaceCallbackContext = callbackContext
         }
         surface = runtimeSurface
+        _ = callbackContext.takeUnretainedValue()
+            .bindRuntimeClipboardSurface(
+                runtimeSurface,
+                generation: runtimeSurfaceGeneration
+            )
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
         cacheControllingTTYIdentity(for: runtimeSurface)
