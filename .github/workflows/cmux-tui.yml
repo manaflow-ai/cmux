@@ -221,6 +221,7 @@ jobs:
           # thresholds used by the former complete-workspace leak check.
           CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
           CMUX_TEST_TIMEOUT_SCALE: "4"
+          CMUX_TEST_MEMORY_INSTRUMENTATION: "1"
         run: |
           cat > "$RUNNER_TEMP/ring.supp" <<'SUPPRESSIONS'
           # ring 0.17 AES-GCM uses initialized bytes through assembly that
