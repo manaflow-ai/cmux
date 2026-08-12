@@ -44,7 +44,8 @@ struct DisconnectedWorkspaceShellView: View {
         NavigationStack {
             content
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    if store?.tailscalePairingRequired == true {
+                    if store?.tailscalePairingRequired == true,
+                       let showPairingScanner {
                         MobileTailscalePairingRequiredBanner(
                             scanPairingCode: showPairingScanner
                         )
@@ -234,7 +235,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// connected, and alerting "couldn't connect" would be wrong — skip it.
     private func connect(to computer: MacComputerSnapshot) {
         if store?.tailscalePairingRequired == true {
-            showPairingScanner()
+            showPairingScanner?()
             return
         }
         guard connectingMacID == nil, let store else { return }
