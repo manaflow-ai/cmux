@@ -111,7 +111,7 @@ function verificationCallbackURL(request: Request): string {
   if (
     requestURL.hostname === "localhost" ||
     requestURL.hostname === "127.0.0.1" ||
-    requestURL.hostname === "::1"
+    requestURL.hostname === "[::1]"
   ) {
     return new URL("/handler/email-verification", requestURL.origin).toString();
   }

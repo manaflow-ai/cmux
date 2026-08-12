@@ -94,6 +94,26 @@ describe("billing complete route", () => {
     );
   });
 
+  test("keeps an IPv6 loopback checkout verification callback local", async () => {
+    const request = new NextRequest(
+      "http://localhost:3777/api/billing/complete?session_id=cs_123",
+    );
+    // NextRequest rewrites bracketed IPv6 loopback to localhost in Bun, so
+    // preserve the actual platform URL shape that reaches the helper.
+    Object.defineProperty(request, "nextUrl", {
+      value: new URL(
+        "http://[::1]:3777/api/billing/complete?session_id=cs_123",
+      ),
+    });
+    const response = await GET(request);
+
+    expect(response.status).toBe(307);
+    expect(requestEmailVerification).toHaveBeenCalledWith({
+      email: "buyer@example.com",
+      callbackURL: "http://[::1]:3777/handler/email-verification",
+    });
+  });
+
   test("uses the callback scheme trusted at checkout on a deployed completion host", async () => {
     retrievedSession = {
       id: "cs_123",

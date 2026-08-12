@@ -6,8 +6,11 @@ import {
 } from "../app/api/auth/email-verification/route";
 import { EmailVerificationRecoveryUnavailable } from "../services/auth/emailVerificationRecovery";
 
-function request(body: unknown): Request {
-  return new Request("https://cmux.com/api/auth/email-verification", {
+function request(
+  body: unknown,
+  url = "https://cmux.com/api/auth/email-verification",
+): Request {
+  return new Request(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -51,6 +54,24 @@ describe("email verification recovery route", () => {
 
     expect(response.status).toBe(400);
     expect(recover).not.toHaveBeenCalled();
+  });
+
+  test("keeps an IPv6 loopback verification callback local", async () => {
+    const recover = mock(async () => ({ delivery: "sent" as const }));
+    const response = await makeEmailVerificationRecoveryHandler(
+      dependencies({ recover }),
+    )(
+      request(
+        { email: "buyer@example.com" },
+        "http://[::1]:3777/api/auth/email-verification",
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    expect(recover).toHaveBeenCalledWith({
+      email: "buyer@example.com",
+      callbackURL: "http://[::1]:3777/handler/email-verification",
+    });
   });
 
   test("enforces the deployed public-endpoint rate limit", async () => {

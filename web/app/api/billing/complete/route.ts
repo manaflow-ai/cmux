@@ -161,7 +161,7 @@ function emailVerificationCallbackURL(request: NextRequest): string {
   if (
     request.nextUrl.hostname === "localhost" ||
     request.nextUrl.hostname === "127.0.0.1" ||
-    request.nextUrl.hostname === "::1"
+    request.nextUrl.hostname === "[::1]"
   ) {
     return new URL(
       "/handler/email-verification",
