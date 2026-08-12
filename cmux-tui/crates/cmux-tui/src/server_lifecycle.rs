@@ -736,7 +736,7 @@ impl ServerLifecycle {
 
     pub(crate) fn stop_legacy(self) -> anyhow::Result<()> {
         if self.probe.identity.release.protocol >= PROTOCOL_VERSION {
-            anyhow::bail!(crate::localization::catalog().server.legacy_peer_mismatch);
+            anyhow::bail!(crate::localization::catalog().server.shutdown_unsupported);
         }
         self.stop_legacy_server()
     }
@@ -2131,9 +2131,13 @@ mod tests {
         let mut reader = BufReader::new(Box::new(client) as Box<dyn transport::Stream>);
         let started = Instant::now();
 
-        let error =
-            read_matching_response_with_timeout(&mut reader, 7, false, Duration::from_millis(50))
-                .unwrap_err();
+        let error = read_matching_response_until(
+            &mut reader,
+            7,
+            false,
+            Instant::now() + Duration::from_millis(50),
+        )
+        .unwrap_err();
 
         assert!(
             started.elapsed() < Duration::from_millis(250),
@@ -2151,9 +2155,13 @@ mod tests {
         let mut reader =
             BufReader::with_capacity(CHUNK_BYTES, Box::new(stream) as Box<dyn transport::Stream>);
 
-        let error =
-            read_matching_response_with_timeout(&mut reader, 7, false, Duration::from_secs(1))
-                .unwrap_err();
+        let error = read_matching_response_until(
+            &mut reader,
+            7,
+            false,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap_err();
 
         assert_eq!(error.to_string(), crate::localization::catalog().server.response_invalid);
         assert!(
