@@ -268,8 +268,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             my $pid = 0 + $raw_pid;
             my $buffer = "\0" x 136;
             # Darwin SYS_proc_info(2), PROC_INFO_CALL_PIDINFO(2),
-            # PROC_PIDTBSDINFO(3). proc_bsdinfo is 136 bytes on supported
-            # macOS SDKs: pbi_pgid is at 100, and start time is at 120/128.
+            # PROC_PIDTBSDINFO(3). MAXCOMLEN is 16, so twelve 4-byte fields,
+            # pbi_comm[16], pbi_name[32], and pbi_nfiles[4] put pbi_pgid at
+            # 100. The 136-byte structure ends with start time at 120/128.
             my $size = syscall(336, 2, $pid, 3, 0, $buffer, 136);
             exit 1 unless $size == 136;
             my $status = unpack("L<", substr($buffer, 4, 4));

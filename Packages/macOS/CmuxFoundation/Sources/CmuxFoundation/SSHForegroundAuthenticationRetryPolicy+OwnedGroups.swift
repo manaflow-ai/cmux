@@ -106,6 +106,10 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
             my $read_info = sub {
               my ($pid) = @_;
+              # Darwin proc_bsdinfo uses MAXCOMLEN == 16: twelve 4-byte
+              # fields, pbi_comm[16], pbi_name[32], then pbi_nfiles[4].
+              # Therefore pbi_pgid starts at 100 and the 136-byte structure
+              # ends with pbi_start_tvsec/usec at offsets 120 and 128.
               my $buffer = "\0" x 136;
               my $size = syscall(336, 2, $pid, 3, 0, $buffer, 136);
               return undef unless $size == 136;
