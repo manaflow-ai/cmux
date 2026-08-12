@@ -34,4 +34,15 @@ final class SessionDragRegionStore {
                 (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
             }
     }
+
+#if DEBUG
+    var debugRegions: [Region] {
+        regionsByID.values.sorted { lhs, rhs in
+            if lhs.frame.minY == rhs.frame.minY {
+                return lhs.rowID.occurrence < rhs.rowID.occurrence
+            }
+            return lhs.frame.minY < rhs.frame.minY
+        }
+    }
+#endif
 }

@@ -80,6 +80,19 @@ final class SessionDragMonitorView: NSView {
             return
         }
         let point = convert(event.locationInWindow, from: nil)
+#if DEBUG
+        let regionSummary = regions.debugRegions.map { region in
+            let frame = region.frame
+            return "\(region.rowID.occurrence):\(Int(frame.minX)),\(Int(frame.minY)),\(Int(frame.width)),\(Int(frame.height))"
+        }.joined(separator: ";")
+        cmuxDebugLog(
+            "vault.drag.source.inspect view=\(ObjectIdentifier(self)) "
+                + "windowPoint=\(Int(event.locationInWindow.x)),\(Int(event.locationInWindow.y)) "
+                + "localPoint=\(Int(point.x)),\(Int(point.y)) "
+                + "bounds=\(Int(bounds.minX)),\(Int(bounds.minY)),\(Int(bounds.width)),\(Int(bounds.height)) "
+                + "regions=\(regionSummary)"
+        )
+#endif
         guard bounds.contains(point),
               let region = regions.region(at: point) else {
             return
