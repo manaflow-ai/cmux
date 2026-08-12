@@ -4,7 +4,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use cmux_tui_core::resource::{
-    ContentPublicId, PanePublicId, ScreenPublicId, TerminalPublicId, WorkspacePublicId,
+    BrowserPublicId, ContentPublicId, PanePublicId, ScreenPublicId, TabPublicId, TerminalPublicId,
+    WorkspacePublicId,
 };
 use cmux_tui_core::{
     BrowserSource, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Node, PaneId,
@@ -66,6 +67,8 @@ pub struct PaneView {
 #[derive(Clone)]
 pub struct TabView {
     pub surface: SurfaceId,
+    pub public_id: Option<TabPublicId>,
+    pub content_id: Option<ContentPublicId>,
     pub terminal_id: Option<TerminalPublicId>,
     pub short_id: String,
     pub name: Option<String>,
@@ -294,6 +297,16 @@ pub fn tree_from_state_with_notifications(
                 .iter()
                 .map(|sid| TabView {
                     surface: *sid,
+                    public_id: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.resource_identity())
+                        .map(|identity| identity.tab_id.clone()),
+                    content_id: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.resource_identity())
+                        .map(|identity| identity.content_id.clone()),
                     terminal_id: state
                         .surfaces
                         .get(sid)
@@ -413,6 +426,22 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .filter_map(|tab| {
                         Some(TabView {
                             surface: tab.get("surface")?.as_u64()?,
+                            public_id: tab
+                                .get("tab_resource_id")
+                                .and_then(Value::as_str)
+                                .and_then(|value| TabPublicId::parse(value.to_string()).ok()),
+                            content_id: tab
+                                .get("content_resource_id")
+                                .and_then(Value::as_str)
+                                .and_then(|value| {
+                                    TerminalPublicId::parse(value.to_string())
+                                        .map(ContentPublicId::Terminal)
+                                        .or_else(|_| {
+                                            BrowserPublicId::parse(value.to_string())
+                                                .map(ContentPublicId::Browser)
+                                        })
+                                        .ok()
+                                }),
                             terminal_id: tab
                                 .get("terminal_resource_id")
                                 .and_then(Value::as_str)

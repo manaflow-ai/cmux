@@ -24,11 +24,13 @@ pub(crate) mod field {
     pub(crate) const FRONTEND_PROJECTION: &str = "frontend_projection";
     pub(crate) const SIDEBAR_VIEW: &str = "sidebar_view";
     pub(crate) const STREAM_ID: &str = "stream_id";
+    pub(crate) const ATTACHMENT_LEASE: &str = "attachment_lease";
     pub(crate) const NAME: &str = "name";
     pub(crate) const KIND: &str = "kind";
     pub(crate) const INDEX: &str = "index";
     pub(crate) const DIRECTION: &str = "direction";
     pub(crate) const RATIO: &str = "ratio";
+    pub(crate) const VIEWPORT_WIDTH: &str = "viewport_width";
     pub(crate) const COLUMNS: &str = "columns";
     pub(crate) const COLS: &str = "cols";
     pub(crate) const ROWS: &str = "rows";
@@ -71,6 +73,10 @@ pub(crate) mod field {
     pub(crate) const LEVEL: &str = "level";
     pub(crate) const TERMINAL_ID: &str = "terminal_id";
     pub(crate) const PROJECTION: &str = "projection";
+    pub(crate) const FRONTEND_ID: &str = "frontend_id";
+    pub(crate) const WINDOW_ID: &str = "window_id";
+    pub(crate) const GENERATION: &str = "generation";
+    pub(crate) const EXPECTED_PROJECTION_REVISION: &str = "expected_projection_revision";
     pub(crate) const DECISION: &str = "decision";
     pub(crate) const STATE: &str = "state";
     pub(crate) const SOURCE: &str = "source";
@@ -313,6 +319,16 @@ pub(crate) fn validate_ratio(value: f64) -> Result<()> {
     Ok(())
 }
 
+fn validate_viewport_width(direction: Direction, value: f64) -> Result<()> {
+    if direction != Direction::Right || !value.is_finite() || !(0.1..=1.0).contains(&value) {
+        return Err(Error::InvalidArgument(
+            "viewport width requires a right split and a finite value between 0.1 and 1"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn creation_correlation(params: Params, correlation_key: Option<String>) -> Result<Params> {
     if let Some(value) = &correlation_key {
         validate_correlation_key(value)?;
@@ -363,10 +379,14 @@ pub(crate) fn split(options: SplitOptions) -> Result<Params> {
     if let Some(ratio) = options.ratio {
         validate_ratio(ratio)?;
     }
+    if let Some(width) = options.viewport_width {
+        validate_viewport_width(options.direction, width)?;
+    }
     let params = size(
         Params::new()
             .string(field::DIRECTION, options.direction.wire_name())
             .optional_f64(field::RATIO, options.ratio)
+            .optional_f64(field::VIEWPORT_WIDTH, options.viewport_width)
             .optional_string(field::CWD, options.cwd),
         options.size,
     )?;

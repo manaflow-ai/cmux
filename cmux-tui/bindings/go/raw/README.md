@@ -1,6 +1,6 @@
 # cmux Go SDK
 
-The Go SDK covers all 97 protocol-11 commands and 45 event shapes using only
+The Go SDK covers all 101 protocol-12 commands and 46 event shapes using only
 the Go standard library.
 
 ```go
@@ -197,7 +197,7 @@ go vet ./...
 The complete live-server consumer is `cmd/e2e`. Set `CMUX_TUI_SOCKET` and run
 `go run ./cmd/e2e`.
 
-The generated protocol-11 surface replaces incomplete legacy models.
+The generated protocol-12 surface replaces incomplete legacy models.
 `SetClientSizing` now takes `SetClientSizingOptions`, workspace registry
 mutations return their authoritative result, and `Pane` exposes
 `AsLivePane`/`AsDeadPane` for its wire union. `NewClient`, `Identify`,

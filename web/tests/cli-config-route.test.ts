@@ -54,7 +54,7 @@ describe("CLI config route", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(await response.json()).toEqual({
-        version: 3,
+        version: 4,
         auth: {
           apiUrl: testEnvironment.NEXT_PUBLIC_STACK_API_URL,
           projectId: testEnvironment.NEXT_PUBLIC_STACK_PROJECT_ID,
@@ -65,6 +65,8 @@ describe("CLI config route", () => {
         coderouter: {
           sessionUrl: "https://cmux.com/api/coderouter/session",
           accountsUrl: "https://cmux.com/api/coderouter/accounts",
+          organizationsUrl:
+            "https://cmux.com/api/coderouter/organizations",
           openaiBaseUrl: "https://cmux.com/v1",
         },
         subrouter: {

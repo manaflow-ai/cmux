@@ -88,7 +88,7 @@ struct SessionIndexViewTests {
         )
 
         #expect(
-            entry.resumeCommand
+            entry.copyResumeCommand
                 == posixShWrappedForTest("env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" --resume claude-session-123")
         )
     }
@@ -121,7 +121,7 @@ struct SessionIndexViewTests {
         )
 
         #expect(
-            entry.resumeCommand
+            entry.copyResumeCommand
                 == posixShWrappedForTest("env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" --resume claude-session-123")
         )
     }
@@ -141,7 +141,7 @@ struct SessionIndexViewTests {
         )
 
         #expect(
-            entry.resumeCommand
+            entry.copyResumeCommand
                 == "'env' 'GROK_HOME=/tmp/grok home' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
     }
@@ -167,7 +167,7 @@ struct SessionIndexViewTests {
             )
         )
 
-        let command = entry.resumeCommand ?? ""
+        let command = entry.copyResumeCommand ?? ""
         // The codex resume now routes the codex executable through the cmux codex
         // wrapper token and wraps the rendered command in `/bin/sh -c '…'` so a
         // resumed codex session keeps its hooks (issue #5639). Assert the inner
@@ -199,7 +199,7 @@ struct SessionIndexViewTests {
             )
         )
 
-        let command = entry.resumeCommand ?? ""
+        let command = entry.copyResumeCommand ?? ""
         let inner = Self.unwrapPortableShellCommand(command)
         #expect(
             inner
@@ -225,7 +225,7 @@ struct SessionIndexViewTests {
             )
         )
         #expect(
-            Self.unwrapPortableShellCommand(readOnly.resumeCommand ?? "")
+            Self.unwrapPortableShellCommand(readOnly.copyResumeCommand ?? "")
                 == "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-ro -c check_for_update_on_startup=false -a untrusted -s read-only"
         )
 
@@ -241,7 +241,7 @@ struct SessionIndexViewTests {
             )
         )
         #expect(
-            Self.unwrapPortableShellCommand(dangerFullAccess.resumeCommand ?? "")
+            Self.unwrapPortableShellCommand(dangerFullAccess.copyResumeCommand ?? "")
                 == "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-dfa -c check_for_update_on_startup=false -m gpt-5.5 -a never -s danger-full-access"
         )
     }
@@ -499,6 +499,7 @@ struct SessionIndexViewTests {
                 section: section,
                 search: search,
                 loadSnapshot: loadSnapshot,
+                beginSessionDrag: { _, _, _, _, _ in false },
                 onResume: nil
             ),
             onDismiss: onDismiss

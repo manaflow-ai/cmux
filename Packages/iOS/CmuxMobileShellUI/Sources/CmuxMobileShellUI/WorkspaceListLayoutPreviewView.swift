@@ -99,7 +99,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var model: WorkspaceListLayoutPreviewModel
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
-    @State private var filterState = WorkspaceListFilterState()
+    @State private var filterState: WorkspaceListFilterState
     /// Store-free stand-ins for the device-local sort preference, so the
     /// fixture's sort menu and computer-order editor are fully interactive.
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT` (a raw mode value) and
@@ -123,11 +123,24 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// measurement.
     public init() {
         let environment = ProcessInfo.processInfo.environment
+        let initialFilter = MobileWorkspaceListFilter(
+            machines: environment[
+                "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_FILTER_MACHINE"
+            ].map { Set([$0]) } ?? []
+        )
+        _filterState = State(
+            initialValue: WorkspaceListFilterState(filter: initialFilter)
+        )
         let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
+        let usesMixedGroupFixture = environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS"
+        ] == "1"
         let initialWorkspaces: [MobileWorkspacePreview]
         let initialGroups: [MobileWorkspaceGroupPreview]
-        if seedCount > 0 {
+        if usesMixedGroupFixture {
+            (initialWorkspaces, initialGroups) = Self.mixedGroupFixture()
+        } else if seedCount > 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
             (initialWorkspaces, initialGroups) = Self.seeded(
                 count: seedCount,
@@ -167,6 +180,9 @@ public struct WorkspaceListLayoutPreviewView: View {
                 liveUpdateMode: liveUpdateMode
             )
         )
+        usesSidebarSelectionFixture = environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SIDEBAR_SELECTION"
+        ] == "1"
     }
 
     /// Tap-to-open target in the interactive fixture: a trivial pushed detail
@@ -189,6 +205,10 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     private let reorderEnabled: Bool
+    /// Opt-in visual-selection harness. Default preview behavior remains the
+    /// production iPhone push flow; this mode uses the production sidebar row
+    /// selection path so screenshot verification can see retained selection.
+    private let usesSidebarSelectionFixture: Bool
 
     /// A stable clock-time for seeded activity: capture rigs show these rows
     /// under an 11:41 status bar, so same-day times stay in the morning and
@@ -323,6 +343,152 @@ public struct WorkspaceListLayoutPreviewView: View {
         "CI green on head",
     ]
 
+    /// Deterministic mixed topology for grouped-sort interaction coverage.
+    /// Computer Order starts with an ungrouped row before Alpha, one between
+    /// Alpha and Beta, and one after Beta. Alpha has a timestamp-less member;
+    /// Recent Activity must move whole groups without dropping that member.
+    private static func mixedGroupFixture()
+        -> ([MobileWorkspacePreview], [MobileWorkspaceGroupPreview]) {
+        let alphaGroupID = MobileWorkspaceGroupPreview.ID(rawValue: "mixed-alpha")
+        let betaGroupID = MobileWorkspaceGroupPreview.ID(rawValue: "mixed-beta")
+        let now = Date()
+
+        func workspace(
+            id: String,
+            macDeviceID: String,
+            macDisplayName: String,
+            macInstanceTag: String,
+            name: String,
+            groupID: MobileWorkspaceGroupPreview.ID? = nil,
+            activityOffset: TimeInterval? = nil,
+            hasUnread: Bool = false
+        ) -> MobileWorkspacePreview {
+            let activityAt = activityOffset.map { now.addingTimeInterval($0) }
+            var workspace = MobileWorkspacePreview(
+                id: .init(rawValue: id),
+                macDeviceID: macDeviceID,
+                macDisplayName: macDisplayName,
+                name: name,
+                groupID: groupID,
+                previewAt: activityAt,
+                lastActivityAt: activityAt,
+                hasUnread: hasUnread,
+                terminals: []
+            )
+            workspace.macInstanceTag = macInstanceTag
+            workspace.machineColorIndex = macDeviceID == "preview-macbook-pro" ? 0 : 1
+            return workspace
+        }
+
+        let workspaces = [
+            workspace(
+                id: "workspace-mixed-before",
+                macDeviceID: "preview-macbook-pro",
+                macDisplayName: "MacBook Pro",
+                macInstanceTag: "nightly",
+                name: L10n.string(
+                    "mobile.workspaces.preview.mixed.before",
+                    defaultValue: "Before Groups"
+                ),
+                activityOffset: -300
+            ),
+            workspace(
+                id: "workspace-mixed-alpha-anchor",
+                macDeviceID: "preview-macbook-pro",
+                macDisplayName: "MacBook Pro",
+                macInstanceTag: "nightly",
+                name: L10n.string(
+                    "mobile.workspaces.preview.mixed.alphaAnchor",
+                    defaultValue: "Alpha Lead"
+                ),
+                groupID: alphaGroupID,
+                activityOffset: -240
+            ),
+            workspace(
+                id: "workspace-mixed-alpha-inactive",
+                macDeviceID: "preview-macbook-pro",
+                macDisplayName: "MacBook Pro",
+                macInstanceTag: "nightly",
+                name: L10n.string(
+                    "mobile.workspaces.preview.mixed.inactiveMember",
+                    defaultValue: "Inactive Member"
+                ),
+                groupID: alphaGroupID,
+                hasUnread: true
+            ),
+            workspace(
+                id: "workspace-mixed-between",
+                macDeviceID: "preview-macbook-pro",
+                macDisplayName: "MacBook Pro",
+                macInstanceTag: "nightly",
+                name: L10n.string(
+                    "mobile.workspaces.preview.mixed.between",
+                    defaultValue: "Between Groups"
+                ),
+                activityOffset: -180
+            ),
+            workspace(
+                id: "workspace-mixed-beta-anchor",
+                macDeviceID: "preview-studio",
+                macDisplayName: "Studio Display Bench With A Very Long Name",
+                macInstanceTag: "stable",
+                name: L10n.string(
+                    "mobile.workspaces.preview.mixed.betaAnchor",
+                    defaultValue: "Beta Lead"
+                ),
+                groupID: betaGroupID,
+                activityOffset: -600
+            ),
+            workspace(
+                id: "workspace-mixed-beta-recent",
+                macDeviceID: "preview-studio",
+                macDisplayName: "Studio Display Bench With A Very Long Name",
+                macInstanceTag: "stable",
+                name: L10n.string(
+                    "mobile.workspaces.preview.mixed.recentMember",
+                    defaultValue: "Recent Member"
+                ),
+                groupID: betaGroupID,
+                activityOffset: -120,
+                hasUnread: true
+            ),
+            workspace(
+                id: "workspace-mixed-after",
+                macDeviceID: "preview-studio",
+                macDisplayName: "Studio Display Bench With A Very Long Name",
+                macInstanceTag: "stable",
+                name: L10n.string(
+                    "mobile.workspaces.preview.mixed.after",
+                    defaultValue: "After Groups"
+                ),
+                activityOffset: -60
+            ),
+        ]
+        let groups = [
+            MobileWorkspaceGroupPreview(
+                id: alphaGroupID,
+                macDeviceID: "preview-macbook-pro",
+                macInstanceTag: "nightly",
+                name: L10n.string(
+                    "mobile.workspaces.preview.mixed.alphaGroup",
+                    defaultValue: "Alpha Group"
+                ),
+                anchorWorkspaceID: "workspace-mixed-alpha-anchor"
+            ),
+            MobileWorkspaceGroupPreview(
+                id: betaGroupID,
+                macDeviceID: "preview-studio",
+                macInstanceTag: "stable",
+                name: L10n.string(
+                    "mobile.workspaces.preview.mixed.betaGroup",
+                    defaultValue: "Beta Group"
+                ),
+                anchorWorkspaceID: "workspace-mixed-beta-anchor"
+            ),
+        ]
+        return (workspaces, groups)
+    }
+
     /// Deterministic long-list seeding for scroll measurement
     /// (`CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT`, optional
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS`). Every 4th row is unread,
@@ -391,6 +557,19 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS"] == "1"
     }
 
+    private var fixtureConnectionStatus: MobileMacConnectionStatus {
+        switch ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS"
+        ] {
+        case "reconnecting":
+            return .reconnecting
+        case "unavailable":
+            return .unavailable
+        default:
+            return .connected
+        }
+    }
+
     private func performPreviewRefresh() {
         model.rotateForRefresh()
         refreshGeneration += 1
@@ -425,13 +604,17 @@ public struct WorkspaceListLayoutPreviewView: View {
             groups: model.groups,
             selectedWorkspaceID: selectedWorkspaceID,
             host: "Visual Mock Mac",
-            connectionStatus: .connected,
-            navigationStyle: .push,
+            connectionStatus: fixtureConnectionStatus,
+            navigationStyle: usesSidebarSelectionFixture ? .sidebar : .push,
             wrapWorkspaceTitles: false,
             previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
             unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
             selectWorkspace: { id in
-                selectFixtureWorkspace(id)
+                if usesSidebarSelectionFixture {
+                    selectedWorkspaceID = id
+                } else {
+                    selectFixtureWorkspace(id)
+                }
             },
             createWorkspace: {},
             createWorkspaceInGroup: reorderEnabled ? { _ in } : nil,
@@ -605,8 +788,15 @@ public struct WorkspaceListLayoutPreviewView: View {
             ZStack(alignment: .topLeading) {
                 Color.clear
                     .frame(width: 1, height: 1)
+                    .offset(x: 2)
                     .accessibilityElement()
                     .accessibilityIdentifier("MobileWorkspaceListRefreshGeneration-\(refreshGeneration)")
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityIdentifier(
+                        "MobileWorkspaceListPreviewSelection-\(selectedWorkspaceID?.rawValue ?? "none")"
+                    )
                 if showsTabScaffold {
                     Button {
                         performPreviewRefresh()
