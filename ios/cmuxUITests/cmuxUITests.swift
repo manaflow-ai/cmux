@@ -4557,7 +4557,7 @@ final class cmuxUITests: XCTestCase {
     /// Shipped task templates are permanent entry points. The editor may edit
     /// them, but swipe actions must never offer destructive deletion.
     @MainActor
-    func testTaskComposerTemplateEditorDoesNotDeleteBuiltInTemplate() throws {
+    func testTaskComposerTemplateEditorDoesNotDeleteShellBuiltInTemplate() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
         ])
@@ -4568,7 +4568,7 @@ final class cmuxUITests: XCTestCase {
         tapMenuItem(app.buttons["MobileTaskComposerEditTemplatesButton"], in: app)
         XCTAssertTrue(app.navigationBars["Task Templates"].waitForExistence(timeout: 4))
 
-        let builtInRow = taskTemplateEditorRow(named: "OpenCode", in: app)
+        let builtInRow = taskTemplateEditorRow(named: "Shell", in: app)
         XCTAssertTrue(builtInRow.waitForExistence(timeout: 4))
         builtInRow.swipeLeft()
 
