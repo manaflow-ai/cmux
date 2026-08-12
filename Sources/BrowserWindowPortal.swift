@@ -1156,11 +1156,7 @@ struct BrowserPortalDesignComposerConfiguration {
     let controller: BrowserDesignModeController
 }
 
-struct BrowserPaneDropContext: Equatable {
-    let workspaceId: UUID
-    let panelId: UUID
-    let paneId: PaneID
-}
+typealias BrowserPaneDropContext = PaneDropContext
 
 final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
