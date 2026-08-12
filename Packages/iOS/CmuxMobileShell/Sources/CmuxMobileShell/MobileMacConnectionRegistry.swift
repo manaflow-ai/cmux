@@ -70,6 +70,22 @@ final class MobileMacConnectionRegistry {
         entriesByOwnerKey[ownerKey] = entry.isEmpty ? nil : entry
     }
 
+    /// Remove one exact control capability without touching a focused
+    /// capability that may share the same peer entry.
+    @discardableResult
+    func removeControlSubscription(
+        ifMatching subscription: SecondaryMacSubscription
+    ) -> Bool {
+        let ownerKey = subscription.ownerKey
+        guard var entry = entriesByOwnerKey[ownerKey],
+              entry.controlSubscription === subscription else {
+            return false
+        }
+        entry.controlSubscription = nil
+        entriesByOwnerKey[ownerKey] = entry.isEmpty ? nil : entry
+        return true
+    }
+
     /// Publish a newly established control owner only while the pool still has
     /// capacity. The count check and insertion share one MainActor operation,
     /// so concurrent dial completions cannot each consume the last slot.

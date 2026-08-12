@@ -9198,7 +9198,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         subscription.detachKeepingClient()
-        secondaryMacSubscriptions[connection.ownerKey] = nil
+        _ = macConnectionRegistry.removeControlSubscription(
+            ifMatching: subscription
+        )
     }
 
     /// Cancel only the keyed keepalive RPC owned by this exact control
