@@ -1723,13 +1723,13 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// Regression for the "stuck after selecting a search result" family:
-    /// selecting a workspace from the search tab's results presents it full
-    /// screen OVER the live search session (the Photos search pattern), and
-    /// dismissing returns to the search exactly as left — field at the bottom
-    /// with the query, results filtered. A navigation push cannot satisfy
-    /// this: the platform only bottom-restores a search field while the tab
-    /// bar stayed visible on the detail, and programmatic re-presentation
-    /// hosts the field in the top navigation bar.
+    /// selecting a workspace from the search tab's results pushes it inside
+    /// the search tab's own NavigationStack with the tab bar hidden, and
+    /// popping lands on the still-filtered results with the query preserved
+    /// in the bottom search control. The field must NOT auto-re-present (a
+    /// programmatic re-presentation measurably hosts it in the top navigation
+    /// drawer); one user tap on the control re-expands it at the bottom with
+    /// the query.
     @MainActor
     func testWorkspaceSearchSelectionOpensDetailInsideSearchTab() throws {
         guard #available(iOS 26.0, *) else {

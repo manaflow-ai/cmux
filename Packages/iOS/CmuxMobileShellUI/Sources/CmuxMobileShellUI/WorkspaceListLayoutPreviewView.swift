@@ -538,9 +538,9 @@ public struct WorkspaceListLayoutPreviewView: View {
                     }
                     .navigationDestination(item: $fixtureRoute) { route in
                         fixtureWorkspaceDetail(for: route.id)
-                            // Only the workspaces-tab push hides the bars; the
-                            // search-stack push keeps the tab bar so the field
-                            // restores at the bottom on pop.
+                            // The workspaces-tab push hides its bars per
+                            // destination; the search stack drives its own
+                            // tab-bar hide from the navigation path.
                             .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                             .navigationBarBackButtonHidden(true)
                             .toolbar {
