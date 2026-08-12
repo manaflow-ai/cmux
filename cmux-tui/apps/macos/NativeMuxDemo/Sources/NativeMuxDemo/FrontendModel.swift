@@ -504,7 +504,9 @@ final class FrontendModel {
         initialUpdates: FrontendUpdateSubscription,
         initialStream: FrontendResourceStream
     ) {
-        updatesTask?.cancel()
+        let updates = updatesTask
+        updatesTask = nil
+        updates?.cancel()
         updatesTask = Task { [weak self] in
             var updates = initialUpdates
             var resourceStream = initialStream
@@ -569,6 +571,8 @@ final class FrontendModel {
                     updates = recovered.updates
                     resourceStream = recovered.stream
                     recovery.recordSuccessfulRepair(at: recoveryNow())
+                } catch is CancellationError {
+                    return
                 } catch {
                     await self.disconnectAfterFailure(error)
                     return
@@ -1190,6 +1194,10 @@ final class FrontendModel {
                     scheduleRefresh()
                 }
             } catch is CancellationError {
+                // The remote mutation may have committed before cancellation
+                // was observed. Refresh authoritative state instead of
+                // leaving the optimistic UI at a stale value.
+                scheduleRefresh()
                 return
             } catch {
                 if let serviceError = error as? FrontendServiceError,
@@ -1263,7 +1271,9 @@ final class FrontendModel {
         let runtimeLoad = ghosttyRuntimeTask
         ghosttyRuntimeTask = nil
         runtimeLoad?.cancel()
-        updatesTask?.cancel()
+        let updates = updatesTask
+        updatesTask = nil
+        updates?.cancel()
         refreshTask?.cancel()
         focusMutations = FocusMutationTracker()
         await connection?.value
@@ -1294,6 +1304,7 @@ final class FrontendModel {
         for mutation in mutations {
             await mutation.value
         }
+        await updates?.value
         await ownedService?.shutdown()
     }
 }

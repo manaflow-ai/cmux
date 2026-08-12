@@ -436,6 +436,45 @@ func queuedFFIOperationDeadlineIncludesTimeBeforeExecution() async throws {
 }
 
 @Test
+func runningFFIOperationDeadlineResolvesBeforeTheBlockingCallReturns() async throws {
+    let firstStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let timeoutCompleted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    let release = DispatchSemaphore(value: 0)
+    let executor = SerialFFIExecutor(
+        label: "test.native-terminal.running-deadline",
+        timeoutScheduler: { _, action in
+            Task {
+                await action()
+                timeoutCompleted.continuation.yield()
+            }
+        }
+    )
+    let operation = Task {
+        try await executor.runCancellable(
+            cancellation: FFICancellation {},
+            timeoutNanoseconds: 10_000_000
+        ) {
+            firstStarted.continuation.yield()
+            release.wait()
+            return true
+        }
+    }
+    for await _ in firstStarted.stream { break }
+    for await _ in timeoutCompleted.stream { break }
+
+    do {
+        _ = try await operation.value
+        Issue.record("A running timed-out operation returned a value.")
+    } catch SerialFFIExecutorError.timedOut {
+    } catch {
+        Issue.record("A running timed-out operation returned an unexpected error: \(error)")
+    }
+    release.signal()
+    firstStarted.continuation.finish()
+    timeoutCompleted.continuation.finish()
+}
+
+@Test
 func completedFFIOperationCancelsPendingDeadline() async throws {
     let deadlineHold = AsyncStream<Void>.makeStream()
     let deadlineCancelled = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))

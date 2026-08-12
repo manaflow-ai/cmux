@@ -322,7 +322,10 @@ final class FFICancellation: @unchecked Sendable {
     let result = cmux_frontend_queue_cancellation_cancel(raw)
     guard result != UInt8(CMUX_FRONTEND_QUEUE_CANCEL_NONE) else { return false }
     onCancel()
-    return result == UInt8(CMUX_FRONTEND_QUEUE_CANCEL_BEFORE_EXECUTION)
+    // A running operation remains on the serial queue, but its waiter must
+    // still resolve now. The queue block retains the waiter and releases the
+    // pending-operation slot when the blocking C call finishes.
+    return true
   }
 }
 
