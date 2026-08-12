@@ -1642,9 +1642,15 @@ fn merge_projection(
     if current_is_active && current.source != "hook" && next.source == "hook" {
         return next;
     }
-    let same_session_identity =
-        current.source_session == next.source_session && current.provider == next.provider;
-    if same_session_identity {
+    let same_structured_session = current.source_session.is_some()
+        && current.source_session == next.source_session
+        && current.provider == next.provider;
+    let same_structured_turn = current.source_session.is_none()
+        && next.source_session.is_none()
+        && current.turn_id.is_some()
+        && current.turn_id == next.turn_id
+        && current.provider == next.provider;
+    if same_structured_session || same_structured_turn {
         let different_structured_turn = current.source_session.is_some()
             && current.turn_id.is_some()
             && next.turn_id.is_some()

@@ -7609,7 +7609,7 @@ fn journal_agent_sessionless_activity_does_not_reopen_final_session() {
 }
 
 #[test]
-fn journal_agent_sessionless_lifecycle_advances_before_final_state() {
+fn journal_agent_sessionless_lifecycle_does_not_advance_without_identity() {
     let mut registry = WorkspaceRegistry::in_memory("journal-agent-sessionless-lifecycle").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-sessionless-lifecycle-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
@@ -7619,7 +7619,7 @@ fn journal_agent_sessionless_lifecycle_advances_before_final_state() {
         sensitivity: JournalSensitivity::Sensitive,
     };
     for (index, event, expected_state) in
-        [(0, "SessionStart", "idle"), (1, "TurnStart", "working"), (2, "AgentEnd", "done")]
+        [(0, "SessionStart", "idle"), (1, "TurnStart", "idle"), (2, "AgentEnd", "idle")]
     {
         let ingress =
             crate::agent_hook_journal_ingress("pi", event, Some(terminal_id.as_str()), json!({}))
@@ -8165,7 +8165,7 @@ fn journal_agent_unidentified_late_end_does_not_finish_new_unidentified_session(
 }
 
 #[test]
-fn journal_agent_unidentified_completion_finishes_unidentified_run() {
+fn journal_agent_unidentified_completion_does_not_finish_unidentified_run() {
     let mut registry =
         WorkspaceRegistry::in_memory("journal-agent-unidentified-completion").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-unidentified-completion-topology");
@@ -8194,7 +8194,7 @@ fn journal_agent_unidentified_completion_finishes_unidentified_run() {
     }
 
     let agent = registry.public_projections().unwrap().agents.remove(0);
-    assert_eq!(agent.state, "done");
+    assert_eq!(agent.state, "working");
     assert_eq!(agent.source, "hook");
     assert!(agent.source_session.is_none());
 }
