@@ -103,7 +103,7 @@ final class PaneTransferDropRouter {
     }
 
     /// Executes a previously accepted transfer through the same pane owner.
-    func perform(_ plan: Plan) -> Bool {
+    func perform(_ plan: Plan, pasteboard: NSPasteboard) -> Bool {
         guard activePlan == plan,
               let container = container(for: plan.context) else { return false }
         let handled = container.performPortalPaneDrop(
@@ -114,7 +114,11 @@ final class PaneTransferDropRouter {
             source: plan.source
         )
         if handled {
-            sourceResolver.finish(plan.source, id: plan.transfer.tabId)
+            sourceResolver.finishAcceptedDrop(
+                plan.source,
+                id: plan.transfer.tabId,
+                pasteboard: pasteboard
+            )
         }
         activePlan = nil
         return handled

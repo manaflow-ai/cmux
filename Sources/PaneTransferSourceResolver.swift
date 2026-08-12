@@ -82,4 +82,19 @@ struct PaneTransferSourceResolver {
             break
         }
     }
+
+    /// Completes the accepted source, including a live Bonsplit drag session.
+    @MainActor
+    func finishAcceptedDrop(
+        _ source: Source,
+        id: UUID,
+        pasteboard: NSPasteboard
+    ) {
+        switch source {
+        case .surface:
+            tabTransferRegistry()?.finish(from: pasteboard)
+        case .vaultSession, .filePreview:
+            finish(source, id: id)
+        }
+    }
 }

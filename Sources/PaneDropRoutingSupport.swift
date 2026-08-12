@@ -2,6 +2,16 @@ import AppKit
 import Bonsplit
 import Foundation
 
+@MainActor
+extension AppDelegate {
+    /// Ends the originating Bonsplit drag after a destination accepts it.
+    func finishAcceptedBonsplitTabDrop(
+        from pasteboard: NSPasteboard = NSPasteboard(name: .drag)
+    ) {
+        tabDragTransferRegistry.finish(from: pasteboard)
+    }
+}
+
 struct PaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID

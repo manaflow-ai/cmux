@@ -226,7 +226,10 @@ final class BrowserPaneDropTargetView: NSView {
             proposedZone: zone
         ) {
         case .accepted(let plan):
-            let handled = transferDropRouter.perform(plan)
+            let handled = transferDropRouter.perform(
+                plan,
+                pasteboard: sender.draggingPasteboard
+            )
 #if DEBUG
             cmuxDebugLog(
                 "browser.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +

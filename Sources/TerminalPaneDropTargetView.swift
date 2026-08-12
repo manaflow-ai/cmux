@@ -210,7 +210,10 @@ final class PaneDropTargetView: NSView {
         )
         switch transferResolution {
         case .accepted(let plan):
-            let handled = transferDropRouter.perform(plan)
+            let handled = transferDropRouter.perform(
+                plan,
+                pasteboard: sender.draggingPasteboard
+            )
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.perform panel=\(dropContext.panelId.uuidString.prefix(5)) " +

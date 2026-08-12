@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+@testable import Bonsplit
 import Foundation
 import Testing
 
@@ -31,6 +31,71 @@ struct VaultPaneTransferLifecycleTests {
         .terminal,
         .browser,
     ]
+
+    @Test("An accepted surface pane transfer finishes its native Bonsplit source")
+    func acceptedSurfaceTransferFinishesNativeSource() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let panelID = try #require(fixture.workspace.focusedPanelId)
+            let paneID = try #require(fixture.workspace.paneId(forPanelId: panelID))
+            let tabID = try #require(fixture.workspace.surfaceIdFromPanelId(panelID))
+            let controller = fixture.workspace.bonsplitController
+            let sourceTab = try #require(
+                controller.internalController
+                    .paneState(for: paneID)?
+                    .tabs
+                    .first(where: { $0.id == tabID.uuid })
+            )
+            let generation = controller.internalController.beginTabDrag(
+                sourceTab,
+                from: paneID
+            )
+            let registry = fixture.appDelegate.tabDragTransferRegistry
+            let registration = try #require(registry.register(TabDragTransfer(
+                tab: Tab(from: sourceTab),
+                sourcePaneId: paneID
+            )))
+            let source = TabDragSessionSource(
+                generation: generation,
+                transferRegistration: registration,
+                transferRegistry: registry,
+                controller: controller.internalController
+            )
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name(
+                "cmux.test.surface-pane-drop.\(UUID().uuidString)"
+            ))
+            pasteboard.clearContents()
+            #expect(registration.write(to: pasteboard))
+            defer {
+                source.finishDrag()
+                pasteboard.clearContents()
+            }
+            let context = PaneDropContext(
+                workspaceId: fixture.workspace.id,
+                panelId: panelID,
+                paneId: paneID
+            )
+            let router = PaneTransferDropRouter()
+            router.begin(context: context)
+            defer { router.clear() }
+            guard case .accepted(let plan) = router.resolve(
+                pasteboard: pasteboard,
+                context: context,
+                proposedZone: .center
+            ) else {
+                Issue.record("Shared pane router rejected a live surface capability")
+                return
+            }
+
+            #expect(plan.source == .surface)
+            #expect(registry.resolve(from: pasteboard) != nil)
+            #expect(router.perform(plan, pasteboard: pasteboard))
+            #expect(controller.internalController.tabDragSession == nil)
+            #expect(registry.resolve(from: pasteboard) == nil)
+            withExtendedLifetime(source) {}
+        }
+    }
 
     @Test("Every repeated Vault row publishes a live capability to the shared pane registry")
     func repeatedVaultSourcesPublishSharedPaneCapabilities() throws {
