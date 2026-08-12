@@ -2629,6 +2629,11 @@ struct CMUXCLI {
             let response = try sendV1Command("tmux_prune" + suffix, client: client)
             print(response)
 
+        case "tmux-recover":
+            let suffix = commandArgs.isEmpty ? "" : " " + commandArgs.joined(separator: " ")
+            let response = try sendV1Command("tmux_recover" + suffix, client: client)
+            print(response)
+
         case "clear-agent-pid":
             let response = try forwardSidebarMetadataCommand(
                 "clear_agent_pid",
@@ -8180,6 +8185,30 @@ struct CMUXCLI {
             Example:
               cmux tmux-prune
               cmux tmux-prune --kill
+            """
+        case "tmux-recover":
+            return """
+            Usage: cmux tmux-recover [--attach]
+
+            List workspaces whose tmux session is still running but is not
+            attached to a pane, and optionally reattach them. Reports only by
+            default so you can see the list first.
+
+            This is crash recovery. Agent panes run inside an independent tmux
+            daemon, so force-quitting cmux leaves every session alive; on
+            relaunch cmux does not reattach them on its own. Reattaching
+            re-runs each workspace's panel command, and `tmux new-session -A`
+            joins the existing session instead of creating one.
+
+            Only workspaces whose predicted session is live are touched, so a
+            workspace that is genuinely idle is never started by accident.
+
+            Flags:
+              --attach   Actually reattach the listed workspaces
+
+            Example:
+              cmux tmux-recover
+              cmux tmux-recover --attach
             """
         case "clear-agent-pid":
             return """

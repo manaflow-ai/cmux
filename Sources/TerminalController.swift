@@ -1791,6 +1791,9 @@ class TerminalController {
         case "tmux_prune":
             return pruneTmuxSessions(args)
 
+        case "tmux_recover":
+            return recoverTmuxSessions(args)
+
         case "clear_meta":
             return clearMeta(args)
 
@@ -15118,8 +15121,8 @@ class TerminalController {
         let parsed = parseOptions(args)
         let shouldKill = parsed.options["kill"] != nil
 
-        let owned = v2MainSync { AppDelegate.shared?.allOwnedTmuxSessions() } ?? []
-        let orphans = TmuxSessionReaper.orphans(ownedSessions: owned)
+        let claimed = v2MainSync { AppDelegate.shared?.allClaimedTmuxSessions() } ?? []
+        let orphans = TmuxSessionReaper.orphans(ownedSessions: claimed)
         guard !orphans.isEmpty else { return "OK: no orphaned sessions" }
 
         guard shouldKill else {
@@ -15131,6 +15134,34 @@ class TerminalController {
             killed.append(session)
         }
         return "OK: killed \(killed.count)\n" + killed.joined(separator: "\n")
+    }
+
+    /// Reattach every workspace whose tmux session survived a crash.
+    ///
+    /// The inverse of `tmux_prune`: prune kills sessions no workspace wants, this
+    /// reattaches sessions a workspace does want but is not currently showing. Reports
+    /// without acting unless `--attach` is passed, matching prune's report-first shape.
+    ///
+    /// Usage: tmux_recover [--attach]
+    private func recoverTmuxSessions(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let shouldAttach = parsed.options["attach"] != nil
+
+        guard shouldAttach else {
+            // Render the lines inside the main-actor hop: Workspace is a @MainActor
+            // reference type, so reading `.title` from this background socket thread
+            // would be an isolation violation. Only plain strings cross back.
+            let lines = v2MainSync {
+                AppDelegate.shared?.workspacesAwaitingTmuxReattach()
+                    .map { "\($0.session)\t\($0.workspace.title)" }
+            } ?? []
+            guard !lines.isEmpty else { return "OK: nothing to reattach" }
+            return "DRY-RUN: \(lines.count) reattachable\n" + lines.joined(separator: "\n")
+        }
+
+        let recovered = v2MainSync { AppDelegate.shared?.recoverLiveTmuxSessions() } ?? []
+        guard !recovered.isEmpty else { return "OK: nothing to reattach" }
+        return "OK: reattached \(recovered.count)\n" + recovered.joined(separator: "\n")
     }
 
     /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>]

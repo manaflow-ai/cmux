@@ -43,6 +43,32 @@ enum TmuxSessionReaper {
             .filter { !$0.isEmpty }
     }
 
+    /// Lowercase, with spaces and dots folded to hyphens.
+    ///
+    /// Mirrors `slugify()` in `claude-remote` (`tr '[:upper:]' '[:lower:]' | tr ' .' '-'`).
+    /// The two must agree exactly: the wrapper picks the session name, and this is how
+    /// cmux predicts it.
+    static func slugify(_ value: String) -> String {
+        String(value.lowercased().map { $0 == " " || $0 == "." ? "-" : $0 })
+    }
+
+    /// The tmux session name an agent wrapper will pick for this workspace.
+    ///
+    /// `claude-remote` and its siblings derive the name from the workspace directory's
+    /// basename, suffixed with the instance index when it is above 1 (instance 1 is the
+    /// bare name). Predicting it is what lets cmux recognise a still-live session after a
+    /// crash, when nothing has registered ownership yet.
+    ///
+    /// Not total: the wrappers also accept an explicit *word* suffix (`claude-remote -n
+    /// boards`), which is not recoverable from the workspace alone. Such sessions simply
+    /// will not be predicted — callers must treat a derived name as a candidate to
+    /// intersect with the live session list, never as proof a session exists.
+    static func sessionName(directory: String, instanceIndex: Int) -> String {
+        let base = slugify((directory as NSString).lastPathComponent)
+        guard !base.isEmpty else { return "" }
+        return instanceIndex > 1 ? "\(base)-\(instanceIndex)" : base
+    }
+
     /// tmux arguments for killing exactly one session.
     ///
     /// The `=` prefix forces an exact match. A bare `-t name` falls back to prefix and

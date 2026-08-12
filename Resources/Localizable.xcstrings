@@ -1235,6 +1235,23 @@
         }
       }
     },
+    "dialog.tmuxRecover.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
     "dialog.tmuxPrune.confirm.message": {
       "extractionState": "manual",
       "localizations": {
@@ -1248,6 +1265,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "これらのセッションを保持しているワークスペースはありません。保存されていないエージェントの状態を含め、実行中の内容は失われます。"
+          }
+        }
+      }
+    },
+    "dialog.tmuxRecover.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These workspaces have a tmux session still running from before the restart. Reattaching rebuilds each workspace's panels and joins the existing session, so the agent inside it is preserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのワークスペースには、再起動前から実行中の tmux セッションがあります。再接続すると各ワークスペースのパネルを再構築し、既存のセッションに参加するため、内部のエージェントは保持されます。"
           }
         }
       }
@@ -1269,6 +1303,23 @@
         }
       }
     },
+    "dialog.tmuxRecover.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reattach live tmux sessions?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の tmux セッションに再接続しますか？"
+          }
+        }
+      }
+    },
     "dialog.tmuxPrune.kill": {
       "extractionState": "manual",
       "localizations": {
@@ -1282,6 +1333,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "セッションを終了"
+          }
+        }
+      }
+    },
+    "dialog.tmuxRecover.reattach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reattach"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続"
           }
         }
       }
@@ -1303,6 +1371,23 @@
         }
       }
     },
+    "dialog.tmuxRecover.none.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every live tmux session is already attached to its workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の tmux セッションはすべて、対応するワークスペースに接続済みです。"
+          }
+        }
+      }
+    },
     "dialog.tmuxPrune.none.title": {
       "extractionState": "manual",
       "localizations": {
@@ -1320,7 +1405,41 @@
         }
       }
     },
+    "dialog.tmuxRecover.none.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sessions to reattach"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続するセッションはありません"
+          }
+        }
+      }
+    },
     "dialog.tmuxPrune.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "dialog.tmuxRecover.ok": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -37275,6 +37394,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースレイアウトを再構築"
+          }
+        }
+      }
+    },
+    "menu.app.reattachLiveSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reattach Live tmux Sessions…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の tmux セッションに再接続…"
           }
         }
       }

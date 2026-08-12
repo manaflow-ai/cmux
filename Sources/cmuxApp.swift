@@ -375,6 +375,14 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.app.rebuildWorkspaceLayout", defaultValue: "Rebuild Workspace Layout")) {
                     AppDelegate.shared?.rebuildCurrentWorkspaceFromTemplate()
                 }
+                Button(
+                    String(
+                        localized: "menu.app.reattachLiveSessions",
+                        defaultValue: "Reattach Live tmux Sessions…"
+                    )
+                ) {
+                    reattachLiveTmuxSessions()
+                }
             }
 
             CommandGroup(replacing: .appInfo) {
@@ -1130,8 +1138,8 @@ struct cmuxApp: App {
     /// to tear them down — a crash, a force reboot, or a session started before
     /// ownership registration existed. Their agents stay resident indefinitely.
     private func clearOrphanedTmuxSessions() {
-        let owned = AppDelegate.shared?.allOwnedTmuxSessions() ?? []
-        let orphans = TmuxSessionReaper.orphans(ownedSessions: owned)
+        let claimed = AppDelegate.shared?.allClaimedTmuxSessions() ?? []
+        let orphans = TmuxSessionReaper.orphans(ownedSessions: claimed)
 
         let alert = NSAlert()
         guard !orphans.isEmpty else {
@@ -1178,6 +1186,63 @@ struct cmuxApp: App {
         for session in orphans {
             TmuxSessionReaper.kill(session)
         }
+    }
+
+    /// Reattach workspaces whose tmux session outlived a cmux crash, after showing which.
+    ///
+    /// The mirror of `clearOrphanedTmuxSessions`: that kills sessions no workspace wants,
+    /// this recovers sessions a workspace wants but lost its pane to. Force-quitting cmux
+    /// leaves every agent's tmux daemon running, but relaunching does not reattach them.
+    private func reattachLiveTmuxSessions() {
+        let pending = AppDelegate.shared?.workspacesAwaitingTmuxReattach() ?? []
+
+        let alert = NSAlert()
+        guard !pending.isEmpty else {
+            alert.messageText = String(
+                localized: "dialog.tmuxRecover.none.title",
+                defaultValue: "No sessions to reattach"
+            )
+            alert.informativeText = String(
+                localized: "dialog.tmuxRecover.none.message",
+                defaultValue: "Every live tmux session is already attached to its workspace."
+            )
+            alert.addButton(withTitle: String(localized: "dialog.tmuxRecover.ok", defaultValue: "OK"))
+            if NSApp.activationPolicy() == .regular {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            alert.runModal()
+            return
+        }
+
+        // Count and list stay outside the localized strings: interpolating into
+        // `defaultValue` turns each into a format string, which is far harder to
+        // translate correctly per-locale.
+        alert.messageText = String(
+            localized: "dialog.tmuxRecover.confirm.title",
+            defaultValue: "Reattach live tmux sessions?"
+        )
+        let explanation = String(
+            localized: "dialog.tmuxRecover.confirm.message",
+            defaultValue:
+                "These workspaces have a tmux session still running from before the restart. Reattaching rebuilds each workspace's panels and joins the existing session, so the agent inside it is preserved."
+        )
+        let lines = pending.map { "\($0.session)  —  \($0.workspace.title)" }
+        alert.informativeText = explanation + "\n\n" + lines.joined(separator: "\n")
+        alert.addButton(
+            withTitle: String(localized: "dialog.tmuxRecover.reattach", defaultValue: "Reattach")
+        )
+        alert.addButton(
+            withTitle: String(localized: "dialog.tmuxRecover.cancel", defaultValue: "Cancel")
+        )
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
+        if NSApp.activationPolicy() == .regular {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        AppDelegate.shared?.recoverLiveTmuxSessions()
     }
 
     @ViewBuilder

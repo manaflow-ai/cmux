@@ -60,6 +60,75 @@ final class TmuxSessionReaperTests: XCTestCase {
         )
     }
 
+    // MARK: - Session-name derivation
+
+    /// Instance 1 is the bare directory basename — the wrappers only append a suffix
+    /// above 1, so predicting "-1" would never match anything live.
+    func testSessionNameForFirstInstanceIsBareBasename() {
+        XCTAssertEqual(
+            TmuxSessionReaper.sessionName(directory: "/Users/rod/Developer/AzDevOps", instanceIndex: 1),
+            "azdevops"
+        )
+    }
+
+    func testSessionNameAppendsInstanceIndexAboveOne() {
+        XCTAssertEqual(
+            TmuxSessionReaper.sessionName(directory: "/Users/rod/Developer/AzDevOps", instanceIndex: 52),
+            "azdevops-52"
+        )
+    }
+
+    /// Must match `slugify()` in claude-remote exactly (`tr '[:upper:]' '[:lower:]' |
+    /// tr ' .' '-'`); any divergence silently predicts a name that is never live.
+    func testSessionNameFoldsSpacesAndDotsToHyphens() {
+        XCTAssertEqual(
+            TmuxSessionReaper.sessionName(directory: "/tmp/My Project.v2", instanceIndex: 1),
+            "my-project-v2"
+        )
+    }
+
+    func testSessionNameIgnoresTrailingSlash() {
+        XCTAssertEqual(
+            TmuxSessionReaper.sessionName(directory: "/Users/rod/Developer/Personal/", instanceIndex: 1),
+            "personal"
+        )
+    }
+
+    func testSessionNameIsEmptyForDegenerateDirectory() {
+        XCTAssertTrue(TmuxSessionReaper.sessionName(directory: "", instanceIndex: 1).isEmpty)
+    }
+
+    /// The recovery pass intersects predicted names with the live list, so a workspace
+    /// whose session is not running contributes nothing — this is what stops recovery
+    /// from spawning a fresh agent in a genuinely idle workspace.
+    func testPredictedNameOnlyRecoversWhenSessionIsLive() {
+        let live: Set<String> = ["azdevops", "orchard-18"]
+
+        XCTAssertTrue(live.contains(
+            TmuxSessionReaper.sessionName(directory: "/Users/rod/Developer/AzDevOps", instanceIndex: 1)
+        ))
+        XCTAssertFalse(live.contains(
+            TmuxSessionReaper.sessionName(directory: "/Users/rod/Developer/Idle", instanceIndex: 1)
+        ))
+    }
+
+    /// Registration is cleared on restart, so right after a crash-relaunch the owned set
+    /// is empty while sessions are still live. Prediction is what keeps those from being
+    /// reported as orphans and offered up for killing.
+    func testDerivedNamesProtectLiveSessionsWhenNothingIsRegistered() {
+        let live = ["azdevops", "azdevops-52", "stale-thing"]
+        let derived: Set<String> = [
+            TmuxSessionReaper.sessionName(directory: "/Users/rod/Developer/AzDevOps", instanceIndex: 1),
+            TmuxSessionReaper.sessionName(directory: "/Users/rod/Developer/AzDevOps", instanceIndex: 52),
+        ]
+
+        XCTAssertEqual(
+            TmuxSessionReaper.orphans(live: live, ownedSessions: derived),
+            ["stale-thing"],
+            "Only the session no workspace would ever claim is an orphan"
+        )
+    }
+
     // MARK: - Kill targeting
 
     /// The `=` prefix is the whole safety property. A bare `-t azdevops` resolves by
