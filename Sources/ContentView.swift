@@ -11918,16 +11918,13 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
         })
-        let agentActivityCountsByWorkspaceId = workspaceRowInputsById.mapValues {
-            $0.workspace.agentActivityCounts
-        }
         let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
                 group.id,
                 sidebarWorkspaceGroupRowSnapshot(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
-                    agentActivityCountsByWorkspaceId: agentActivityCountsByWorkspaceId,
+                    workspaceRowsById: workspaceRowInputsById,
                     renderContext: renderContext,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
@@ -11951,7 +11948,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 return sidebarWorkspaceGroupTableConfiguration(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[groupId] ?? [],
-                    agentActivityCountsByWorkspaceId: agentActivityCountsByWorkspaceId,
+                    workspaceRowsById: workspaceRowInputsById,
                     renderContext: renderContext
                 )
             case .workspace(let workspaceId):
@@ -13596,9 +13593,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
         })
-        let agentActivityCountsByWorkspaceId = workspaceRowInputsById.mapValues {
-            $0.workspace.agentActivityCounts
-        }
         let _ = anchorCwdRevision
         let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
@@ -13606,7 +13600,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 sidebarWorkspaceGroupRowSnapshot(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
-                    agentActivityCountsByWorkspaceId: agentActivityCountsByWorkspaceId,
+                    workspaceRowsById: workspaceRowInputsById,
                     renderContext: renderContext,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
@@ -15708,7 +15702,7 @@ struct TabItemView: View, Equatable {
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
         let latestNotificationSubtitle = latestNotificationText
-        let conversationMessageSubtitle = SidebarAgentActivitySummary.conversationSubtitle(
+        let conversationMessageSubtitle = SidebarAgentActivitySummary().conversationSubtitle(
             showsAgentActivity: showsAgentActivity,
             hidesAllDetails: settings.hidesAllDetails,
             iMessageModeEnabled: settings.iMessageModeEnabled,

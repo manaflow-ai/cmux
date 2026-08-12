@@ -328,7 +328,7 @@ struct WorkspaceSidebarObservationTests {
         let panelId = try #require(workspace.focusedPanelId)
         workspace.setAgentLifecycle(key: "manual", panelId: panelId, lifecycle: .running)
         #expect(
-            SidebarAgentActivitySummary.activeCodingAgentCount(
+            SidebarAgentActivitySummary().activeCodingAgentCount(
                 statesByPanelId: workspace.agentLifecycleStatesByPanelId
             ) == 1
         )
@@ -338,7 +338,7 @@ struct WorkspaceSidebarObservationTests {
         // specific panel (the cross-surface off bug).
         #expect(workspace.clearAgentLifecycle(key: "manual", panelId: nil))
         #expect(
-            SidebarAgentActivitySummary.activeCodingAgentCount(
+            SidebarAgentActivitySummary().activeCodingAgentCount(
                 statesByPanelId: workspace.agentLifecycleStatesByPanelId
             ) == 0
         )
@@ -355,7 +355,7 @@ struct WorkspaceSidebarObservationTests {
         #expect(!workspace.hasRunningAgentLifecycle(key: "manual"))
         #expect(workspace.hasRunningAgentLifecycle(key: "codex"))
         #expect(
-            SidebarAgentActivitySummary.activeCodingAgentCount(
+            SidebarAgentActivitySummary().activeCodingAgentCount(
                 statesByPanelId: workspace.agentLifecycleStatesByPanelId
             ) == 1
         )
@@ -379,7 +379,7 @@ struct WorkspaceSidebarObservationTests {
         let firstPanelId = UUID()
         let secondPanelId = UUID()
 
-        let count = SidebarAgentActivitySummary.activeCodingAgentCount(
+        let count = SidebarAgentActivitySummary().activeCodingAgentCount(
             statesByPanelId: [
                 firstPanelId: [
                     "codex": .running,
@@ -401,17 +401,17 @@ struct WorkspaceSidebarObservationTests {
         let secondPanelId = UUID()
         let thirdPanelId = UUID()
 
-        let counts = SidebarAgentActivitySummary.visibleCounts(
+        let counts = SidebarAgentActivitySummary().visibleCounts(
             showsAgentActivity: true,
             countsByWorkspace: [
-                SidebarAgentActivitySummary.counts(statesByPanelId: [
+                SidebarAgentActivitySummary().counts(statesByPanelId: [
                     firstPanelId: [
                         "claude_code": .running,
                         "cmux.feed.attention:claude_code": .needsInput,
                     ],
                     secondPanelId: ["codex": .running],
                 ]),
-                SidebarAgentActivitySummary.counts(statesByPanelId: [
+                SidebarAgentActivitySummary().counts(statesByPanelId: [
                     thirdPanelId: [
                         "manual:build": .running,
                         "kimi": .idle,
@@ -426,7 +426,7 @@ struct WorkspaceSidebarObservationTests {
     @Test func hiddenGroupAgentCountsDoNotReadLifecycleStates() {
         var didReadStates = false
 
-        let counts = SidebarAgentActivitySummary.visibleCounts(
+        let counts = SidebarAgentActivitySummary().visibleCounts(
             showsAgentActivity: false,
             countsByWorkspace: {
                 didReadStates = true
@@ -439,13 +439,13 @@ struct WorkspaceSidebarObservationTests {
     }
 
     @Test func agentActivityReplacesConversationSubtitle() {
-        #expect(SidebarAgentActivitySummary.conversationSubtitle(
+        #expect(SidebarAgentActivitySummary().conversationSubtitle(
             showsAgentActivity: true,
             hidesAllDetails: false,
             iMessageModeEnabled: true,
             message: "last agent message"
         ) == nil)
-        #expect(SidebarAgentActivitySummary.conversationSubtitle(
+        #expect(SidebarAgentActivitySummary().conversationSubtitle(
             showsAgentActivity: false,
             hidesAllDetails: false,
             iMessageModeEnabled: true,
@@ -463,13 +463,13 @@ struct WorkspaceSidebarObservationTests {
         ]
 
         #expect(
-            SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+            SidebarAgentActivitySummary().visibleActiveCodingAgentCount(
                 showsAgentActivity: false,
                 statesByPanelId: statesByPanelId
             ) == 0
         )
         #expect(
-            SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+            SidebarAgentActivitySummary().visibleActiveCodingAgentCount(
                 showsAgentActivity: true,
                 statesByPanelId: statesByPanelId
             ) == 2

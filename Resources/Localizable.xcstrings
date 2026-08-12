@@ -257167,52 +257167,10 @@
     "workspaceGroup.agentActivity.a11y": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الوكلاء قيد التشغيل: %1$lld. بحاجة إلى إدخال: %2$lld."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokrenuti agenti: %1$lld. Potreban unos: %2$lld."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kørende agenter: %1$lld. Kræver input: %2$lld."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktive Agenten: %1$lld. Eingabe erforderlich: %2$lld."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Running agents: %1$lld. Need input: %2$lld."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentes en ejecución: %1$lld. Necesitan entrada: %2$lld."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agents en cours : %1$lld. Saisie requise : %2$lld."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenti in esecuzione: %1$lld. Richiedono input: %2$lld."
           }
         },
         "ja": {
@@ -257220,71 +257178,39 @@
             "state": "translated",
             "value": "実行中のエージェント: %1$lld。入力待ち: %2$lld。"
           }
-        },
-        "km": {
+        }
+      }
+    },
+    "workspaceGroup.agentActivity.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារកំពុងដំណើរការ៖ %1$lld។ ត្រូវការបញ្ចូល៖ %2$lld។"
+            "value": "! %lld"
           }
         },
-        "ko": {
+        "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "실행 중인 에이전트: %1$lld. 입력 필요: %2$lld."
+            "value": "! %lld"
+          }
+        }
+      }
+    },
+    "workspaceGroup.agentActivity.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "▶ %lld"
           }
         },
-        "nb": {
+        "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kjørende agenter: %1$lld. Trenger inndata: %2$lld."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Działające agenty: %1$lld. Wymaga danych wejściowych: %2$lld."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentes em execução: %1$lld. Precisam de entrada: %2$lld."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Работающих агентов: %1$lld. Требуется ввод: %2$lld."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์ที่กำลังทำงาน: %1$lld ต้องการอินพุต: %2$lld"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışan aracılar: %1$lld. Girdi gereken: %2$lld."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агентів у роботі: %1$lld. Потрібне введення: %2$lld."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "运行中的代理：%1$lld。需要输入：%2$lld。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "執行中的代理：%1$lld。需要輸入：%2$lld。"
+            "value": "▶ %lld"
           }
         }
       }

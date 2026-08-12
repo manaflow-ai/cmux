@@ -516,7 +516,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
 
-        let conversationSubtitle = SidebarAgentActivitySummary.conversationSubtitle(
+        let conversationSubtitle = SidebarAgentActivitySummary().conversationSubtitle(
             showsAgentActivity: model.showsAgentActivity,
             hidesAllDetails: settings.hidesAllDetails,
             iMessageModeEnabled: settings.iMessageModeEnabled,

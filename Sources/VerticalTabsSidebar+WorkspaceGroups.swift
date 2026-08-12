@@ -9,7 +9,7 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupTableConfiguration(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
-        agentActivityCountsByWorkspaceId: [UUID: SidebarAgentActivitySummary.Counts],
+        workspaceRowsById: [UUID: SidebarWorkspaceRowInput],
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableRowConfiguration {
         let settings = renderContext.tabItemSettings
@@ -34,9 +34,11 @@ extension VerticalTabsSidebar {
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let showsAgentActivity = group.isCollapsed && renderContext.showsAgentActivity
-        let agentActivity = SidebarAgentActivitySummary.visibleCounts(
+        let agentActivity = SidebarAgentActivitySummary().visibleCounts(
             showsAgentActivity: showsAgentActivity,
-            countsByWorkspace: memberWorkspaceIds.compactMap { agentActivityCountsByWorkspaceId[$0] }
+            countsByWorkspace: memberWorkspaceIds.compactMap {
+                workspaceRowsById[$0]?.workspace.agentActivityCounts
+            }
         )
         // The AppKit controller applies the current unread snapshot after row
         // construction, keeping this root projection outside Observation.
@@ -261,7 +263,7 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupRowSnapshot(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
-        agentActivityCountsByWorkspaceId: [UUID: SidebarAgentActivitySummary.Counts],
+        workspaceRowsById: [UUID: SidebarWorkspaceRowInput],
         renderContext: WorkspaceListRenderContext,
         unreadSnapshot: SidebarUnreadSnapshot,
         notificationIndex: SidebarWorkspaceNotificationIndex,
@@ -290,9 +292,11 @@ extension VerticalTabsSidebar {
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let showsAgentActivity = group.isCollapsed && renderContext.showsAgentActivity
-        let agentActivity = SidebarAgentActivitySummary.visibleCounts(
+        let agentActivity = SidebarAgentActivitySummary().visibleCounts(
             showsAgentActivity: showsAgentActivity,
-            countsByWorkspace: memberWorkspaceIds.compactMap { agentActivityCountsByWorkspaceId[$0] }
+            countsByWorkspace: memberWorkspaceIds.compactMap {
+                workspaceRowsById[$0]?.workspace.agentActivityCounts
+            }
         )
         let anchorUnreadCount: Int = {
             if group.isCollapsed {

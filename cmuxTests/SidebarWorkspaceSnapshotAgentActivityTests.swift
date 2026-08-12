@@ -89,7 +89,7 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
             ]
         }
 
-        let count = SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+        let count = SidebarAgentActivitySummary().visibleActiveCodingAgentCount(
             showsAgentActivity: false,
             statesByPanelId: agentLifecycleStates()
         )

@@ -1,3 +1,4 @@
+import CmuxSidebar
 import CmuxWorkspaces
 
 extension SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -16,7 +17,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
-        let agentActivityCounts: SidebarAgentActivitySummary.Counts
+        let agentActivityCounts: SidebarAgentActivityCounts
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {

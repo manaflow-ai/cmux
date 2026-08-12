@@ -185,12 +185,13 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         agentActivityField.isHidden = !model.showsAgentActivity
         if model.showsAgentActivity {
+            let summary = SidebarAgentActivitySummary()
             let font = NSFont.systemFont(
                 ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
                 weight: .semibold
             )
-            let running = "▶ \(model.runningAgentCount)"
-            let needsInput = "! \(model.needsInputAgentCount)"
+            let running = summary.runningText(count: model.runningAgentCount)
+            let needsInput = summary.needsInputText(count: model.needsInputAgentCount)
             let text = "\(running)   \(needsInput)"
             let attributed = NSMutableAttributedString(
                 string: text,
@@ -210,7 +211,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 )
             )
             agentActivityField.attributedStringValue = attributed
-            let accessibilityText = SidebarAgentActivitySummary.accessibilityText(
+            let accessibilityText = summary.accessibilityText(
                 counts: .init(
                     running: model.runningAgentCount,
                     needsInput: model.needsInputAgentCount

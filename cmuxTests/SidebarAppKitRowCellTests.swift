@@ -2165,7 +2165,7 @@ struct SidebarPinnedIndicatorColorTests {
 
         #expect(!activity.isHidden)
         #expect(activity.stringValue.contains("! 2"))
-        #expect(activity.accessibilityLabel() == SidebarAgentActivitySummary.accessibilityText(
+        #expect(activity.accessibilityLabel() == SidebarAgentActivitySummary().accessibilityText(
             counts: .init(running: 4, needsInput: 2)
         ))
     }

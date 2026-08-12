@@ -189,7 +189,7 @@ import Testing
         finderDirectoryPath: String? = nil,
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
         activeCodingAgentCount: Int = 0,
-        agentActivityCounts: SidebarAgentActivitySummary.Counts = .init()
+        agentActivityCounts: SidebarAgentActivityCounts = .init()
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),

@@ -1,19 +1,10 @@
+import CmuxSidebar
 import Foundation
 
-enum SidebarAgentActivitySummary {
-    struct Counts: Equatable, Hashable, Sendable {
-        var running = 0
-        var needsInput = 0
+struct SidebarAgentActivitySummary {
+    private let aggregator = SidebarAgentActivityAggregator()
 
-        static func + (lhs: Self, rhs: Self) -> Self {
-            Self(
-                running: lhs.running + rhs.running,
-                needsInput: lhs.needsInput + rhs.needsInput
-            )
-        }
-    }
-
-    static func visibleActiveCodingAgentCount(
+    func visibleActiveCodingAgentCount(
         showsAgentActivity: Bool,
         statesByPanelId: @autoclosure () -> [UUID: [String: AgentHibernationLifecycleState]]
     ) -> Int {
@@ -21,7 +12,7 @@ enum SidebarAgentActivitySummary {
         return activeCodingAgentCount(statesByPanelId: statesByPanelId())
     }
 
-    static func activeCodingAgentCount(
+    func activeCodingAgentCount(
         statesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
     ) -> Int {
         statesByPanelId.values.reduce(0) { partial, panelStates in
@@ -29,40 +20,40 @@ enum SidebarAgentActivitySummary {
         }
     }
 
-    static func visibleCounts(
+    func visibleCounts(
         showsAgentActivity: Bool,
-        countsByWorkspace: @autoclosure () -> [Counts]
-    ) -> Counts {
-        guard showsAgentActivity else { return Counts() }
-        return countsByWorkspace().reduce(Counts(), +)
+        countsByWorkspace: @autoclosure () -> [SidebarAgentActivityCounts]
+    ) -> SidebarAgentActivityCounts {
+        guard showsAgentActivity else { return SidebarAgentActivityCounts() }
+        return aggregator.total(counts: countsByWorkspace())
     }
 
-    static func counts(
+    func counts(
         statesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
-    ) -> Counts {
-        statesByPanelId.values.reduce(Counts()) { partial, panelStates in
-            let states = panelStates
-                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-                .map(\.value)
-            var result = partial
-            if states.contains(.needsInput) {
-                result.needsInput += 1
-            } else if states.contains(.running) {
-                result.running += 1
+    ) -> SidebarAgentActivityCounts {
+        aggregator.counts(panelActivities: statesByPanelId.values.lazy.map { panelStates in
+            var activity = SidebarAgentPanelActivity.inactive
+            for (key, state) in panelStates where !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+                if state == .needsInput {
+                    return .needsInput
+                }
+                if state == .running {
+                    activity = .running
+                }
             }
-            return result
-        }
+            return activity
+        })
     }
 
-    static func visibleCounts(
+    func visibleCounts(
         showsAgentActivity: Bool,
         statesByPanelId: @autoclosure () -> [UUID: [String: AgentHibernationLifecycleState]]
-    ) -> Counts {
-        guard showsAgentActivity else { return Counts() }
+    ) -> SidebarAgentActivityCounts {
+        guard showsAgentActivity else { return SidebarAgentActivityCounts() }
         return counts(statesByPanelId: statesByPanelId())
     }
 
-    static func accessibilityText(counts: Counts) -> String {
+    func accessibilityText(counts: SidebarAgentActivityCounts) -> String {
         String.localizedStringWithFormat(
             String(
                 localized: "workspaceGroup.agentActivity.a11y",
@@ -73,7 +64,21 @@ enum SidebarAgentActivitySummary {
         )
     }
 
-    static func conversationSubtitle(
+    func runningText(count: Int) -> String {
+        String.localizedStringWithFormat(
+            String(localized: "workspaceGroup.agentActivity.running", defaultValue: "▶ %lld"),
+            Int64(count)
+        )
+    }
+
+    func needsInputText(count: Int) -> String {
+        String.localizedStringWithFormat(
+            String(localized: "workspaceGroup.agentActivity.needsInput", defaultValue: "! %lld"),
+            Int64(count)
+        )
+    }
+
+    func conversationSubtitle(
         showsAgentActivity: Bool,
         hidesAllDetails: Bool,
         iMessageModeEnabled: Bool,

@@ -135,7 +135,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     }
 
     private var agentActivityAccessibilityText: String {
-        SidebarAgentActivitySummary.accessibilityText(
+        SidebarAgentActivitySummary().accessibilityText(
             counts: .init(running: runningAgentCount, needsInput: needsInputAgentCount)
         )
     }
@@ -199,9 +199,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .truncationMode(.tail)
                 if showsAgentActivity {
                     HStack(spacing: 6) {
-                        Text("▶ \(runningAgentCount)")
+                        Text(SidebarAgentActivitySummary().runningText(count: runningAgentCount))
                             .foregroundStyle(Color.blue)
-                        Text("! \(needsInputAgentCount)")
+                        Text(SidebarAgentActivitySummary().needsInputText(count: needsInputAgentCount))
                             .foregroundStyle(Color.orange)
                     }
                     .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
