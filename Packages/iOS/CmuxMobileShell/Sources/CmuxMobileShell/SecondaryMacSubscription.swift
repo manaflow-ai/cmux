@@ -3,7 +3,8 @@ import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 
-/// One non-focused Mac's persistent control connection plus its event consumer.
+/// One peer session's persistent control capability plus its event consumer.
+/// The same client may concurrently own the focused terminal capability.
 @MainActor
 final class SecondaryMacSubscription {
     /// Control-plane topics intentionally exclude terminal render and byte traffic.
