@@ -179155,13 +179155,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+            "value": "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
+            "value": "接続先のMacは、Irohのプライベート経路サポートを通知する最新のcmuxを実行している必要があります。カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
           }
         }
       }
@@ -264605,13 +264605,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+            "value": "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
+            "value": "接続先のMacは、Irohのプライベート経路サポートを通知する最新のcmuxを実行している必要があります。カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
           }
         }
       }

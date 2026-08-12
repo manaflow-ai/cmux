@@ -2,6 +2,9 @@ import CMUXMobileCore
 import Foundation
 
 extension MobileHostService {
+    /// Advertises the Mac-side support required before iOS may configure
+    /// authenticated Iroh private-path candidates.
+    nonisolated static let irohPrivatePathsCapability = "iroh.private_paths.v1"
     nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
@@ -52,6 +55,7 @@ extension MobileHostService {
         includingSimulator: Bool = true
     ) -> [String] {
         var capabilities = [
+            Self.irohPrivatePathsCapability,
             MobileBrowserStreamCapability.identifier,
             MobileBrowserStreamCapability.viewportIdentifier,
             MobileBrowserStreamCapability.dialogIdentifier,

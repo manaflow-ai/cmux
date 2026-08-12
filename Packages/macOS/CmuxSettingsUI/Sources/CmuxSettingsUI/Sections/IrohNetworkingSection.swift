@@ -197,7 +197,7 @@ public struct IrohNetworkingSection: View {
 
             SettingsCardNote(String(
                 localized: "settings.networking.private.note.short",
-                defaultValue: "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+                defaultValue: "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
             ))
         }
     }

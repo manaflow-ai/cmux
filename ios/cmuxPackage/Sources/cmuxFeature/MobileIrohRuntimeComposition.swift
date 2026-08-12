@@ -2324,7 +2324,10 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             if privateNetworkMacsByID[id] == nil {
                 privateNetworkMacsByID[id] = .init(
                     id: id,
-                    displayName: mac.displayName ?? ""
+                    displayName: mac.displayName ?? "",
+                    supportsPrivatePaths: mac.capabilities.contains(
+                        "iroh.private_paths.v1"
+                    )
                 )
             }
         }
