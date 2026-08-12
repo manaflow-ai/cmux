@@ -81,6 +81,28 @@ struct MobileRootPresentationStateTests {
         #expect(state.presentation == .pairing(pairing))
     }
 
+    @Test func computersOwnsRootSheetAndCanTransitionToPairing() {
+        var state = MobileRootPresentationState()
+
+        #expect(state.apply(.presentComputers) == .none)
+        #expect(state.presentation == .computers)
+        #expect(state.isRootSheetPresented)
+
+        let pairing = PairingPresentation.manual
+        #expect(state.apply(.presentPairing(pairing)) == .none)
+        #expect(state.presentation == .pairing(pairing))
+        #expect(state.isRootSheetPresented)
+    }
+
+    @Test func computersDismissalClearsRootSlot() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentComputers)
+
+        #expect(state.apply(.dismissComputers) == .retryAutoConnectMigration)
+        #expect(state.isIdle)
+        #expect(!state.isRootSheetPresented)
+    }
+
     @Test func childModalBlocksMigrationUntilItsDismissalCompletes() {
         var state = MobileRootPresentationState()
         let child = MobileRootPresentationState.ChildPresentation.workspaceDeviceTree
@@ -88,7 +110,6 @@ struct MobileRootPresentationStateTests {
         #expect(state.apply(.presentChild(child)) == .none)
         #expect(state.presentation == .child(child))
         #expect(state.isPresentingChild(child))
-        #expect(state.requiredChildHost == .workspace)
 
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(state.presentation == .child(child))
@@ -100,7 +121,6 @@ struct MobileRootPresentationStateTests {
         )
         #expect(!state.isPresentingChild(child))
         #expect(!state.isIdle)
-        #expect(state.requiredChildHost == .workspace)
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(
             state.presentation
@@ -112,43 +132,9 @@ struct MobileRootPresentationStateTests {
                 == .retryAutoConnectMigration
         )
         #expect(state.isIdle)
-        #expect(state.requiredChildHost == nil)
 
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(state.presentation == .autoConnectMigrationIntroduction)
-    }
-
-    @Test func rootWorkspaceChildrenRetainTheirHostThroughDismissal() {
-        let children: [MobileRootPresentationState.ChildPresentation] = [
-            .workspaceDeviceTree,
-            .workspaceTaskComposer,
-        ]
-
-        for child in children {
-            var state = MobileRootPresentationState()
-            state.apply(.presentChild(child))
-            #expect(state.requiredChildHost == .workspace)
-
-            state.apply(.dismissChild(child))
-            #expect(state.requiredChildHost == .workspace)
-
-            state.apply(.childDidDismiss(child))
-            #expect(state.requiredChildHost == nil)
-        }
-    }
-
-    @Test func disconnectedHelpRetainsItsHostThroughDismissal() {
-        var state = MobileRootPresentationState()
-        let child = MobileRootPresentationState.ChildPresentation.disconnectedSetupHelp
-
-        state.apply(.presentChild(child))
-        #expect(state.requiredChildHost == .disconnected)
-
-        state.apply(.dismissChild(child))
-        #expect(state.requiredChildHost == .disconnected)
-
-        state.apply(.childDidDismiss(child))
-        #expect(state.requiredChildHost == nil)
     }
 
     @Test func rootSettingsBlocksMigrationOnTheAlwaysMountedSheetHost() {
@@ -187,15 +173,12 @@ struct MobileRootPresentationStateTests {
 
         #expect(state.apply(.presentChild(child)) == .none)
         #expect(state.presentation == .child(child))
-        #expect(state.requiredChildHost == .workspace)
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(state.presentation == .child(child))
 
         #expect(state.apply(.dismissChild(child)) == .none)
-        #expect(state.requiredChildHost == .workspace)
         #expect(state.apply(.childDidDismiss(child)) == .retryAutoConnectMigration)
         #expect(state.isIdle)
-        #expect(state.requiredChildHost == nil)
     }
 
     @Test(arguments: MobileRootPresentationState.WorkspaceDetailPresentation.allCases)
@@ -207,15 +190,12 @@ struct MobileRootPresentationStateTests {
 
         #expect(state.apply(.presentChild(child)) == .none)
         #expect(state.presentation == .child(child))
-        #expect(state.requiredChildHost == .workspace)
         #expect(state.apply(.presentAutoConnectMigrationIfIdle) == .none)
         #expect(state.presentation == .child(child))
 
         #expect(state.apply(.dismissChild(child)) == .none)
-        #expect(state.requiredChildHost == .workspace)
         #expect(state.apply(.childDidDismiss(child)) == .retryAutoConnectMigration)
         #expect(state.isIdle)
-        #expect(state.requiredChildHost == nil)
     }
 
     @Test func pairingRequestedFromChildWaitsForItsDismissalCallback() {
@@ -230,12 +210,10 @@ struct MobileRootPresentationStateTests {
                 == .dismissingChild(child, pendingPairing: scanner)
         )
         #expect(!state.isRootSheetPresented)
-        #expect(state.requiredChildHost == .workspace)
 
         #expect(state.apply(.childDidDismiss(child)) == .none)
         #expect(state.presentation == .pairing(scanner))
         #expect(state.isRootSheetPresented)
-        #expect(state.requiredChildHost == nil)
     }
 
     @Test func authenticationLossDismissesMigrationWithoutAcknowledgingIt() {

@@ -6802,6 +6802,13 @@ final class cmuxUITests: XCTestCase {
         }
         var launchEnvironment = environment
         launchEnvironment["CMUX_UITEST_ADD_DEVICE_PORT"] = String(portText.dropLast())
+        // Seed the real root pairing host at construction time. Waiting for the
+        // no-computers startup route made this setup depend on reconnect and
+        // onboarding work that is unrelated to the post-Forget regression.
+        launchEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION"] = "ineligible"
+        launchEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_ID"] = UUID().uuidString
+        launchEnvironment["CMUX_UITEST_AUTOCONNECT_MIGRATION_INITIAL_MODAL_HOST"] =
+            "root-pairing"
         let app = launchApp(mockData: true, environment: launchEnvironment, launchArguments: [
             "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
             "-cmux.mobile.taskComposerEnabled", "YES",
@@ -6809,7 +6816,7 @@ final class cmuxUITests: XCTestCase {
 
         let hostField = app.textFields["MobileAddDeviceHostField"]
         XCTAssertTrue(
-            hostField.waitForExistence(timeout: 45),
+            hostField.waitForExistence(timeout: 12),
             "The initial Add Computer field must appear before manual pairing."
         )
         hostField.tap()

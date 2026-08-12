@@ -5,12 +5,6 @@
 /// their content. A dismissing child keeps ownership until its `onDismiss`
 /// callback, preventing a root sheet from competing with UIKit's transition.
 struct MobileRootPresentationState: Equatable {
-    /// The authenticated shell that owns a child presentation's sheet host.
-    enum ChildHost: Equatable {
-        case disconnected
-        case workspace
-    }
-
     /// Presentations owned by the workspace list or one of its row actions.
     enum WorkspaceListPresentation: Equatable, CaseIterable {
         case terminalShortcutsSettings
@@ -46,6 +40,7 @@ struct MobileRootPresentationState: Equatable {
     enum Presentation: Equatable {
         case autoConnectMigrationIntroduction
         case settings
+        case computers
         case pairing(PairingPresentation)
         case child(ChildPresentation)
         case dismissingChild(
@@ -61,6 +56,8 @@ struct MobileRootPresentationState: Equatable {
         case setUpTailscale(hasUsableAuthorization: Bool)
         case presentSettings
         case dismissSettings(presentAutoConnectMigration: Bool)
+        case presentComputers
+        case dismissComputers
         case presentPairing(PairingPresentation)
         case presentChild(ChildPresentation)
         case dismissChild(ChildPresentation)
@@ -92,36 +89,13 @@ struct MobileRootPresentationState: Equatable {
     /// Whether the root SwiftUI sheet host should be presented.
     var isRootSheetPresented: Bool {
         switch presentation {
-        case .autoConnectMigrationIntroduction, .settings, .pairing:
+        case .autoConnectMigrationIntroduction,
+             .settings,
+             .computers,
+             .pairing:
             true
         case .child, .dismissingChild, nil:
             false
-        }
-    }
-
-    /// The shell host that must stay mounted until the active child's real
-    /// `onDismiss` callback releases the shared modal slot.
-    var requiredChildHost: ChildHost? {
-        let child: ChildPresentation
-        switch presentation {
-        case let .child(activeChild), let .dismissingChild(activeChild, _):
-            child = activeChild
-        case .autoConnectMigrationIntroduction,
-             .settings,
-             .connectionSettings,
-             .pairing,
-             nil:
-            return nil
-        }
-
-        switch child {
-        case .disconnectedSetupHelp:
-            return .disconnected
-        case .workspaceDeviceTree,
-             .workspaceTaskComposer,
-             .workspaceList,
-             .workspaceDetail:
-            return .workspace
         }
     }
 
@@ -168,6 +142,16 @@ struct MobileRootPresentationState: Equatable {
                 ? .autoConnectMigrationIntroduction
                 : nil
             return .none
+
+        case .presentComputers:
+            guard presentation == nil else { return .none }
+            presentation = .computers
+            return .none
+
+        case .dismissComputers:
+            guard presentation == .computers else { return .none }
+            presentation = nil
+            return .retryAutoConnectMigration
 
         case let .presentPairing(pairingPresentation):
             switch presentation {
@@ -236,7 +220,7 @@ struct MobileRootPresentationState: Equatable {
             case .pairing:
                 presentation = nil
                 return .finishPairing
-            case .settings:
+            case .settings, .computers:
                 presentation = nil
                 return .none
             case .child, .dismissingChild, nil:

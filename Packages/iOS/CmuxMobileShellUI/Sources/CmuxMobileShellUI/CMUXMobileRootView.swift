@@ -228,13 +228,7 @@ struct CMUXMobileRootView: View {
     }
 
     var body: some View {
-        // A concrete container owns the root presentation modifier. Attaching
-        // it directly to `rootContent` lets SwiftUI discard the presenting
-        // controller when that conditional tree exchanges the workspace shell
-        // for the no-computers shell after the final computer is forgotten.
-        ZStack {
-            rootContent
-        }
+        rootContent
         #if os(iOS)
         .environment(
             \.mobileChildPresentationProvider,
@@ -466,7 +460,15 @@ struct CMUXMobileRootView: View {
         } else if !isAuthenticated {
             SignInView()
         } else {
-            switch authenticatedShellSurface {
+            switch MobileRootAuthGate.shellSurface(
+                connectionState: store.connectionState,
+                showRestoringStoredMac: shouldShowRestoringStoredMac,
+                showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
+                    connectionState: store.connectionState,
+                    hasKnownPairedMac: store.hasKnownPairedMac,
+                    hasHiddenComputers: store.hasHiddenComputers
+                ) == .disconnected
+            ) {
             case .disconnectedNoKnownPairedMac:
                 // ONLY when there are no saved Macs at all: the add-device flow (it
                 // auto-presents the pairing sheet since there is nothing to list).
@@ -498,9 +500,7 @@ struct CMUXMobileRootView: View {
                     showAddDevice: addComputerAction,
                     showPairingScanner: pairingScannerAction,
                     showSettings: showSettings,
-                    deviceTreePresentation: childSheetPresentation(
-                        for: .workspaceDeviceTree
-                    ),
+                    showComputers: showComputers,
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
@@ -511,30 +511,6 @@ struct CMUXMobileRootView: View {
                 )
             }
         }
-    }
-
-    /// Retains the shell that owns an active child sheet until SwiftUI reports
-    /// its real dismissal. Store refreshes can otherwise swap shells while the
-    /// sheet is still onscreen, orphaning the modal slot and its interaction
-    /// presentation.
-    private var authenticatedShellSurface: MobileRootAuthGate.MobileRootShellSurface {
-        let baseSurface = MobileRootAuthGate.shellSurface(
-            connectionState: store.connectionState,
-            showRestoringStoredMac: shouldShowRestoringStoredMac,
-            showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
-                connectionState: store.connectionState,
-                hasKnownPairedMac: store.hasKnownPairedMac,
-                hasHiddenComputers: store.hasHiddenComputers
-            ) == .disconnected
-        )
-        #if os(iOS)
-        return MobileAuthenticatedShellPresentation.retainingChildHost(
-            rootPresentation.requiredChildHost,
-            over: baseSurface
-        )
-        #else
-        return baseSurface
-        #endif
     }
 
     #if os(macOS)
@@ -613,6 +589,14 @@ struct CMUXMobileRootView: View {
             )
         case .settings:
             settingsSheet(initialFocus: nil)
+        case .computers:
+            DeviceTreeView(
+                store: store,
+                selectWorkspace: selectWorkspaceFromComputers,
+                showAddDevice: addComputerAction,
+                dismissAction: dismissComputers,
+                didForgetComputer: didForgetComputer
+            )
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
         case .child, .dismissingChild, nil:
@@ -657,6 +641,30 @@ struct CMUXMobileRootView: View {
     /// Requests root Settings without depending on the currently mounted shell.
     private func showSettings() {
         handleRootPresentation(.presentSettings)
+    }
+
+    /// The Computers screen and the root routes it can open share this one
+    /// presenter, so changing the underlying authenticated shell cannot orphan
+    /// modal ownership.
+    private func showComputers() {
+        handleRootPresentation(.presentComputers)
+    }
+
+    private func dismissComputers() {
+        handleRootPresentation(.dismissComputers)
+    }
+
+    /// Forget completes its durable cleanup before this callback fires. Route
+    /// the final-row transition through the same root owner as Done, so the
+    /// authenticated shell and its toolbar become visible together.
+    private func didForgetComputer() {
+        guard !store.hasKnownPairedMac, !store.hasHiddenComputers else { return }
+        dismissComputers()
+    }
+
+    private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {
+        store.selectedWorkspaceID = id
+        dismissComputers()
     }
 
     /// Presents only after the authenticated shell owns the screen and no
