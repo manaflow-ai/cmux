@@ -124,6 +124,53 @@ struct CLIRemoteShellStartupPerformanceTests {
         #expect(remainingEntries == [unrelatedEntry.lastPathComponent])
     }
 
+    @Test
+    func invalidAuthenticationRecoveryIndexFailsOpen() throws {
+        let cliPath = try bundledCLIPath()
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-invalid-recovery-index-\(UUID().uuidString)", isDirectory: true)
+        let recoveryRoot = temporaryRoot
+            .appendingPathComponent("cmux-ssh-auth-recovery.\(getuid())", isDirectory: true)
+        try FileManager.default.createDirectory(at: recoveryRoot, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryRoot.path)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        try "invalid\n".write(
+            to: recoveryRoot.appendingPathComponent("read.index"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "invalid\n".write(
+            to: recoveryRoot.appendingPathComponent("write.index"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "queued\n".write(
+            to: recoveryRoot.appendingPathComponent("queue.7"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["TMPDIR"] = temporaryRoot.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__ssh-auth-recovery"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: recoveryRoot.appendingPathComponent("lock").path
+            ),
+            "Invalid indexes must start the secure recovery helper"
+        )
+    }
+
     private struct FakeRemoteShellRoot {
         let url: URL
         let home: URL
