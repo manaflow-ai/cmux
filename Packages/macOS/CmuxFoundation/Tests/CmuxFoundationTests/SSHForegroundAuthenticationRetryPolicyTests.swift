@@ -4684,63 +4684,69 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func recoverySchedulerStopsAfterBoundedPermanentFailure(shellPath: String) throws {
+    func recoverySchedulerRunsDelayedSweepAfterPassLimit(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent(
-                "cmux-ssh-auth-recovery-bounded-worker-\(UUID().uuidString)",
+                "cmux-ssh-auth-recovery-delayed-sweep-\(UUID().uuidString)",
                 isDirectory: true
             )
-        let groupDirectory = root.appendingPathComponent(
-            "cmux-ssh-auth-group.permanent",
-            isDirectory: true
-        )
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_resume_failed_auth_group_reapers() {
-          printf 'pass\n' >> "$CMUX_TEST_PASSES"
+          cmux_test_pass_count=$(/usr/bin/awk 'END { print NR + 0 }' \
+            "$CMUX_TEST_PASSES" 2>/dev/null || printf '0\n')
+          cmux_test_pass_count=$((cmux_test_pass_count + 1))
+          printf '%s\n' "$cmux_test_pass_count" >> "$CMUX_TEST_PASSES"
+          if [ "$cmux_test_pass_count" -ge 2 ]; then
+            /bin/rm -f -- "$CMUX_TEST_QUEUE_WORK"
+          fi
         }
-        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_GROUP" || exit 99
+        cmux_ssh_auth_recovery_queue_has_work_locked() {
+          [ -e "$CMUX_TEST_QUEUE_WORK" ]
+        }
+        : > "$CMUX_TEST_QUEUE_WORK"
         CMUX_SSH_AUTH_RECOVERY_MAX_PASSES=1
-        export CMUX_SSH_AUTH_RECOVERY_MAX_PASSES
-        cmux_ssh_schedule_failed_auth_group_recovery || exit 98
-        trap '/bin/kill -KILL "$cmux_ssh_auth_recovery_sweep_pid" >/dev/null 2>&1 || true' EXIT
+        CMUX_SSH_AUTH_RECOVERY_RETENTION_RECHECK_SECONDS=1
+        export CMUX_SSH_AUTH_RECOVERY_MAX_PASSES \
+          CMUX_SSH_AUTH_RECOVERY_RETENTION_RECHECK_SECONDS
+        cmux_ssh_schedule_failed_auth_group_recovery || exit 99
 
-        cmux_test_failed="$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.failed"
-        cmux_test_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
-        while [ ! -s "$cmux_test_failed" ]; do
-          cmux_test_now=$(cmux_ssh_auth_now_millis) || exit 97
-          [ "$cmux_test_now" -lt "$cmux_test_deadline" ] || exit 96
+        cmux_test_delay_owner="$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/delay.lock/owner"
+        cmux_test_owner_deadline=$(($(cmux_ssh_auth_now_millis) + 2000))
+        while [ ! -s "$cmux_test_delay_owner" ]; do
+          cmux_test_owner_now=$(cmux_ssh_auth_now_millis) || exit 98
+          [ "$cmux_test_owner_now" -lt "$cmux_test_owner_deadline" ] || exit 97
           /bin/sleep 0.01
         done
-        wait "$cmux_ssh_auth_recovery_sweep_pid" 2>/dev/null || true
-        trap - EXIT
+        cmux_ssh_auth_recorded_process_is_live "$cmux_test_delay_owner" || exit 96
 
-        test "$(/usr/bin/awk 'END { print NR + 0 }' "$CMUX_TEST_PASSES")" \
-          -eq 1 || exit 95
-        /usr/bin/grep -Eq '^recovery-v1\\|[A-Fa-f0-9]{32}\\|1$' \
-          "$cmux_test_failed" || exit 94
-        test ! -d \
-          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.lock" || exit 93
-        cmux_test_still_queued=0
-        for cmux_test_queue in \
-          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)"/queue.*; do
-          if /usr/bin/grep -Fqx "$CMUX_TEST_GROUP" "$cmux_test_queue" 2>/dev/null; then
-            cmux_test_still_queued=1
-          fi
+        cmux_test_done_deadline=$(($(cmux_ssh_auth_now_millis) + 5000))
+        while [ "$(/usr/bin/awk 'END { print NR + 0 }' \
+          "$CMUX_TEST_PASSES" 2>/dev/null || printf '0\n')" -lt 2 ]; do
+          cmux_test_done_now=$(cmux_ssh_auth_now_millis) || exit 95
+          [ "$cmux_test_done_now" -lt "$cmux_test_done_deadline" ] || exit 94
+          /bin/sleep 0.01
         done
-        test "$cmux_test_still_queued" -eq 1 || exit 92
+        while [ -d "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.lock" ] || \
+          [ -d "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/delay.lock" ]; do
+          cmux_test_done_now=$(cmux_ssh_auth_now_millis) || exit 93
+          [ "$cmux_test_done_now" -lt "$cmux_test_done_deadline" ] || exit 92
+          /bin/sleep 0.01
+        done
+        test ! -e "$CMUX_TEST_QUEUE_WORK" || exit 91
+        test ! -e \
+          "$TMPDIR/cmux-ssh-auth-recovery.$(/usr/bin/id -u)/sweep.failed" || exit 90
         """
 
         let result = try runShellCommand(
             command,
             environment: [
-                "CMUX_TEST_GROUP": groupDirectory.path,
                 "CMUX_TEST_PASSES": root.appendingPathComponent("passes").path,
+                "CMUX_TEST_QUEUE_WORK": root.appendingPathComponent("queue-work").path,
                 "TMPDIR": root.path,
             ],
             shellPath: shellPath
