@@ -8131,6 +8131,41 @@ fn journal_agent_late_or_unidentified_event_keeps_active_session_identity() {
 }
 
 #[test]
+fn journal_agent_unidentified_late_end_does_not_finish_new_unidentified_session() {
+    let mut registry =
+        WorkspaceRegistry::in_memory("journal-agent-unidentified-late-end").unwrap();
+    commit_terminal_topology(&mut registry, "journal-agent-unidentified-late-end-topology");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    for (index, event) in ["AgentStart", "SessionStart", "AgentEnd"].into_iter().enumerate() {
+        let ingress = crate::agent_hook_journal_ingress(
+            "codex",
+            event,
+            Some(terminal_id.as_str()),
+            json!({}),
+        )
+        .unwrap();
+        registry
+            .append_journal_ingress(
+                &ingress,
+                &validated,
+                "client_unidentified_late_end",
+                &format!("journal_agent_unidentified_late_end_{index}"),
+            )
+            .unwrap();
+    }
+
+    let agent = registry.public_projections().unwrap().agents.remove(0);
+    assert_eq!(agent.state, "idle");
+    assert_eq!(agent.source, "hook");
+    assert!(agent.source_session.is_none());
+}
+
+#[test]
 fn journal_agent_unidentified_completion_finishes_unidentified_run() {
     let mut registry =
         WorkspaceRegistry::in_memory("journal-agent-unidentified-completion").unwrap();
