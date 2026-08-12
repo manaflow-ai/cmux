@@ -95,7 +95,7 @@ final class BrowserPaneDropTargetView: NSView {
         } else {
             transferDropRouter.clear()
         }
-        updateDragState(sender, phase: "entered")
+        return updateDragState(sender, phase: "entered")
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
