@@ -2620,31 +2620,31 @@ impl Mux {
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
-        if let Some(public_id) = &plan.closed_terminal_public_id {
-            if !projection.patch.changes.iter().any(|change| {
+        if let Some(public_id) = &plan.closed_terminal_public_id
+            && !projection.patch.changes.iter().any(|change| {
                 matches!(
                     change,
                     ResourceChange::TombstoneTerminal { public_id: closing, .. }
                         if closing == public_id
                 )
-            }) {
-                let expected_incarnation =
-                    plan.terminal_batch.first().and_then(|(_, incarnation)| incarnation.clone());
-                projection.patch.changes.push(ResourceChange::TombstoneTerminal {
-                    public_id: public_id.clone(),
-                    expected_incarnation,
-                });
-                let changes = projection
-                    .changes
-                    .as_array_mut()
-                    .context("terminal close projection changes are not an array")?;
-                changes.push(json!({
-                    "kind": "delete",
-                    "sequence": changes.len(),
-                    "resource": "terminal",
-                    "id": public_id,
-                }));
-            }
+            })
+        {
+            let expected_incarnation =
+                plan.terminal_batch.first().and_then(|(_, incarnation)| incarnation.clone());
+            projection.patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: public_id.clone(),
+                expected_incarnation,
+            });
+            let changes = projection
+                .changes
+                .as_array_mut()
+                .context("terminal close projection changes are not an array")?;
+            changes.push(json!({
+                "kind": "delete",
+                "sequence": changes.len(),
+                "resource": "terminal",
+                "id": public_id,
+            }));
         }
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
