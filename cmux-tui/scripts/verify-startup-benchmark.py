@@ -54,7 +54,7 @@ def validate_appcontainer_feasibility(path):
     )
     nonce = evidence["nonce"]
     if (
-        evidence["schema_version"] != 3
+        evidence["schema_version"] != 4
         or evidence["backend"] != "windows-appcontainer-feasibility"
         or not isinstance(nonce, str)
         or re.fullmatch(r"[0-9a-f]{64}", nonce) is None
@@ -119,7 +119,7 @@ def validate_appcontainer_feasibility(path):
         "AppContainer broker evidence",
     )
     if (
-        broker["schema_version"] != 3
+        broker["schema_version"] != 4
         or broker["nonce"] != nonce
         or broker["appcontainer_sid"] != appcontainer_sid
         or broker["launch_api"] != "CreateProcessW+SECURITY_CAPABILITIES"
@@ -242,7 +242,7 @@ def validate_appcontainer_feasibility(path):
         },
         "AppContainer product evidence",
     )
-    if product["schema_version"] != 3 or product["nonce"] != nonce:
+    if product["schema_version"] != 4 or product["nonce"] != nonce:
         raise SystemExit("AppContainer product identity is invalid")
     require_true_fields(
         product,
@@ -302,12 +302,44 @@ def validate_appcontainer_feasibility(path):
         raise SystemExit("AppContainer nonce-owned path cleanup evidence is invalid")
 
 
+def validate_appcontainer_feasibility_failure(path):
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    require_exact_object(
+        evidence,
+        {"schema_version", "nonce", "stage", "error"},
+        "AppContainer feasibility failure evidence",
+    )
+    nonce = evidence["nonce"]
+    error = evidence["error"]
+    if (
+        evidence["schema_version"] != 4
+        or not isinstance(nonce, str)
+        or re.fullmatch(r"[0-9a-f]{64}", nonce) is None
+        or evidence["stage"]
+        not in {
+            "config-receive",
+            "config-validate",
+            "product-launch",
+            "success-evidence-encode",
+            "success-evidence-write",
+        }
+        or not isinstance(error, str)
+        or not error
+        or len(error.encode("utf-8")) > 4096
+    ):
+        raise SystemExit("AppContainer feasibility failure evidence is invalid")
+
+
 if len(sys.argv) == 3 and sys.argv[1] == "--appcontainer-feasibility":
     validate_appcontainer_feasibility(pathlib.Path(sys.argv[2]))
     raise SystemExit(0)
+if len(sys.argv) == 3 and sys.argv[1] == "--appcontainer-feasibility-failure":
+    validate_appcontainer_feasibility_failure(pathlib.Path(sys.argv[2]))
+    raise SystemExit(0)
 if len(sys.argv) != 2:
     raise SystemExit(
-        "usage: verify-startup-benchmark.py [--appcontainer-feasibility] <evidence>"
+        "usage: verify-startup-benchmark.py "
+        "[--appcontainer-feasibility|--appcontainer-feasibility-failure] <evidence>"
     )
 
 path = pathlib.Path(sys.argv[1])

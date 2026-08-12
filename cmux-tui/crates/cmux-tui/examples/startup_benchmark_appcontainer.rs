@@ -76,7 +76,7 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::UI::Shell::{LoadUserProfileW, PROFILEINFOW, UnloadUserProfile};
 
-const EVIDENCE_SCHEMA_VERSION: u32 = 3;
+const EVIDENCE_SCHEMA_VERSION: u32 = 4;
 const MAX_RECORD_BYTES: usize = 64 * 1024;
 const BROKER_TIMEOUT: Duration = Duration::from_secs(50);
 const PRODUCT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -97,8 +97,6 @@ struct BrokerConfig {
     profile_name: String,
     appcontainer_sid: String,
     account_authentication_id: String,
-    output: PathBuf,
-    failure_output: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -113,11 +111,18 @@ struct BrokerFailureEvidence {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum BrokerFailureStage {
-    ConfigRead,
+    ConfigReceive,
     ConfigValidate,
-    ConfigConsume,
     ProductLaunch,
-    EvidenceWrite,
+    SuccessEvidenceEncode,
+    SuccessEvidenceWrite,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum BrokerWireRecord {
+    Success { schema_version: u32, nonce: String, evidence: Box<BrokerEvidence> },
+    Failure { schema_version: u32, nonce: String, stage: BrokerFailureStage, error: String },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -436,9 +441,6 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
     }
     fs::write(&adjacent, b"protected").context("create AppContainer adjacent sentinel")?;
 
-    let broker_output = fixture.path().join("appcontainer-broker-evidence.json");
-    let broker_failure = fixture.path().join("appcontainer-broker-failure.json");
-    let config_path = fixture.path().join("appcontainer-broker-config.json");
     let config = BrokerConfig {
         schema_version: EVIDENCE_SCHEMA_VERSION,
         nonce: nonce.clone(),
@@ -451,31 +453,46 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
         profile_name: profile_name.clone(),
         appcontainer_sid: appcontainer_sid.clone(),
         account_authentication_id,
-        output: broker_output.clone(),
-        failure_output: broker_failure.clone(),
     };
-    write_new_json(&config_path, &config)?;
-    let broker_run = run_account_broker(account.token(), &staged_target, &config_path, &nonce);
-    let (broker_result, broker_stdout, broker_stderr) = match broker_run {
+    let broker_run = run_account_broker(account.token(), &staged_target, &config, &nonce);
+    let (broker_result, wire_failure, broker_stdout, broker_stderr) = match broker_run {
         Ok(BrokerRunOutput { outcome, stdout, stderr }) => {
-            let result = match outcome {
-                Ok(()) if stdout.is_empty() => {
-                    read_bounded_json::<BrokerEvidence>(&broker_output, MAX_RECORD_BYTES)
-                }
-                Ok(()) => {
-                    Err(anyhow::anyhow!("successful AppContainer broker emitted unexpected stdout"))
-                }
-                Err(error) => Err(error),
+            let wire = parse_broker_wire_stdout(&stdout, &nonce);
+            let (result, failure) = match (outcome, wire) {
+                (Ok(()), Ok(BrokerWireRecord::Success { evidence, .. })) => (Ok(*evidence), None),
+                (
+                    Err(error),
+                    Ok(BrokerWireRecord::Failure {
+                        schema_version,
+                        nonce,
+                        stage,
+                        error: wire_error,
+                    }),
+                ) => (
+                    Err(error),
+                    Some(BrokerFailureEvidence { schema_version, nonce, stage, error: wire_error }),
+                ),
+                (Ok(()), Ok(BrokerWireRecord::Failure { .. })) => (
+                    Err(anyhow::anyhow!("successful AppContainer broker emitted a failure record")),
+                    None,
+                ),
+                (Err(error), Ok(BrokerWireRecord::Success { .. })) => (
+                    Err(error.context("failed AppContainer broker emitted a success record")),
+                    None,
+                ),
+                (_, Err(error)) => (Err(error), None),
             };
-            (result, stdout, stderr)
+            (result, failure, stdout, stderr)
         }
-        Err(error) => (Err(error), Vec::new(), Vec::new()),
+        Err(error) => (Err(error), None, Vec::new(), Vec::new()),
     };
     let broker = match broker_result {
         Ok(broker) => broker,
         Err(error) => {
-            let copied_failure =
-                persist_broker_failure(&broker_failure, &broker_stdout, &output, &nonce);
+            let copied_failure = wire_failure
+                .as_ref()
+                .context("AppContainer broker produced no valid failure wire record")
+                .and_then(|failure| persist_broker_failure(failure, &output, &nonce));
             let profile_cleanup = account.impersonate(|_| profile.delete());
             let _ = fs::remove_file(&adjacent);
             let parent_unchanged = parent_security_unchanged(
@@ -556,38 +573,25 @@ pub(super) fn run_controller(values: &[String]) -> Result<()> {
     Ok(())
 }
 pub(super) fn run_broker(values: &[String]) -> Result<()> {
-    let config_path = required_path(values, "--config")?;
     let expected_nonce = required_value(values, "--nonce")?;
     validate_nonce(&expected_nonce)?;
-    let failure_output = config_path
-        .parent()
-        .context("AppContainer broker config has no parent")?
-        .join("appcontainer-broker-failure.json");
-    let config = match read_bounded_json::<BrokerConfig>(&config_path, MAX_RECORD_BYTES) {
+    let received = read_bounded_all(io::stdin().lock(), MAX_RECORD_BYTES)
+        .map_err(anyhow::Error::from)
+        .and_then(|bytes| decode_canonical_json_line::<BrokerConfig>(&bytes));
+    let config = match received {
         Ok(config) => config,
         Err(error) => {
             return Err(record_broker_failure(
-                &failure_output,
                 &expected_nonce,
-                BrokerFailureStage::ConfigRead,
+                BrokerFailureStage::ConfigReceive,
                 error,
             ));
         }
     };
-    if let Err(error) = validate_config(&config, &config_path, &expected_nonce) {
+    if let Err(error) = validate_config(&config, &expected_nonce) {
         return Err(record_broker_failure(
-            &failure_output,
             &expected_nonce,
             BrokerFailureStage::ConfigValidate,
-            error,
-        ));
-    }
-    if let Err(error) = fs::remove_file(&config_path).context("consume AppContainer broker config")
-    {
-        return Err(record_broker_failure(
-            &failure_output,
-            &expected_nonce,
-            BrokerFailureStage::ConfigConsume,
             error,
         ));
     }
@@ -595,18 +599,31 @@ pub(super) fn run_broker(values: &[String]) -> Result<()> {
         Ok(evidence) => evidence,
         Err(error) => {
             return Err(record_broker_failure(
-                &failure_output,
                 &expected_nonce,
                 BrokerFailureStage::ProductLaunch,
                 error,
             ));
         }
     };
-    if let Err(error) = write_new_json(&config.output, &evidence) {
+    let record = BrokerWireRecord::Success {
+        schema_version: EVIDENCE_SCHEMA_VERSION,
+        nonce: expected_nonce.clone(),
+        evidence: Box::new(evidence),
+    };
+    let encoded = match encode_canonical_json_line(&record) {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            return Err(record_broker_failure(
+                &expected_nonce,
+                BrokerFailureStage::SuccessEvidenceEncode,
+                error,
+            ));
+        }
+    };
+    if let Err(error) = write_broker_stdout(&encoded) {
         return Err(record_broker_failure(
-            &failure_output,
             &expected_nonce,
-            BrokerFailureStage::EvidenceWrite,
+            BrokerFailureStage::SuccessEvidenceWrite,
             error,
         ));
     }
@@ -1130,10 +1147,11 @@ impl OwnedNonceDirectory {
 fn run_account_broker(
     token: HANDLE,
     executable: &Path,
-    config: &Path,
+    config: &BrokerConfig,
     nonce: &str,
 ) -> Result<BrokerRunOutput> {
     let broker_wait_ms = u32::try_from(BROKER_TIMEOUT.as_millis())?;
+    let config_line = encode_canonical_json_line(config)?;
     let inheritable = SECURITY_ATTRIBUTES {
         nLength: u32::try_from(size_of::<SECURITY_ATTRIBUTES>())?,
         lpSecurityDescriptor: null_mut(),
@@ -1158,14 +1176,11 @@ fn run_account_broker(
     let command_line = windows_command_line(&[
         executable.as_os_str(),
         OsStr::new("--appcontainer-broker"),
-        OsStr::new("--config"),
-        config.as_os_str(),
         OsStr::new("--nonce"),
         OsStr::new(nonce),
     ]);
     let application = wide(executable.as_os_str());
-    let current_dir =
-        wide(config.parent().context("AppContainer config has no parent")?.as_os_str());
+    let current_dir = wide(config.staging_root.as_os_str());
     let mut command_line = command_line;
     let mut startup =
         STARTUPINFOW { cb: u32::try_from(size_of::<STARTUPINFOW>())?, ..STARTUPINFOW::default() };
@@ -1198,7 +1213,6 @@ fn run_account_broker(
         terminate_on_drop: true,
     };
     drop(input_read);
-    drop(input_write);
     drop(output_write);
     drop(error_write);
     let output_thread = thread::spawn(move || {
@@ -1213,10 +1227,17 @@ fn run_account_broker(
         std::mem::forget(error_read);
         read_bounded_tail(file, 16 * 1024)
     });
+    // SAFETY: input_write exclusively owns this pipe handle after the conversion.
+    let mut input = unsafe { File::from_raw_handle(input_write.0 as RawHandle) };
+    std::mem::forget(input_write);
+    let config_write = input.write_all(&config_line).and_then(|_| input.flush());
+    drop(input);
     let environment_cleanup = check(destroyed, "destroy trusted AppContainer broker environment");
     // SAFETY: process_handle is live for this bounded wait.
     let wait = unsafe { WaitForSingleObject(owner.process.0, broker_wait_ms) };
-    let outcome = if let Err(error) = environment_cleanup {
+    let outcome = if let Err(error) = config_write {
+        Err(error).context("write AppContainer broker config pipe")
+    } else if let Err(error) = environment_cleanup {
         Err(error)
     } else if wait == WAIT_OBJECT_0 {
         let mut code = 0_u32;
@@ -2026,20 +2047,15 @@ fn parent_security_unchanged(path: &Path, information: u32, before: &[usize]) ->
     }
     Ok(())
 }
-fn validate_config(config: &BrokerConfig, path: &Path, expected_nonce: &str) -> Result<()> {
+fn validate_config(config: &BrokerConfig, expected_nonce: &str) -> Result<()> {
     validate_nonce(&config.nonce)?;
     validate_profile_name(&config.profile_name)?;
-    let expected_output = path.with_file_name("appcontainer-broker-evidence.json");
-    let expected_failure = path.with_file_name("appcontainer-broker-failure.json");
     if config.schema_version != EVIDENCE_SCHEMA_VERSION
         || config.nonce != expected_nonce
         || config.target_sha256 != sha256_file(&config.target)?
         || config.target.parent() != Some(config.staging_root.as_path())
         || config.staging_root == config.fixture_root
         || config.staging_root.parent() != config.fixture_root.parent()
-        || path.parent() != Some(config.fixture_root.as_path())
-        || config.output != expected_output
-        || config.failure_output != expected_failure
         || config.adjacent_path.starts_with(&config.fixture_root)
         || config.profile_folder.starts_with(&config.fixture_root)
     {
@@ -2120,96 +2136,100 @@ fn validate_broker_failure(failure: &BrokerFailureEvidence, expected_nonce: &str
     Ok(())
 }
 
-fn parse_broker_failure_stdout(
-    stdout: &[u8],
-    expected_nonce: &str,
-) -> Result<Option<BrokerFailureEvidence>> {
-    if stdout.is_empty() {
-        return Ok(None);
-    }
-    if stdout.len() > MAX_RECORD_BYTES
-        || !stdout.ends_with(b"\n")
-        || stdout[..stdout.len() - 1].contains(&b'\n')
-        || stdout[..stdout.len() - 1].contains(&b'\r')
-    {
-        bail!("AppContainer broker stdout was not exactly one bounded JSON line");
-    }
-    let failure: BrokerFailureEvidence = serde_json::from_slice(&stdout[..stdout.len() - 1])?;
-    validate_broker_failure(&failure, expected_nonce)?;
-    Ok(Some(failure))
-}
-
 fn persist_broker_failure(
-    source: &Path,
-    stdout: &[u8],
+    failure: &BrokerFailureEvidence,
     output: &Path,
     expected_nonce: &str,
 ) -> Result<PathBuf> {
-    let piped = parse_broker_failure_stdout(stdout, expected_nonce)?;
-    let filed = match fs::symlink_metadata(source) {
-        Ok(_) => {
-            let failure: BrokerFailureEvidence = read_bounded_json(source, MAX_RECORD_BYTES)?;
-            validate_broker_failure(&failure, expected_nonce)?;
-            Some(failure)
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error).context("inspect AppContainer broker failure file"),
-    };
-    let failure = match (piped, filed) {
-        (Some(piped), Some(filed)) if piped == filed => piped,
-        (Some(_), Some(_)) => {
-            bail!("AppContainer broker pipe and file failure records differed")
-        }
-        (Some(failure), None) | (None, Some(failure)) => failure,
-        (None, None) => bail!("AppContainer broker produced no failure record"),
-    };
+    validate_broker_failure(failure, expected_nonce)?;
     let stem = output.file_stem().and_then(|value| value.to_str()).unwrap_or("appcontainer");
     let destination = output.with_file_name(format!("{stem}-failure.json"));
-    write_new_json(&destination, &failure)?;
+    write_new_json(&destination, failure)?;
     Ok(destination)
 }
 
 fn record_broker_failure(
-    output: &Path,
     nonce: &str,
     stage: BrokerFailureStage,
     error: anyhow::Error,
 ) -> anyhow::Error {
-    let failure = BrokerFailureEvidence {
+    let failure = BrokerWireRecord::Failure {
         schema_version: EVIDENCE_SCHEMA_VERSION,
         nonce: nonce.to_string(),
         stage,
         error: bounded_error(&error),
     };
-    let stdout_write = write_broker_failure_stdout(&failure);
-    let file_write = write_new_json(output, &failure);
-    match (stdout_write, file_write) {
-        (Ok(()), Ok(())) => error,
-        (Err(stdout), Ok(())) => error.context(format!(
-            "also failed to write AppContainer broker stdout evidence: {stdout:#}"
-        )),
-        (Ok(()), Err(file)) => error
-            .context(format!("also failed to write AppContainer broker file evidence: {file:#}")),
-        (Err(stdout), Err(file)) => error.context(format!(
-            "also failed to write AppContainer broker evidence: stdout={stdout:#}; file={file:#}"
+    match encode_canonical_json_line(&failure).and_then(|encoded| write_broker_stdout(&encoded)) {
+        Ok(()) => error,
+        Err(write) => error.context(format!(
+            "also failed to write AppContainer broker failure wire record: {write:#}"
         )),
     }
 }
 
-fn encode_broker_failure_line(failure: &BrokerFailureEvidence) -> Result<Vec<u8>> {
-    let mut encoded = serde_json::to_vec(failure)?;
+fn encode_canonical_json_line(value: &impl Serialize) -> Result<Vec<u8>> {
+    let mut encoded = serde_json::to_vec(value)?;
     if encoded.len() + 1 > MAX_RECORD_BYTES {
-        bail!("AppContainer broker failure line exceeded its bound");
+        bail!("AppContainer broker JSON line exceeded its bound");
     }
     encoded.push(b'\n');
     Ok(encoded)
 }
 
-fn write_broker_failure_stdout(failure: &BrokerFailureEvidence) -> Result<()> {
-    let encoded = encode_broker_failure_line(failure)?;
+fn decode_canonical_json_line<T>(encoded: &[u8]) -> Result<T>
+where
+    T: for<'de> Deserialize<'de> + Serialize,
+{
+    if encoded.is_empty()
+        || encoded.len() > MAX_RECORD_BYTES
+        || !encoded.ends_with(b"\n")
+        || encoded[..encoded.len() - 1].contains(&b'\n')
+        || encoded[..encoded.len() - 1].contains(&b'\r')
+    {
+        bail!("AppContainer broker transport was not exactly one bounded JSON line");
+    }
+    let value: T = serde_json::from_slice(&encoded[..encoded.len() - 1])?;
+    if encode_canonical_json_line(&value)? != encoded {
+        bail!("AppContainer broker JSON line was not canonical");
+    }
+    Ok(value)
+}
+
+fn validate_broker_wire(record: &BrokerWireRecord, expected_nonce: &str) -> Result<()> {
+    match record {
+        BrokerWireRecord::Success { schema_version, nonce, evidence } => {
+            validate_nonce(nonce)?;
+            if *schema_version != EVIDENCE_SCHEMA_VERSION
+                || nonce != expected_nonce
+                || evidence.schema_version != EVIDENCE_SCHEMA_VERSION
+                || evidence.nonce != expected_nonce
+            {
+                bail!("AppContainer broker success wire identity was invalid");
+            }
+        }
+        BrokerWireRecord::Failure { schema_version, nonce, stage, error } => {
+            let failure = BrokerFailureEvidence {
+                schema_version: *schema_version,
+                nonce: nonce.clone(),
+                stage: *stage,
+                error: error.clone(),
+            };
+            validate_broker_failure(&failure, expected_nonce)?;
+        }
+    }
+    Ok(())
+}
+
+fn parse_broker_wire_stdout(stdout: &[u8], expected_nonce: &str) -> Result<BrokerWireRecord> {
+    let record = decode_canonical_json_line(stdout)?;
+    validate_broker_wire(&record, expected_nonce)?;
+    Ok(record)
+}
+
+fn write_broker_stdout(encoded: &[u8]) -> Result<()> {
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
-    stdout.write_all(&encoded)?;
+    stdout.write_all(encoded)?;
     stdout.flush()?;
     Ok(())
 }
@@ -2532,6 +2552,42 @@ mod tests {
     }
 
     #[test]
+    fn broker_config_transport_is_canonical_bounded_and_nonce_bound() {
+        let nonce = "12".repeat(32);
+        let config = BrokerConfig {
+            schema_version: EVIDENCE_SCHEMA_VERSION,
+            nonce: nonce.clone(),
+            target: PathBuf::from("C:/stage/probe.exe"),
+            target_sha256: "34".repeat(32),
+            staging_root: PathBuf::from("C:/stage"),
+            fixture_root: PathBuf::from("C:/fixture"),
+            adjacent_path: PathBuf::from("C:/adjacent"),
+            profile_folder: PathBuf::from("C:/profile"),
+            profile_name: format!("cmux.bench.ac.{}", &nonce[..32]),
+            appcontainer_sid: "S-1-15-2-1".into(),
+            account_authentication_id: "0000000100000002".into(),
+        };
+        let encoded = encode_canonical_json_line(&config).unwrap();
+        let decoded: BrokerConfig = decode_canonical_json_line(&encoded).unwrap();
+
+        assert_eq!(decoded.nonce, nonce);
+        assert_eq!(decoded.target, PathBuf::from("C:/stage/probe.exe"));
+        assert!(validate_config(&decoded, &"56".repeat(32)).is_err());
+        let mut extra = encoded.clone();
+        extra.extend_from_slice(&encoded);
+        assert!(decode_canonical_json_line::<BrokerConfig>(&extra).is_err());
+
+        let mut unknown = serde_json::to_value(&config).unwrap();
+        unknown["unexpected"] = serde_json::json!(true);
+        assert!(
+            decode_canonical_json_line::<BrokerConfig>(
+                &encode_canonical_json_line(&unknown).unwrap()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn pre_launch_token_failure_names_every_proof_field() {
         let evidence = PreLaunchTokenEvidence {
             non_appcontainer: false,
@@ -2592,14 +2648,75 @@ mod tests {
         parent_security_unchanged(parent.path(), information, &before).unwrap();
     }
 
+    fn sample_broker_evidence(nonce: &str) -> BrokerEvidence {
+        BrokerEvidence {
+            schema_version: EVIDENCE_SCHEMA_VERSION,
+            nonce: nonce.into(),
+            appcontainer_sid: "S-1-15-2-1".into(),
+            pre_launch_token: PreLaunchTokenEvidence {
+                non_appcontainer: true,
+                restricting_sid_count_zero: true,
+                enabled_privilege_count: 1,
+                se_change_notify_enabled: true,
+                traverse_privilege_only: true,
+                account_authentication_match: true,
+            },
+            suspended_product_token: SuspendedProductTokenEvidence {
+                token_is_appcontainer: true,
+                appcontainer_sid_match: true,
+                restricting_sid_count_zero: true,
+                capability_count_zero: true,
+                low_integrity: true,
+                enabled_privilege_count: 1,
+                se_change_notify_enabled: true,
+                traverse_privilege_only: true,
+                account_authentication_match: true,
+            },
+            product: ProductEvidence {
+                schema_version: EVIDENCE_SCHEMA_VERSION,
+                nonce: nonce.into(),
+                entry_reached: true,
+                fixture_write: true,
+                staging_write_denied: true,
+                staged_probe_write_denied: true,
+                adjacent_write_denied: true,
+                profile_owned_write: true,
+                registry_owned_write: true,
+                outbound_network_denied: true,
+                inbound_network_denied: true,
+                inbound_bound_address: None,
+                descendant_ready: true,
+                token_is_appcontainer: true,
+                appcontainer_sid_match: true,
+                restricting_sid_count_zero: true,
+                capability_count_zero: true,
+                low_integrity: true,
+                traverse_privilege_only: true,
+                account_authentication_match: true,
+            },
+            launch_api: "CreateProcessW+SECURITY_CAPABILITIES".into(),
+            create_process_w_succeeded: true,
+            broker_staging_write_denied: true,
+            broker_staged_probe_write_denied: true,
+            explicit_three_handle_list: true,
+            security_capabilities_applied: true,
+            product_exact_job_before_resume: true,
+            product_resume_previous_count: 1,
+            product_process_id: 1,
+            product_primary_thread_id: 2,
+            descendant_observed_in_job: true,
+            active_process_zero: true,
+        }
+    }
+
     #[test]
-    fn broker_failure_record_uses_schema_three_and_the_fixed_stage_allowlist() {
+    fn broker_failure_record_uses_schema_four_and_the_fixed_stage_allowlist() {
         for (stage, expected) in [
-            (BrokerFailureStage::ConfigRead, "config-read"),
+            (BrokerFailureStage::ConfigReceive, "config-receive"),
             (BrokerFailureStage::ConfigValidate, "config-validate"),
-            (BrokerFailureStage::ConfigConsume, "config-consume"),
             (BrokerFailureStage::ProductLaunch, "product-launch"),
-            (BrokerFailureStage::EvidenceWrite, "evidence-write"),
+            (BrokerFailureStage::SuccessEvidenceEncode, "success-evidence-encode"),
+            (BrokerFailureStage::SuccessEvidenceWrite, "success-evidence-write"),
         ] {
             let evidence = BrokerFailureEvidence {
                 schema_version: EVIDENCE_SCHEMA_VERSION,
@@ -2609,14 +2726,14 @@ mod tests {
             };
 
             let encoded = serde_json::to_value(&evidence).unwrap();
-            assert_eq!(encoded["schema_version"], 3);
+            assert_eq!(encoded["schema_version"], 4);
             assert_eq!(encoded["stage"], expected);
             let decoded: BrokerFailureEvidence = serde_json::from_value(encoded).unwrap();
             assert_eq!(decoded.stage, stage);
         }
 
         let unknown = serde_json::json!({
-            "schema_version": 3,
+            "schema_version": 4,
             "nonce": "12".repeat(32),
             "stage": "unknown",
             "error": "denied",
@@ -2625,28 +2742,47 @@ mod tests {
     }
 
     #[test]
-    fn broker_failure_stdout_is_one_canonical_nonce_bound_line() {
+    fn broker_wire_is_one_canonical_nonce_bound_line() {
         let nonce = "12".repeat(32);
-        let evidence = BrokerFailureEvidence {
+        let failure = BrokerWireRecord::Failure {
             schema_version: EVIDENCE_SCHEMA_VERSION,
             nonce: nonce.clone(),
             stage: BrokerFailureStage::ConfigValidate,
             error: "denied".into(),
         };
-        let encoded = encode_broker_failure_line(&evidence).unwrap();
+        let encoded = encode_canonical_json_line(&failure).unwrap();
 
-        assert_eq!(parse_broker_failure_stdout(&encoded, &nonce).unwrap(), Some(evidence));
+        assert!(matches!(
+            parse_broker_wire_stdout(&encoded, &nonce).unwrap(),
+            BrokerWireRecord::Failure { stage: BrokerFailureStage::ConfigValidate, .. }
+        ));
         let mut extra = encoded.clone();
         extra.extend_from_slice(&encoded);
-        assert!(parse_broker_failure_stdout(&extra, &nonce).is_err());
-        assert!(parse_broker_failure_stdout(&encoded[..encoded.len() - 1], &nonce).is_err());
-        assert!(parse_broker_failure_stdout(&encoded, &"34".repeat(32)).is_err());
+        assert!(parse_broker_wire_stdout(&extra, &nonce).is_err());
+        assert!(parse_broker_wire_stdout(&encoded[..encoded.len() - 1], &nonce).is_err());
+        assert!(parse_broker_wire_stdout(&encoded, &"34".repeat(32)).is_err());
+        let mut unknown = serde_json::to_value(&failure).unwrap();
+        unknown["unexpected"] = serde_json::json!(true);
+        assert!(
+            parse_broker_wire_stdout(&encode_canonical_json_line(&unknown).unwrap(), &nonce,)
+                .is_err()
+        );
+
+        let success = BrokerWireRecord::Success {
+            schema_version: EVIDENCE_SCHEMA_VERSION,
+            nonce: nonce.clone(),
+            evidence: Box::new(sample_broker_evidence(&nonce)),
+        };
+        let encoded = encode_canonical_json_line(&success).unwrap();
+        assert!(matches!(
+            parse_broker_wire_stdout(&encoded, &nonce).unwrap(),
+            BrokerWireRecord::Success { .. }
+        ));
     }
 
     #[test]
-    fn persisted_broker_failure_requires_equal_pipe_and_file_records() {
+    fn trusted_controller_persists_the_wire_failure_record() {
         let directory = tempfile::tempdir().unwrap();
-        let source = directory.path().join("broker-failure.json");
         let requested_output = directory.path().join("preflight.json");
         let nonce = "12".repeat(32);
         let evidence = BrokerFailureEvidence {
@@ -2655,28 +2791,9 @@ mod tests {
             stage: BrokerFailureStage::ConfigValidate,
             error: "denied".into(),
         };
-        write_new_json(&source, &evidence).unwrap();
-        let encoded = encode_broker_failure_line(&evidence).unwrap();
-
-        assert!(
-            persist_broker_failure(&source, &encoded, &requested_output, &"34".repeat(32),)
-                .is_err()
-        );
-        let copied = persist_broker_failure(&source, &encoded, &requested_output, &nonce).unwrap();
+        assert!(persist_broker_failure(&evidence, &requested_output, &"34".repeat(32)).is_err());
+        let copied = persist_broker_failure(&evidence, &requested_output, &nonce).unwrap();
         let copied: BrokerFailureEvidence = read_bounded_json(&copied, MAX_RECORD_BYTES).unwrap();
         assert_eq!(copied, evidence);
-
-        let mismatched =
-            BrokerFailureEvidence { stage: BrokerFailureStage::ConfigConsume, ..evidence };
-        let mismatch_output = directory.path().join("mismatch.json");
-        assert!(
-            persist_broker_failure(
-                &source,
-                &encode_broker_failure_line(&mismatched).unwrap(),
-                &mismatch_output,
-                &nonce,
-            )
-            .is_err()
-        );
     }
 }
