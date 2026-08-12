@@ -986,7 +986,7 @@ class TerminalController {
             return
         }
 
-        stop()
+        stop(cleanupDiscoveryState: false)
         startSocketTransport(
             SocketControlServerConfiguration(accessMode: restartMode, preferredSocketPath: path),
             socketPath: path

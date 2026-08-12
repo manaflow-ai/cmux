@@ -3583,12 +3583,11 @@ struct CMUXCLI {
         let socketPathSource: CLISocketPathSource
         if explicitSocketPath != nil {
             socketPathSource = .explicitFlag
-        } else if let envSocketPath {
-            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(
-                envSocketPath,
-                bundleIdentifier: cliBundleIdentifier,
-                environment: processEnv
-            ) ? .implicitDefault : .environment
+        } else if envSocketPath != nil {
+            // An explicitly supplied environment path is pinned exactly like
+            // --socket, even when it happens to equal a known default. This
+            // prevents a dev CLI from silently crossing into another instance.
+            socketPathSource = .environment
         } else {
             socketPathSource = .implicitDefault
         }
@@ -3598,12 +3597,24 @@ struct CMUXCLI {
             socketPath: socketPath,
             processEnv: processEnv
         )
-        let resolvedSocketPath = CLISocketPathResolver.resolve(
+        let socketResolution = CLISocketPathResolver.resolveDetailed(
             requestedPath: socketPath,
             source: socketPathSource,
             environment: processEnv,
             bundleIdentifier: cliBundleIdentifier
         )
+        if !socketResolution.hasLiveSocket,
+           socketPathSource == .implicitDefault {
+            throw CLIError(message: socketResolution.failureMessage)
+        }
+        // Explicit paths are intentionally not second-guessed. Their selected
+        // value is always the requested path, so SocketClient reports its
+        // normal connection error and errno below.
+        let resolvedSocketPath = socketResolution.selectedPath ?? socketPath
+        if socketPathSource == .implicitDefault,
+           let rerouteNotice = socketResolution.rerouteNotice {
+            cliWriteStderr(rerouteNotice + "\n")
+        }
 
         if shouldOpenAsPathArgument(command) {
             try openPathViaExplicitSocket(command, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)

@@ -1,3 +1,4 @@
+public import Darwin
 public import Foundation
 
 public extension SocketControlSettings {
@@ -19,6 +20,54 @@ public extension SocketControlSettings {
         let payload = Data((path + "\n").utf8)
         for filePath in lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment) {
             writeSocketPathMarker(payload, to: filePath)
+        }
+    }
+
+    /// Removes current-variant markers only when they still advertise path.
+    ///
+    /// Marker cleanup is conditional so an exiting instance cannot erase a
+    /// replacement instance's newer marker. Callers should perform a socket
+    /// liveness/lock-holder check before invoking this method.
+    ///
+    /// - Parameters:
+    ///   - path: The socket path owned by the exiting instance.
+    ///   - bundleIdentifier: The running app's bundle identifier.
+    ///   - environment: The process environment.
+    ///   - fileManager: The file manager used to remove marker files.
+    public static func clearLastSocketPathIfMatching(
+        _ path: String,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) {
+        for filePath in lastSocketPathFiles(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            fileManager: fileManager
+        ) {
+            var before = stat()
+            guard lstat(filePath, &before) == 0,
+                  (before.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+                  before.st_uid == getuid(),
+                  before.st_nlink == 1,
+                  let contents = try? String(contentsOfFile: filePath, encoding: .utf8),
+                  pathsMatch(contents.trimmingCharacters(in: .whitespacesAndNewlines), path)
+            else {
+                continue
+            }
+
+            // Marker writes use atomic replacement. Re-check the inode and
+            // payload so a concurrent replacement is never removed.
+            var after = stat()
+            guard lstat(filePath, &after) == 0,
+                  before.st_dev == after.st_dev,
+                  before.st_ino == after.st_ino,
+                  let currentContents = try? String(contentsOfFile: filePath, encoding: .utf8),
+                  pathsMatch(currentContents.trimmingCharacters(in: .whitespacesAndNewlines), path)
+            else {
+                continue
+            }
+            try? fileManager.removeItem(atPath: filePath)
         }
     }
 

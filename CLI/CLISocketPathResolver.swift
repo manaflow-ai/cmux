@@ -73,10 +73,52 @@ enum CLIExecutableLocator {
     }
 }
 
-enum CLISocketPathSource {
+enum CLISocketPathSource: Equatable, Sendable {
     case explicitFlag
     case environment
     case implicitDefault
+}
+
+/// The observable result of resolving an implicit CLI socket path.
+struct CLISocketPathResolution: Sendable {
+    let source: CLISocketPathSource
+    let requestedPath: String
+    let candidatePaths: [String]
+    let selectedPath: String?
+
+    /// Whether resolution may proceed to the socket client.
+    ///
+    /// Explicit paths are intentionally not probed here: their identity is
+    /// pinned and the normal client error must report the requested path.
+    var hasLiveSocket: Bool {
+        source != .implicitDefault || selectedPath != nil
+    }
+
+    /// Whether discovery selected a different path than the one the caller expected.
+    var didReroute: Bool {
+        guard let selectedPath else { return false }
+        return !CLISocketPathResolver.pathsMatchForDiagnostics(requestedPath, selectedPath)
+    }
+
+    /// A user-facing diagnostic for an implicit discovery failure.
+    var failureMessage: String {
+        let header = String(
+            localized: "cli.socket.error.discoveryFailed",
+            defaultValue: "No live cmux socket found. Tried:"
+        )
+        let paths = candidatePaths.map { "  \($0)" }.joined(separator: "\n")
+        return paths.isEmpty ? header : "\(header)\n\(paths)"
+    }
+
+    /// A user-facing notice explaining a deterministic implicit reroute.
+    var rerouteNotice: String? {
+        guard let selectedPath, didReroute else { return nil }
+        let template = String(
+            localized: "cli.socket.notice.rerouted",
+            defaultValue: "cmux: default socket %@ is unavailable; using %@."
+        )
+        return String.localizedStringWithFormat(template, requestedPath, selectedPath)
+    }
 }
 
 enum CLISocketPathResolver {
@@ -144,14 +186,40 @@ enum CLISocketPathResolver {
         currentUserID: uid_t = getuid(),
         inspectSocketPathEntry: (String) -> SocketPathEntry = inspectSocketPathEntry
     ) -> String {
-        guard source == .implicitDefault else {
-            return requestedPath
-        }
+        let resolution = resolveDetailed(
+            requestedPath: requestedPath,
+            source: source,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        )
+        // Keep the legacy convenience API safe for any caller that has not yet
+        // migrated to the observable result. A dead candidate must never be
+        // handed to SocketClient as if it had passed discovery.
+        return resolution.selectedPath ?? requestedPath
+    }
 
-        let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
-        if case .stable = variant,
-           canConnect(to: requestedPath, currentUserID: currentUserID, inspectSocketPathEntry: inspectSocketPathEntry) {
-            return requestedPath
+    /// Resolves a socket using one ordered, liveness-aware discovery pass.
+    ///
+    /// Explicit flag and environment paths are deliberately returned verbatim and are
+    /// never probed or rerouted. Implicit discovery only selects a path after a real
+    /// non-blocking connect succeeds; a stale socket file is never handed to the client.
+    static func resolveDetailed(
+        requestedPath: String,
+        source: CLISocketPathSource,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = currentAppBundleIdentifier(),
+        currentUserID: uid_t = getuid(),
+        inspectSocketPathEntry: (String) -> SocketPathEntry = inspectSocketPathEntry
+    ) -> CLISocketPathResolution {
+        guard source == .implicitDefault else {
+            return CLISocketPathResolution(
+                source: source,
+                requestedPath: requestedPath,
+                candidatePaths: [requestedPath],
+                selectedPath: requestedPath
+            )
         }
 
         let candidates = dedupe(candidatePaths(
@@ -159,26 +227,19 @@ enum CLISocketPathResolver {
             environment: environment,
             bundleIdentifier: bundleIdentifier
         ))
-
-        // Prefer sockets that are currently accepting connections.
-        for path in candidates where canConnect(
-            to: path,
-            currentUserID: currentUserID,
-            inspectSocketPathEntry: inspectSocketPathEntry
-        ) {
-            return path
+        let selectedPath = candidates.first { path in
+            canConnect(
+                to: path,
+                currentUserID: currentUserID,
+                inspectSocketPathEntry: inspectSocketPathEntry
+            )
         }
-
-        // If the listener is still starting, prefer existing socket files.
-        for path in candidates where isOwnedSocketFile(
-            path,
-            currentUserID: currentUserID,
-            inspectSocketPathEntry: inspectSocketPathEntry
-        ) {
-            return path
-        }
-
-        return candidates.first ?? requestedPath
+        return CLISocketPathResolution(
+            source: source,
+            requestedPath: requestedPath,
+            candidatePaths: candidates,
+            selectedPath: selectedPath
+        )
     }
 
     private static func candidatePaths(
@@ -188,20 +249,44 @@ enum CLISocketPathResolver {
     ) -> [String] {
         var candidates: [String] = []
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
-        let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
+        let ownDefaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
 
-        candidates.append(defaultPath)
-        if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
-            candidates.append(last)
-        }
+        // Keep the current variant first. For a tagged debug CLI this is the
+        // tag-specific socket; for the stable CLI it is the primary stable socket.
+        candidates.append(ownDefaultPath)
+
+        // A dead dev socket must not strand ambient commands. The stable primary
+        // socket is the deterministic machine-wide fallback before any marker.
+        candidates.append(stableDefaultSocketPath)
+
+        // Markers are an ordered list, not a single pointer: the state-directory
+        // marker and its legacy /tmp mirror can disagree after a reload.
+        candidates.append(contentsOf: readLastSocketPaths(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment
+        ))
+        // A dev process may be the last writer for its own marker while the
+        // stable app's marker still names a user-scoped stable listener. Walk
+        // those markers too, in deterministic order, rather than treating one
+        // variant's file as the entire discovery state.
+        candidates.append(contentsOf: readLastSocketPaths(
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:]
+        ))
+
+        // Preserve legacy/user-scoped stable aliases after the primary and marker
+        // candidates. They remain useful on machines migrating from older releases.
+        candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant))
+
+        // A caller that supplies a non-default implicit path still gets that path
+        // tried, but it never displaces the current variant's own socket.
         if shouldIncludeImplicitRequestedPath(
             requestedPath,
-            defaultPath: defaultPath,
+            defaultPath: ownDefaultPath,
             variant: variant
         ) {
             candidates.append(requestedPath)
         }
-        candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant))
         if shouldDiscoverTaggedSockets(
             variant: variant,
             bundleIdentifier: bundleIdentifier,
@@ -228,10 +313,8 @@ enum CLISocketPathResolver {
 
     private static func implicitFallbackCandidatePaths(for variant: SocketPathVariant) -> [String] {
         switch variant {
-        case .stable:
+        case .stable, .nightly, .staging, .dev:
             return stableImplicitDefaultPaths()
-        case .nightly, .staging, .dev:
-            return []
         }
     }
 
@@ -252,20 +335,21 @@ enum CLISocketPathResolver {
         }
     }
 
-    private static func readLastSocketPath(
+    private static func readLastSocketPaths(
         bundleIdentifier: String?,
         environment: [String: String]
-    ) -> String? {
+    ) -> [String] {
         let candidates = lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment)
+        var values: [String] = []
         for candidate in candidates {
             guard let data = try? String(contentsOfFile: candidate, encoding: .utf8) else {
                 continue
             }
             if let value = normalized(data) {
-                return value
+                values.append(value)
             }
         }
-        return nil
+        return values
     }
 
     private static func discoverTaggedSockets(limit: Int) -> [String] {
@@ -292,13 +376,6 @@ enum CLISocketPathResolver {
 
         discovered.sort { $0.mtime > $1.mtime }
         return dedupe(discovered.prefix(limit).map(\.path))
-    }
-
-    private static func isSocketFile(_ path: String) -> Bool {
-        if case .socket = inspectSocketPathEntry(path) {
-            return true
-        }
-        return false
     }
 
     private static func isOwnedSocketFile(
@@ -349,6 +426,9 @@ enum CLISocketPathResolver {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+        guard path.utf8.count < maxLength else {
+            return false
+        }
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
@@ -439,6 +519,12 @@ enum CLISocketPathResolver {
                     || lhsForm.caseInsensitiveCompare(rhsForm) == .orderedSame
             }
         }
+    }
+
+    /// Keeps diagnostic value semantics available to the result type without exposing
+    /// the resolver's path-normalization implementation as public API.
+    fileprivate static func pathsMatchForDiagnostics(_ lhs: String, _ rhs: String) -> Bool {
+        pathsMatch(lhs, rhs)
     }
 
     private static func pathComparisonForms(_ path: String) -> [String] {

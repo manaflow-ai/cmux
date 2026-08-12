@@ -98,7 +98,7 @@ extension AppDelegate {
             "path": restartPath,
             "source": source,
         ])
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: false)
         TerminalController.shared.startSocketTransport(
             config,
             socketPath: restartPath,

@@ -152,6 +152,58 @@ extension SocketTransport {
         close(fd)
     }
 
+    /// Removes an unheld socket-path lock when no listener accepts connections.
+    ///
+    /// The non-blocking flock and connect probe are both required. A lock file's
+    /// age is not evidence that it is stale, and a replacement listener may have
+    /// reclaimed the path between the original listener's teardown and cleanup.
+    ///
+    /// - Parameter socketPath: The socket path whose sibling lock may be removed.
+    /// - Returns: True when the lock was absent or removed, false when a live
+    ///   listener or lock holder made cleanup unsafe.
+    public func removeSocketPathLockIfAvailable(for socketPath: String) -> Bool {
+        guard socketPathCanBeCleaned(socketPath) else {
+            return false
+        }
+
+        let lockPath = pathLockPath(for: socketPath)
+        let fd = open(lockPath, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else {
+            return errno == ENOENT
+        }
+        guard validateSocketPathLockFile(fd) == nil else {
+            close(fd)
+            return false
+        }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            return false
+        }
+
+        // Hold the lock while checking and unlinking. A replacement listener
+        // cannot acquire this inode until the cleanup decision is complete.
+        guard socketPathCanBeCleaned(socketPath) else {
+            releaseSocketPathLock(fd)
+            return false
+        }
+        let unlinkResult = unlink(lockPath)
+        let unlinkErrno = errno
+        releaseSocketPathLock(fd)
+        return unlinkResult == 0 || unlinkErrno == ENOENT
+    }
+
+    /// Treat only a missing or definitively refused listener as removable.
+    /// An indeterminate nonblocking probe (for example, a full listen backlog)
+    /// must protect the lock just like a successful connection.
+    private func socketPathCanBeCleaned(_ socketPath: String) -> Bool {
+        switch pathProbeResult(at: socketPath) {
+        case .stale, .refused:
+            return true
+        case .connected, .occupiedOrIndeterminate:
+            return false
+        }
+    }
+
     /// Whether a startup listener may claim `path`: either nothing exists there
     /// (and no foreign lock blocks it), or a socket exists whose lock is free
     /// and carries the reusable marker.

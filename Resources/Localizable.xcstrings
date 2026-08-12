@@ -53248,6 +53248,23 @@
         }
       }
     },
+    "cli.socket.error.discoveryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No live cmux socket found. Tried:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稼働中の cmux ソケットが見つかりません。試行したパス:"
+          }
+        }
+      }
+    },
     "cli.socket.error.commandTimedOut": {
       "extractionState": "manual",
       "localizations": {
@@ -53397,6 +53414,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースを閉じられませんでした"
+          }
+        }
+      }
+    },
+    "cli.socket.notice.rerouted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: default socket %@ is unavailable; using %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: デフォルトソケット %@ は利用できないため、%@ を使用します。"
           }
         }
       }

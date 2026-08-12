@@ -20,9 +20,18 @@ extension TerminalController {
         socketServer.listenerHealth(expectedSocketPath: expectedSocketPath)
     }
 
-    func stop() {
+    /// Stops the listener and, unless a caller is immediately rebinding it,
+    /// removes discovery state owned by this instance.
+    ///
+    /// - Parameter cleanupDiscoveryState: Set to `false` for an in-process
+    ///   listener restart where the same app will publish fresh state.
+    func stop(cleanupDiscoveryState: Bool = true) {
         // Synchronous by contract: termination needs the unlink before exit.
+        let socketPath = socketServer.currentSocketPathForRemoteRestore()
         socketServer.stop()
+        if cleanupDiscoveryState, let socketPath {
+            cleanupStoppedSocketState(socketPath)
+        }
     }
 
     /// Reconciles the current resolved control-socket configuration with the live server.
@@ -51,9 +60,14 @@ extension TerminalController {
         ) && (wasRunning || hadPendingRearm)
 
         if configuration.accessMode == .off {
+            // Route every listener teardown through the app-owned cleanup seam so
+            // a disabled listener cannot leave a tag lock or marker behind.
+            stop()
             socketServer.reconfigure(accessMode: .off)
         } else if pathChanged {
-            socketServer.stop()
+            // Rebinding is a teardown followed by a fresh publication. Remove
+            // the old path's discovery state before the new listener writes it.
+            stop()
             startSocketTransport(
                 configuration,
                 socketPath: configuration.preferredSocketPath,
