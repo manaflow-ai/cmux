@@ -95,8 +95,8 @@ actor TerminalSurfaceAgentCommandShimRemovalLane {
             if case let .failure(description) = outcome {
                 reportFailure(shims, description)
             }
-            await request.resolve(outcome)
             await self?.finish(workerID: workerID)
+            await request.resolve(outcome)
         }
         return request
     }
