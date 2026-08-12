@@ -105,6 +105,48 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     case unknown(host: String?, port: Int?)
 }
 
+extension MobilePairingFailureCategory: DiagnosticFailureProviding {
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .offline:
+            .offline
+        case .tailscaleUnavailable:
+            .endpointUnavailable
+        case .hostUnreachable:
+            .hostUnreachable
+        case .listenerNotRunning:
+            .connectionRefused
+        case .localNetworkBlocked:
+            .permissionDenied
+        case .dnsFailed:
+            .dnsFailed
+        case .handshakeTimedOut:
+            .timedOut
+        case .connectionDropped:
+            .connectionClosed
+        case .accountMismatch, .emailMismatch:
+            .accountMismatch
+        case .authFailed, .ticketExpired:
+            .authorizationFailed
+        case .authEnvironmentMismatch, .buildIncompatible:
+            .identityMismatch
+        case .invalidCode, .unrecognizedVersion:
+            .protocolViolation
+        case .loopbackRejected, .unsupportedRoute, .noSupportedRoute,
+             .macUpdateRequired:
+            .unsupportedRoute
+        case .routeCleanupBlocked:
+            .endpointUnavailable
+        case .connectAttemptGated:
+            .routeGated
+        case .cancelled:
+            .cancelled
+        case .unknown:
+            .unknown
+        }
+    }
+}
+
 extension MobilePairingFailureCategory {
     /// The compact `ios_pairing_failed` `reason` enum value (no error text, no
     /// host) for product analytics.

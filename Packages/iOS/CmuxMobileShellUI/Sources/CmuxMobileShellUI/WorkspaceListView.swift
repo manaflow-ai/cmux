@@ -67,6 +67,9 @@ struct WorkspaceListView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
     var showAddDevice: (() -> Void)?
+    /// Live app routes the Computers screen through the root modal owner.
+    /// Standalone previews retain the local device-tree sheet.
+    var showComputers: (() -> Void)? = nil
     var showPairingScanner: (() -> Void)?
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
@@ -644,6 +647,12 @@ struct WorkspaceListView: View {
         .onChange(of: currentVisibleMacSelection) { _, selection in
             filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
         }
+        .onChange(of: filter) { _, filter in
+            store?.recordAppEvent(
+                .workspaceListFilterChanged,
+                count: filter.isActive ? 1 : 0
+            )
+        }
         #if os(iOS)
         .sheet(
             isPresented: terminalShortcutsPresentation.isPresented,
@@ -934,7 +943,11 @@ struct WorkspaceListView: View {
     #if os(iOS)
     var devicesButton: some View {
         Button {
-            deviceTreePresentation.present()
+            if let showComputers {
+                showComputers()
+            } else {
+                deviceTreePresentation.present()
+            }
         } label: {
             Image(systemName: "desktopcomputer")
         }

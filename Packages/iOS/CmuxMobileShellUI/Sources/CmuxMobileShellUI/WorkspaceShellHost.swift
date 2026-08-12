@@ -23,7 +23,7 @@ struct WorkspaceShellHost: View {
     var isTailscalePairingBannerDismissed = false
     var dismissTailscalePairingBanner: () -> Void = {}
     var showSettings: () -> Void = {}
-    var deviceTreePresentation = MobileChildSheetPresentation()
+    var showComputers: () -> Void = {}
     var taskComposerPresentation = MobileChildSheetPresentation()
     let reconnectStoredMac: () -> Void
     let workspaceListDidBecomeVisible: @MainActor @Sendable () async -> Void
@@ -44,7 +44,7 @@ struct WorkspaceShellHost: View {
             isTailscalePairingBannerDismissed: isTailscalePairingBannerDismissed,
             dismissTailscalePairingBanner: dismissTailscalePairingBanner,
             showSettings: showSettings,
-            deviceTreePresentation: deviceTreePresentation,
+            showComputers: showComputers,
             taskComposerPresentation: taskComposerPresentation
         )
         .task(id: deadlineTaskID) {

@@ -66,6 +66,39 @@ extension MobileShellComposite {
         spec: MobileWorkspaceCreateSpec? = nil,
         pinnedContext suppliedContext: WorkspaceCreatePinnedContext? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let startedAt = appDiagnosticNow()
+        let correlationID = groupID?.rawValue ?? suppliedContext?.macDeviceID
+        recordAppEvent(.workspaceCreateStarted, correlationID: correlationID)
+        let result = await performCreateRemoteWorkspace(
+            inGroup: groupID,
+            appliesOperationalError: appliesOperationalError,
+            spec: spec,
+            pinnedContext: suppliedContext
+        )
+        switch result {
+        case .success:
+            recordAppEvent(
+                .workspaceCreateSucceeded,
+                correlationID: correlationID,
+                startedAt: startedAt
+            )
+        case .failure(let failure):
+            recordAppEvent(
+                .workspaceCreateFailed,
+                correlationID: correlationID,
+                startedAt: startedAt,
+                failure: failure.diagnosticFailureKind
+            )
+        }
+        return result
+    }
+
+    private func performCreateRemoteWorkspace(
+        inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
+        appliesOperationalError: Bool = true,
+        spec: MobileWorkspaceCreateSpec? = nil,
+        pinnedContext suppliedContext: WorkspaceCreatePinnedContext? = nil
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard let context = suppliedContext ?? captureWorkspaceCreateContext() else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
         }

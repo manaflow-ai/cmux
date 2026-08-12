@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 import Foundation
@@ -195,17 +196,37 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async {
+        let diagnosticStartedAt = appDiagnosticNow()
+        recordAppEvent(
+            .taskModelListLoadStarted,
+            correlationID: macDeviceID
+        )
         guard supportsTaskModels(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ) else {
+            recordAppEvent(
+                .taskModelListLoadFailed,
+                correlationID: macDeviceID,
+                startedAt: diagnosticStartedAt,
+                failure: .policyUnavailable
+            )
             return
         }
-        guard let result = try? await fetchTaskModels(
-            provider: provider,
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        ) else {
+        let result: MobileTaskModelListResult
+        do {
+            result = try await fetchTaskModels(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        } catch {
+            recordAppEvent(
+                .taskModelListLoadFailed,
+                correlationID: macDeviceID,
+                startedAt: diagnosticStartedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             return
         }
         taskModelCache[
@@ -216,6 +237,12 @@ extension MobileShellComposite {
         ] = MobileTaskModelCacheEntry(
             result: result,
             fetchedAt: runtime?.now() ?? Date()
+        )
+        recordAppEvent(
+            .taskModelListLoadSucceeded,
+            correlationID: macDeviceID,
+            startedAt: diagnosticStartedAt,
+            count: result.models.count
         )
     }
 
