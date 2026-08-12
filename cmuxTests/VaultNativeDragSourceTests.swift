@@ -11,6 +11,108 @@ import Testing
 @MainActor
 @Suite("Vault native drag source", .serialized)
 struct VaultNativeDragSourceTests {
+    @Test("Hosted duplicate rows remain draggable after their AppKit cell recycles")
+    func hostedDuplicateRowsRemainDraggableAfterCellReuse() async throws {
+        let duplicate = Self.makeEntry(title: "Repeated hosted duplicate")
+        let distinct = Self.makeEntry(
+            title: "Distinct hosted row",
+            identifier: "distinct"
+        )
+        var startedEntries: [SessionEntry] = []
+        let actions = IndexSectionActions(
+            onBeginDrag: {},
+            beginSessionDrag: { entry, _, _, _, _ in
+                startedEntries.append(entry)
+                return true
+            },
+            onPreviewEntry: { _ in },
+            onDismissPreview: { _ in },
+            onResume: nil,
+            search: { _, _, _, _ in .init(entries: [], errors: []) },
+            loadSnapshot: { cwd in
+                .init(cwd: cwd ?? "", entries: [], errors: [])
+            }
+        )
+        let duplicateSection = IndexSection(
+            key: .directory("/tmp/vault-native-drag/duplicate-section"),
+            title: "duplicate-section",
+            icon: .folder,
+            entries: [duplicate, duplicate, distinct]
+        )
+        var tableRows = [Self.tableRow(section: duplicateSection, actions: actions)]
+        for index in 0..<12 {
+            let entry = Self.makeEntry(
+                title: "Recycling filler \(index)",
+                identifier: "filler-\(index)"
+            )
+            tableRows.append(Self.tableRow(
+                section: IndexSection(
+                    key: .directory("/tmp/vault-native-drag/filler-\(index)"),
+                    title: "filler-\(index)",
+                    icon: .folder,
+                    entries: [entry]
+                ),
+                actions: actions
+            ))
+        }
+
+        let controller = SessionIndexTableController()
+        let container = controller.makeContainerView()
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
+        let window = NSWindow(
+            contentRect: container.bounds,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            controller.dismantle()
+            window.orderOut(nil)
+        }
+        window.makeKeyAndOrderFront(nil)
+
+        controller.apply(
+            rows: tableRows,
+            environment: .init(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100
+            )
+        )
+        await Self.flushStagedTableMutations()
+        Self.layout(window: window, container: container)
+
+        let table = container.tableView
+        try Self.dragHostedSources(
+            in: table,
+            row: 0,
+            window: window,
+            expectedEntries: [duplicate, duplicate, distinct]
+        )
+        #expect(
+            startedEntries.sorted(by: Self.entryTitleAscending)
+                == [duplicate, duplicate, distinct].sorted(by: Self.entryTitleAscending)
+        )
+
+        table.scrollRowToVisible(tableRows.count - 1)
+        Self.layout(window: window, container: container)
+        #expect(table.view(atColumn: 0, row: 0, makeIfNecessary: false) == nil)
+
+        startedEntries.removeAll()
+        table.scrollRowToVisible(0)
+        Self.layout(window: window, container: container)
+        try Self.dragHostedSources(
+            in: table,
+            row: 0,
+            window: window,
+            expectedEntries: [duplicate, duplicate, distinct]
+        )
+        #expect(
+            startedEntries.sorted(by: Self.entryTitleAscending)
+                == [duplicate, duplicate, distinct].sorted(by: Self.entryTitleAscending)
+        )
+    }
+
     @Test("Each rendered duplicate row owns its current native drag source")
     func renderedDuplicateRowsOwnCurrentNativeDragSources() throws {
         let first = Self.makeEntry(title: "First rendered occurrence")
@@ -175,11 +277,14 @@ struct VaultNativeDragSourceTests {
         }
     }
 
-    private static func makeEntry(title: String) -> SessionEntry {
+    private static func makeEntry(
+        title: String,
+        identifier: String = "duplicate"
+    ) -> SessionEntry {
         SessionEntry(
-            id: "codex:/tmp/vault-native-drag/duplicate.jsonl",
+            id: "codex:/tmp/vault-native-drag/\(identifier).jsonl",
             agent: .codex,
-            sessionId: "vault-native-drag-duplicate",
+            sessionId: "vault-native-drag-\(identifier)",
             title: title,
             cwd: "/tmp/vault-native-drag",
             gitBranch: nil,
@@ -249,5 +354,85 @@ struct VaultNativeDragSourceTests {
             ),
             window: window
         ))
+    }
+
+    private static func tableRow(
+        section: IndexSection,
+        actions: IndexSectionActions
+    ) -> SessionIndexTableRow {
+        .section(
+            section: section,
+            rowLimit: 5,
+            isDragged: false,
+            popoverIdentity: nil,
+            isCollapsed: false,
+            actions: actions,
+            setCollapsed: { _ in },
+            setPopoverOpen: { _ in }
+        )
+    }
+
+    private static func dragHostedSources(
+        in table: NSTableView,
+        row: Int,
+        window: NSWindow,
+        expectedEntries: [SessionEntry]
+    ) throws {
+        let cell = try #require(table.view(
+            atColumn: 0,
+            row: row,
+            makeIfNecessary: false
+        ) as? SessionIndexTableCellView)
+        let sources = cell.descendants(of: SessionDragSourceView.self).sorted {
+            $0.convert(.zero, to: cell).y < $1.convert(.zero, to: cell).y
+        }
+        #expect(
+            sources.map(\.entry).sorted(by: entryTitleAscending)
+                == expectedEntries.sorted(by: entryTitleAscending)
+        )
+        #expect(Set(sources.map { ObjectIdentifier($0) }).count == expectedEntries.count)
+        for source in sources {
+            #expect(source.bounds.width > 8)
+            #expect(source.bounds.height > 0)
+            try drag(
+                source,
+                in: window,
+                from: NSPoint(x: 4, y: source.bounds.midY)
+            )
+        }
+    }
+
+    private static func layout(
+        window: NSWindow,
+        container: SessionIndexTableContainerView
+    ) {
+        container.layoutSubtreeIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+    }
+
+    private static func flushStagedTableMutations() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private static func entryTitleAscending(_ lhs: SessionEntry, _ rhs: SessionEntry) -> Bool {
+        lhs.title < rhs.title
+    }
+}
+
+private extension NSView {
+    func descendants<ViewType: NSView>(of type: ViewType.Type) -> [ViewType] {
+        var matches: [ViewType] = []
+        if let match = self as? ViewType {
+            matches.append(match)
+        }
+        for subview in subviews {
+            matches.append(contentsOf: subview.descendants(of: type))
+        }
+        return matches
     }
 }
