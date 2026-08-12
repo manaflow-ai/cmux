@@ -249,6 +249,19 @@ write_fake_mdl 0 1
 [[ ! -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] || fail "retried entry should drain to completion"
 ok "auth-failed install parks in needs-auth, notifies truthfully, and retry re-queues it"
 
+# --- locked/offline phone mid-launch (launcher exit 75) keeps entry pending ----
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" >/dev/null
+write_fake_mdl 75 0
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "deferred-delivery drain should exit 0 (entry simply stays queued)"
+[[ -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] \
+  || fail "launcher exit 75 (phone locked/offline) must keep the entry pending, not needs-auth/failed"
+grep -q "cmux notify" "$CALL_LOG" && fail "a deferred delivery must not claim an install happened"
+write_fake_mdl 0 1
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "drain after unlock should succeed"
+[[ ! -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] || fail "entry should drain once the launcher succeeds"
+ok "launcher exit 75 keeps the entry pending for the LaunchAgent retry"
+
 # --- unauthenticated enqueue is human-only -------------------------------------
 if "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" --no-sign-in >/dev/null 2>&1; then
   fail "enqueue --no-sign-in without CMUX_ALLOW_UNAUTHENTICATED_INSTALL must be refused"

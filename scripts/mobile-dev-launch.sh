@@ -43,8 +43,25 @@
 #   --credentials-file <absolute-path>
 #              load one 0600 credential file exclusively. Intended for an
 #              isolated temporary production release-gate account.
+#
+# Exit codes: 0 success (device: auth gate PASS), 1 launch/gate failure,
+# 2 usage or refused-unverifiable launch, 75 phone offline or locked
+# (delivery deferred: notify sent, no retry/watcher loop — rerun the printed
+# command after unlocking/reconnecting, or let the install queue deliver).
 
 set -euo pipefail
+
+# Deferred-delivery exit code (EX_TEMPFAIL): the phone is offline or locked.
+# Policy: enqueue-and-notify, never sit in an agent-side unlock/ready watcher.
+EXIT_PHONE_AWAY=75
+
+cmux_mdl_notify() {
+  local title="$1" body="$2" cmux_bin
+  cmux_bin="$(command -v cmux 2>/dev/null || true)"
+  [[ -z "$cmux_bin" && -x "$HOME/.local/bin/cmux" ]] && cmux_bin="$HOME/.local/bin/cmux"
+  [[ -n "$cmux_bin" ]] || return 0
+  "$cmux_bin" notify --title "$title" --body "$body" >/dev/null 2>&1 || true
+}
 
 TAG=""
 TARGET="simulator"          # simulator | device
@@ -157,6 +174,28 @@ fi
 # --- bundle id (matches ios/scripts/reload.sh sanitize_tag) ------------------
 slug="$(cmux_attach__slug "$TAG")"
 BUNDLE_ID="dev.cmux.ios.$slug"
+
+# --- first (and only) device reachability probe -------------------------------
+# A phone that is offline on the FIRST probe defers delivery: notify, print the
+# retry command, and exit promptly with EXIT_PHONE_AWAY. Never retry or watch
+# for unlock here — the install queue's LaunchAgent is the delivery mechanism.
+if [[ "$TARGET" == "device" ]]; then
+  if [[ -z "$DEVICE_ID" ]]; then
+    DEVICE_ID="$(xcrun devicectl list devices 2>/dev/null \
+      | awk '/iPhone/ && !/unavailable/ {for(i=1;i<=NF;i++) if($i ~ /^[0-9A-Fa-f-]{36}$/){print $i; exit}}')"
+    [[ -n "$DEVICE_ID" ]] || { echo "error: no connected iPhone found (pass --device-id)" >&2; exit 1; }
+  fi
+  MDL_RETRY_CMD="scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $DEVICE_ID --ensure-mac"
+  QUEUE_SCRIPT_FOR_PROBE="$SCRIPT_DIR/iphone-install-queue.sh"
+  if [[ -x "$QUEUE_SCRIPT_FOR_PROBE" ]] \
+      && ! "$QUEUE_SCRIPT_FOR_PROBE" probe --device-id "$DEVICE_ID" >/dev/null 2>&1; then
+    echo "==> iPhone $DEVICE_ID is offline (asleep or off network); delivery deferred, not retrying" >&2
+    echo "==> queued installs land via the install queue on reconnect; retry: $MDL_RETRY_CMD" >&2
+    cmux_mdl_notify "iPhone offline: $TAG launch deferred" \
+      "Reconnect/unlock the iPhone to receive the '$TAG' dev build. Retry: $MDL_RETRY_CMD"
+    exit "$EXIT_PHONE_AWAY"
+  fi
+fi
 if [[ "$TARGET" == "device" || -n "$IROH_RELEASE_GATE_MODE" ]]; then
   # The release gate runs in a simulator but must fail closed until the Mac can
   # mint an identity-only Iroh route. Reuse the physical-device ticket policy,
@@ -284,13 +323,30 @@ else
   # --help` (518.31): "set them in the calling environment with a DEVICECTL_CHILD_
   # prefix", and the -e note "Using the environment-variables flag will override
   # the caller environment variables prefixed with DEVICECTL_CHILD_".
-  DEVICECTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
+  LAUNCH_ERR="$(mktemp "${TMPDIR:-/tmp}/cmux-mdl-launch-err.XXXXXX")"
+  if ! DEVICECTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   DEVICECTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
   DEVICECTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
     xcrun devicectl device process launch --terminate-existing \
-      --device "$DEVICE_ID" "$BUNDLE_ID"
+      --device "$DEVICE_ID" "$BUNDLE_ID" 2>"$LAUNCH_ERR"; then
+    cat "$LAUNCH_ERR" >&2
+    if grep -qi "locked" "$LAUNCH_ERR"; then
+      rm -f "$LAUNCH_ERR"
+      # Locked phone: defer, notify, exit promptly. No unlock watcher.
+      echo "==> iPhone is LOCKED; delivery deferred, not retrying" >&2
+      echo "==> unlock the iPhone, then retry: $MDL_RETRY_CMD" >&2
+      cmux_mdl_notify "iPhone locked: $TAG launch deferred" \
+        "Unlock the iPhone to receive the '$TAG' dev build. Retry: $MDL_RETRY_CMD"
+      exit "$EXIT_PHONE_AWAY"
+    fi
+    rm -f "$LAUNCH_ERR"
+    echo "error: could not launch $BUNDLE_ID on $DEVICE_ID" >&2
+    echo "error: retry: $MDL_RETRY_CMD" >&2
+    exit 1
+  fi
+  rm -f "$LAUNCH_ERR"
 fi
 
 if [[ -n "$READINESS_CURSOR" ]]; then

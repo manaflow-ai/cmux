@@ -375,11 +375,21 @@ if [[ ! -x "$GHOSTTYKIT_ENSURE" ]]; then
 fi
 "$GHOSTTYKIT_ENSURE"
 
+# Best-effort user notification (mirrors the queue script's notify).
+reload_device_notify() {
+  local title="$1" body="$2" cmux_bin
+  cmux_bin="$(command -v cmux 2>/dev/null || true)"
+  [[ -z "$cmux_bin" && -x "$HOME/.local/bin/cmux" ]] && cmux_bin="$HOME/.local/bin/cmux"
+  [[ -n "$cmux_bin" ]] || return 0
+  "$cmux_bin" notify --title "$title" --body "$body" >/dev/null 2>&1 || true
+}
+
 # Auto-setup launch: relaunch the just-installed app signed in (dogfood creds
 # injected) and, unless --no-attach, auto-paired to the tagged Mac app. Delegates
 # to scripts/mobile-dev-launch.sh so there is ONE signed-launch path. Returns
-# non-zero on any failure so callers can warn + leave the app installed. $1 =
-# device|simulator, $2 = device install id (device only).
+# non-zero on any failure so callers can warn + leave the app installed (75
+# passes through mobile-dev-launch's phone-offline/locked deferred-delivery
+# code). $1 = device|simulator, $2 = device install id (device only).
 auto_setup_launch() {
   local kind="$1" id="${2:-}"
   local args=(--tag "$TAG")
@@ -928,7 +938,13 @@ reload_device() {
     [[ "$NO_SETUP" -eq 1 ]] && enqueue_args+=(--no-setup)
     [[ "$LAUNCH" -eq 0 ]] && enqueue_args+=(--no-launch)
     "$QUEUE_SCRIPT" "${enqueue_args[@]}"
-    return 0
+    # Queued is NOT installed: report it truthfully with a distinct exit code
+    # (75 = delivery deferred), notify so the human can unlock/reconnect, and
+    # exit promptly instead of retrying or watching.
+    reload_device_notify "iPhone offline: $TAG build queued" \
+      "Reconnect/unlock the iPhone to receive the '$TAG' dev build (auto-installs on reconnect). Manual retry: scripts/iphone-install-queue.sh drain"
+    echo "==> queued; unlock/reconnect the iPhone to receive. Retry: scripts/iphone-install-queue.sh drain (then scripts/verify-iphone-auth.sh --tag $TAG --device-id $queued_device_id)"
+    return 75
   fi
 
   echo "==> Installing physical device app"
@@ -960,19 +976,34 @@ reload_device() {
       else
         device_auth_status="UNVERIFIED (explicit opt-out): NOT signed in; verify later with scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id"
       fi
-    elif ! auto_setup_launch device "$selected_device_install_id"; then
-      # A plain fallback can reuse stale pairing state and look dogfood-ready
-      # while the matching tagged Iroh route is absent. Fail closed unless the
-      # caller explicitly requested a plain launch above.
-      echo "error: installed $BUNDLE_ID, but the iPhone auth gate failed; refusing an unpaired fallback launch" >&2
-      echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
-      return 1
-    elif [[ "$NO_ATTACH" -eq 1 ]]; then
-      # Signed launch without pairing (human-authorized opt-out): the auth gate
-      # never ran, so this install must not be reported as verified.
-      device_auth_status="UNVERIFIED (--no-attach opt-out): sign-in attempted but not proven; check with scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id"
     else
-      device_auth_status="verified signed in + paired (iPhone auth gate PASS; re-check: scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id)"
+      local setup_rc=0
+      auto_setup_launch device "$selected_device_install_id" || setup_rc=$?
+      if [[ "$setup_rc" -eq 75 ]]; then
+        # Phone went offline or is LOCKED mid-delivery: park the already-built
+        # signed app in the install queue so it lands on unlock/reconnect,
+        # notify, and exit promptly with the deferred-delivery code. Never
+        # watch for unlock here.
+        "$QUEUE_SCRIPT" enqueue --tag "$TAG" --app "$device_app_path" \
+          --device-id "$selected_device_install_id" --checkout "$(cd "$IOS_DIR/.." && pwd)" || true
+        reload_device_notify "iPhone locked/offline: $TAG build queued" \
+          "Unlock/reconnect the iPhone to receive the '$TAG' dev build (auto-installs via the queue). Manual retry: scripts/iphone-install-queue.sh drain"
+        echo "==> queued; unlock to receive. Retry: scripts/iphone-install-queue.sh drain (then scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id)"
+        return 75
+      elif [[ "$setup_rc" -ne 0 ]]; then
+        # A plain fallback can reuse stale pairing state and look dogfood-ready
+        # while the matching tagged Iroh route is absent. Fail closed unless the
+        # caller explicitly requested a plain launch above.
+        echo "error: installed $BUNDLE_ID, but the iPhone auth gate failed; refusing an unpaired fallback launch" >&2
+        echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --device --device-id $selected_device_install_id --ensure-mac" >&2
+        return 1
+      elif [[ "$NO_ATTACH" -eq 1 ]]; then
+        # Signed launch without pairing (human-authorized opt-out): the auth
+        # gate never ran, so this install must not be reported as verified.
+        device_auth_status="UNVERIFIED (--no-attach opt-out): sign-in attempted but not proven; check with scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id"
+      else
+        device_auth_status="verified signed in + paired (iPhone auth gate PASS; re-check: scripts/verify-iphone-auth.sh --tag $TAG --device-id $selected_device_install_id)"
+      fi
     fi
   fi
 

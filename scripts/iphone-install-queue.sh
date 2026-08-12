@@ -448,9 +448,18 @@ drain_entry() {
   local receipt
   receipt="$RECEIPT_DIR/$(slugify "$tag")-$(slugify "$device_id").json"
   [[ "$no_attach" == "1" ]] || rm -f "$receipt" 2>/dev/null || true
-  if ! ( cd "$checkout" && env ${mdl_env[@]+"${mdl_env[@]}"} "$mdl" "${args[@]}" ) \
-      >"$launch_log" 2>&1; then
-    cat "$launch_log" >>"$LOGS_DIR/drain.log" 2>/dev/null || true
+  local mdl_rc=0
+  ( cd "$checkout" && env ${mdl_env[@]+"${mdl_env[@]}"} "$mdl" "${args[@]}" ) \
+      >"$launch_log" 2>&1 || mdl_rc=$?
+  cat "$launch_log" >>"$LOGS_DIR/drain.log" 2>/dev/null || true
+  if [[ "$mdl_rc" -eq 75 ]]; then
+    # Deferred delivery: the phone went offline or is locked. Not an auth
+    # failure — keep the entry queued so the LaunchAgent's periodic drain
+    # retries after unlock/reconnect.
+    log "phone locked/offline during signed launch; keeping $slug queued"
+    return 2
+  fi
+  if [[ "$mdl_rc" -ne 0 ]]; then
     # Policy: never degrade a failed signed setup to a plain launch. The app is
     # on the phone but NOT signed in; park it so retry is possible and the
     # notification can tell the truth.
@@ -460,7 +469,6 @@ drain_entry() {
     finish_needs_auth "$reason"
     return $?
   fi
-  cat "$launch_log" >>"$LOGS_DIR/drain.log" 2>/dev/null || true
 
   if [[ "$no_attach" == "1" ]]; then
     log "installed + launched $bundle_id (no-attach opt-out; auth NOT verified)"
