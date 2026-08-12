@@ -2692,17 +2692,36 @@ final class SocketClient {
         let queue = DispatchQueue(label: "com.cmux.cli.socket-watch.\(UUID().uuidString)")
         let semaphore = DispatchSemaphore(value: 0)
         var connected = false
+        var retryDelayMilliseconds = 25
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: watchFD,
             eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
             queue: queue
         )
+        let retryTimer = DispatchSource.makeTimerSource(queue: queue)
+
+        func scheduleRetry() {
+            guard !connected else { return }
+            let delay = retryDelayMilliseconds
+            retryDelayMilliseconds = min(retryDelayMilliseconds * 2, 500)
+            retryTimer.schedule(
+                deadline: .now() + .milliseconds(delay),
+                repeating: .never,
+                leeway: .milliseconds(10)
+            )
+        }
 
         func attemptConnect() {
             guard !connected else { return }
-            if (try? client.connect()) != nil {
+            // The initial connect above already covers the short fast path.
+            // Subsequent attempts are single nonblocking probes driven by the
+            // directory signal and bounded exponential timer, so a listener
+            // that calls listen(2) without replacing its inode is observed too.
+            if (try? client.connectWithoutRetry()) != nil {
                 connected = true
                 semaphore.signal()
+            } else {
+                scheduleRetry()
             }
         }
 
@@ -2712,18 +2731,33 @@ final class SocketClient {
         source.setCancelHandler {
             Darwin.close(watchFD)
         }
+        retryTimer.setEventHandler {
+            attemptConnect()
+        }
         source.resume()
+        retryTimer.resume()
         queue.async {
             attemptConnect()
         }
 
         guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            source.cancel()
-            client.close()
+            // Serialize teardown with the watcher queue. A timer or directory
+            // event may be inside connectWithoutRetry(); closing the client
+            // from this thread would otherwise race that attempt and recycle
+            // its descriptor underneath it.
+            queue.sync {
+                connected = true
+                source.cancel()
+                retryTimer.cancel()
+                client.close()
+            }
             throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
         }
 
-        source.cancel()
+        queue.sync {
+            source.cancel()
+            retryTimer.cancel()
+        }
         return client
     }
 
@@ -3068,6 +3102,10 @@ struct CMUXCLI {
     private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.5
     private static let sshPTYTerminalConnectedRetryDelaySeconds: TimeInterval = 0.1
     private static let sshPTYTerminalConnectedMaximumRetryDelaySeconds: TimeInterval = 2
+    /// Restored terminals start the app and then race its listener bind. Keep
+    /// the implicit restore connection alive long enough for that lifecycle,
+    /// while explicit socket paths retain their immediate failure semantics.
+    private static let restoreSocketStartupTimeoutSeconds: TimeInterval = 45
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
@@ -3824,7 +3862,7 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
-        let client = SocketClient(path: resolvedSocketPath)
+        var client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
                 "socket.path.autodiscovered",
@@ -3848,16 +3886,37 @@ struct CMUXCLI {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             if command == "restore", explicitSocketPath == nil {
-                throw loggedRestoreError(
-                    stage: "socket.startup",
-                    detail: String(reflecting: error),
-                    message: String(
-                        localized: "cli.restore.error.socketNotReady",
-                        defaultValue: "restore: cmux is still opening. Retry the visible restore command in a moment."
-                    )
+                cliTelemetry.breadcrumb(
+                    "socket.connect.wait",
+                    data: [
+                        "command": command,
+                        "path": resolvedSocketPath,
+                        "timeoutSeconds": Self.restoreSocketStartupTimeoutSeconds,
+                    ]
                 )
+                do {
+                    client = try SocketClient.waitForConnectableSocket(
+                        path: resolvedSocketPath,
+                        timeout: Self.restoreSocketStartupTimeoutSeconds
+                    )
+                    cliTelemetry.breadcrumb(
+                        "socket.connect.wait.success",
+                        data: ["path": resolvedSocketPath]
+                    )
+                } catch {
+                    cliTelemetry.captureError(stage: "socket_startup_wait", error: error)
+                    throw loggedRestoreError(
+                        stage: "socket.startup",
+                        detail: String(reflecting: error),
+                        message: String(
+                            localized: "cli.restore.error.socketNotReady",
+                            defaultValue: "restore: cmux is still opening. Retry the visible restore command in a moment."
+                        )
+                    )
+                }
+            } else {
+                throw error
             }
-            throw error
         }
         defer { client.close() }
 

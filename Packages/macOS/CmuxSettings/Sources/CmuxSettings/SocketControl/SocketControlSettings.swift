@@ -228,7 +228,13 @@ public struct SocketControlSettings {
                 ? preferredPath
                 : userScopedPath
         case .socket(let ownerUserID) where ownerUserID == currentUserID:
-            return userScopedPath
+            // A same-user socket may be a live listener or an orphan left by
+            // an unclean exit. Let the transport's lock/liveness probe decide
+            // which case this is so startup and CLI resolution agree on the
+            // stable path after a crash.
+            return stableDefaultSocketCanBeReclaimed(preferredPath)
+                ? preferredPath
+                : userScopedPath
         case .socket, .other, .inaccessible:
             return preferredPath
         }
