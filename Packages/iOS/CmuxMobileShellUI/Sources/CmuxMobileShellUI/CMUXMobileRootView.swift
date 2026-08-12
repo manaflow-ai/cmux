@@ -277,6 +277,20 @@ struct CMUXMobileRootView: View {
                 connectionMethodObservationToken = method
             }
         }
+        .task {
+            // Auth launch restore can publish `isAuthenticated` and finish
+            // `isRestoringSession` in one main-actor turn. SwiftUI is allowed
+            // to coalesce those observations, which would skip the one-shot
+            // attach callback for a tagged Iroh launch. Awaiting the
+            // coordinator's bootstrap gives startup a durable completion
+            // barrier; the coordinator still serializes this with the normal
+            // lifecycle callbacks, so it cannot start a duplicate dial.
+            await authManager.awaitBootstrapped()
+            guard !Task.isCancelled else { return }
+            if !consumePendingURLIfReady() {
+                reconnectStoredMacIfNeeded()
+            }
+        }
         .onChange(of: store.tailscaleSetupStatus, initial: true) { _, status in
             tailscaleSetupPrompt.apply(.shellStatusChanged(status))
         }
