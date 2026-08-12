@@ -8132,8 +8132,7 @@ fn journal_agent_late_or_unidentified_event_keeps_active_session_identity() {
 
 #[test]
 fn journal_agent_unidentified_late_end_does_not_finish_new_unidentified_session() {
-    let mut registry =
-        WorkspaceRegistry::in_memory("journal-agent-unidentified-late-end").unwrap();
+    let mut registry = WorkspaceRegistry::in_memory("journal-agent-unidentified-late-end").unwrap();
     commit_terminal_topology(&mut registry, "journal-agent-unidentified-late-end-topology");
     let terminal_id = terminal_resource(TERMINAL_ONE);
     let validated = crate::journal_kernel::ValidatedJournalIngress {
