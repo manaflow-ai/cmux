@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Process-local capability registry for the one active Vault drag.
 ///
@@ -6,8 +7,6 @@ import Foundation
 /// targets resolve that UUID here while the AppKit drag source is alive.
 @MainActor
 final class SessionDragRegistry {
-    static let shared = SessionDragRegistry()
-
     private enum State {
         case idle
         case active(id: UUID, entry: SessionEntry)
@@ -42,5 +41,17 @@ final class SessionDragRegistry {
     func discard(id: UUID) {
         guard contains(id: id) else { return }
         state = .idle
+    }
+}
+
+private struct SessionDragRegistryEnvironmentKey: EnvironmentKey {
+    static let defaultValue: SessionDragRegistry? = nil
+}
+
+extension EnvironmentValues {
+    /// The composition-root-owned registry for process-local Vault drags.
+    var sessionDragRegistry: SessionDragRegistry? {
+        get { self[SessionDragRegistryEnvironmentKey.self] }
+        set { self[SessionDragRegistryEnvironmentKey.self] = newValue }
     }
 }

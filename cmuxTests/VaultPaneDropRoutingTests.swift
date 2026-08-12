@@ -12,15 +12,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct VaultPaneDropRoutingTests {
-    private enum TargetKind: Sendable {
-        case terminal
-        case browser
-    }
-
-    private enum Placement: Sendable {
-        case center
-        case right
-    }
+    private typealias TargetKind = VaultPaneDropTestHarness.TargetKind
+    private typealias Placement = VaultPaneDropTestHarness.Placement
+    private let dropHarness = VaultPaneDropTestHarness(suiteName: "routing")
 
     private struct DropCase: Sendable {
         let targetKind: TargetKind
@@ -39,18 +33,10 @@ struct VaultPaneDropRoutingTests {
         arguments: dropCases
     )
     private func vaultSessionDropCreatesRestoreTerminal(_ dropCase: DropCase) throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let workspace = try #require(manager.selectedWorkspace)
-        defer {
-            workspace.teardownAllPanels()
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
-            AppDelegate.shared = previousAppDelegate
-        }
+        let fixture = try VaultPaneAppFixture()
+        defer { fixture.tearDown() }
+        let appDelegate = fixture.appDelegate
+        let workspace = fixture.workspace
 
         let initialPanelID = try #require(workspace.focusedPanelId)
         let targetPane = try #require(workspace.paneId(forPanelId: initialPanelID))
@@ -88,10 +74,10 @@ struct VaultPaneDropRoutingTests {
             )
         )
         let launch = try #require(entry.resumeLaunch)
-        let dragID = SessionDragRegistry.shared.register(entry)
-        defer { _ = SessionDragRegistry.shared.consume(id: dragID) }
+        let dragID = appDelegate.sessionDragRegistry.register(entry)
+        defer { appDelegate.sessionDragRegistry.discard(id: dragID) }
 
-        let pasteboard = try vaultPasteboard(dragID: dragID)
+        let pasteboard = try dropHarness.vaultPasteboard(entry: entry, dragID: dragID)
         let baselinePanelIDs = Set(workspace.panels.keys)
         let baselinePaneCount = workspace.bonsplitController.allPaneIds.count
         let context = PaneDropContext(
@@ -100,7 +86,7 @@ struct VaultPaneDropRoutingTests {
             paneId: targetPane
         )
 
-        let handled = try performDrop(
+        let handled = try dropHarness.performDrop(
             targetKind: dropCase.targetKind,
             placement: dropCase.placement,
             context: context,
@@ -129,18 +115,10 @@ struct VaultPaneDropRoutingTests {
 
     @Test("Every Vault row in one folder remains independently draggable when identities repeat")
     private func repeatedFolderRowsRemainDraggable() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let workspace = try #require(manager.selectedWorkspace)
-        defer {
-            workspace.teardownAllPanels()
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
-            AppDelegate.shared = previousAppDelegate
-        }
+        let fixture = try VaultPaneAppFixture()
+        defer { fixture.tearDown() }
+        let appDelegate = fixture.appDelegate
+        let workspace = fixture.workspace
 
         let initialPanelID = try #require(workspace.focusedPanelId)
         let targetPane = try #require(workspace.paneId(forPanelId: initialPanelID))
@@ -178,11 +156,14 @@ struct VaultPaneDropRoutingTests {
 
         for row in rows {
             let launch = try #require(row.entry.resumeLaunch)
-            let dragID = SessionDragRegistry.shared.register(row.entry)
-            let pasteboard = try vaultPasteboard(dragID: dragID)
+            let dragID = appDelegate.sessionDragRegistry.register(row.entry)
+            let pasteboard = try dropHarness.vaultPasteboard(
+                entry: row.entry,
+                dragID: dragID
+            )
             let baselinePanelIDs = Set(workspace.panels.keys)
 
-            let handled = try performDrop(
+            let handled = try dropHarness.performDrop(
                 targetKind: .browser,
                 placement: .center,
                 context: context,
@@ -190,7 +171,7 @@ struct VaultPaneDropRoutingTests {
             )
 
             #expect(handled)
-            #expect(SessionDragRegistry.shared.consume(id: dragID) == nil)
+            #expect(appDelegate.sessionDragRegistry.entry(id: dragID) == nil)
             let createdPanelIDs = Set(workspace.panels.keys).subtracting(baselinePanelIDs)
             #expect(createdPanelIDs.count == 1)
             let createdPanelID = try #require(createdPanelIDs.first)
@@ -201,15 +182,19 @@ struct VaultPaneDropRoutingTests {
 
     @Test("A live Vault drag reaches the portal-hosted browser pane target")
     private func liveVaultDragReachesBrowserPortalTarget() throws {
+        let fixture = try VaultPaneAppFixture()
+        defer { fixture.tearDown() }
+        let appDelegate = fixture.appDelegate
+
         let entry = Self.makeEntry(
             id: "codex:/tmp/portal-route/session.jsonl",
             sessionID: "portal-route-session",
             title: "Portal-routed Vault row"
         )
-        let dragID = SessionDragRegistry.shared.register(entry)
-        defer { _ = SessionDragRegistry.shared.consume(id: dragID) }
+        let dragID = appDelegate.sessionDragRegistry.register(entry)
+        defer { appDelegate.sessionDragRegistry.discard(id: dragID) }
 
-        let pasteboard = try vaultPasteboard(dragID: dragID)
+        let pasteboard = try dropHarness.vaultPasteboard(entry: entry, dragID: dragID)
         let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let window = NSWindow(
             contentRect: frame,
@@ -236,7 +221,7 @@ struct VaultPaneDropRoutingTests {
         let point = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
         let pointInHost = host.convert(point, from: slot)
         let pointInWindow = host.convert(pointInHost, to: nil)
-        let event = makeMouseEvent(
+        let event = try dropHarness.mouseEvent(
             type: .leftMouseDragged,
             location: pointInWindow,
             window: window
@@ -253,18 +238,10 @@ struct VaultPaneDropRoutingTests {
 
     @Test("A canceled Vault drag cannot poison the next duplicate row")
     private func canceledVaultDragDoesNotPoisonNextDuplicate() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let workspace = try #require(manager.selectedWorkspace)
-        defer {
-            workspace.teardownAllPanels()
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
-            AppDelegate.shared = previousAppDelegate
-        }
+        let fixture = try VaultPaneAppFixture()
+        defer { fixture.tearDown() }
+        let appDelegate = fixture.appDelegate
+        let workspace = fixture.workspace
 
         let initialPanelID = try #require(workspace.focusedPanelId)
         let targetPane = try #require(workspace.paneId(forPanelId: initialPanelID))
@@ -303,10 +280,13 @@ struct VaultPaneDropRoutingTests {
             sessionID: "repeated-folder-duplicate",
             title: "Duplicate Vault row"
         )
-        let canceledDragID = SessionDragRegistry.shared.register(duplicate)
-        let canceledPasteboard = try vaultPasteboard(dragID: canceledDragID)
-        #expect(SessionDragRegistry.shared.consume(id: canceledDragID) == duplicate)
-        let canceledDragInfo = MockDraggingInfo(
+        let canceledDragID = appDelegate.sessionDragRegistry.register(duplicate)
+        let canceledPasteboard = try dropHarness.vaultPasteboard(
+            entry: duplicate,
+            dragID: canceledDragID
+        )
+        #expect(appDelegate.sessionDragRegistry.consume(id: canceledDragID) == duplicate)
+        let canceledDragInfo = VaultPaneDraggingInfo(
             window: window,
             location: slot.convert(localPoint, to: nil),
             pasteboard: canceledPasteboard
@@ -316,10 +296,13 @@ struct VaultPaneDropRoutingTests {
         #expect(!target.prepareForDragOperation(canceledDragInfo))
         target.draggingExited(canceledDragInfo)
 
-        let nextDragID = SessionDragRegistry.shared.register(duplicate)
-        defer { _ = SessionDragRegistry.shared.consume(id: nextDragID) }
-        let nextPasteboard = try vaultPasteboard(dragID: nextDragID)
-        let nextDragInfo = MockDraggingInfo(
+        let nextDragID = appDelegate.sessionDragRegistry.register(duplicate)
+        defer { appDelegate.sessionDragRegistry.discard(id: nextDragID) }
+        let nextPasteboard = try dropHarness.vaultPasteboard(
+            entry: duplicate,
+            dragID: nextDragID
+        )
+        let nextDragInfo = VaultPaneDraggingInfo(
             window: window,
             location: slot.convert(localPoint, to: nil),
             pasteboard: nextPasteboard
@@ -335,104 +318,6 @@ struct VaultPaneDropRoutingTests {
         let createdPanelID = try #require(createdPanelIDs.first)
         let terminal = try #require(workspace.terminalPanel(for: createdPanelID))
         #expect(terminal.surface.debugInitialInputForTesting() == duplicate.resumeLaunch?.initialInput)
-    }
-
-    private func performDrop(
-        targetKind: TargetKind,
-        placement: Placement,
-        context: PaneDropContext,
-        pasteboard: NSPasteboard
-    ) throws -> Bool {
-        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        let window = NSWindow(
-            contentRect: frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-
-        let root = NSView(frame: frame)
-        window.contentView = root
-
-        switch targetKind {
-        case .terminal:
-            let target = PaneDropTargetView(frame: root.bounds)
-            target.dropContext = context
-            root.addSubview(target)
-            let dragInfo = MockDraggingInfo(
-                window: window,
-                location: target.convert(dropPoint(for: placement, in: target.bounds), to: nil),
-                pasteboard: pasteboard
-            )
-            #expect(target.draggingEntered(dragInfo) == .move)
-            #expect(target.prepareForDragOperation(dragInfo))
-            return target.performDragOperation(dragInfo)
-
-        case .browser:
-            let slot = WindowBrowserSlotView(frame: root.bounds)
-            root.addSubview(slot)
-            slot.setPaneDropContext(BrowserPaneDropContext(
-                workspaceId: context.workspaceId,
-                panelId: context.panelId,
-                paneId: context.paneId
-            ))
-            slot.layoutSubtreeIfNeeded()
-            let localPoint = dropPoint(for: placement, in: slot.bounds)
-            let target = try #require(slot.paneDropTargetForDrop(at: localPoint))
-            let dragInfo = MockDraggingInfo(
-                window: window,
-                location: slot.convert(localPoint, to: nil),
-                pasteboard: pasteboard
-            )
-            #expect(target.draggingEntered(dragInfo) == .move)
-            #expect(target.prepareForDragOperation(dragInfo))
-            return target.performDragOperation(dragInfo)
-        }
-    }
-
-    private func dropPoint(for placement: Placement, in bounds: NSRect) -> NSPoint {
-        switch placement {
-        case .center:
-            NSPoint(x: bounds.midX, y: bounds.midY)
-        case .right:
-            NSPoint(x: bounds.maxX - 4, y: bounds.midY)
-        }
-    }
-
-    private func makeMouseEvent(
-        type: NSEvent.EventType,
-        location: NSPoint,
-        window: NSWindow
-    ) -> NSEvent {
-        guard let event = NSEvent.mouseEvent(
-            with: type,
-            location: location,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1
-        ) else {
-            fatalError("Failed to create mouse event")
-        }
-        return event
-    }
-
-    private func vaultPasteboard(dragID: UUID) throws -> NSPasteboard {
-        let payload = try JSONSerialization.data(withJSONObject: [
-            "tab": ["id": dragID.uuidString, "kind": "terminal"],
-            "sourcePaneId": UUID().uuidString,
-            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
-        ])
-        let pasteboard = NSPasteboard(
-            name: NSPasteboard.Name("cmux.test.vault-pane-drop.\(UUID().uuidString)")
-        )
-        pasteboard.clearContents()
-        pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-        return pasteboard
     }
 
     private static func makeEntry(
@@ -459,41 +344,4 @@ struct VaultPaneDropRoutingTests {
         )
     }
 
-    private final class MockDraggingInfo: NSObject, NSDraggingInfo {
-        let draggingDestinationWindow: NSWindow?
-        let draggingSourceOperationMask: NSDragOperation = .move
-        let draggingLocation: NSPoint
-        let draggedImageLocation: NSPoint
-        let draggedImage: NSImage? = nil
-        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
-        nonisolated(unsafe) let draggingSource: Any? = nil
-        let draggingSequenceNumber = 1
-        var draggingFormation: NSDraggingFormation = .default
-        var animatesToDestination = false
-        var numberOfValidItemsForDrop = 1
-        let springLoadingHighlight: NSSpringLoadingHighlight = .none
-
-        init(window: NSWindow, location: NSPoint, pasteboard: NSPasteboard) {
-            draggingDestinationWindow = window
-            draggingLocation = location
-            draggedImageLocation = location
-            draggingPasteboard = pasteboard
-        }
-
-        func slideDraggedImage(to screenPoint: NSPoint) {}
-
-        override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
-            nil
-        }
-
-        func enumerateDraggingItems(
-            options enumOpts: NSDraggingItemEnumerationOptions = [],
-            for view: NSView?,
-            classes classArray: [AnyClass],
-            searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
-            using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
-        ) {}
-
-        func resetSpringLoading() {}
-    }
 }

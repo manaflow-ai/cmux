@@ -2547,6 +2547,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		469200054692000146920001 /* VaultNativeDragSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200054692000146920002 /* VaultNativeDragSourceTests.swift */; };
 		F76550060000000000000001 /* VaultObservedAgentProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550060000000000000002 /* VaultObservedAgentProcess.swift */; };
 		469200014692000146920001 /* VaultPaneDropRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200014692000146920002 /* VaultPaneDropRoutingTests.swift */; };
+		469200064692000146920001 /* VaultPaneDropTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200064692000146920002 /* VaultPaneDropTestSupport.swift */; };
 		469200044692000146920001 /* VaultPaneTransferLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200044692000146920002 /* VaultPaneTransferLifecycleTests.swift */; };
 		992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */; };
 		992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */; };
@@ -5300,6 +5301,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		469200054692000146920002 /* VaultNativeDragSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultNativeDragSourceTests.swift; sourceTree = "<group>"; };
 		F76550060000000000000002 /* VaultObservedAgentProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultObservedAgentProcess.swift; sourceTree = "<group>"; };
 		469200014692000146920002 /* VaultPaneDropRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultPaneDropRoutingTests.swift; sourceTree = "<group>"; };
+		469200064692000146920002 /* VaultPaneDropTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultPaneDropTestSupport.swift; sourceTree = "<group>"; };
 		469200044692000146920002 /* VaultPaneTransferLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultPaneTransferLifecycleTests.swift; sourceTree = "<group>"; };
 		99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultQueuedRestoreIdentityTests.swift; sourceTree = "<group>"; };
 		992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestoreRelaunchPersistenceTests.swift; sourceTree = "<group>"; };
@@ -7982,6 +7984,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					D7632004A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift */,
 					D0B1000FA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift */,
 					469200014692000146920002 /* VaultPaneDropRoutingTests.swift */,
+					469200064692000146920002 /* VaultPaneDropTestSupport.swift */,
 					469200044692000146920002 /* VaultPaneTransferLifecycleTests.swift */,
 					469200054692000146920002 /* VaultNativeDragSourceTests.swift */,
 					D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */,
@@ -11546,6 +11549,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
 				469200054692000146920001 /* VaultNativeDragSourceTests.swift in Sources */,
 				469200014692000146920001 /* VaultPaneDropRoutingTests.swift in Sources */,
+				469200064692000146920001 /* VaultPaneDropTestSupport.swift in Sources */,
 				469200044692000146920001 /* VaultPaneTransferLifecycleTests.swift in Sources */,
 				992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */,
 				992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */,

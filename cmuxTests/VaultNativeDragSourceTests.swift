@@ -132,7 +132,6 @@ struct VaultNativeDragSourceTests {
         let registry = SessionDragRegistry()
         var startedSources: [SessionDragSessionSource] = []
         let coordinator = SessionDragCoordinator(
-            registry: registry,
             startDraggingSession: { _, _, _, source in
                 startedSources.append(source)
             }
@@ -150,6 +149,7 @@ struct VaultNativeDragSourceTests {
         for expectedStartCount in 1...3 {
             #expect(coordinator.beginSessionDrag(
                 entry,
+                registry: registry,
                 from: sourceView,
                 event: event,
                 frame: frame,
@@ -163,6 +163,7 @@ struct VaultNativeDragSourceTests {
             #expect(source.dragID == dragID)
             #expect(!coordinator.beginSessionDrag(
                 entry,
+                registry: registry,
                 from: sourceView,
                 event: event,
                 frame: frame,

@@ -12,15 +12,9 @@ import Testing
 @MainActor
 @Suite("Vault pane-transfer lifecycle", .serialized)
 struct VaultPaneTransferLifecycleTests {
-    private enum TargetKind: Sendable {
-        case terminal
-        case browser
-    }
-
-    private enum Placement: Sendable {
-        case center
-        case right
-    }
+    private typealias TargetKind = VaultPaneDropTestHarness.TargetKind
+    private typealias Placement = VaultPaneDropTestHarness.Placement
+    private let dropHarness = VaultPaneDropTestHarness(suiteName: "lifecycle")
 
     private struct DockDropCase: Sendable {
         let targetKind: TargetKind
@@ -37,15 +31,18 @@ struct VaultPaneTransferLifecycleTests {
     @Test("Browser portal preserves an accepted Vault target through mouse-up")
     func browserPortalPreservesAcceptedVaultTargetThroughMouseUp() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
-            let fixture = try AppFixture()
+            let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
 
             let targetPanelID = try #require(fixture.workspace.focusedPanelId)
             let targetPane = try #require(fixture.workspace.paneId(forPanelId: targetPanelID))
             let entry = Self.makeEntry(sessionID: "browser-portal-mouse-up")
-            let dragID = SessionDragRegistry.shared.register(entry)
-            defer { SessionDragRegistry.shared.discard(id: dragID) }
-            let pasteboard = try Self.vaultPasteboard(dragID: dragID)
+            let dragID = fixture.appDelegate.sessionDragRegistry.register(entry)
+            defer { fixture.appDelegate.sessionDragRegistry.discard(id: dragID) }
+            let pasteboard = try dropHarness.vaultPasteboard(
+                entry: entry,
+                dragID: dragID
+            )
 
             let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
             let window = NSWindow(
@@ -74,14 +71,14 @@ struct VaultPaneTransferLifecycleTests {
             let target = try #require(slot.paneDropTargetForDrop(at: pointInSlot))
             let pointInHost = host.convert(pointInSlot, from: slot)
             let pointInWindow = host.convert(pointInHost, to: nil)
-            let dragInfo = MockDraggingInfo(
+            let dragInfo = VaultPaneDraggingInfo(
                 window: window,
                 location: pointInWindow,
                 pasteboard: pasteboard
             )
 
             #expect(target.draggingEntered(dragInfo) == .move)
-            let mouseUp = try Self.mouseEvent(
+            let mouseUp = try dropHarness.mouseEvent(
                 type: .leftMouseUp,
                 location: pointInWindow,
                 window: window
@@ -103,7 +100,7 @@ struct VaultPaneTransferLifecycleTests {
     )
     private func dockTargetsAcceptVaultSessions(_ dropCase: DockDropCase) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
-            let fixture = try AppFixture()
+            let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
 
             let dock = fixture.workspace.dockSplit
@@ -135,13 +132,16 @@ struct VaultPaneTransferLifecycleTests {
                 sessionID: "dock-\(dropCase.targetKind)-\(dropCase.placement)"
             )
             let launch = try #require(entry.resumeLaunch)
-            let dragID = SessionDragRegistry.shared.register(entry)
-            defer { SessionDragRegistry.shared.discard(id: dragID) }
-            let pasteboard = try Self.vaultPasteboard(dragID: dragID)
+            let dragID = fixture.appDelegate.sessionDragRegistry.register(entry)
+            defer { fixture.appDelegate.sessionDragRegistry.discard(id: dragID) }
+            let pasteboard = try dropHarness.vaultPasteboard(
+                entry: entry,
+                dragID: dragID
+            )
             let baselinePanelIDs = Set(dock.panels.keys)
             let baselinePaneCount = dock.bonsplitController.allPaneIds.count
 
-            let handled = try Self.performDrop(
+            let handled = try dropHarness.performDrop(
                 targetKind: dropCase.targetKind,
                 placement: dropCase.placement,
                 context: context,
@@ -172,7 +172,7 @@ struct VaultPaneTransferLifecycleTests {
     @Test("Every repeated Vault row survives prior drag cleanup")
     func repeatedVaultRowsSurvivePriorDragCleanup() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
-            let fixture = try AppFixture()
+            let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
 
             let initialPanelID = try #require(fixture.workspace.focusedPanelId)
@@ -218,10 +218,14 @@ struct VaultPaneTransferLifecycleTests {
             let target = try #require(slot.paneDropTargetForDrop(at: point))
 
             for (index, row) in rows.enumerated() {
-                let dragID = SessionDragRegistry.shared.register(row.entry)
-                defer { SessionDragRegistry.shared.discard(id: dragID) }
-                let pasteboard = try Self.vaultPasteboard(dragID: dragID)
-                let dragInfo = MockDraggingInfo(
+                let registry = fixture.appDelegate.sessionDragRegistry
+                let dragID = registry.register(row.entry)
+                defer { registry.discard(id: dragID) }
+                let pasteboard = try dropHarness.vaultPasteboard(
+                    entry: row.entry,
+                    dragID: dragID
+                )
+                let dragInfo = VaultPaneDraggingInfo(
                     window: window,
                     location: slot.convert(point, to: nil),
                     pasteboard: pasteboard,
@@ -234,7 +238,7 @@ struct VaultPaneTransferLifecycleTests {
                     // Model release-time cleanup after the target already accepted
                     // the drag. Execution must use that resolved plan, not re-read
                     // mutable process-wide drag state.
-                    SessionDragRegistry.shared.discard(id: dragID)
+                    registry.discard(id: dragID)
                 }
                 #expect(target.prepareForDragOperation(dragInfo))
                 #expect(target.performDragOperation(dragInfo))
@@ -249,68 +253,6 @@ struct VaultPaneTransferLifecycleTests {
                         == row.entry.resumeLaunch?.initialInput
                 )
             }
-        }
-    }
-
-    private static func performDrop(
-        targetKind: TargetKind,
-        placement: Placement,
-        context: PaneDropContext,
-        pasteboard: NSPasteboard
-    ) throws -> Bool {
-        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        let window = NSWindow(
-            contentRect: frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let root = try #require(window.contentView)
-
-        switch targetKind {
-        case .terminal:
-            let target = PaneDropTargetView(frame: root.bounds)
-            target.dropContext = context
-            root.addSubview(target)
-            let point = dropPoint(for: placement, in: target.bounds)
-            let dragInfo = MockDraggingInfo(
-                window: window,
-                location: target.convert(point, to: nil),
-                pasteboard: pasteboard
-            )
-            #expect(target.draggingEntered(dragInfo) == .move)
-            #expect(target.prepareForDragOperation(dragInfo))
-            let handled = target.performDragOperation(dragInfo)
-            target.draggingEnded(dragInfo)
-            return handled
-
-        case .browser:
-            let slot = WindowBrowserSlotView(frame: root.bounds)
-            root.addSubview(slot)
-            slot.setPaneDropContext(context)
-            slot.layoutSubtreeIfNeeded()
-            let point = dropPoint(for: placement, in: slot.bounds)
-            let target = try #require(slot.paneDropTargetForDrop(at: point))
-            let dragInfo = MockDraggingInfo(
-                window: window,
-                location: slot.convert(point, to: nil),
-                pasteboard: pasteboard
-            )
-            #expect(target.draggingEntered(dragInfo) == .move)
-            #expect(target.prepareForDragOperation(dragInfo))
-            let handled = target.performDragOperation(dragInfo)
-            target.draggingEnded(dragInfo)
-            return handled
-        }
-    }
-
-    private static func dropPoint(for placement: Placement, in bounds: NSRect) -> NSPoint {
-        switch placement {
-        case .center:
-            return NSPoint(x: bounds.midX, y: bounds.midY)
-        case .right:
-            return NSPoint(x: bounds.maxX - 4, y: bounds.midY)
         }
     }
 
@@ -334,110 +276,10 @@ struct VaultPaneTransferLifecycleTests {
         )
     }
 
-    private static func vaultPasteboard(dragID: UUID) throws -> NSPasteboard {
-        let payload = try JSONSerialization.data(withJSONObject: [
-            "tab": ["id": dragID.uuidString, "kind": "terminal"],
-            "sourcePaneId": UUID().uuidString,
-            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
-        ])
-        let pasteboard = NSPasteboard(
-            name: NSPasteboard.Name("cmux.test.vault-pane-lifecycle.\(UUID().uuidString)")
-        )
-        pasteboard.clearContents()
-        pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-        return pasteboard
-    }
-
-    private static func mouseEvent(
-        type: NSEvent.EventType,
-        location: NSPoint,
-        window: NSWindow
-    ) throws -> NSEvent {
-        try #require(NSEvent.mouseEvent(
-            with: type,
-            location: location,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1
-        ))
-    }
-
-    @MainActor private final class AppFixture {
-        let previousAppDelegate: AppDelegate?
-        let appDelegate: AppDelegate
-        let manager: TabManager
-        let windowID: UUID
-        let workspace: Workspace
-
-        init() throws {
-            previousAppDelegate = AppDelegate.shared
-            appDelegate = AppDelegate()
-            manager = TabManager(autoWelcomeIfNeeded: false)
-            AppDelegate.shared = appDelegate
-            appDelegate.tabManager = manager
-            windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-            let selectedWorkspace = manager.selectedWorkspace
-            workspace = try #require(selectedWorkspace)
-        }
-
-        func tearDown() {
-            workspace.teardownAllPanels()
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
-            AppDelegate.shared = previousAppDelegate
-        }
-    }
-
     private final class OccludingBrowserContentView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
         }
     }
 
-    private final class MockDraggingInfo: NSObject, NSDraggingInfo {
-        let draggingDestinationWindow: NSWindow?
-        let draggingSourceOperationMask: NSDragOperation = .move
-        let draggingLocation: NSPoint
-        let draggedImageLocation: NSPoint
-        let draggedImage: NSImage? = nil
-        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
-        nonisolated(unsafe) let draggingSource: Any? = nil
-        let draggingSequenceNumber: Int
-        var draggingFormation: NSDraggingFormation = .default
-        var animatesToDestination = false
-        var numberOfValidItemsForDrop = 1
-        let springLoadingHighlight: NSSpringLoadingHighlight = .none
-
-        init(
-            window: NSWindow,
-            location: NSPoint,
-            pasteboard: NSPasteboard,
-            sequenceNumber: Int = 1
-        ) {
-            draggingDestinationWindow = window
-            draggingLocation = location
-            draggedImageLocation = location
-            draggingPasteboard = pasteboard
-            draggingSequenceNumber = sequenceNumber
-        }
-
-        func slideDraggedImage(to screenPoint: NSPoint) {}
-
-        override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
-            nil
-        }
-
-        func enumerateDraggingItems(
-            options enumOpts: NSDraggingItemEnumerationOptions = [],
-            for view: NSView?,
-            classes classArray: [AnyClass],
-            searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
-            using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
-        ) {}
-
-        func resetSpringLoading() {}
-    }
 }

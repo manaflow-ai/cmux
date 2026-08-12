@@ -558,6 +558,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// coordinator reaches back through `AppDelegate.shared`.
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeArbiter()
+    /// Owns the one process-local Vault drag capability registry.
+    let sessionDragRegistry = SessionDragRegistry()
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
@@ -9177,6 +9179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
+            .environment(\.sessionDragRegistry, sessionDragRegistry)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it

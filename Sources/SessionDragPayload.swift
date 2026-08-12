@@ -3,6 +3,9 @@ import Foundation
 
 /// Encodes a Vault capability in the pane-transfer format shared by all pane targets.
 struct SessionDragPayload {
+    let entry: SessionEntry
+    let dragID: UUID
+
     private struct MirrorTabItem: Codable {
         let id: UUID
         let title: String
@@ -26,7 +29,7 @@ struct SessionDragPayload {
         let sourceProcessId: Int32
     }
 
-    static func pasteboardItem(for entry: SessionEntry, dragID: UUID) -> NSPasteboardItem? {
+    func pasteboardItem() -> NSPasteboardItem? {
         let transfer = MirrorTabTransferData(
             tab: MirrorTabItem(
                 id: dragID,

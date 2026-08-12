@@ -8,17 +8,17 @@ struct PaneTransferSourceResolver {
         case surface
     }
 
-    typealias VaultSessionLookup = @MainActor (UUID) -> SessionEntry?
+    typealias VaultSessionRegistry = @MainActor () -> SessionDragRegistry?
     typealias FilePreviewLookup = @MainActor (UUID) -> FilePreviewDragEntry?
     typealias LivenessLookup = @MainActor (UUID) -> Bool
 
-    private let vaultSession: VaultSessionLookup
+    private let vaultSessionRegistry: VaultSessionRegistry
     private let filePreview: FilePreviewLookup
     private let surfaceIsLive: LivenessLookup
 
     init(
-        vaultSession: @escaping VaultSessionLookup = { id in
-            SessionDragRegistry.shared.entry(id: id)
+        vaultSessionRegistry: @escaping VaultSessionRegistry = {
+            AppDelegate.shared?.sessionDragRegistry
         },
         filePreview: @escaping FilePreviewLookup = { id in
             FilePreviewDragRegistry.shared.entry(id: id)
@@ -27,7 +27,7 @@ struct PaneTransferSourceResolver {
             AppDelegate.shared?.locateContainerSurface(tabId: id) != nil
         }
     ) {
-        self.vaultSession = vaultSession
+        self.vaultSessionRegistry = vaultSessionRegistry
         self.filePreview = filePreview
         self.surfaceIsLive = surfaceIsLive
     }
@@ -36,7 +36,9 @@ struct PaneTransferSourceResolver {
     @MainActor
     func source(for transfer: PaneDragTransfer) -> Source? {
         guard transfer.isFromCurrentProcess else { return nil }
-        if let entry = vaultSession(transfer.tabId) { return .vaultSession(entry) }
+        if let entry = vaultSessionRegistry()?.entry(id: transfer.tabId) {
+            return .vaultSession(entry)
+        }
         if let entry = filePreview(transfer.tabId) { return .filePreview(entry) }
         if surfaceIsLive(transfer.tabId) { return .surface }
         return nil
@@ -47,7 +49,7 @@ struct PaneTransferSourceResolver {
     func finish(_ source: Source, id: UUID) {
         switch source {
         case .vaultSession:
-            SessionDragRegistry.shared.discard(id: id)
+            vaultSessionRegistry()?.discard(id: id)
         case .filePreview:
             FilePreviewDragRegistry.shared.discard(id: id)
         case .surface:

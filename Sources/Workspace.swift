@@ -11803,7 +11803,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
         // Session-index drag → spawn a brand new terminal at the destination instead
         // of moving an existing tab.
-        if let entry = SessionDragRegistry.shared.consume(id: request.tabId.uuid) {
+        if let entry = AppDelegate.shared?.sessionDragRegistry.consume(id: request.tabId.uuid) {
             return handleSessionDrop(entry: entry, destination: request.destination)
         }
         if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {

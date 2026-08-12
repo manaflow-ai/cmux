@@ -27,22 +27,20 @@ final class SessionDragCoordinator {
 
     var draggedKey: SectionKey?
 
-    @ObservationIgnored private let registry: SessionDragRegistry
     @ObservationIgnored private let startDraggingSession: StartDraggingSession
     @ObservationIgnored private var sessionPhase: SessionPhase = .idle
 
     init(
-        registry: SessionDragRegistry = .shared,
         startDraggingSession: @escaping StartDraggingSession = { sourceView, item, event, source in
             sourceView.beginDraggingSession(with: [item], event: event, source: source)
         }
     ) {
-        self.registry = registry
         self.startDraggingSession = startDraggingSession
     }
 
     func beginSessionDrag(
         _ entry: SessionEntry,
+        registry: SessionDragRegistry,
         from sourceView: NSView,
         event: NSEvent,
         frame: NSRect,
@@ -55,10 +53,10 @@ final class SessionDragCoordinator {
         }
 
         let dragID = registry.register(entry)
-        guard let pasteboardItem = SessionDragPayload.pasteboardItem(
-            for: entry,
+        guard let pasteboardItem = SessionDragPayload(
+            entry: entry,
             dragID: dragID
-        ) else {
+        ).pasteboardItem() else {
             registry.discard(id: dragID)
             return false
         }
