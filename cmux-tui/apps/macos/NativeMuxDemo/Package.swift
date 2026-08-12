@@ -23,6 +23,7 @@ let package = Package(
     .executableTarget(
       name: "NativeMuxDemo",
       dependencies: ["CCmuxTerminal", "GhosttyKit"],
+      resources: [.process("Resources")],
       linkerSettings: [
         .unsafeFlags([
           "-L\(rustLibraryPath)", "-lcmux_terminal_client",

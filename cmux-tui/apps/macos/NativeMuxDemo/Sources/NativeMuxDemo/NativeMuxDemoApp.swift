@@ -13,7 +13,7 @@ final class NativeMuxDemoAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     )
 
     override init() {
-        let localization = Localization(bundle: .main, locale: .current)
+        let localization = Localization(bundle: .module, locale: .current)
         self.localization = localization
         model = FrontendModel(localization: localization)
         super.init()
