@@ -56,7 +56,10 @@ extension DockSplitStore {
             return AppDelegate.shared?.moveSurfaceIntoDock(
                 sourceTabId: tabId,
                 destinationDock: self,
-                destination: Self.externalDropDestination(for: zone, targetPane: paneId)
+                destination: PaneDropRouting.destination(
+                    targetPane: paneId,
+                    zone: zone
+                )
             ) ?? false
         }
 
@@ -110,19 +113,6 @@ extension DockSplitStore {
                 startupRestoreAgent: launch.startupRestoreAgent,
                 focus: true
             ) != nil
-        }
-    }
-
-    private static func externalDropDestination(
-        for zone: DropZone,
-        targetPane paneId: PaneID
-    ) -> BonsplitController.ExternalTabDropRequest.Destination {
-        switch zone {
-        case .center: return .insert(targetPane: paneId, targetIndex: nil)
-        case .left: return .split(targetPane: paneId, orientation: .horizontal, insertFirst: true)
-        case .right: return .split(targetPane: paneId, orientation: .horizontal, insertFirst: false)
-        case .top: return .split(targetPane: paneId, orientation: .vertical, insertFirst: true)
-        case .bottom: return .split(targetPane: paneId, orientation: .vertical, insertFirst: false)
         }
     }
 
