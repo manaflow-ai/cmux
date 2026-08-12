@@ -926,6 +926,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
 		D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
+		C51DBA010000000000000001 /* CustomSidebarInputFocusOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51DBA020000000000000001 /* CustomSidebarInputFocusOwnershipTests.swift */; };
 		C5F0C0510000000000000122 /* CustomSidebarMountDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F0C0510000000000000121 /* CustomSidebarMountDecision.swift */; };
 		C5F0C0510000000000000102 /* CustomSidebarMountDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F0C0510000000000000101 /* CustomSidebarMountDecisionTests.swift */; };
 		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
@@ -3560,6 +3561,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
 		D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurfaceResumeTarget.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
+		C51DBA020000000000000001 /* CustomSidebarInputFocusOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomSidebarInputFocusOwnershipTests.swift; sourceTree = "<group>"; };
 		C5F0C0510000000000000121 /* CustomSidebarMountDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarMountDecision.swift; sourceTree = "<group>"; };
 		C5F0C0510000000000000101 /* CustomSidebarMountDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomSidebarMountDecisionTests.swift; sourceTree = "<group>"; };
 		C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPaneDataContextCache.swift; sourceTree = "<group>"; };
@@ -7753,6 +7755,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					7490A0027490A0027490A002 /* MemoryPressureMonitorTests.swift */,
 					C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */,
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
+				C51DBA020000000000000001 /* CustomSidebarInputFocusOwnershipTests.swift */,
 				F17F00000000000000000004 /* FullWidthTabCommandTests.swift */,
 				A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */,
 				B7758A020000000000000002 /* TerminationWatchdogTests.swift */,
@@ -10640,6 +10643,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E5807290DBD44C26BFC5434E /* CompletedRestoredAgentGenerationTests.swift in Sources */,
 				A91C0D100000000000000002 /* CompletedRestoredAgentInputRoutingTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
+				C51DBA010000000000000001 /* CustomSidebarInputFocusOwnershipTests.swift in Sources */,
 				C5F0C0510000000000000102 /* CustomSidebarMountDecisionTests.swift in Sources */,
 				C5F0C0510000000000000112 /* CustomSidebarPickerDiscoveryCasingTests.swift in Sources */,
 				C5F0C05100000000000000C2 /* CustomSidebarWebCommandResolutionTests.swift in Sources */,
