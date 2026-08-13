@@ -93,7 +93,7 @@ idle_timeout_seconds=$((idle_timeout_minutes * 60))
 while :; do
   sleep 30
   now="$(date +%s)"
-  if ss -tnp 2>/dev/null | grep -q ":${runner_ssh_port}[[:>:]]"; then
+  if ss -tnp 2>/dev/null | grep -Eq ":${runner_ssh_port}([^0-9]|$)"; then
     last_activity="$now"
   elif [[ -f "$HOME/.testbox-last-activity" ]]; then
     marker_mtime="$(stat -c %Y "$HOME/.testbox-last-activity" 2>/dev/null || stat -f %m "$HOME/.testbox-last-activity")"
