@@ -1,53 +1,114 @@
-name: Blacksmith Testbox
+name: cmux-tui Rust Testbox setup
 
 on:
   workflow_dispatch:
     inputs:
       testbox_id:
-        type: string
-        description: "Testbox session ID"
+        description: "Testbox session ID supplied by blacksmith testbox warmup"
         required: true
-  pull_request:
-    paths:
-      - '.github/workflows/**'
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  workflow-guard-tests:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 40
+  cmux-tui-rust:
+    name: cmux-tui Rust setup
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    timeout-minutes: 45
     steps:
+      # begin-testbox must be the first step. It attaches the VM requested by
+      # `blacksmith testbox warmup` and leaves it alive after this setup job.
       - name: Begin Testbox
         uses: useblacksmith/begin-testbox@233448af4bfdc6fca509a7f0974411ac6d8a8043 # v2
         with:
           testbox_id: ${{ inputs.testbox_id }}
 
-      - name: Checkout
+      - name: Checkout exact dispatch commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
 
-      - name: Set up Bun for Claude launch environment policy test
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Require exact checkout
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_sha" != "$EXPECTED_SHA" ]]; then
+            echo "::error::checked out $actual_sha, expected dispatch SHA $EXPECTED_SHA" >&2
+            exit 1
+          fi
+          printf 'testbox setup commit: %s\n' "$actual_sha"
+
+      - name: Initialize Ghostty source submodule
+        shell: bash
+        run: |
+          git submodule update --init --depth 1 ghostty
+          test -f ghostty/build.zig.zon
+
+      - name: Install Linux build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Cache Zig package downloads
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          bun-version: "1.3.6"
+          path: ~/.cache/zig
+          key: cmux-tui-zig-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: |
+            cmux-tui-zig-
 
-      - name: Set up Python 3.9 for nightly prune compatibility
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - name: Install repository-pinned Zig
+        shell: bash
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch Ghostty Zig dependencies without compiling
+        working-directory: ghostty
+        shell: bash
+        run: |
+          # `--fetch` hydrates the package cache and exits before a build.
+          "$CMUX_ZIG" build --fetch
+
+      - name: Cache Cargo registry and git dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          python-version: "3.9"
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cmux-tui-cargo-${{ runner.os }}-${{ hashFiles('cmux-tui/Cargo.lock', 'cmux-tui/rust-toolchain.toml') }}
+          restore-keys: |
+            cmux-tui-cargo-${{ runner.os }}-
 
-      - name: Install workflow guard Python dependencies
-        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
+      - name: Set up repository-pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
 
-      - name: Initialize Ghostty for Zig version guard
-        run: git submodule update --init --depth 1 ghostty
+      - name: Fetch Cargo dependencies without compiling
+        working-directory: cmux-tui
+        shell: bash
+        run: cargo fetch --locked
 
-      - name: Initialize Bonsplit for deferred-work ownership guard
-        run: git submodule update --init --depth 1 vendor/bonsplit
+      - name: Record hydrated toolchain and workspace metadata
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          printf 'rust-toolchain: '
+          rustup show active-toolchain
+          printf 'cargo: '
+          cargo --version
+          printf 'rustc: '
+          rustc --version
+          printf 'zig: '
+          "$CMUX_ZIG" version
+          cargo metadata --locked --no-deps --format-version 1 > "$RUNNER_TEMP/cmux-tui-cargo-metadata.json"
+          test -s "$RUNNER_TEMP/cmux-tui-cargo-metadata.json"
 
+      # Always hand control back to Testbox. Warmup is setup-only: all actual
+      # Rust builds are issued later with `blacksmith testbox run`.
       - name: Run Testbox
         uses: useblacksmith/run-testbox@5ca05834db1d3813554d1dd109e5f2087a8d7cbc # v2
         if: always()

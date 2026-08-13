@@ -1,126 +1,164 @@
 ---
 name: blacksmith-testbox
 description: >
-  Run Linux-compatible cmux checks in a Blacksmith Testbox. Use for Blacksmith
-  onboarding, remote Linux validation, Python workflow guards, and fast
-  repeatable checks against the CI environment.
+  Provision and reuse a beefy Blacksmith Testbox for cmux-tui Rust builds,
+  capture remote timings, download raw evidence, and clean up safely. Never
+  run cargo, rustc, or Zig builds on the local Mac.
 ---
 
-# Blacksmith Testbox
+# cmux-tui Blacksmith Testbox
 
-This repository's Testbox is a Linux environment derived from
-`.github/workflows/ci.yml` and its `workflow-guard-tests` job. It hydrates Bun
-1.3.6, Python 3.9, PyYAML, bashlex, and shallow `ghostty` and `vendor/bonsplit`
-submodules. It does not provide macOS, Xcode, a GUI, or the full cmux CI suite.
-Use the repository's cloud or hosted macOS workflow for Swift, XCTest, app-host,
-and UI verification.
+This lane is Linux-only. It uses
+`.github/workflows/ci-workflow-guard-tests-testbox.yml`, job
+`cmux-tui-rust`, on `blacksmith-32vcpu-ubuntu-2404`. The workflow is a
+setup-only entrypoint for a reusable Testbox. It checks out the exact dispatch
+SHA, initializes the `ghostty` source submodule, installs Linux C/LLVM headers,
+installs the repository-pinned Zig and Rust toolchains, fetches Zig and Cargo
+dependencies, and then hands control back to Testbox. It does not run Rust tests
+or Rust compilation during warmup. `zig build --fetch` only hydrates Zig
+packages and exits before compilation.
 
-## Prerequisites
+The repository's single Rust toolchain source is
+`cmux-tui/rust-toolchain.toml`. The workflow invokes
+`./.github/actions/setup-cmux-tui-rust`, so a workflow-specific Rust version
+must never be added.
 
-Install and authenticate the CLI once per machine:
+## Hard safety boundary
+
+* Never run `cargo`, `rustc`, `rustup`, `zig build`, or another Rust/Zig build
+  command on Lawrence's Mac. This includes local fallback builds and local
+  test commands.
+* Run every Blacksmith CLI command from the root of the intended isolated
+  worktree. The CLI synchronizes that directory and can delete remote files
+  that are not represented locally.
+* Put remote build commands inside `blacksmith testbox run`. The benchmark
+  helper also requires `CMUX_TESTBOX_REMOTE=1`, so an accidental local launch
+  exits before invoking a compiler.
+* Use this Testbox only for Linux-compatible cmux-tui work. Use the hosted
+  macOS workflows for Swift, Xcode, XCTest, GUI, and app-host verification.
+
+## Authentication and root guard
+
+Check authentication without printing credentials:
 
 ```bash
-curl -fsSL https://get.blacksmith.sh | sh
 blacksmith auth whoami
 ```
 
-If authentication is missing, use the browser flow. The organization slug for
-this repository is `manaflow-ai`:
+If the CLI is missing, install it once with:
 
 ```bash
-blacksmith auth login --non-interactive --organization manaflow-ai
+curl -fsSL https://get.blacksmith.sh | sh
 ```
 
-Do not print or commit `~/.blacksmith/credentials`. Do not pass an API token
-when browser authentication is requested.
-
-## Warm up
-
-Run every Testbox command from the root of the current git worktree. Push the
-workflow file before warming up, because Blacksmith dispatches the workflow
-from GitHub rather than reading an unpushed local file.
+If authentication or dispatch is blocked, use the Blacksmith Console at
+https://app.blacksmith.sh. The exact retry command, after the workflow is
+available on the selected ref, is:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+SHA="$(git rev-parse HEAD)"
 blacksmith testbox warmup .github/workflows/ci-workflow-guard-tests-testbox.yml \
-  --ref <branch> \
+  --ref "$SHA" --job cmux-tui-rust --idle-timeout 30
+```
+
+A workflow that exists only on a feature branch can be rejected by GitHub's
+workflow-dispatch API. If Blacksmith reports `workflow not found` or a 404,
+do not change the ref or fall back to a local build. Open the Console, make the
+workflow available on the repository's dispatchable default-branch revision,
+and rerun the exact command above with the full SHA recorded in the evidence.
+
+Use this guard before any warmup or run:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+SHA="$(git rev-parse HEAD)"
+case "$SHA" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+  *) echo "HEAD is not a full commit SHA" >&2; exit 1 ;;
+esac
+```
+
+The branch must be pushed before warmup. Record `git status --short --branch`
+and the full SHA in the scratch evidence before dispatching.
+
+## Warmup, run, and stop
+
+Warm the exact branch head with the stable workflow/job pair:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+SHA="$(git rev-parse HEAD)"
+blacksmith testbox warmup .github/workflows/ci-workflow-guard-tests-testbox.yml \
+  --ref "$SHA" \
+  --job cmux-tui-rust \
   --idle-timeout 30
 ```
 
-The CLI defaults `--ref` to the current branch. Use an explicit branch when
-the shell's checkout and the intended workflow revision could differ. Save the
-returned `tbx_...` ID and use one ID per worktree or agent.
-
-The workflow has two modes:
-
-* A Testbox warmup supplies `testbox_id`, starts hydration, and keeps the VM
-  alive.
-* A normal pull request run has no `testbox_id`; the begin/run actions validate
-  the setup without claiming a VM.
-
-## Run checks
-
-`run` waits for hydration automatically and returns the remote command's exit
-status:
+Save the returned `tbx_...` ID. One ID belongs to one worktree or agent. Wait
+for setup if needed:
 
 ```bash
-blacksmith testbox run --id <ID> \
-  "python3 tests/test_ci_change_areas.py"
-
-blacksmith testbox run --id <ID> \
-  "cd agent-chat && bun test test/claude-environment.test.ts"
+blacksmith testbox status --id <TBX_ID> --wait --wait-timeout 15m
 ```
 
-This workflow installs only the dependencies listed above. Before web, Go, Rust,
-or other checks, run the repository's matching install/setup command in the
-same Testbox, then run the check. A changed dependency manifest requires a
-fresh install on the Testbox:
+Run harmless remote identity and dependency checks from the repository root:
 
 ```bash
-blacksmith testbox run --id <ID> \
-  "cd web && bun install --frozen-lockfile && bun run typecheck"
+blacksmith testbox run --id <TBX_ID> --debug \
+  'set -euo pipefail; printf "sha="; git rev-parse HEAD; printf "runner="; uname -a; printf "cpus="; nproc; rustup show active-toolchain; rustc --version; cargo --version; "${CMUX_ZIG:-zig}" version'
 ```
 
-Do not assume that a local `node_modules`, build directory, Swift package cache,
-or other ignored/generated directory was transferred. The CLI synchronizes the
-worktree with checksum-based deletion semantics; execute required installs and
-builds remotely.
-
-## Sync and safety rules
-
-* Invoke `blacksmith testbox run` from the repository root. Put `cd` only
-  inside the quoted remote command. Running the CLI from a subdirectory can
-  mirror the wrong tree and delete unrelated remote files.
-* Treat the Testbox as a disposable mirror of the current worktree. Do not
-  store unique state there without downloading it first.
-* Reuse the same ID for iterative runs. A new worktree needs its own warmup.
-* Never use this Linux Testbox for macOS or iOS compilation, XCTest, app-host
-  tests, UI tests, or GUI dogfood.
-* Local formatting and static inspection are allowed. Follow the repository
-  testing rules for every behavioral test and build.
-* Do not put credentials, private keys, or generated Testbox state in the
-  repository.
-
-## Status, artifacts, and cleanup
-
-Use a blocking status check when needed, rather than a sleep loop:
+Run a build only through the remote-only timing helper:
 
 ```bash
-blacksmith testbox status --id <ID> --wait --wait-timeout 15m
+blacksmith testbox run --id <TBX_ID> --debug \
+  'CMUX_TESTBOX_REMOTE=1 ./scripts/blacksmith-cmux-tui-testbox-stage.sh first-clean'
+blacksmith testbox run --id <TBX_ID> --debug \
+  'CMUX_TESTBOX_REMOTE=1 ./scripts/blacksmith-cmux-tui-testbox-stage.sh incremental-noop'
+blacksmith testbox run --id <TBX_ID> --debug \
+  'CMUX_TESTBOX_REMOTE=1 ./scripts/blacksmith-cmux-tui-testbox-stage.sh changed-file'
 ```
 
-Download artifacts relative to the remote worktree:
+The complete capture procedure, including warmup wall time, run transcripts,
+and aggregation, is in `skills/blacksmith-testbox/benchmark.md`.
+
+Download raw remote timing files before stopping:
 
 ```bash
-blacksmith testbox download --id <ID> test-results/ ./test-results/
-blacksmith testbox download --id <ID> build/output.tar.gz ./output.tar.gz
+mkdir -p .cmux-scratch/testbox-benchmark-raw
+blacksmith testbox download --id <TBX_ID> testbox-benchmark/ \
+  .cmux-scratch/testbox-benchmark-raw/
 ```
 
-Stop the VM after the task:
+Stop disposable capacity and prove cleanup:
 
 ```bash
-blacksmith testbox stop --id <ID>
+blacksmith testbox stop --id <TBX_ID>
+blacksmith testbox list --all
 ```
 
-The default idle timeout is 30 minutes. Stopping explicitly avoids paying for
-unused runner minutes.
+`list --all` must report no active Testbox. Keep the warmup log, setup/job/run
+IDs, status output, downloaded `*.json`/`*.time`/`*.log` files, stop output, and
+final list output in a separate `.cmux-scratch/` evidence artifact. Never add
+credentials or private keys to that artifact.
+
+## Timing interpretation
+
+The benchmark reports two clocks. The local CLI transcript measures sync,
+transport, queueing, and the remote command. The downloaded `/usr/bin/time -p`
+record measures the remote `cargo build -p cmux-tui --locked` command. Compare
+remote `real` or `time_real_seconds` values for build performance, and retain
+CLI wall time when evaluating Testbox overhead.
+
+`first-clean` is target-clean but dependency-warm: warmup runs `cargo fetch` and
+`zig build --fetch`, and the workflow may restore registry, git, and Zig caches.
+`incremental-noop` measures a second build on the same VM. `changed-file` adds a
+comment to `cmux-tui/crates/cmux-tui/src/main.rs`, builds, and restores the
+original file. These are deliberately different from a cold-VM benchmark.
+
+Do not invent a local baseline. The cmux-tui instructions prohibit local Rust
+builds, so local evidence is explicitly unavailable. Prior hosted correctness
+runs without Cargo durations are provenance only. Prior Blacksmith macOS
+Swift/Xcode timing artifacts use a different OS, architecture, runner, cache,
+and workload, so they are context rather than a comparable Rust baseline.
