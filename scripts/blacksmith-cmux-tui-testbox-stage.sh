@@ -221,7 +221,22 @@ finish_source() {
   fi
   exit "$result"
 }
-trap finish_source EXIT TERM INT HUP
+# Signals must remain failures even when they arrive after a successful command.
+# The EXIT trap performs the actual restoration exactly once.
+# shellcheck disable=SC2329 # invoked indirectly by signal traps
+interrupt_source() {
+  local signal_name="$1"
+  trap - TERM INT HUP
+  case "$signal_name" in
+    TERM) exit 143 ;;
+    INT) exit 130 ;;
+    HUP) exit 129 ;;
+  esac
+}
+trap 'interrupt_source TERM' TERM
+trap 'interrupt_source INT' INT
+trap 'interrupt_source HUP' HUP
+trap finish_source EXIT
 
 clean_status() {
   local top_status ghostty_status

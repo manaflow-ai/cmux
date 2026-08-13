@@ -27,14 +27,23 @@ argv = sys.argv[2:]
 if not argv:
     raise SystemExit("missing command")
 process = subprocess.Popen(argv, start_new_session=True)
+
+def terminate(_signum, _frame):
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=5)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+    raise SystemExit(128 + _signum)
+
+signal.signal(signal.SIGINT, terminate)
+signal.signal(signal.SIGTERM, terminate)
 try:
     raise SystemExit(process.wait(timeout=seconds))
 except subprocess.TimeoutExpired:
-    os.killpg(process.pid, signal.SIGTERM)
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
-    raise SystemExit(124)
+    terminate(signal.SIGTERM, None)
 PY

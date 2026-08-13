@@ -173,7 +173,8 @@ cleanup() {
     # Without the CLI receipt there is no proof that a newly listed box belongs
     # to this invocation. Report inventory, but never stop another operator's box.
     set +e
-    blacksmith testbox list --all >"$OUT/list-after-warmup-failure.log" 2>&1
+    ./scripts/blacksmith-bounded-command.sh 60 \
+      blacksmith testbox list --all >"$OUT/list-after-warmup-failure.log" 2>&1
     after_list_status=$?
     set -e
     if (( after_list_status != 0 )); then
@@ -195,7 +196,8 @@ blacksmith --version >"$OUT/blacksmith-version.txt"
 cat "$OUT/blacksmith-version.txt"
 blacksmith runners catalog >"$OUT/runner-catalog.json"
 set +e
-blacksmith testbox list --all >"$OUT/list-before-warmup.log" 2>&1
+./scripts/blacksmith-bounded-command.sh 60 \
+  blacksmith testbox list --all >"$OUT/list-before-warmup.log" 2>&1
 before_list_status=$?
 set -e
 cat "$OUT/list-before-warmup.log"
@@ -204,7 +206,8 @@ if (( before_list_status != 0 )); then
   exit "$before_list_status"
 fi
 set +e
-blacksmith testbox warmup "$WORKFLOW" \
+./scripts/blacksmith-bounded-command.sh 1200 \
+  blacksmith testbox warmup "$WORKFLOW" \
   --ref "$SOURCE_REF" \
   --job "$JOB" \
   --idle-timeout 30 \
