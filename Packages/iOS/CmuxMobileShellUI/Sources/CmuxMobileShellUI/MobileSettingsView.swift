@@ -395,6 +395,7 @@ struct MobileSettingsView: View {
                         supportsMacTest: store?.supportsPhonePushTest == true,
                         canConnectMac: startPairingScanner != nil,
                         onPhoneEnabledChange: updatePhonePushEnabled,
+                        onPhoneEnabledReconcile: reconcilePhonePushEnabled,
                         onRepair: repairPhonePush,
                         onMacMutation: updateMacPhonePush,
                         onSendTest: sendPhonePushTest
@@ -427,7 +428,8 @@ struct MobileSettingsView: View {
                     MobilePushToggle(
                         isEnabled: $notificationsEnabled,
                         isUpdating: $notificationsToggleUpdating,
-                        onChange: updatePhonePushEnabled
+                        onChange: updatePhonePushEnabled,
+                        onReconcile: reconcilePhonePushEnabled
                     )
 #endif
                 }
@@ -623,6 +625,12 @@ struct MobileSettingsView: View {
         }
         await pushCoordinator.disable()
         return !pushCoordinator.isEnabled
+    }
+
+    @MainActor
+    private func reconcilePhonePushEnabled() async -> Bool? {
+        await pushCoordinator.refreshReadiness()
+        return pushCoordinator.isEnabled
     }
 
     @MainActor

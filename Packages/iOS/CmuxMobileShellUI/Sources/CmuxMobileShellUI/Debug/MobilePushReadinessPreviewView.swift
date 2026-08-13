@@ -46,6 +46,7 @@ struct MobilePushReadinessPreviewView: View {
                         supportsMacTest: macStatus != nil,
                         canConnectMac: true,
                         onPhoneEnabledChange: setPhoneEnabled,
+                        onPhoneEnabledReconcile: reconcilePhoneEnabled,
                         onRepair: repair,
                         onMacMutation: mutateMac,
                         onSendTest: { .queuedOnMac }
@@ -92,6 +93,11 @@ struct MobilePushReadinessPreviewView: View {
             ? Self.registered
             : .disabled
         return true
+    }
+
+    @MainActor
+    private func reconcilePhoneEnabled() async -> Bool? {
+        registration.isEnabled ? phoneEnabled : false
     }
 
     @MainActor

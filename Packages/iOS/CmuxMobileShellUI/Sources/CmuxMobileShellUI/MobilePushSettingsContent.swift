@@ -25,6 +25,7 @@ struct MobilePushSettingsContent: View {
     let supportsMacTest: Bool
     let canConnectMac: Bool
     let onPhoneEnabledChange: @MainActor (Bool) async -> Bool
+    let onPhoneEnabledReconcile: @MainActor () async -> Bool?
     let onRepair: @MainActor (MobilePushReadiness.Repair) async -> Bool
     let onMacMutation: @MainActor (MobilePushMacMutation) async -> Bool
     let onSendTest: @MainActor () async -> MobilePhonePushTestStage
@@ -47,6 +48,7 @@ struct MobilePushSettingsContent: View {
         supportsMacTest: Bool,
         canConnectMac: Bool,
         onPhoneEnabledChange: @escaping @MainActor (Bool) async -> Bool,
+        onPhoneEnabledReconcile: @escaping @MainActor () async -> Bool?,
         onRepair: @escaping @MainActor (MobilePushReadiness.Repair) async -> Bool,
         onMacMutation: @escaping @MainActor (MobilePushMacMutation) async -> Bool,
         onSendTest: @escaping @MainActor () async -> MobilePhonePushTestStage
@@ -58,6 +60,7 @@ struct MobilePushSettingsContent: View {
         self.supportsMacTest = supportsMacTest
         self.canConnectMac = canConnectMac
         self.onPhoneEnabledChange = onPhoneEnabledChange
+        self.onPhoneEnabledReconcile = onPhoneEnabledReconcile
         self.onRepair = onRepair
         self.onMacMutation = onMacMutation
         self.onSendTest = onSendTest
@@ -78,7 +81,8 @@ struct MobilePushSettingsContent: View {
             MobilePushToggle(
                 isEnabled: $phoneEnabled,
                 isUpdating: $isMutatingPhone,
-                onChange: onPhoneEnabledChange
+                onChange: onPhoneEnabledChange,
+                onReconcile: onPhoneEnabledReconcile
             )
 
             if let repair = readiness.repair,
