@@ -797,7 +797,7 @@ final class AgentSessionProcessStore {
     ) -> Any? {
         guard let schema else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch (schema?["type"] as? String)?.lowercased() {
+        switch (schema["type"] as? String)?.lowercased() {
         case "boolean":
             switch trimmed.lowercased() {
             case "1", "true", "yes", "y", "on": return true
