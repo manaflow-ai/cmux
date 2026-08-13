@@ -90,6 +90,43 @@ struct RemoteBootstrapStagingCommandBuilderTests {
         #expect(execution.stderr.isEmpty)
     }
 
+    @Test("execution argv runs the staged bootstrap under execvp semantics")
+    func executionArgumentsSurviveExecvp() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-bootstrap-argv-\(UUID().uuidString)", isDirectory: true)
+        let remoteHome = directory.appendingPathComponent("remote-home", isDirectory: true)
+        let relayDirectory = remoteHome.appendingPathComponent(".cmux/relay", isDirectory: true)
+        try FileManager.default.createDirectory(at: relayDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try "printf '%s\\n' argv-bootstrap\n".write(
+            to: relayDirectory.appendingPathComponent("52264.bootstrap.sh"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let builder = try #require(RemoteBootstrapStagingCommandBuilder(
+            installerSSHArguments: ["ssh"],
+            destination: "user@example.com",
+            remoteRelayPort: 52_264,
+            bootstrapScript: "printf '%s\\n' argv-bootstrap"
+        ))
+
+        // mosh-server executes the received command argv with execvp and no
+        // shell parsing, so the first element must be a real executable path.
+        let arguments = builder.remoteExecutionCommandArguments
+        let execution = try run(
+            executable: try #require(arguments.first),
+            arguments: Array(arguments.dropFirst()),
+            environment: [
+                "HOME": remoteHome.path,
+                "PATH": "/usr/bin:/bin",
+            ]
+        )
+        #expect(execution.status == 0)
+        #expect(execution.stdout == "argv-bootstrap\n")
+        #expect(execution.stderr.isEmpty)
+    }
+
     @Test("installs through POSIX sh when the remote login shell is fish")
     func stagesThroughFishLoginShell() throws {
         guard let fishPath = Self.fishExecutablePath else {

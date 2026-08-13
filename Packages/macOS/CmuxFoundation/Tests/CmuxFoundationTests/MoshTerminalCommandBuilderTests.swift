@@ -216,8 +216,8 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
-    @Test("uses local Mosh address resolution when SSH advertises an unusable address")
-    func unusableRemoteAddressUsesLocalMode() throws {
+    @Test("falls back to SSH proxy address resolution when SSH advertises an unusable address")
+    func unusableRemoteAddressUsesProxyMode() throws {
         try withFakeCommands(
             sshStatus: 0,
             sshConnection: "0.0.0.0 0 0.0.0.0 0"
@@ -229,13 +229,13 @@ struct MoshTerminalCommandBuilderTests {
             )
 
             #expect(result.status == 0)
-            #expect(moshArguments.firstLine == "--experimental-remote-ip=local")
-            #expect(result.stderr.contains("using local Mosh address resolution"))
+            #expect(moshArguments.firstLine == "--experimental-remote-ip=proxy")
+            #expect(result.stderr.contains("mosh address fallback engaged"))
         }
     }
 
-    @Test("uses local Mosh address resolution when SSH_CONNECTION is empty")
-    func emptyRemoteAddressUsesLocalMode() throws {
+    @Test("falls back to SSH proxy address resolution when SSH_CONNECTION is empty")
+    func emptyRemoteAddressUsesProxyMode() throws {
         try withFakeCommands(sshStatus: 0, sshConnection: "") { directory, environment in
             let result = try run(builder(), environment: environment)
             let moshArguments = try String(
@@ -244,13 +244,82 @@ struct MoshTerminalCommandBuilderTests {
             )
 
             #expect(result.status == 0)
-            #expect(moshArguments.firstLine == "--experimental-remote-ip=local")
-            #expect(result.stderr.contains("using local Mosh address resolution"))
+            #expect(moshArguments.firstLine == "--experimental-remote-ip=proxy")
+            #expect(result.stderr.contains("mosh address fallback engaged"))
         }
     }
 
-    @Test("uses local Mosh address resolution when SSH advertises zero ports")
-    func zeroRemotePortsUseLocalMode() throws {
+    @Test("falls back to SSH proxy address resolution when SSH advertises a loopback server address")
+    func loopbackServerAddressUsesProxyMode() throws {
+        try withFakeCommands(
+            sshStatus: 0,
+            sshConnection: "127.0.0.1 51675 127.0.0.1 22"
+        ) { directory, environment in
+            let result = try run(builder(), environment: environment)
+            let moshArguments = try String(
+                contentsOf: directory.appendingPathComponent("mosh.args"),
+                encoding: .utf8
+            )
+
+            #expect(result.status == 0)
+            #expect(moshArguments.firstLine == "--experimental-remote-ip=proxy")
+            #expect(result.stderr.contains("mosh address fallback engaged"))
+        }
+    }
+
+    @Test("falls back to SSH proxy address resolution when SSH_CONNECTION is truncated")
+    func truncatedRemoteAddressUsesProxyMode() throws {
+        try withFakeCommands(
+            sshStatus: 0,
+            sshConnection: "192.0.2.10 12345"
+        ) { directory, environment in
+            let result = try run(builder(), environment: environment)
+            let moshArguments = try String(
+                contentsOf: directory.appendingPathComponent("mosh.args"),
+                encoding: .utf8
+            )
+
+            #expect(result.status == 0)
+            #expect(moshArguments.firstLine == "--experimental-remote-ip=proxy")
+            #expect(result.stderr.contains("mosh address fallback engaged"))
+        }
+    }
+
+    @Test("falls back to SSH proxy address resolution when a port is non-numeric")
+    func nonNumericPortUsesProxyMode() throws {
+        try withFakeCommands(
+            sshStatus: 0,
+            sshConnection: "192.0.2.10 12345 192.0.2.20 ssh"
+        ) { directory, environment in
+            let result = try run(builder(), environment: environment)
+            let moshArguments = try String(
+                contentsOf: directory.appendingPathComponent("mosh.args"),
+                encoding: .utf8
+            )
+
+            #expect(result.status == 0)
+            #expect(moshArguments.firstLine == "--experimental-remote-ip=proxy")
+            #expect(result.stderr.contains("mosh address fallback engaged"))
+        }
+    }
+
+    @Test("falls back to SSH proxy address resolution when the SSH address probe fails")
+    func addressProbeFailureUsesProxyMode() throws {
+        try withFakeCommands(sshStatus: 0, sshConnectionStatus: 255) { directory, environment in
+            let result = try run(builder(), environment: environment)
+            let moshArguments = try String(
+                contentsOf: directory.appendingPathComponent("mosh.args"),
+                encoding: .utf8
+            )
+
+            #expect(result.status == 0)
+            #expect(moshArguments.firstLine == "--experimental-remote-ip=proxy")
+            #expect(result.stderr.contains("mosh address fallback engaged"))
+        }
+    }
+
+    @Test("keeps remote address resolution when SSH advertises zero ports")
+    func zeroRemotePortsKeepRemoteMode() throws {
         try withFakeCommands(
             sshStatus: 0,
             sshConnection: "192.0.2.10 0 192.0.2.20 0"
@@ -262,14 +331,17 @@ struct MoshTerminalCommandBuilderTests {
             )
 
             #expect(result.status == 0)
-            #expect(moshArguments.firstLine == "--experimental-remote-ip=local")
-            #expect(result.stderr.contains("using local Mosh address resolution"))
+            #expect(moshArguments.firstLine == "--experimental-remote-ip=remote")
+            #expect(result.stderr.isEmpty)
         }
     }
 
-    @Test("uses local Mosh address resolution when the SSH address probe fails")
-    func addressProbeFailureUsesLocalMode() throws {
-        try withFakeCommands(sshStatus: 0, sshConnectionStatus: 255) { directory, environment in
+    @Test("keeps remote address resolution when only the peer address is unusual")
+    func unusualPeerAddressKeepsRemoteMode() throws {
+        try withFakeCommands(
+            sshStatus: 0,
+            sshConnection: "fe80::1%en0 51675 203.0.113.7 22"
+        ) { directory, environment in
             let result = try run(builder(), environment: environment)
             let moshArguments = try String(
                 contentsOf: directory.appendingPathComponent("mosh.args"),
@@ -277,8 +349,8 @@ struct MoshTerminalCommandBuilderTests {
             )
 
             #expect(result.status == 0)
-            #expect(moshArguments.firstLine == "--experimental-remote-ip=local")
-            #expect(result.stderr.contains("using local Mosh address resolution"))
+            #expect(moshArguments.firstLine == "--experimental-remote-ip=remote")
+            #expect(result.stderr.isEmpty)
         }
     }
 
@@ -351,6 +423,38 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("runs the staged bootstrap through mosh-server execvp argv semantics")
+    func stagedBootstrapSurvivesMoshServerExec() throws {
+        try withFakeCommands(
+            sshStatus: 0,
+            executeRemoteCommand: true,
+            installRemoteMoshServerOutsidePath: true,
+            moshExecutesRemoteCommand: true
+        ) { directory, environment in
+            let remoteHome = directory.appendingPathComponent("remote-home", isDirectory: true)
+            let staging = try #require(RemoteBootstrapStagingCommandBuilder(
+                installerSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
+                destination: "user@example.com",
+                remoteRelayPort: 52_264,
+                bootstrapScript: "printf ran > \"$HOME/bootstrap-ran\""
+            ))
+            let result = try run(
+                builder(
+                    preparationShellScript: staging.preparationShellScript,
+                    remoteRelayPort: 52_264,
+                    remoteCommandArguments: staging.remoteExecutionCommandArguments
+                ),
+                environment: environment
+            )
+
+            #expect(result.status == 0, "stderr: \(result.stderr)")
+            #expect(result.stderr.isEmpty)
+            #expect(FileManager.default.fileExists(
+                atPath: remoteHome.appendingPathComponent("bootstrap-ran").path
+            ))
+        }
+    }
+
     @Test("does not report connected before the Mosh transport establishes")
     func failedMoshDoesNotReportConnected() throws {
         try withFakeCommands(sshStatus: 0, moshStatus: 71) { directory, environment in
@@ -379,14 +483,15 @@ struct MoshTerminalCommandBuilderTests {
         managementReadyShellScript: String? = nil,
         remoteRelayPort: Int? = nil,
         remoteIPMode: MoshRemoteIPMode = .remote,
-        localMoshExecutableName: String = "mosh"
+        localMoshExecutableName: String = "mosh",
+        remoteCommandArguments: [String] = ["command", "space arg", "quote'arg"]
     ) -> MoshTerminalCommandBuilder {
         MoshTerminalCommandBuilder(
             capabilityProbeSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
             sessionSSHArguments: ["ssh", "-o", "RemoteCommand=none", "-p", "2222"],
             localMoshExecutableName: localMoshExecutableName,
             destination: "user@example.com",
-            remoteCommandArguments: ["command", "space arg", "quote'arg"],
+            remoteCommandArguments: remoteCommandArguments,
             remoteRelayPort: remoteRelayPort,
             remoteIPMode: remoteIPMode,
             preparationShellScript: preparationShellScript,
@@ -397,7 +502,7 @@ struct MoshTerminalCommandBuilderTests {
             remoteMoshMissingMessage: "remote mosh missing",
             remoteMoshProbeFailedMessage: "remote probe failed",
             remoteBootstrapInstallFailedMessage: "remote bootstrap install failed",
-            remoteMoshAddressFallbackMessage: "using local Mosh address resolution"
+            remoteMoshAddressFallbackMessage: "mosh address fallback engaged"
         )
     }
 
@@ -415,6 +520,7 @@ struct MoshTerminalCommandBuilderTests {
         moshSupportsRemoteIP: Bool = true,
         executeRemoteCommand: Bool = false,
         installRemoteMoshServerOutsidePath: Bool = false,
+        moshExecutesRemoteCommand: Bool = false,
         requireManagementReady: Bool = false,
         sshConnection: String? = nil,
         sshConnectionStatus: Int32? = nil,
@@ -475,6 +581,14 @@ struct MoshTerminalCommandBuilderTests {
                   exit 71
                 fi
                 printf '%s\\n' "$@" > "$MOSH_ARGS_FILE"
+                if [ "$FAKE_MOSH_EXECS_REMOTE_COMMAND" = "1" ]; then
+                  while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+                  if [ "$#" -gt 0 ]; then shift; fi
+                  if [ "$#" -gt 0 ]; then shift; fi
+                  if [ "$#" -gt 0 ]; then
+                    HOME="$FAKE_REMOTE_HOME" exec "$@"
+                  fi
+                fi
                 exit "$FAKE_MOSH_STATUS"
                 """,
                 in: directory
@@ -502,6 +616,7 @@ struct MoshTerminalCommandBuilderTests {
             "FAKE_SSH_CONNECTION": sshConnection ?? "192.0.2.10 12345 192.0.2.20 22",
             "FAKE_SSH_CONNECTION_STATUS": sshConnectionStatus.map(String.init) ?? "",
             "FAKE_MOSH_SUPPORTS_REMOTE_IP": moshSupportsRemoteIP ? "1" : "0",
+            "FAKE_MOSH_EXECS_REMOTE_COMMAND": moshExecutesRemoteCommand ? "1" : "0",
             "FAKE_REQUIRE_MANAGEMENT_READY": requireManagementReady ? "1" : "0",
             "FAKE_MOSH_STATUS": String(moshStatus),
             "MANAGEMENT_READY_FILE": directory.appendingPathComponent("management.ready").path,
