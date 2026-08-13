@@ -3234,7 +3234,19 @@ final class cmuxUITests: XCTestCase {
             // retry once if we are demonstrably still on the list.
             docsRow.tap()
         }
-        XCTAssertTrue(docsTerminal.waitForExistence(timeout: 20))
+        let docsTerminalAppeared = docsTerminal.waitForExistence(timeout: 20)
+        if !docsTerminalAppeared {
+            // Name the screen that swallowed both pushes; the xcresult with
+            // the failure snapshot is not uploaded from CI.
+            print(
+                """
+                docs workspace push produced no terminal; docsRow.exists=\(docsRow.exists)
+                AX tree:
+                \(app.debugDescription)
+                """
+            )
+        }
+        XCTAssertTrue(docsTerminalAppeared)
         try await Task.sleep(for: .seconds(3))
         XCTAssertEqual(
             app.state,
