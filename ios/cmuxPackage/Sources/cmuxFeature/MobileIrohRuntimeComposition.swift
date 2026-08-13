@@ -582,21 +582,44 @@ public final class MobileIrohRuntimeComposition:
     /// The catalog keeps cached bindings in a separate route-only view, so this
     /// method can never turn an offline cache entry into a first pairing.
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
+        let startedAt = DispatchTime.now().uptimeNanoseconds
         diagnosticLog?.record(DiagnosticEvent(.discoveryStarted, a: DiagnosticTransportKind.iroh.rawValue))
         let readiness = await settleConnectionReadiness()
         guard let runtime else {
-            diagnosticLog?.record(DiagnosticEvent(
+            var event = DiagnosticEvent(
                 .discoveryFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
                 b: readiness.failureKind.rawValue
-            ))
+            )
+            event.ms = Self.elapsedMilliseconds(since: startedAt)
+            diagnosticLog?.record(event)
             return []
+        }
+        // Activation already authenticated one discovery response before the
+        // runtime became ready. Consume that exact snapshot once so the first
+        // Mac lookup does not immediately pay for a duplicate broker round trip.
+        // An empty or incompatible snapshot still falls through to the normal
+        // authoritative refresh below.
+        if await runtime.consumeInitialDiscoverySnapshot() {
+            guard self.runtime === runtime else { return [] }
+            let candidates = await routeCatalog.liveMacCandidates(
+                preferredTag: tag,
+                compatibleWith: discoveryCompatibilityPolicy
+            )
+            if !candidates.isEmpty {
+                recordDiscoveryOutcome(
+                    candidateCount: candidates.count,
+                    durationMilliseconds: Self.elapsedMilliseconds(since: startedAt)
+                )
+                return candidates
+            }
         }
         let refreshOutcome = await runtime.refreshLiveDiscoveryOutcome()
         guard refreshOutcome == .refreshed else {
             guard self.runtime === runtime else { return [] }
             await routeCatalog.clearLiveMacCandidates(scope: lifecycleRevision)
-            if let event = Self.discoveryRefreshFailureEvent(for: refreshOutcome) {
+            if var event = Self.discoveryRefreshFailureEvent(for: refreshOutcome) {
+                event.ms = Self.elapsedMilliseconds(since: startedAt)
                 diagnosticLog?.record(event)
             }
             return []
@@ -606,7 +629,10 @@ public final class MobileIrohRuntimeComposition:
             preferredTag: tag,
             compatibleWith: discoveryCompatibilityPolicy
         )
-        recordDiscoveryOutcome(candidateCount: candidates.count)
+        recordDiscoveryOutcome(
+            candidateCount: candidates.count,
+            durationMilliseconds: Self.elapsedMilliseconds(since: startedAt)
+        )
         return candidates
     }
 
@@ -617,19 +643,30 @@ public final class MobileIrohRuntimeComposition:
         await runtime?.invalidateDiscoverySnapshot(forMacDeviceID: deviceID)
     }
 
-    private func recordDiscoveryOutcome(candidateCount: Int) {
+    private func recordDiscoveryOutcome(
+        candidateCount: Int,
+        durationMilliseconds: UInt32
+    ) {
         if candidateCount > 0 {
             diagnosticLog?.record(DiagnosticEvent(
                 .discoverySucceeded,
+                ms: durationMilliseconds,
                 a: DiagnosticTransportKind.iroh.rawValue
             ))
         } else {
             diagnosticLog?.record(DiagnosticEvent(
                 .discoveryFailed,
+                ms: durationMilliseconds,
                 a: DiagnosticTransportKind.iroh.rawValue,
                 b: DiagnosticFailureKind.noRoute.rawValue
             ))
         }
+    }
+
+    private static func elapsedMilliseconds(since start: UInt64) -> UInt32 {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let elapsed = now >= start ? now - start : 0
+        return UInt32(clamping: elapsed / 1_000_000)
     }
 
     nonisolated static func discoveryRefreshFailureEvent(

@@ -103,6 +103,10 @@ public actor CmxIrohClientRuntime {
     var registrationRefreshPendingRequiresDiscovery = false
     var registrationRefreshEnabled = false
     var liveDiscoveryGeneration: UInt64 = 0
+    /// The first verified discovery installed during activation can satisfy the
+    /// shell's immediate live-Mac lookup. It is consumed once, then ordinary
+    /// discovery calls retain their authoritative refresh behavior.
+    var initialDiscoverySnapshotAvailable = false
     var authoritativeDiscovery: CmxIrohDiscoveryResponse?
     var localBinding: CmxIrohBrokerBinding?
     var lastRegistrationRefreshState: CmxIrohRegistrationPublicationState?
@@ -216,6 +220,18 @@ public actor CmxIrohClientRuntime {
         liveDiscoveryGeneration
     }
 
+    /// Consumes the one activation snapshot that was already verified by the
+    /// registration path. A caller still must read the route catalog and may
+    /// fall back to ``refreshLiveDiscoveryOutcome()`` when compatibility
+    /// filtering produces no candidate.
+    public func consumeInitialDiscoverySnapshot() -> Bool {
+        guard lifecyclePhase == .active, initialDiscoverySnapshotAvailable else {
+            return false
+        }
+        initialDiscoverySnapshotAvailable = false
+        return true
+    }
+
     /// Refreshes registration and discovery, returning true only when a new
     /// online broker snapshot was verified and installed.
     ///
@@ -257,6 +273,10 @@ public actor CmxIrohClientRuntime {
         guard lifecyclePhase == .active else {
             return .failed(.endpointUnavailable)
         }
+        // A pushed route revision supersedes the activation snapshot. The next
+        // lookup must observe the authoritative revision before it can admit a
+        // first connection.
+        initialDiscoverySnapshotAvailable = false
         pendingConnectivityRevision = max(
             pendingConnectivityRevision ?? hintedRevision,
             hintedRevision
@@ -476,6 +496,7 @@ public actor CmxIrohClientRuntime {
         registrationRefreshPending = false
         registrationRefreshPendingRequiresDiscovery = false
         registrationRefreshEnabled = false
+        initialDiscoverySnapshotAvailable = false
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .starting,
             endpointID: nil,
@@ -542,6 +563,7 @@ public actor CmxIrohClientRuntime {
                         )
                     }
                     liveDiscoveryGeneration &+= 1
+                    initialDiscoverySnapshotAvailable = true
                 }
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
@@ -693,6 +715,7 @@ public actor CmxIrohClientRuntime {
         }
         lifecyclePhase = .stopping
         lifecycleRevision &+= 1
+        initialDiscoverySnapshotAvailable = false
         connectivityReconciliationOperation?.task.cancel()
         connectivityReconciliationOperation = nil
         pendingConnectivityRevision = nil

@@ -16,6 +16,14 @@ private let mobileShellLog = Logger(
     category: "mobile-shell"
 )
 
+/// Instruments-visible intervals for the authenticated launch path. The
+/// intervals are disabled by the OS when no trace is active, so production
+/// startup pays only the cheap signpost state check.
+nonisolated private let mobileShellStartupSignposter = OSSignposter(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "mobile-startup"
+)
+
 /// Transitional alias for the decomposed shell facade.
 ///
 /// The iOS views and push coordinator still bind to `CMUXMobileShellStore`;
@@ -1030,6 +1038,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var pushedRouteSyncOperationID: UUID?
     var pushedRouteSyncScope: MobileShellScopeSnapshot?
     var pushedRouteSyncPendingInstances: [String: PresenceInstance] = [:]
+    /// Owns the launch-only backup refresh that runs alongside local route and
+    /// live Iroh discovery. Keeping the handle on the shell gives sign-out and
+    /// team changes a cancellation boundary instead of leaking a fire-and-forget
+    /// restore into the next account scope.
+    private var startupBackupRefreshTask: Task<Void, Never>?
     private var secondaryAggregationAfterPushedRoutesTask:
         Task<Void, Never>?
     private var secondaryAggregationAfterPushedRoutesOperationID: UUID?
@@ -1768,6 +1781,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryOwner.cancel()
         automaticReconnectRetryTask?.cancel()
         presenceTask?.cancel()
+        startupBackupRefreshTask?.cancel()
         networkPathObservationTask?.cancel()
         connectionMethodObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
@@ -1937,6 +1951,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // synchronously first; the actor cleanup below is still fire-and-forget
         // because signOut is sync.
         pairedMacRestoreBoundary?.invalidate()
+        startupBackupRefreshTask?.cancel()
+        startupBackupRefreshTask = nil
         teamScopeCleanupTask?.cancel()
         teamScopeCleanupTask = nil
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
@@ -2018,6 +2034,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
         pairedMacRestoreBoundary?.invalidate()
+        startupBackupRefreshTask?.cancel()
+        startupBackupRefreshTask = nil
         let refresher = pairedMacStore as? any PairedMacBackupRefreshing
         // Lazy display: clear the stale old-team lists; the next loadPairedMacs() /
         // loadRegistryDevices() (DeviceTreeView `.task`) repopulate scoped to the
@@ -2559,13 +2577,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func reconnectActiveMacIfAvailable(
         stackUserID: String?,
-        refreshBackupBeforeDial: Bool = true
+        refreshBackupBeforeDial: Bool = true,
+        refreshBackupInBackground: Bool = false
     ) async -> Bool {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.reconnectStarted)
         let outcome = await reconnectActiveMacOutcome(
             stackUserID: stackUserID,
-            refreshBackupBeforeDial: refreshBackupBeforeDial
+            refreshBackupBeforeDial: refreshBackupBeforeDial,
+            refreshBackupInBackground: refreshBackupInBackground
         )
         switch outcome {
         case .connected:
@@ -2605,7 +2625,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func reconnectActiveMacOutcome(
         stackUserID: String?,
-        refreshBackupBeforeDial: Bool = true
+        refreshBackupBeforeDial: Bool = true,
+        refreshBackupInBackground: Bool = false
     ) async -> StoredMacReconnectOutcome {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
@@ -2651,6 +2672,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await self?.performReconnectActiveMacAttempt(
                 stackUserID: stackUserID,
                 refreshBackupBeforeDial: refreshBackupBeforeDial,
+                refreshBackupInBackground: refreshBackupInBackground,
                 generation: generation
             ) ?? .superseded
         }
@@ -2682,11 +2704,57 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return .failed(.timedOut)
     }
 
+    /// Starts the launch-only backup merge without delaying route admission.
+    ///
+    /// The task is deliberately retained by the shell. A plain unstructured
+    /// task would survive sign-out and could publish a previous account's rows;
+    /// the generation and scope checks below make the completion harmless even
+    /// when cancellation arrives while the backup actor is suspended in I/O.
+    private func startStartupBackupRefresh(
+        scope: MobileShellScopeSnapshot,
+        generation: Int
+    ) {
+        guard let pairedMacStore,
+              let refresher = pairedMacStore as? any PairedMacBackupRefreshing else {
+            return
+        }
+        startupBackupRefreshTask?.cancel()
+        startupBackupRefreshTask = Task { @MainActor [weak self, refresher] in
+            let backupInterval = mobileShellStartupSignposter.beginInterval(
+                "backupRestore"
+            )
+            defer {
+                mobileShellStartupSignposter.endInterval(
+                    "backupRestore",
+                    backupInterval
+                )
+            }
+            await refresher.refreshFromBackup(stackUserID: scope.userID)
+            guard let self,
+                  !Task.isCancelled,
+                  self.storedMacReconnectGeneration == generation,
+                  await self.isScopeCurrent(scope) else {
+                return
+            }
+            await self.loadPairedMacs()
+        }
+    }
+
     private func performReconnectActiveMacAttempt(
         stackUserID: String?,
         refreshBackupBeforeDial: Bool,
+        refreshBackupInBackground: Bool,
         generation: Int
     ) async -> StoredMacReconnectOutcome {
+        let reconnectInterval = mobileShellStartupSignposter.beginInterval(
+            "storedMacReconnect"
+        )
+        defer {
+            mobileShellStartupSignposter.endInterval(
+                "storedMacReconnect",
+                reconnectInterval
+            )
+        }
         // No store / not signed in: can't determine a stored Mac here. Resolve the
         // restoring gate (so a returning user doesn't spin on RestoringSessionView)
         // but leave the persisted hint intact for a future attempt.
@@ -2702,13 +2770,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
-        // Pull the authoritative per-user backup first so saved-Mac routes are
-        // current before we dial: a Mac that relaunched on a new port republishes
-        // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
-        // this a stale port makes the auto-connect fail and the app falls back to
-        // the Mac picker, the screen we want to avoid showing.
-        if refreshBackupBeforeDial,
-           let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
+        // A launch restore must not sit in front of the first usable route. The
+        // startup caller runs the authoritative backup merge in a shell-owned
+        // task while local SQLite reads and live Iroh discovery proceed. Manual
+        // retries and recovery keep the old synchronous ordering by leaving this
+        // flag false.
+        if refreshBackupInBackground, !refreshBackupBeforeDial {
+            startStartupBackupRefresh(scope: scope, generation: generation)
+        } else if refreshBackupBeforeDial,
+                  let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
@@ -2727,13 +2797,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
+        let pairedMacReadInterval = mobileShellStartupSignposter.beginInterval(
+            "pairedMacRead"
+        )
         do {
             loadedActiveMac = try await pairedMacStore.activeMac(stackUserID: scope.userID, teamID: scope.teamID)
             if let result = storedMacReconnectInterruptionResult(generation: generation) {
+                mobileShellStartupSignposter.endInterval(
+                    "pairedMacRead",
+                    pairedMacReadInterval
+                )
                 return result ? .connected : .superseded
             }
             loadedMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
         } catch {
+            mobileShellStartupSignposter.endInterval(
+                "pairedMacRead",
+                pairedMacReadInterval
+            )
             mobileShellLog.error("paired mac store read failed: \(String(describing: error), privacy: .public)")
             // A read failure means "couldn't determine," not "no mac": keep the
             // hint so a transient SQLite error doesn't erase a returning user's
@@ -2741,6 +2822,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return .failed(.unknown)
         }
+        mobileShellStartupSignposter.endInterval(
+            "pairedMacRead",
+            pairedMacReadInterval
+        )
         if let result = storedMacReconnectInterruptionResult(generation: generation) {
             return result ? .connected : .superseded
         }
@@ -2893,6 +2978,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var zeroTouchCandidates: [MobilePairedMac] = []
         if connectionState != .connected, !tailscaleOnly,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
+            let zeroTouchInterval = mobileShellStartupSignposter.beginInterval(
+                "zeroTouchDiscovery"
+            )
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
                 scope: scope,
                 generation: generation,
@@ -2902,6 +2990,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         instanceTag: $0.instanceTag
                     )
                 })
+            )
+            mobileShellStartupSignposter.endInterval(
+                "zeroTouchDiscovery",
+                zeroTouchInterval
             )
             guard generation == storedMacReconnectGeneration else {
                 return .superseded
@@ -3331,6 +3423,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let clock = ContinuousClock()
             var backoff: Duration = .seconds(1)
             while !Task.isCancelled {
+                let firstPresenceFrameInterval = mobileShellStartupSignposter
+                    .beginInterval("presenceFirstFrame")
+                var didEndPresenceFrameInterval = false
+                defer {
+                    if !didEndPresenceFrameInterval {
+                        mobileShellStartupSignposter.endInterval(
+                            "presenceFirstFrame",
+                            firstPresenceFrameInterval
+                        )
+                    }
+                }
                 do {
                     guard let scope = await self?.currentScopeSnapshot() else { return }
                     let stream = try await presence.subscribe()
@@ -3338,6 +3441,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         guard let self,
                               !Task.isCancelled,
                               await self.isScopeCurrent(scope) else { return }
+                        if !didEndPresenceFrameInterval {
+                            mobileShellStartupSignposter.endInterval(
+                                "presenceFirstFrame",
+                                firstPresenceFrameInterval
+                            )
+                            didEndPresenceFrameInterval = true
+                        }
                         backoff = .seconds(1)
                         self.applyPresenceUpdate(update, scope: scope)
                     }
