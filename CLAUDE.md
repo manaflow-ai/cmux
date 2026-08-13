@@ -68,13 +68,13 @@ Dispatch hosted UI/E2E runs through the validated wrapper. It checks every filte
 ./scripts/dispatch-e2e.sh --ref <branch-or-sha> --filter "<Class or Class/method>[,more]" --watch
 ```
 
-`--dry-run` validates and prints the `gh` command without dispatching; `--runner`, `--record-video`, `--timeout` (per-test seconds), and `--job-timeout` (minutes) pass through. Raw fallback:
+`--dry-run` validates and prints the `gh` command without dispatching; `--runner`, `--record-video`, `--timeout` (per-test seconds), and `--job-timeout` (minutes) pass through. Validation reads the current checkout, so run it from a checkout of the same ref you dispatch. Raw fallback:
 
 ```bash
 gh workflow run test-e2e.yml --repo manaflow-ai/cmux -f ref=<branch-or-sha> -f test_filter="<Class or Class/method>"
 ```
 
-At most one dispatch per dogfood round. A red run means root-cause locally or on a fleet simulator first; never loop dispatch-fix-redispatch. A new XCUITest needs one green hosted run before the task is done; nothing else does.
+At most one dispatch per dogfood round; each comma-separated filter item becomes its own hosted run, so a multi-item filter spends the round's budget in one command. A red run means root-cause locally or on a fleet simulator first; never loop dispatch-fix-redispatch. A new XCUITest needs one green hosted run before the task is done; nothing else does.
 
 ## Agent time discipline
 
