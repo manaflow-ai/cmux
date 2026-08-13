@@ -58,7 +58,8 @@ public enum ChatArtifactError: Error, Sendable, Equatable {
     case localStorageFull
     /// The local device could not create or update a temporary file.
     case localStorageUnavailable
-    /// The artifact operation failed without confirmed closure of the control transport.
+    /// A request, authorization, route, stream, or file-handle operation failed
+    /// without confirmed closure of the control transport.
     case loadFailed
     /// The control transport to the Mac closed before the request completed.
     case macUnreachable
