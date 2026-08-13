@@ -131,9 +131,11 @@ related_files() {
   grep -rlE "(class|extension)[[:space:]]+${cls}\b" --include='*.swift' "$dir" 2>/dev/null || true
 }
 
-# Lines inside `class <cls>` / `extension <cls>` blocks across the given files,
-# tracked by brace depth, so a same-file helper or sibling class cannot satisfy
-# a Class/method filter that XCTest would resolve to zero tests.
+# Direct-member lines of `class <cls>` / `extension <cls>` blocks across the
+# given files, tracked by brace depth. Only depth-1 lines are emitted, so a
+# same-file sibling class, a nested type's methods, or a function nested in a
+# method body cannot satisfy a Class/method filter that XCTest would resolve
+# to zero tests.
 class_scoped_lines() {
   local cls="$1"
   shift
@@ -148,7 +150,7 @@ class_scoped_lines() {
           next
         }
       }
-      print
+      if (seen_open && depth == 1) print
       line = $0
       o = gsub(/{/, "", line)
       c = gsub(/}/, "", line)
@@ -158,6 +160,11 @@ class_scoped_lines() {
     }
   ' "$@"
 }
+
+# XCTest discovers only parameterless INSTANCE methods named test*; a static,
+# class, private, or fileprivate func is never discovered and would dispatch a
+# zero-test hosted run.
+NON_INSTANCE_MODIFIERS='(^|[[:space:]])(static|private|fileprivate)[[:space:]]|class[[:space:]]+func'
 
 # Nearest candidates for a missed name, best first.
 suggest_names() {
@@ -257,7 +264,9 @@ validate_item() {
     # grep must read the full stream (no -q): under pipefail, -q's early exit
     # SIGPIPEs printf and fails the pipeline even on a match. Empty parens
     # required: XCTest skips test methods that take parameters.
-    if printf '%s\n' "$scoped" | grep -E "func[[:space:]]+${method_bare}[[:space:]]*\(\)" >/dev/null; then
+    if printf '%s\n' "$scoped" |
+      grep -E "func[[:space:]]+${method_bare}[[:space:]]*\(\)" |
+      grep -vE "$NON_INSTANCE_MODIFIERS" >/dev/null; then
       found=1
     fi
     if [ "$found" -eq 0 ]; then
@@ -268,7 +277,8 @@ validate_item() {
           all_methods+=("$name")
         fi
       done < <(
-        printf '%s\n' "$scoped" | grep -oE 'func[[:space:]]+test[A-Za-z0-9_]*' | awk '{print $2}' | sort -u
+        printf '%s\n' "$scoped" | grep -vE "$NON_INSTANCE_MODIFIERS" |
+          grep -oE 'func[[:space:]]+test[A-Za-z0-9_]*' | awk '{print $2}' | sort -u
       )
       local suggestions=""
       if [ "${#all_methods[@]}" -gt 0 ]; then
@@ -288,8 +298,11 @@ validate_item() {
 # --- dispatch ---------------------------------------------------------------
 
 dispatch_args_for() {
-  local filter="$1"
+  local filter="$1" nonce="${2:-}"
   DISPATCH_ARGS=(workflow run "$WORKFLOW" --repo "$REPO" -f "ref=$REF" -f "test_filter=$filter")
+  if [ -n "$nonce" ]; then
+    DISPATCH_ARGS+=(-f "dispatch_id=$nonce")
+  fi
   if [ -n "$RUNNER" ]; then
     DISPATCH_ARGS+=(-f "runner=$RUNNER")
   fi
@@ -310,14 +323,25 @@ existing_run_ids() {
     --json databaseId --jq '.[].databaseId' 2>/dev/null || true
 }
 
-# The workflow's run-name starts with the test_filter, so match on that
-# among runs that did not exist before dispatch.
+# Resolve the just-dispatched run. When the workflow on main supports the
+# dispatch_id input, the nonce is echoed into the run name and matching is
+# exact. Otherwise fall back to the heuristic: a run that did not exist
+# before dispatch whose run-name starts with the test_filter.
 resolve_run_id() {
-  local filter="$1" pre_ids="$2"
+  local filter="$1" pre_ids="$2" nonce="${3:-}"
   local attempt id title
   for attempt in $(seq 1 15); do
     while IFS=$'\t' read -r id title; do
       [ -n "$id" ] || continue
+      if [ -n "$nonce" ]; then
+        case "$title" in
+          *"[$nonce]"*)
+            echo "$id"
+            return 0
+            ;;
+        esac
+        continue
+      fi
       if printf '%s\n' "$pre_ids" | grep -qx "$id"; then
         continue
       fi
@@ -362,12 +386,27 @@ fi
 
 RUN_IDS=()
 UNRESOLVED=0
+DISPATCH_SEQ=0
 for item in "${CLEAN_ITEMS[@]}"; do
-  dispatch_args_for "$item"
+  DISPATCH_SEQ=$((DISPATCH_SEQ + 1))
+  nonce="d$(date +%s)-$$-$DISPATCH_SEQ"
+  dispatch_args_for "$item" "$nonce"
   pre_ids="$(existing_run_ids)"
   echo "dispatching: $item @ $REF"
-  gh "${DISPATCH_ARGS[@]}"
-  if run_id="$(resolve_run_id "$item" "$pre_ids")"; then
+  if ! dispatch_err="$(gh "${DISPATCH_ARGS[@]}" 2>&1)"; then
+    # The workflow definition on main may predate the dispatch_id input;
+    # gh rejects unknown inputs with 422. Retry once without the nonce and
+    # fall back to heuristic run resolution.
+    if printf '%s' "$dispatch_err" | grep -qi "unexpected inputs"; then
+      nonce=""
+      dispatch_args_for "$item"
+      gh "${DISPATCH_ARGS[@]}"
+    else
+      printf '%s\n' "$dispatch_err" >&2
+      die "workflow dispatch failed for '$item'"
+    fi
+  fi
+  if run_id="$(resolve_run_id "$item" "$pre_ids" "$nonce")"; then
     RUN_IDS+=("$run_id")
     echo "run: https://github.com/$REPO/actions/runs/$run_id"
   else
