@@ -217,6 +217,35 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func activationDiscoverySnapshotIsConsumedOnlyOnce() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let discovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: TestRevisionedClientBroker(
+                binding: fixture.binding,
+                discoveries: [discovery],
+                relay: fixture.relayResponse(),
+                embedInitialDiscovery: true
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        #expect(await runtime.consumeInitialDiscoverySnapshot())
+        #expect(!(await runtime.consumeInitialDiscoverySnapshot()))
+        await runtime.stop()
+    }
+
+    @Test
     func startupFetchesPaginatedDiscoveryWhenRegistrationAndSyncSnapshotsAreUnproven() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let truncatedRegistrationDiscovery = try ClientRuntimeTestFixture.discovery(

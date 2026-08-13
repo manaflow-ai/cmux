@@ -332,7 +332,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
-    func liveMacDiscoveryForcesFreshBrokerSnapshotAfterActivation() async throws {
+    func firstLiveMacDiscoveryConsumesActivationSnapshotThenRefreshes() async throws {
         let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
         await settleActivation(fixture) {
             fixture.composition.runtime != nil
@@ -341,8 +341,20 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         let activationDiscoveryCount = await fixture.broker.discoveryRequestCount()
         #expect(activationDiscoveryCount == 1)
 
+        let eventsBeforeLookup = (await fixture.diagnosticLog.snapshot()).events.count
         _ = await fixture.composition.discoverLiveMacs()
+        // Runtime activation already installed and authenticated this snapshot;
+        // the first user-visible lookup should not pay for a duplicate request.
+        #expect(await fixture.broker.discoveryRequestCount() == activationDiscoveryCount)
+        let lookupEvents = Array(
+            (await fixture.diagnosticLog.snapshot()).events.dropFirst(eventsBeforeLookup)
+        )
+        #expect(lookupEvents.contains {
+            $0.code == .discoverySucceeded && $0.ms != nil
+        })
 
+        // A later explicit lookup retains the old authoritative-refresh contract.
+        _ = await fixture.composition.discoverLiveMacs()
         #expect(await fixture.broker.discoveryRequestCount() == activationDiscoveryCount + 1)
     }
 
