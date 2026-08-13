@@ -5340,7 +5340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !candidates.isEmpty else { return [] }
         return ActiveLaneSnapshot.lanes(
             from: candidates,
-            live: Set(TmuxSessionReaper.liveSessions())
+            live: TmuxSessionReaper.liveSessionsWithPaths()
         )
     }
 

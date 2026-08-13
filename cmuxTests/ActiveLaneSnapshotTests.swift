@@ -25,7 +25,7 @@ final class ActiveLaneSnapshotTests: XCTestCase {
     private func candidate(
         _ workspace: UUID = UUID(),
         title: String = "Orchard",
-        directory: String = "~/Developer/GitHub/orchard",
+        directory: String = "/Users/rod/Developer/GitHub/orchard",
         instanceIndex: Int = 1,
         registered: String? = nil
     ) -> ActiveLaneSnapshot.Candidate {
@@ -40,49 +40,102 @@ final class ActiveLaneSnapshotTests: XCTestCase {
 
     // MARK: - Capture
 
-    /// The regression that made the first cut of this feature useless: nothing calls
-    /// `cmux set-tmux-session`, so a capture keyed on registration alone found nothing
-    /// even with a live session sitting right there.
-    func testLanesFindsAWorkspaceWithNoRegistrationByDerivingItsSessionName() {
+    /// The regression that made this feature report "nothing to restore" with a live
+    /// session sitting right there: the workspace's sidebar instance index (56) does not
+    /// match the live session's name (plain `azdevops`), so deriving the name finds
+    /// nothing. Matching on the session's directory resolves it.
+    func testLanesMatchesASessionWhoseNameDoesNotDeriveFromTheWorkspace() {
         let lanes = ActiveLaneSnapshot.lanes(
-            from: [candidate(registered: nil)],
-            live: ["orchard"]
+            from: [candidate(
+                title: "AzDevOps - Vantage",
+                directory: "/Users/rod/Developer/AzDevOps",
+                instanceIndex: 56
+            )],
+            live: [(session: "azdevops", directory: "/Users/rod/Developer/AzDevOps")]
         )
-        XCTAssertEqual(lanes.map(\.session), ["orchard"])
+        XCTAssertEqual(lanes.map(\.session), ["azdevops"])
     }
 
-    func testLanesIgnoresWorkspacesWithNoLiveSession() {
+    /// A lane started as `claude-remote -n boards` has a name nothing can derive.
+    func testLanesMatchesAnExplicitlyNamedLaneByDirectory() {
         let lanes = ActiveLaneSnapshot.lanes(
-            from: [candidate(directory: "~/Developer/Personal", title: "Personal")],
-            live: ["orchard"]
-        )
-        XCTAssertTrue(lanes.isEmpty)
-    }
-
-    func testLanesPrefersAnExplicitRegistrationOverTheDerivedName() {
-        let lanes = ActiveLaneSnapshot.lanes(
-            from: [candidate(registered: "orchard-boards")],
-            live: ["orchard"]
+            from: [candidate(directory: "/Users/rod/Developer/GitHub/orchard")],
+            live: [(
+                session: "orchard-boards",
+                directory: "/Users/rod/Developer/GitHub/orchard"
+            )]
         )
         XCTAssertEqual(lanes.map(\.session), ["orchard-boards"])
     }
 
-    func testLanesDerivesTheInstanceSuffixForDuplicateWorkspaces() {
+    func testLanesIgnoresWorkspacesWithNoLiveSession() {
         let lanes = ActiveLaneSnapshot.lanes(
-            from: [candidate(directory: "~/Developer/AzDevOps", instanceIndex: 2)],
-            live: ["azdevops-2"]
+            from: [candidate(directory: "/Users/rod/Developer/Personal", title: "Personal")],
+            live: [(session: "orchard", directory: "/Users/rod/Developer/GitHub/orchard")]
         )
-        XCTAssertEqual(lanes.map(\.session), ["azdevops-2"])
+        XCTAssertTrue(lanes.isEmpty)
     }
 
-    /// Two workspaces on the same directory and instance would otherwise both record,
-    /// then both rebuild onto one session.
+    func testLanesPrefersAnExplicitRegistrationWhenItIsLive() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [candidate(
+                directory: "/Users/rod/Developer/GitHub/orchard",
+                registered: "orchard-boards"
+            )],
+            live: [
+                (session: "orchard", directory: "/Users/rod/Developer/GitHub/orchard"),
+                (session: "orchard-boards", directory: "/Users/rod/Developer/GitHub/orchard"),
+            ]
+        )
+        XCTAssertEqual(lanes.map(\.session), ["orchard-boards"])
+    }
+
+    /// A registration left over from a session that has since died must not be recorded.
+    func testLanesIgnoresARegistrationThatIsNoLongerLive() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [candidate(
+                directory: "/Users/rod/Developer/GitHub/orchard",
+                registered: "orchard-dead"
+            )],
+            live: [(session: "orchard", directory: "/Users/rod/Developer/GitHub/orchard")]
+        )
+        XCTAssertEqual(lanes.map(\.session), ["orchard"])
+    }
+
+    /// Falls back to the derived name when the session has since changed directory.
+    func testLanesFallsBackToTheDerivedNameWhenTheDirectoryNoLongerMatches() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [candidate(directory: "/Users/rod/Developer/GitHub/orchard")],
+            live: [(session: "orchard", directory: "/somewhere/else")]
+        )
+        XCTAssertEqual(lanes.map(\.session), ["orchard"])
+    }
+
+    /// Two workspaces on one directory must not both claim the single live session.
     func testLanesRecordsOneWorkspacePerSession() {
         let lanes = ActiveLaneSnapshot.lanes(
-            from: [candidate(), candidate()],
-            live: ["orchard"]
+            from: [
+                candidate(directory: "/Users/rod/Developer/GitHub/orchard"),
+                candidate(directory: "/Users/rod/Developer/GitHub/orchard"),
+            ],
+            live: [(session: "orchard", directory: "/Users/rod/Developer/GitHub/orchard")]
         )
         XCTAssertEqual(lanes.count, 1)
+    }
+
+    /// Two workspaces on one directory with two live sessions get one each.
+    func testLanesGivesEachWorkspaceItsOwnSessionWhenSeveralShareADirectory() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [
+                candidate(directory: "/Users/rod/Developer/AzDevOps"),
+                candidate(directory: "/Users/rod/Developer/AzDevOps"),
+            ],
+            live: [
+                (session: "azdevops", directory: "/Users/rod/Developer/AzDevOps"),
+                (session: "azdevops-40", directory: "/Users/rod/Developer/AzDevOps"),
+            ]
+        )
+        XCTAssertEqual(Set(lanes.map(\.session)), ["azdevops", "azdevops-40"])
     }
 
     func testLanesIsEmptyWhenNoTmuxServerIsRunning() {
