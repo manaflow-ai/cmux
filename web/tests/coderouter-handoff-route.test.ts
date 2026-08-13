@@ -299,6 +299,10 @@ describe("CodeRouter native handoff exchange", () => {
     const response = await POST(exchangeRequest());
 
     expect(response.status).toBe(200);
+    // Possession-only exchange must not perform the native entitlement gate;
+    // the callback is only supplied for the repository's stored-principal
+    // recheck immediately before the atomic claim.
+    expect(hasActiveEntitlement).not.toHaveBeenCalled();
     const exchangeCalls = (exchangeLease as unknown as {
       mock: { calls: unknown[][] };
     }).mock.calls;
