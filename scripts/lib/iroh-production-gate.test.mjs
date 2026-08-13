@@ -198,6 +198,29 @@ test("production release-gate flags fail before creating runtime state", () => {
   assert.match(productionEnvironmentWithoutProduction.stderr, /requires --production/u);
 });
 
+test("release gate iOS build is isolated from the configured default iPhone", () => {
+  const result = run("bash", ["-c", [
+    "set -euo pipefail",
+    "source scripts/lib/iroh-release-gate-targets.sh",
+    "iroh_release_gate_set_ios_reload_args prodgate 'cmux Iroh gate prodgate' SIMULATOR-ID 1",
+    "printf '<%s>\\n' \"${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}\"",
+  ].join("; ")]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, [
+    "<--tag>",
+    "<prodgate>",
+    "<--simulator>",
+    "<cmux Iroh gate prodgate>",
+    "<--simulator-id>",
+    "<SIMULATOR-ID>",
+    "<--simulator-only>",
+    "<--prod-auth>",
+    "<--no-launch>",
+    "",
+  ].join("\n"));
+});
+
 test("production release gate gives its account helper a normalized protected state directory", (t) => {
   const directory = fixtureDirectory();
   t.after(() => rmSync(directory, { recursive: true, force: true }));
