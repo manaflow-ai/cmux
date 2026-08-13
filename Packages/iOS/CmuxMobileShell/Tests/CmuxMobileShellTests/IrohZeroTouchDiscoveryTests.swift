@@ -535,6 +535,8 @@ private final class ScriptedIrohDiscovery: MobileIrohMacDiscovering {
         return snapshots.isEmpty ? [] : snapshots[index]
     }
 
+    func invalidateDiscovery(forMacDeviceID _: String) async {}
+
     func callCount() -> Int { calls }
 }
 
@@ -562,6 +564,8 @@ private final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
         }
         return candidates
     }
+
+    func invalidateDiscovery(forMacDeviceID _: String) async {}
 
     func waitUntilRequested() async {
         guard !wasRequested else { return }

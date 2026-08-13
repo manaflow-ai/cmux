@@ -559,6 +559,13 @@ public actor CmxConnectivityEngine {
                     return session
                 } catch {
                     await session.close()
+                    if !(Task.isCancelled || error is CancellationError) {
+                        await contextProvider.noteDialFailure(
+                            for: request,
+                            dialPlan: context.dialPlan,
+                            failure: DiagnosticFailureKind.classify(error)
+                        )
+                    }
                     throw error
                 }
             },
