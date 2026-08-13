@@ -273,7 +273,7 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
           {selectedTeam.manageAccounts ? (
             <aside>
               <h2 className="mb-2 text-sm font-medium">{t("addAccountsTitle")}</h2>
-              <AddAiAccountForms teamId={selectedTeam.id} />
+              <AddAiAccountForms />
             </aside>
           ) : null}
         </div>
