@@ -387,6 +387,10 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.transportDialConnected", defaultValue: "Transport connected")
         case .transportDialFailed:
             localized("diagnostics.event.transportDialFailed", defaultValue: "Transport dial failed")
+        case .transportDialSessionLinked:
+            localized("diagnostics.event.transportDialSessionLinked", defaultValue: "Transport dial linked to session")
+        case .transportDialCancelled:
+            localized("diagnostics.event.transportDialCancelled", defaultValue: "Transport dial cancelled")
         case .hostAuthenticated:
             localized("diagnostics.event.hostAuthenticated", defaultValue: "Host authenticated")
         case .rpcReady:
@@ -441,6 +445,8 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.reachabilityChanged", defaultValue: "Network reachability changed")
         case .transportCloseAttribution:
             localized("diagnostics.event.transportCloseAttribution", defaultValue: "Transport close attributed")
+        case .transportCloseReason:
+            localized("diagnostics.event.transportCloseReason", defaultValue: "Remote close reason")
         case .transportPathEvent:
             localized("diagnostics.event.transportPathEvent", defaultValue: "Transport path changed")
         case .browserStreamLifecycle:
