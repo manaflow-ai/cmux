@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { HarnessModelPicker } from "../src/components/StatusRow";
+import { loadingProviderOptionIds } from "../src/hooks/useCatalogs";
 import type { Provider, SessionOption } from "../src/session";
 
 Object.defineProperty(globalThis, "document", {
@@ -13,6 +14,16 @@ Object.defineProperty(globalThis, "getComputedStyle", {
 });
 
 const provider: Provider = { id: "codex", label: "Codex", installed: true };
+const unavailableProvider: Provider = { id: "missing", label: "Missing", installed: false };
+
+const pendingProviderIds = loadingProviderOptionIds([provider, unavailableProvider], {});
+if (!pendingProviderIds.has(provider.id) || pendingProviderIds.has(unavailableProvider.id)) {
+  throw new Error(`only installed providers without a response should be loading, got ${[...pendingProviderIds]}`);
+}
+const emptyResponseProviderIds = loadingProviderOptionIds([provider], { [provider.id]: [] });
+if (emptyResponseProviderIds.has(provider.id)) {
+  throw new Error("an empty model response should be treated as loaded");
+}
 
 function renderPicker(running: boolean, options: SessionOption[], loading: boolean): string {
   return renderToStaticMarkup(React.createElement(HarnessModelPicker, {

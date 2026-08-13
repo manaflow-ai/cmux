@@ -150,6 +150,7 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .static-provider:hover { background: transparent; color: color-mix(in srgb, var(--fg) 70%, var(--bg)); }
 .select-trigger[data-popup-open] .chev { transform: rotate(180deg); }
 .row-control .chev { display: inline-flex; opacity: .55; margin-left: 1px; }
+.model-picker-trigger-loading { display: inline-flex; color: var(--text-faint); }
 .dot {
   width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--text-faint);
   box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent);
@@ -241,6 +242,11 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .model-picker-list {
   flex: 1; min-height: 0; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 1px;
   mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+}
+.model-picker-loading {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px;
+  color: var(--text-faint); border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
 }
 .model-row {
   width: 100%; min-height: 42px; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 8px;

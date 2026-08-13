@@ -9,7 +9,7 @@ import { StatusRow } from "./StatusRow";
 import { Blocks } from "./Transcript";
 import { ShortcutOverlay, useKeymap } from "../hooks/useKeymap";
 import { useAutoGrow } from "../hooks/useAutoGrow";
-import { providerOptionMap, useFileCatalog, useProviderCatalogs, withFileTrigger } from "../hooks/useCatalogs";
+import { loadingProviderOptionIds, providerOptionMap, useFileCatalog, useProviderCatalogs, withFileTrigger } from "../hooks/useCatalogs";
 
 function usePersistSessionOptions(provider: string | undefined, options: SessionOption[], skip = false) {
   useEffect(() => {
@@ -66,6 +66,10 @@ export function Chat() {
   const commandGroups = useMemo(() => withFileTrigger(commands, filesByCwd[cwd] ?? []), [commands, cwd, filesByCwd]);
   const commandMenu = useCommandMenu(text, setText, commandGroups, taRef, ctrlJ);
   const allProviderOptions = providerOptionMap(providers, providerOptions, capabilities);
+  const loadingProviderIds = useMemo(
+    () => loadingProviderOptionIds(providers, providerOptions),
+    [providerOptions, providers],
+  );
   const running = session?.status === "running";
 
   useRestoreModelScopedOptions({ provider: session?.provider, options, setOption, pendingModelRestoreRef });
@@ -157,6 +161,7 @@ export function Chat() {
             provider={session?.provider ?? "agent"}
             providers={providers}
             allProviderOptions={allProviderOptions}
+            loadingProviderIds={loadingProviderIds}
             onProviderModelChange={switchHarnessModel}
             cwd={session?.cwd ?? ""}
             options={options}

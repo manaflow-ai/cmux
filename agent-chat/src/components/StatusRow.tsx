@@ -2,7 +2,7 @@ import { Popover } from "@base-ui-components/react/popover";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { menuActionForKey } from "../keymap";
 import type { OptionValue, Provider, SessionOption } from "../session";
-import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
+import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, PinwheelSpinner, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
 import { CmdkMenu, type CmdkGroup } from "./CmdkMenu";
 import { HintTooltip } from "./Tooltips";
 import { currentChoice, cycleSelect, effortFill, isOffLikeValue, optionAction, optionTooltip, prettyValue, visibleChoices } from "./options";
@@ -213,10 +213,28 @@ interface PickerModelItem {
   search: string;
 }
 
-function providerModelItems(p: Provider, currentProvider: string, options: SessionOption[]): PickerModelItem[] {
+const modelLoadingMessages = {
+  en: "Loading models",
+  ja: "モデルを読み込み中",
+} as const;
+const noLoadingProviderIds: ReadonlySet<string> = new Set();
+
+function modelLoadingLabel(): string {
+  const browserNavigator = typeof navigator === "undefined" ? undefined : navigator;
+  const languages = browserNavigator?.languages?.length
+    ? browserNavigator.languages
+    : browserNavigator?.language ? [browserNavigator.language] : [];
+  const supportedLanguage = languages.find((language) => /^(en|ja)(-|$)/i.test(language));
+  return supportedLanguage?.toLowerCase().startsWith("ja")
+    ? modelLoadingMessages.ja
+    : modelLoadingMessages.en;
+}
+
+function providerModelItems(p: Provider, currentProvider: string, options: SessionOption[], isLoading: boolean): PickerModelItem[] {
   const model = modelOption(options);
   const choices = model?.choices?.length ? model.choices : [];
   if (!choices.length) {
+    if (isLoading) return [];
     return [{
       id: `${p.id}:default`,
       provider: p,
@@ -262,6 +280,7 @@ export function HarnessModelPicker({
   providers,
   options,
   allProviderOptions,
+  loadingProviderIds,
   open,
   onOpenChange,
   onSelect,
@@ -272,6 +291,7 @@ export function HarnessModelPicker({
   providers: Provider[];
   options: SessionOption[];
   allProviderOptions: Record<string, SessionOption[]>;
+  loadingProviderIds: ReadonlySet<string>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (provider: string, model: string) => void;
@@ -283,6 +303,8 @@ export function HarnessModelPicker({
   const currentProvider = providers.find((p) => p.id === provider) ?? { id: provider, label: provider };
   const currentModel = modelOption(options);
   const label = currentChoice(currentModel)?.label ?? String(currentModel?.value || currentProvider.label);
+  const loadingLabel = modelLoadingLabel();
+  const isCurrentProviderLoading = loadingProviderIds.has(provider);
   const [railProvider, setRailProvider] = useState(provider);
   const [query, setQuery] = useState(initialQuery);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -294,8 +316,8 @@ export function HarnessModelPicker({
   const activeProvider = installed.find((p) => p.id === railProvider) ?? installed.find((p) => p.id === provider) ?? installed[0];
   const providerItems = useMemo(() => new Map(installed.map((p) => {
     const opts = p.id === provider ? options : (allProviderOptions[p.id] ?? []);
-    return [p.id, providerModelItems(p, provider, opts)];
-  })), [allProviderOptions, installed, options, provider]);
+    return [p.id, providerModelItems(p, provider, opts, loadingProviderIds.has(p.id))];
+  })), [allProviderOptions, installed, loadingProviderIds, options, provider]);
   const q = query.trim();
   const listItems = useMemo(() => {
     if (q) {
@@ -308,6 +330,9 @@ export function HarnessModelPicker({
     return activeProvider ? providerItems.get(activeProvider.id) ?? [] : [];
   }, [activeProvider, providerItems, q]);
   const [activeIndex, setActiveIndex] = useBoundedActiveIndex(open, `${q}:${activeProvider?.id ?? ""}:${listItems.map((i) => i.id).join("|")}`, listItems.length);
+  const isListLoading = q
+    ? installed.some((candidate) => loadingProviderIds.has(candidate.id))
+    : Boolean(activeProvider && loadingProviderIds.has(activeProvider.id));
   useLayoutEffect(() => {
     if (!open) return;
     const id = listItems[activeIndex]?.id;
@@ -360,6 +385,11 @@ export function HarnessModelPicker({
     <button ref={triggerRef} type="button" className={"row-control provider-model-trigger select-trigger" + (running ? " provider-running" : "")} aria-label="Switch harness or model">
       <ProviderIcon provider={currentProvider} />
       <span className="row-value">{label}</span>
+      {isCurrentProviderLoading ? (
+        <span className="model-picker-trigger-loading" role="status" aria-label={loadingLabel}>
+          <PinwheelSpinner size={11} />
+        </span>
+      ) : null}
       <span className="chev"><Chevron /></span>
     </button>
   );
@@ -443,7 +473,13 @@ export function HarnessModelPicker({
                         spellCheck={false}
                       />
                     </div>
-                    <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models" ref={listRef}>
+                    {isListLoading ? (
+                      <div className="model-picker-loading" role="status" aria-live="polite">
+                        <PinwheelSpinner size={12} />
+                        <span>{loadingLabel}</span>
+                      </div>
+                    ) : null}
+                    <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models" aria-busy={isListLoading} ref={listRef}>
                       {listItems.length ? listItems.map((item, i) => {
                         const row = (
                           <button
@@ -471,9 +507,9 @@ export function HarnessModelPicker({
                         return item.disabled && item.disabledReason
                           ? <HintTooltip key={item.id} label={item.disabledReason}><span className="model-row-tooltip-wrap">{row}</span></HintTooltip>
                           : row;
-                      }) : (
+                      }) : !isListLoading ? (
                         <div className="model-picker-empty">No models found</div>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -490,6 +526,7 @@ export function StatusRow({
   provider,
   providers,
   allProviderOptions,
+  loadingProviderIds,
   onProviderModelChange,
   cwd,
   onCwdChange,
@@ -504,6 +541,7 @@ export function StatusRow({
   provider: string;
   providers?: Provider[];
   allProviderOptions?: Record<string, SessionOption[]>;
+  loadingProviderIds?: ReadonlySet<string>;
   onProviderModelChange?: (provider: string, model: string) => void;
   cwd: string;
   onCwdChange?: (v: string) => void;
@@ -532,6 +570,7 @@ export function StatusRow({
             providers={providers}
             options={options}
             allProviderOptions={allProviderOptions ?? {}}
+            loadingProviderIds={loadingProviderIds ?? noLoadingProviderIds}
             open={openOptionId === "modelPicker"}
             onOpenChange={(open) => setOpenOptionId(open ? "modelPicker" : null)}
             onSelect={onProviderModelChange}
