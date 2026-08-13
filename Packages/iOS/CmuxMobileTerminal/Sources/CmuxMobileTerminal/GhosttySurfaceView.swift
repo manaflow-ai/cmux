@@ -103,26 +103,35 @@ private struct KeyboardNotificationTransitionLifecycle {
     private var generation: UInt64 = 0
     private var activeLeg: Leg?
     private var recentLegs: [Leg] = []
+    private var pendingVisibilityIntent: Bool?
 
     mutating func reset() {
         activeLeg = nil
         recentLegs.removeAll(keepingCapacity: true)
+        pendingVisibilityIntent = nil
     }
 
-    mutating func animationCompleted(generation: UInt64) {
-        guard activeLeg?.generation == generation else { return }
-        activeLeg = nil
+    /// Records an application-owned responder request. A repeated historical
+    /// frame pair is only a new transition when it agrees with this intent;
+    /// otherwise it is an old notification replay with no authority to restart
+    /// the dock animation.
+    mutating func noteVisibilityIntent(_ visible: Bool) {
+        pendingVisibilityIntent = visible
     }
 
     mutating func resolve(
         phase: Phase,
         beginFrame: CGRect,
-        endFrame: CGRect
+        endFrame: CGRect,
+        endIsVisible: Bool
     ) -> Decision {
         switch phase {
         case .will:
             if let activeLeg,
                activeLeg.matches(beginFrame: beginFrame, endFrame: endFrame) {
+                if pendingVisibilityIntent == endIsVisible {
+                    pendingVisibilityIntent = nil
+                }
                 return .ignoreDuplicate(generation: activeLeg.generation)
             }
 
@@ -135,10 +144,37 @@ private struct KeyboardNotificationTransitionLifecycle {
                    $0.generation != activeLeg?.generation
                        && $0.matches(beginFrame: beginFrame, endFrame: endFrame)
                }) {
-                return .ignoreStale(generation: staleLeg.generation)
+                guard pendingVisibilityIntent == endIsVisible else {
+                    return .ignoreStale(generation: staleLeg.generation)
+                }
+                pendingVisibilityIntent = nil
+                let leg = recordLeg(beginFrame: beginFrame, endFrame: endFrame)
+                return .animate(generation: leg.generation)
+            }
+
+            if let settledLeg = recentLegs.last(where: {
+                $0.matches(beginFrame: beginFrame, endFrame: endFrame)
+            }) {
+                guard pendingVisibilityIntent == endIsVisible else {
+                    return .ignoreStale(generation: settledLeg.generation)
+                }
+                pendingVisibilityIntent = nil
+                let leg = recordLeg(beginFrame: beginFrame, endFrame: endFrame)
+                return .animate(generation: leg.generation)
+            }
+
+            if let pendingVisibilityIntent,
+               pendingVisibilityIntent != endIsVisible {
+                // A system-driven transition superseded an application request.
+                // Let the newest UIKit leg own the presentation instead of
+                // leaving the intent latched against a future notification.
+                self.pendingVisibilityIntent = nil
             }
 
             let leg = recordLeg(beginFrame: beginFrame, endFrame: endFrame)
+            if pendingVisibilityIntent == endIsVisible {
+                pendingVisibilityIntent = nil
+            }
             return .animate(generation: leg.generation)
 
         case .did:
@@ -886,8 +922,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // is a sibling of `composerContainer`, so `endEditing` on the container
             // alone would resign nothing and the keyboard would stay up.
             if self.keyboardVisible {
+                self.keyboardNotificationTransitionLifecycle.noteVisibilityIntent(false)
                 self.resignCurrentInput()
             } else {
+                self.keyboardNotificationTransitionLifecycle.noteVisibilityIntent(true)
                 self.focusInput()
             }
         }
@@ -1158,6 +1196,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
         guard let transition = MobileKeyboardTransition(notification: notification) else { return }
+        #if DEBUG
+        let willBeVisible = keyboardHeightOverrideForTesting.map { $0 > 0 }
+            ?? transition.isVisible(in: self)
+        #else
+        let willBeVisible = transition.isVisible(in: self)
+        #endif
         let notificationDecision: KeyboardNotificationTransitionLifecycle.Decision?
         if keyboardDockGeometrySource == .keyboardNotifications {
             let owner = bottomDockHostView ?? self
@@ -1172,7 +1216,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let decision = keyboardNotificationTransitionLifecycle.resolve(
                 phase: phase,
                 beginFrame: transition.beginFrame,
-                endFrame: transition.endFrame
+                endFrame: transition.endFrame,
+                endIsVisible: willBeVisible
             )
             notificationDecision = decision
             let beginOverlap = transition.beginOverlap(in: owner)
@@ -1180,18 +1225,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             log.debug(
                 "keyboard.transition phase=\(phase.rawValue, privacy: .public) decision=\(decision.debugName, privacy: .public) generation=\(decision.generation) begin=\(Double(beginOverlap)) end=\(Double(endOverlap)) duration=\(transition.duration) curve=\(transition.animationOptions.rawValue)"
             )
+            if case .ignoreDuplicate = decision {
+                return
+            }
             if case .ignoreStale = decision {
                 return
             }
         } else {
             notificationDecision = nil
         }
-        #if DEBUG
-        let willBeVisible = keyboardHeightOverrideForTesting.map { $0 > 0 }
-            ?? transition.isVisible(in: self)
-        #else
-        let willBeVisible = transition.isVisible(in: self)
-        #endif
         let wasVisible = keyboardVisible
         #if DEBUG
         // The composer-up/keyboard-down desync can be reached WITHOUT the dismiss
@@ -1290,7 +1332,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         } completion: { [weak self] _ in
             guard let self,
                   self.keyboardNotificationTransitionGeneration == generation else { return }
-            self.keyboardNotificationTransitionLifecycle.animationCompleted(generation: generation)
             self.bottomDockTransitionObserved = false
             self.layoutRenderedTerminalForCurrentViewport()
             self.layoutZoomOverlay()
