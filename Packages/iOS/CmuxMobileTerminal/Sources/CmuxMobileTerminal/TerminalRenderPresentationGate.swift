@@ -78,6 +78,18 @@ struct TerminalRenderPresentationGate: Sendable {
         )
     }
 
+    /// Replaces a frame whose IOSurface target became obsolete while it was
+    /// being delivered. The old callback is intentionally left stale: the
+    /// caller assigns a new token, and callbacks for the old token cannot
+    /// release the replacement frame.
+    mutating func replaceInFlight(
+        with submission: TerminalRenderSubmission
+    ) -> TerminalRenderPresentationGateAction {
+        guard inFlight != nil else { return .ignored }
+        inFlight = submission
+        return .started(submission)
+    }
+
     private mutating func transitionAfterMatchingSubmission(
         token: UInt64,
         generation: UInt64

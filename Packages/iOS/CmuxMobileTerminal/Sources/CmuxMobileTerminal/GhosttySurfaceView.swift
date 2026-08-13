@@ -155,12 +155,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// delivered only after Ghostty assigns the matching IOSurface, so output,
     /// local scrolling, geometry, and verified replay share one barrier.
     typealias RenderSubmissionKind = TerminalRenderSubmissionKind
+    private static let maximumRenderPresentationRetries: UInt8 = 3
     struct RenderSubmission: @unchecked Sendable {
         let token: UInt64
         let generation: UInt64
         let kind: RenderSubmissionKind
         let surface: ghostty_surface_t
         let verifiedReplayRead: VerifiedReplaySurfaceRead?
+        let presentationRetryCount: UInt8 = 0
 
         var ticket: TerminalRenderSubmission {
             TerminalRenderSubmission(token: token, generation: generation, kind: kind)
@@ -3402,6 +3404,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let renderInFlightSince {
             let stalledMs = Int((now - renderInFlightSince) * 1000)
             if stalledMs >= Int(Self.renderPipelineStallDeadline * 1000),
+               renderSubmission != nil,
                recoverRenderPipeline(
                    reason: "render_in_flight",
                    stalledMs: stalledMs,
@@ -3555,20 +3558,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Queues a frame behind the currently presented frame. Every producer uses
     /// this path, so a model update and a local scroll cannot publish separate
     /// layer assignments in the same presentation window.
-    func enqueueRenderSubmission(_ submission: RenderSubmission) {
+    @discardableResult
+    func enqueueRenderSubmission(_ submission: RenderSubmission) -> Bool {
         guard surface == submission.surface,
               surfaceGeneration == submission.generation,
-              !isDismantled else { return }
+              !isDismantled else { return false }
         let action = renderPresentationGate.enqueue(submission.ticket)
         switch action {
         case .started:
             startRenderSubmission(submission)
+            return true
         case .queued:
             if shouldReplacePendingRenderSubmission(with: submission) {
                 pendingRenderSubmission = submission
+                return true
             }
+            return false
         case .ignored, .idle:
-            break
+            return false
         }
     }
 
@@ -3578,6 +3585,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let pendingRenderSubmission else { return true }
         return pendingRenderSubmission.kind != .verifiedReplay
             || submission.kind == .verifiedReplay
+    }
+
+    /// Replaces the current token when a geometry pass invalidates its
+    /// IOSurface target. Ghostty serializes the replacement behind the old
+    /// render on `outputQueue`; the old callback is stale by token and cannot
+    /// release the replacement gate.
+    @discardableResult
+    func replaceInFlightRenderSubmission(
+        with replacement: RenderSubmission
+    ) -> Bool {
+        guard let current = renderSubmission,
+              current.generation == replacement.generation,
+              current.surface == replacement.surface,
+              renderPresentationGate.inFlight == current.ticket,
+              renderPresentationGate.replaceInFlight(with: replacement.ticket)
+                == .started(replacement.ticket) else {
+            return false
+        }
+        renderSubmission = nil
+        renderInFlight = false
+        renderInFlightSince = nil
+        startRenderSubmission(replacement)
+        return true
     }
 
     private func startRenderSubmission(_ submission: RenderSubmission) {
@@ -3638,6 +3668,44 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// cannot release the gate or advance fallback visibility.
     func finishRenderSubmission(token: UInt64) {
         releaseRenderSubmission(token: token, presented: true)
+    }
+
+    /// Called when Ghostty can prove that a tokened target was discarded or
+    /// failed before reaching the host layer. Resolve the token immediately so
+    /// one bad IOSurface cannot hold every later output frame behind a timeout.
+    func handleRenderSubmissionFailure(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) {
+        guard let submission = renderSubmission,
+              submission.token == token,
+              submission.generation == surfaceGeneration else {
+            return
+        }
+        MobileDebugLog.anchormux(
+            "render.submission.failed token=\(token) kind=\(submission.kind) "
+            + "status=\(status.rawValue)"
+        )
+
+        if submission.kind == .verifiedReplay,
+           handleVerifiedReplayRenderFailure(token: token, status: status) {
+            // A discarded replay was replaced with a fresh token while the
+            // presentation gate stayed occupied. The stale callback cannot
+            // release the replacement because its token no longer matches.
+            return
+        }
+        if status == GHOSTTY_RENDER_PRESENTATION_DISCARDED,
+           restartInFlightRenderSubmissionForCurrentGeometry(countsAsRetry: true) {
+            return
+        }
+
+        // A backend failure, or a discard that cannot be retried against the
+        // current surface, is terminal for this submission. The pending replay
+        // continuation (if any) has already been completed above.
+        needsDraw = true
+        needsAnotherRender = true
+        pendingRenderFrames = max(pendingRenderFrames, 1)
+        cancelRenderSubmission(token: token)
     }
 
     /// Releases a submission that failed before Ghostty could present it.
@@ -4323,8 +4391,54 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayGeometryRevision &+= 1
             verifiedReplayReadyFence = nil
             verifiedReplayReadyTransactionID = nil
-            restartPendingVerifiedReplayPresentationForCurrentGeometry()
+            if pendingVerifiedReplayPresentation != nil {
+                restartPendingVerifiedReplayPresentationForCurrentGeometry()
+            } else {
+                restartInFlightRenderSubmissionForCurrentGeometry()
+            }
         }
+    }
+
+    /// Reissues an ordinary or local-scroll submission after a layer resize.
+    /// `IOSurfaceLayer` intentionally discards a target whose extent no longer
+    /// matches the live layer, so waiting for that callback would otherwise
+    /// leave the presentation gate blocked until surface recovery.
+    @discardableResult
+    private func restartInFlightRenderSubmissionForCurrentGeometry(
+        countsAsRetry: Bool = false
+    ) -> Bool {
+        guard let current = renderSubmission,
+              current.kind != .verifiedReplay,
+              let surface,
+              current.surface == surface,
+              current.generation == surfaceGeneration else {
+            return false
+        }
+        guard !countsAsRetry
+                || current.presentationRetryCount < Self.maximumRenderPresentationRetries else {
+            MobileDebugLog.anchormux(
+                "render.submission.retry_drop reason=retry_limit"
+            )
+            return false
+        }
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        guard let renderer,
+              renderer.bounds.width > 0,
+              renderer.bounds.height > 0,
+              renderer.contentsScale > 0 else {
+            return false
+        }
+        let replacement = RenderSubmission(
+            token: makeSurfaceOperationID(),
+            generation: surfaceGeneration,
+            kind: current.kind,
+            surface: surface,
+            verifiedReplayRead: current.verifiedReplayRead,
+            presentationRetryCount: countsAsRetry
+                ? current.presentationRetryCount &+ 1
+                : 0
+        )
+        return replaceInFlightRenderSubmission(with: replacement)
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface
@@ -4418,6 +4532,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard ghostty_surface_set_render_presented_callback(
             createdSurface,
             GhosttySurfaceBridge.renderPresentedCallback,
+            bridgePointer
+        ) else {
+            ghostty_surface_free(createdSurface)
+            retainedBridge.release()
+            return nil
+        }
+        guard ghostty_surface_set_render_failed_callback(
+            createdSurface,
+            GhosttySurfaceBridge.renderFailedCallback,
             bridgePointer
         ) else {
             ghostty_surface_free(createdSurface)
