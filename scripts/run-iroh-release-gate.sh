@@ -148,6 +148,12 @@ if [[ "$PRINT_PLAN" -eq 1 ]]; then
   exit 0
 fi
 
+# Hosted runners can reuse RUNNER_TEMP between jobs. Never let a build or
+# launch failure upload a verdict from an earlier run at the same output path.
+if [[ -n "$REPORT_OUTPUT" ]]; then
+  rm -f "$REPORT_OUTPUT"
+fi
+
 if [[ "$GATE_PLAN" == "simulator-direct-transport" ]]; then
   DIRECT_GATE_ARGUMENTS=(--tag "$TAG")
   [[ "$SKIP_BUILD" -eq 1 ]] && DIRECT_GATE_ARGUMENTS+=(--skip-build)
