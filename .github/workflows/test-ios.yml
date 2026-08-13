@@ -105,7 +105,9 @@ jobs:
 
   mobile-core-package:
     needs: detect-ios-changes
-    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
+    if: >-
+      ${{ needs.detect-ios-changes.outputs.should_run == 'true'
+          && !(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 10
     steps:
