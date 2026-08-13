@@ -2354,6 +2354,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingLocalScrollCell: (col: Int, row: Int) = (0, 0)
     var pendingLocalScrollInteractionGeneration: UInt64?
     var localScrollApplyInFlight = false
+    var localScrollApplyInFlightGeneration: UInt64?
     var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// Drops scroll work tied to a surface generation that will no longer run.
@@ -2363,6 +2364,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingLocalScrollLines = 0
         pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = false
+        localScrollApplyInFlightGeneration = nil
         completePendingLocalScrollDrains(returning: false)
     }
 
@@ -2406,14 +2408,36 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @discardableResult
     func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
         var drained = false
-        while let flushed = flushPendingScrollIfNeeded() {
-            guard flushed.appliedLocally else { return drained }
-            guard await waitForLocalScrollApplied(upTo: flushed.generation) else {
+        while true {
+            if let flushed = flushPendingScrollIfNeeded() {
+                guard flushed.appliedLocally else { return drained }
+                guard await waitForLocalScrollApplied(upTo: flushed.generation) else {
+                    return drained
+                }
+                drained = true
+                continue
+            }
+            guard let generation = pendingLocalScrollTargetGenerationForReveal() else {
+                return drained
+            }
+            guard await waitForLocalScrollApplied(upTo: generation) else {
                 return drained
             }
             drained = true
         }
-        return drained
+    }
+
+    private func pendingLocalScrollTargetGenerationForReveal() -> UInt64? {
+        var generation: UInt64?
+        if pendingLocalScrollLines != 0,
+           let pendingLocalScrollInteractionGeneration {
+            generation = max(generation ?? 0, pendingLocalScrollInteractionGeneration)
+        }
+        if localScrollApplyInFlight,
+           let localScrollApplyInFlightGeneration {
+            generation = max(generation ?? 0, localScrollApplyInFlightGeneration)
+        }
+        return generation
     }
 
     /// A tap both raises the software keyboard (so the user can type) and

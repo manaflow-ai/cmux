@@ -60,6 +60,7 @@ extension GhosttySurfaceView {
         pendingLocalScrollLines = 0
         pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = true
+        localScrollApplyInFlightGeneration = interactionGeneration
         let displayScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
         let operation = LocalScrollbackSurfaceOperation(
             surface: surface,
@@ -85,6 +86,7 @@ extension GhosttySurfaceView {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.localScrollApplyInFlight = false
+                self.localScrollApplyInFlightGeneration = nil
                 guard self.surface == operation.surface,
                       self.surfaceGeneration == operation.generation else {
                     self.completePendingLocalScrollDrains(returning: false)
