@@ -183,6 +183,38 @@ private func screenFrame(
     #expect(replay.range(of: "\u{1B}[4;1H", options: .backwards)!.lowerBound > repaintRange.lowerBound)
 }
 
+@Test func screenAnchorScrollDeltaRepaintsAtomically() throws {
+    let delta = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 12,
+        renderEpoch: "epoch-1",
+        renderRevision: 12,
+        columns: 12,
+        rows: 4,
+        cursor: .init(row: 3, column: 0),
+        full: false,
+        clearedRows: [1, 2, 3],
+        rowSpans: [
+            .init(row: 1, column: 0, text: "new one"),
+            .init(row: 2, column: 0, text: "new two"),
+            .init(row: 3, column: 0, text: "new three"),
+        ],
+        anchor: .screen,
+        scrolledRows: 1,
+        historyRows: 103
+    )
+
+    let replay = String(decoding: delta.vtPatchBytes(), as: UTF8.self)
+    let begin = try #require(replay.range(of: "\u{1B}[?2026h"))
+    let firstClear = try #require(replay.range(of: "\u{1B}[2;1H\u{1B}[2K"))
+    let lastPaint = try #require(replay.range(of: "new three"))
+    let end = try #require(replay.range(of: "\u{1B}[?2026l", options: .backwards))
+
+    #expect(begin.upperBound <= firstClear.lowerBound)
+    #expect(firstClear.upperBound <= lastPaint.lowerBound)
+    #expect(lastPaint.upperBound <= end.lowerBound)
+}
+
 @Test func screenAnchorBurstReplayFlowsMissedRowsThroughGrid() throws {
     let burst = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",

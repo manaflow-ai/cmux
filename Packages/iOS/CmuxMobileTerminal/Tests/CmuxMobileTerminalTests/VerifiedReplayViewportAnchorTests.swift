@@ -4,6 +4,57 @@ import Testing
 
 @Suite("Verified replay viewport anchor")
 struct VerifiedReplayViewportAnchorTests {
+    @Test("live output hides provisional scrollbar callbacks until its final viewport commits")
+    func liveOutputScrollbarTransaction() {
+        var gate = ScrollBoundaryCallbackGate()
+        let historical = TerminalScrollBoundary(
+            totalRows: 400,
+            viewportOffsetRows: 120,
+            visibleRows: 40
+        )
+        let provisionalBottom = TerminalScrollBoundary(
+            totalRows: 401,
+            viewportOffsetRows: 361,
+            visibleRows: 40
+        )
+        let restored = TerminalScrollBoundary(
+            totalRows: 401,
+            viewportOffsetRows: 120,
+            visibleRows: 40
+        )
+
+        #expect(gate.observe(historical) == historical)
+        gate.begin(transactionID: 7, interactionGeneration: 3)
+        #expect(gate.observe(provisionalBottom) == nil)
+        #expect(gate.commit(transactionID: 7, currentInteractionGeneration: 3, boundary: restored) == restored)
+        #expect(gate.observe(restored) == restored)
+    }
+
+    @Test("a stale completion cannot release a newer scrollbar transaction")
+    func staleLiveOutputScrollbarCompletion() {
+        var gate = ScrollBoundaryCallbackGate()
+        let boundary = TerminalScrollBoundary(
+            totalRows: 400,
+            viewportOffsetRows: 120,
+            visibleRows: 40
+        )
+
+        gate.begin(transactionID: 8, interactionGeneration: 4)
+        #expect(gate.commit(transactionID: 7, currentInteractionGeneration: 4, boundary: boundary) == nil)
+        #expect(gate.observe(boundary) == nil)
+        #expect(gate.commit(transactionID: 8, currentInteractionGeneration: 4, boundary: boundary) == boundary)
+    }
+
+    @Test("newer pixel-scroll intent rejects an older output boundary")
+    func newerInteractionRejectsOutputBoundary() {
+        var gate = ScrollBoundaryCallbackGate()
+        let boundary = TerminalScrollBoundary(totalRows: 400, viewportOffsetRows: 120, visibleRows: 40)
+
+        gate.begin(transactionID: 9, interactionGeneration: 10)
+        #expect(gate.commit(transactionID: 9, currentInteractionGeneration: 11, boundary: boundary) == nil)
+        #expect(gate.observe(boundary) == boundary)
+    }
+
     @Test("visible-row flicker does not accumulate across replay cycles")
     func lenFlickerDoesNotAccumulateAcrossReplayCycles() throws {
         let totalRows: UInt64 = 4_053

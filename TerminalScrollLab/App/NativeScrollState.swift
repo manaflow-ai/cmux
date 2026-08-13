@@ -1,0 +1,3 @@
+import CmuxMobileTerminal
+
+typealias NativeScrollState = TerminalPixelScrollState

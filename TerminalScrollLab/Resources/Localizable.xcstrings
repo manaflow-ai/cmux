@@ -1,0 +1,96 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "lab.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty Native Scroll Lab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty ネイティブスクロールラボ" } }
+      }
+    },
+    "runtime.error.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty could not start" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty を起動できませんでした" } }
+      }
+    },
+    "scroll.audit.format" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@; %@; %@; target row %llu; rendered row %llu" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@、%@、%@、目標行 %llu、描画行 %llu" } }
+      }
+    },
+    "scroll.chrome.moved" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Fixed chrome moved" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "固定 UI が移動" } }
+      }
+    },
+    "scroll.chrome.stable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Fixed chrome stable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "固定 UI は安定" } }
+      }
+    },
+    "scroll.deceleration.not-observed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deceleration not observed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "減速未確認" } }
+      }
+    },
+    "scroll.deceleration.observed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Deceleration observed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "減速確認済み" } }
+      }
+    },
+    "scroll.metrics.format" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@  offset %.1f / %.1f pt  translation %.1f pt" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@  オフセット %.1f / %.1f pt  移動 %.1f pt" } }
+      }
+    },
+    "scroll.phase.decelerating" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "DECELERATING" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "減速中" } }
+      }
+    },
+    "scroll.phase.dragging" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "DRAGGING" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ドラッグ中" } }
+      }
+    },
+    "scroll.phase.idle" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "IDLE" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "待機中" } }
+      }
+    },
+    "scroll.renderer.fractional-active" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Fractional renderer active" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "端数ピクセル描画が有効" } }
+      }
+    },
+    "scroll.renderer.fractional-inactive" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Fractional renderer inactive" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "端数ピクセル描画が無効" } }
+      }
+    },
+    "terminal.prompt" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drag and fling anywhere in the terminal." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル内をドラッグまたはフリックしてください。" } }
+      }
+    },
+    "terminal.row.format" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty renderer row %03lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Ghostty レンダラー行 %03lld" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

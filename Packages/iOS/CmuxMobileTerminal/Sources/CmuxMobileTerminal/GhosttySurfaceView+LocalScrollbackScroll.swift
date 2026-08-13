@@ -17,7 +17,12 @@ extension GhosttySurfaceView {
     /// batch apply as one follow-up batch; obsolete intermediate deltas are
     /// merged, never replayed. No gate lock spans a Ghostty call, and scrolling
     /// never takes Ghostty locks on the main actor.
-    func applyLocalScrollbackScroll(lines: Double, col: Int, row: Int) {
+    ///
+    /// - Parameters:
+    ///   - lines: Signed fractional rows to apply to the local Ghostty viewport.
+    ///   - col: The zero-based terminal column beneath the gesture.
+    ///   - row: The zero-based terminal row beneath the gesture.
+    public func applyLocalScrollbackScroll(lines: Double, col: Int, row: Int) {
         guard lines != 0 else { return }
         pendingLocalScrollLines += lines
         pendingLocalScrollCell = (col, row)

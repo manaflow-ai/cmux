@@ -87,13 +87,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.artifactFilesEnabled = artifactFilesEnabled
-        // Screen-anchored sessions scroll the local mirror's own scrollback
-        // immediately (the Mac never repaints for a primary-screen scroll), so
-        // they keep the low-latency local authority even under verified replay.
-        view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
-            && !store.usesScreenAnchoredRenderGrid
-            ? .verifiedRenderGrid
-            : .legacyMirror
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
@@ -104,6 +97,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
         context.coordinator.attach(surfaceView: view)
+        context.coordinator.refreshScrollPresentationAuthority(on: view)
         view.seedThemeParityPreviewIfRequested()
         // Mount the composer band immediately if the composer was already open when
         // this surface was (re)built (e.g. a terminal switch while composing), and
@@ -139,10 +133,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
-        surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
-            && !store.usesScreenAnchoredRenderGrid
-            ? .verifiedRenderGrid
-            : .legacyMirror
+        context.coordinator.refreshScrollPresentationAuthority(on: surfaceView)
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
         }
@@ -209,6 +200,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let artifactChipHideClock: any Clock<Duration>
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        var localPixelViewportActive: Bool
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
         private var pendingReplayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
         /// Serializes the natural-grid viewport reports and their echoes. One
@@ -218,6 +210,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// re-pinning the phone to the stale smaller grid (empty space above
         /// the terminal). Built on attach, torn down on detach.
         var viewportReportScheduler: TerminalViewportReportScheduler?
+        private var viewportFreezeTransactionsByReportID: [UInt64: UInt64] = [:]
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
         /// close-then-quickly-reopen race: an interrupted close animation still runs
@@ -253,6 +246,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.showMissingFiles = showMissingFiles
             self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
             self.visibleArtifactCount = visibleArtifactCount
+            self.localPixelViewportActive = store.usesScreenAnchoredRenderGrid
             self.artifactCountNeedsRefresh = artifactChipGate.isEnabled
             self.onArtifactFilesRequested = onArtifactFilesRequested
             self.onArtifactPathTapped = onArtifactPathTapped
@@ -280,6 +274,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
+                    if surfaceView.shouldPreservePresentationForViewportReport(reportID: report.id) {
+                        let transactionID = self.verifiedReplayState.beginViewportTransition()
+                        if await surfaceView.freezeVerifiedReplayPresentation(
+                            transactionID: transactionID
+                        ) {
+                            self.viewportFreezeTransactionsByReportID[report.id] = transactionID
+                        } else {
+                            _ = self.verifiedReplayState.cancelViewportTransition(
+                                transactionID: transactionID
+                            )
+                        }
+                    }
                     if let preparation = self.preparedViewportReportsByReportID.removeValue(
                         forKey: report.id
                     ) {
@@ -294,6 +300,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 apply: { [weak self, weak surfaceView] report, effectiveGrid in
                     guard let self, let surfaceView else { return }
                     guard let effectiveGrid else {
+                        self.cancelViewportFreeze(for: report.id, on: surfaceView)
                         // No effective grid came back (RPC timed out or
                         // returned nil). Left unhandled, the render stays
                         // pinned to the prior effective grid and looks like a
@@ -321,6 +328,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             reportID: report.id
                         )
                     }
+                    if !effectiveGrid.replayRequested {
+                        self.cancelViewportFreeze(for: report.id, on: surfaceView)
+                    } else {
+                        self.viewportFreezeTransactionsByReportID.removeValue(forKey: report.id)
+                    }
                 }
             )
             // Drive every output chunk into the libghostty surface. Ending this
@@ -344,10 +356,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
-                    switch terminalOutputApplicationPath(
+                    let outputApplicationPath = terminalOutputApplicationPath(
                         for: chunk,
                         expectedSurfaceID: surfaceID
-                    ) {
+                    )
+                    switch outputApplicationPath {
                     case .verifiedReplay:
                         guard let frame = chunk.sourceRenderGridFrame else { return }
                         let applied = await self.applyVerifiedRenderGrid(
@@ -392,12 +405,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             streamToken: chunk.streamToken
                         )
                         continue
+                    case .viewportPreservingDelta:
+                        break
                     case .legacy:
                         break
                     }
                     switch chunk.viewportPolicy {
                     case .natural:
                         self.activeViewportPolicy = .natural
+                        self.setLocalPixelViewportActive(
+                            store.usesScreenAnchoredRenderGrid,
+                            on: surfaceView
+                        )
                         if chunk.data.isEmpty {
                             surfaceView.useNaturalViewSize()
                         } else {
@@ -412,6 +431,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         }
                     case .remoteGrid(let columns, let rows):
                         self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
+                        self.setLocalPixelViewportActive(false, on: surfaceView)
                         if chunk.data.isEmpty {
                             surfaceView.applyViewSize(cols: columns, rows: rows)
                         } else {
@@ -436,10 +456,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         continue
                     }
                     if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
-                        let applied = await surfaceView.processOutputAndWait(
-                            chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
-                        )
+                        let applied: Bool
+                        if outputApplicationPath == .viewportPreservingDelta {
+                            applied = await surfaceView.processOutputPreservingViewportAndWait(
+                                chunk.data,
+                                terminalConfigTheme: chunk.terminalConfigTheme
+                            )
+                        } else {
+                            applied = await surfaceView.processOutputAndWait(
+                                chunk.data,
+                                terminalConfigTheme: chunk.terminalConfigTheme
+                            )
+                        }
                         guard applied else {
                             store.terminalOutputDidReset(
                                 surfaceID: surfaceID,
@@ -478,11 +506,23 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView.requestViewportReportForMount()
         }
 
+        private func cancelViewportFreeze(
+            for reportID: UInt64,
+            on surfaceView: GhosttySurfaceView
+        ) {
+            guard let transactionID = viewportFreezeTransactionsByReportID.removeValue(
+                forKey: reportID
+            ) else { return }
+            _ = verifiedReplayState.cancelViewportTransition(transactionID: transactionID)
+            _ = surfaceView.cancelVerifiedReplayPresentation(transactionID: transactionID)
+        }
+
         private func stopMountedTasks() {
             clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()
+            viewportFreezeTransactionsByReportID.removeAll()
             outputTask?.cancel()
             outputTask = nil
             verifiedReplayState.invalidate()
@@ -492,6 +532,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
             activeViewportPolicy = .natural
+            localPixelViewportActive = store?.usesScreenAnchoredRenderGrid ?? false
         }
 
         func detach() {
@@ -545,6 +586,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
         ) async -> Bool {
+            setLocalPixelViewportActive(
+                store.usesScreenAnchoredRenderGrid
+                    && frame.anchor == .screen
+                    && frame.activeScreen == .primary,
+                on: surfaceView
+            )
             guard case .apply(let transaction) = verifiedReplayState.begin(frame: frame) else {
                 _ = await surfaceView.freezeVerifiedReplayPresentation(
                     transactionID: frame.renderRevision

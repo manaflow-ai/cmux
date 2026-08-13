@@ -55,8 +55,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// This remains separate from ``terminalTheme``, which includes dynamic
     /// reverse-video and OSC colors used by surrounding UIKit chrome.
     public var terminalConfigTheme: TerminalTheme = .monokai
-    /// Verified sessions keep the Mac as the sole owner of terminal scroll state.
-    public var scrollPresentationAuthority: TerminalScrollPresentationAuthority = .legacyMirror
+    /// Chooses the local or verified path that owns terminal scroll presentation.
+    public var scrollPresentationAuthority: TerminalScrollPresentationAuthority = .legacyMirror {
+        didSet {
+            guard scrollPresentationAuthority != oldValue else { return }
+            lastScrollMechanicsOffsetY = nil
+            handleScrollPresentationAuthorityChange()
+            setNeedsLayout()
+        }
+    }
+    /// The renderer's current cell size in UIKit points.
+    ///
+    /// A zero component means Ghostty has not completed its first geometry pass.
+    public var renderedCellSizeInPoints: CGSize {
+        let scale = max(preferredScreenScale, 1)
+        return CGSize(
+            width: cellPixelSize.width / scale,
+            height: cellPixelSize.height / scale
+        )
+    }
     private var appliedTerminalConfigTheme: TerminalTheme?
     weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
@@ -263,7 +280,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
-    private lazy var scrollMechanicsView: UIScrollView = {
+    lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
         view.isOpaque = false
@@ -2044,6 +2061,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func layoutScrollMechanicsView() {
         scrollMechanicsView.frame = bounds
+        if configureNativePixelScrollRange(scrollView: scrollMechanicsView) {
+            return
+        }
         scrollMechanicsView.contentSize = CGSize(
             width: max(bounds.width, 1),
             height: max(Self.scrollMechanicsContentHeight, bounds.height * 8)
@@ -2087,12 +2107,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingLocalScrollLines: Double = 0
     var pendingLocalScrollCell: (col: Int, row: Int) = (0, 0)
     var localScrollApplyInFlight = false
+    struct LocalViewportState {
+        var pendingRow: UInt64?
+        var inFlight: InFlight?
+
+        struct InFlight {
+            let token: UInt64
+            var row: UInt64
+        }
+    }
+    var localViewportState = LocalViewportState()
+    /// Physical-pixel-aligned fractional position for the renderer contents.
+    /// The renderer base frame and this offset share the placement path below,
+    /// so a layout pass cannot erase local pixel scrolling.
+    var localScrollbackPresentationTranslationY: CGFloat = 0
+    var localScrollbackRendererBaseFrame: CGRect?
+    var nativePixelScrollBoundary: TerminalScrollBoundary?
+    var nativePixelScrollState: TerminalPixelScrollState?
+    var nativePixelScrollPresentedRow: UInt64?
+    var nativePixelScrollCellHeight: CGFloat = 0
+    var nativePixelScrollLastRequestedRow: UInt64?
+    var nativePixelScrollHasRequestedViewport = false
+    var nativePixelScrollIsConfiguring = false
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
         pendingScrollLines = 0
         pendingLocalScrollLines = 0
         localScrollApplyInFlight = false
+        localViewportState = LocalViewportState()
+        localScrollbackPresentationTranslationY = 0
+        localScrollbackRendererBaseFrame = nil
+        resetNativePixelScrollState(clearBoundary: true)
     }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -2514,6 +2560,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         processOutput(data, completion: nil)
     }
 
+    func handleScrollBoundaryChange(_ boundary: TerminalScrollBoundary) {
+        handleNativePixelScrollBoundaryChange(boundary)
+        delegate?.ghosttySurfaceView(self, didUpdateScrollBoundary: boundary)
+    }
+
     func makeSurfaceOperationID() -> UInt64 {
         nextSurfaceOperationID &+= 1
         return nextSurfaceOperationID
@@ -2651,6 +2702,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func processOutput(
         _ data: Data,
         terminalConfigTheme outputConfigTheme: TerminalTheme? = nil,
+        preservesViewport: Bool = false,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -2695,7 +2747,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
+        let scrollBoundaryTransactionID = preservesViewport ? makeSurfaceOperationID() : nil
+        let currentBridge = bridge
+        let viewportGate = viewportRestoreGate
+        let outputInteractionGeneration = viewportGate.withLock {
+            $0.interactionGeneration
+        }
+        if let scrollBoundaryTransactionID {
+            currentBridge.beginScrollBoundaryTransaction(
+                id: scrollBoundaryTransactionID,
+                interactionGeneration: outputInteractionGeneration
+            )
+        }
         workQueue.async { [weak self] in
+            var preOutputScrollbar = ghostty_surface_scrollbar_s()
+            let viewportAnchor = preservesViewport
+                && ghostty_surface_scrollbar(surface, &preOutputScrollbar)
+                ? VerifiedReplayViewportAnchor(
+                    scrollbarTotal: preOutputScrollbar.total,
+                    offset: preOutputScrollbar.offset,
+                    len: preOutputScrollbar.len
+                )
+                : nil
             if let preparedConfigBits,
                let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
                 ghostty_surface_update_theme_config(surface, preparedConfig)
@@ -2706,6 +2779,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
+            var committedScrollbar = ghostty_surface_scrollbar_s()
+            let interactionStillOwnsViewport = viewportGate.withLock {
+                $0.interactionGeneration == outputInteractionGeneration
+            }
+            if interactionStillOwnsViewport, let viewportAnchor {
+                var postOutputScrollbar = ghostty_surface_scrollbar_s()
+                if ghostty_surface_scrollbar(surface, &postOutputScrollbar),
+                   let targetTopRow = viewportAnchor.targetTopRow(
+                       postReplayTotalRows: postOutputScrollbar.total,
+                       postReplayVisibleRows: postOutputScrollbar.len
+                   ) {
+                    _ = ghostty_surface_scroll_to_row_if_revision(
+                        surface,
+                        targetTopRow,
+                        postOutputScrollbar.row_space_revision,
+                        &committedScrollbar
+                    )
+                }
+            }
+            let hasCommittedScrollbar = ghostty_surface_scrollbar(surface, &committedScrollbar)
+            let committedBoundary = hasCommittedScrollbar
+                ? TerminalScrollBoundary(
+                    totalRows: committedScrollbar.total,
+                    viewportOffsetRows: committedScrollbar.offset,
+                    visibleRows: committedScrollbar.len
+                )
+                : nil
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
             // `process_output`. Reading it on the MAIN thread per-output (to feed
@@ -2724,6 +2824,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             #endif
             DispatchQueue.main.async {
+                let publishedBoundary: TerminalScrollBoundary?
+                if let scrollBoundaryTransactionID, let committedBoundary {
+                    let currentInteractionGeneration = viewportGate.withLock {
+                        $0.interactionGeneration
+                    }
+                    publishedBoundary = currentBridge.commitScrollBoundaryTransaction(
+                        id: scrollBoundaryTransactionID,
+                        currentInteractionGeneration: currentInteractionGeneration,
+                        boundary: committedBoundary
+                    )
+                } else {
+                    if let scrollBoundaryTransactionID {
+                        currentBridge.cancelScrollBoundaryTransaction(id: scrollBoundaryTransactionID)
+                    }
+                    publishedBoundary = nil
+                }
                 guard let self, !self.isDismantled else {
                     completion?(true)
                     return
@@ -2731,6 +2847,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard self.surfaceGeneration == generation else {
                     completion?(false)
                     return
+                }
+                if let publishedBoundary {
+                    self.handleScrollBoundaryChange(publishedBoundary)
                 }
                 self.consecutiveOutputTimeoutRecoveries = 0
                 self.needsDraw = true
@@ -3614,6 +3733,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportSettleFrames = 0
     }
 
+    /// Whether this report will release a deferred keyboard-rise shrink.
+    /// The coordinator must retain the last presented IOSurface before sending
+    /// such a report because the Mac can request its replacement replay before
+    /// the viewport RPC returns.
+    public func shouldPreservePresentationForViewportReport(reportID: UInt64) -> Bool {
+        guard reportID == viewportReportID,
+              lastAppliedContainerSize.height > 0 else {
+            return false
+        }
+        let next = viewportSnapshot().containerSize
+        return abs(next.width - lastAppliedContainerSize.width) < 0.5
+            && next.height < lastAppliedContainerSize.height - 0.5
+    }
+
     public func applyViewSize(cols: Int, rows: Int) {
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: false)
     }
@@ -4110,14 +4243,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var geometryChanged = layer.contentsScale != scale
         layer.contentsScale = scale
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
-            if sublayer.frame != renderRect {
+            if localScrollbackRendererBaseFrame != renderRect {
                 geometryChanged = true
-                sublayer.frame = renderRect
             }
+            localScrollbackRendererBaseFrame = renderRect
             if sublayer.bounds.size != renderRect.size {
                 geometryChanged = true
-                sublayer.bounds = CGRect(origin: .zero, size: renderRect.size)
+                sublayer.bounds.size = renderRect.size
             }
+            placeLocalScrollbackRendererLayer(sublayer, baseFrame: renderRect)
             if sublayer.contentsScale != scale {
                 geometryChanged = true
             }
@@ -4130,6 +4264,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayReadyTransactionID = nil
             restartPendingVerifiedReplayPresentationForCurrentGeometry()
         }
+    }
+
+    /// The single geometry path for Ghostty's local fractional presentation.
+    /// Moving the renderer frame translates its own IOSurface contents, while
+    /// the host view and its UIKit chrome remain stationary.
+    @discardableResult
+    func placeLocalScrollbackRendererLayer(
+        _ rendererLayer: CALayer,
+        baseFrame: CGRect
+    ) -> CGFloat {
+        rendererLayer.setAffineTransform(.identity)
+        rendererLayer.bounds.origin = .zero
+        let targetFrame = baseFrame.offsetBy(
+            dx: 0,
+            dy: localScrollbackPresentationTranslationY
+        )
+        if rendererLayer.frame != targetFrame {
+            rendererLayer.frame = targetFrame
+        }
+        return rendererLayer.frame.minY - baseFrame.minY
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface
@@ -4470,6 +4624,13 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView,
               !scrollMechanicsIsRecentering else {
+            return
+        }
+
+        if scrollPresentationAuthority.usesBoundedPixelViewport {
+            if handleNativePixelScroll(scrollView: scrollView) {
+                noteArtifactChipScrollActivity()
+            }
             return
         }
 
