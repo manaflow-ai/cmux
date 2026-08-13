@@ -38,6 +38,76 @@ class AnalyzerTests(unittest.TestCase):
         self.assertTrue(result["pass"])
         self.assertEqual(result["connected_latency_ms"], [250.0])
 
+    def test_parses_app_log_timestamp_format_and_exposes_route_diagnosis(self):
+        lines = [
+            "cmux network diagnostics log · cmux · built 2026-08-12",
+            "2026-08-12T10:00:00.000Z Direct dial plan assembled (Peer: 9, Public paths: 1, Private fallback paths: 0, Public relay URLs: 1)",
+            "2026-08-12T10:00:00.100Z Iroh route discovery succeeded (Peer: 9, Duration: 340 ms)",
+            "2026-08-12T10:00:00.200Z Direct dial leg failed (Peer: 9, Leg: Public paths, Failure: No route available, Duration: 5.000 seconds)",
+            "2026-08-12T10:00:00.300Z Transport dial failed (Peer: 9, Transport: Iroh, Failure: No route available, Duration: 5.000 seconds, Attempt: 4)",
+        ]
+        result = analyzer.analyze(lines)
+        self.assertEqual(result["event_count"], 4)
+        self.assertEqual(result["dial_failures"], {"no_route": 1})
+        self.assertEqual(result["phase_failures"], {"Public paths/no_route": 1})
+        self.assertEqual(result["discovery_durations_ms"], [340.0])
+        self.assertEqual(
+            result["dial_plans"],
+            [{"public_paths": 1, "private_fallback_paths": 0, "public_relay_urls": 1}],
+        )
+        self.assertEqual(
+            result["route_policy"],
+            {
+                "assessment": "public_relay_present",
+                "empty_plans": 0,
+                "plans_observed": 1,
+                "plans_with_public_relay": 1,
+                "plans_without_public_relay": 0,
+                "public_direct_paths_observed": 0,
+                "public_relay_urls_observed": 1,
+                "private_fallback_paths_observed": 0,
+            },
+        )
+
+    def test_distinguishes_missing_relay_policy_from_old_log_without_plan_events(self):
+        missing_relay = analyzer.analyze(
+            [
+                "2026-08-12T10:00:00.000Z Direct dial plan assembled (Peer: 9, Public paths: 1, Private fallback paths: 0, Public relay URLs: 0)",
+                "2026-08-12T10:00:00.100Z Transport dial failed (Peer: 9, Transport: Iroh, Failure: No route available, Attempt: 4)",
+            ]
+        )
+        self.assertEqual(missing_relay["route_policy"]["assessment"], "no_public_relay")
+        self.assertIn(
+            "no public relay URL was present in recorded dial plans",
+            missing_relay["failures"],
+        )
+
+        legacy = analyzer.analyze(
+            [
+                "2026-08-12T10:00:00.100Z Transport dial failed (Transport: Iroh, Failure: No route available, Attempt: 4)",
+            ]
+        )
+        self.assertEqual(
+            legacy["route_policy"]["assessment"],
+            "plan_diagnostics_unavailable",
+        )
+
+    def test_reports_discovery_and_relay_policy_shape_without_secrets(self):
+        result = analyzer.analyze(
+            [
+                "2026-08-12T10:00:00.000Z Relay policy refresh started",
+                "2026-08-12T10:00:00.050Z Relay policy refreshed",
+                "2026-08-12T10:00:00.100Z Iroh route discovery succeeded (Transport: Iroh, Bindings: 2, Duration: 340 ms, Relay fleet: 3)",
+                "2026-08-12T10:00:00.200Z Network reachability changed (Network: Online)",
+            ]
+        )
+        self.assertEqual(result["relay_policy_outcomes"], {"started": 1, "succeeded": 1})
+        self.assertEqual(
+            result["discovery_shapes"],
+            [{"bindings": 2, "relay_fleet": 3}],
+        )
+        self.assertEqual(result["network_reachability"], {"Online": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

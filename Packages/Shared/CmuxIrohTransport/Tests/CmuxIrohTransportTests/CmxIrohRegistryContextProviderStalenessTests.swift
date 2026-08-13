@@ -102,6 +102,90 @@ struct CmxIrohRegistryContextProviderStalenessTests {
     }
 
     @Test
+    func routeGatingDoesNotInvalidateDiscoveryReuse() async throws {
+        let fixture = try RegistryFixture()
+        let reusedRelay = try managedRelayHint(fixture)
+        let brokerOnlyDirect = try publicDirectHint(
+            fixture,
+            value: "8.8.4.4:4433"
+        )
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [brokerOnlyDirect]),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            verifiedDiscovery: try fixture.discovery(targetHints: [reusedRelay])
+        )
+
+        // A route-gated error means another caller already owns this route.
+        // It carries no evidence that the broker's peer binding is stale.
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try nonEmptyPlan(fixture, hints: [reusedRelay]),
+            failure: .routeGated
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(await broker.discoveryRequestCount() == 0)
+        #expect(context.dialPlan.publicPaths == [reusedRelay])
+    }
+
+    @Test
+    func sharedDiscoveryUsesRevisionedAuthorityAndRecordsRouteShape() async throws {
+        let fixture = try RegistryFixture()
+        let staleRelay = try managedRelayHint(fixture)
+        let freshDirect = try publicDirectHint(fixture, value: "8.8.8.8:4433")
+        let cached = try fixture.discovery(
+            targetHints: [staleRelay],
+            revision: 7
+        )
+        let fresh = try fixture.discovery(
+            targetHints: [freshDirect],
+            revision: 8
+        )
+        let broker = RevisionedRegistryBroker(
+            syncResponse: CmxConnectivitySyncResponse(
+                legacySnapshot: fresh,
+                knownRevision: cached.revision
+            ),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let diagnostics = DiagnosticLog(capacity: 8, role: .mobileClient)
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            diagnostics: diagnostics,
+            verifiedDiscovery: cached
+        )
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try nonEmptyPlan(fixture, hints: [staleRelay]),
+            failure: .noRoute
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(context.dialPlan.publicPaths == [freshDirect])
+        #expect(await broker.observedKnownRevisions() == [7])
+        #expect(await broker.discoveryRequestCount() == 0)
+        #expect(await waitForDiagnosticProcessedCount(diagnostics, atLeast: 2))
+        let events = await diagnostics.snapshot().events
+        #expect(events.map(\.code) == [.discoveryStarted, .discoverySucceeded])
+        #expect(events[1].ms != nil)
+        #expect(events[1].b == fresh.bindings.count)
+        #expect(events[1].c == fresh.relayFleet.count)
+    }
+
+    @Test
     func normalDialsReuseVerifiedSnapshotOnceWithinWindow() async throws {
         let fixture = try RegistryFixture()
         let relay = try managedRelayHint(fixture)
@@ -330,7 +414,8 @@ struct CmxIrohRegistryContextProviderStalenessTests {
 
     private func makeProvider(
         fixture: RegistryFixture,
-        broker: ConfigurableRegistryBroker,
+        broker: any CmxIrohRegistryServing,
+        diagnostics: DiagnosticLog? = nil,
         verifiedDiscovery: CmxIrohDiscoveryResponse?
     ) async throws -> CmxIrohRegistryContextProvider {
         CmxIrohRegistryContextProvider(
@@ -344,6 +429,7 @@ struct CmxIrohRegistryContextProviderStalenessTests {
                     activeNetworkProfiles: []
                 )
             },
+            diagnostics: diagnostics,
             verifiedDiscovery: verifiedDiscovery,
             now: { fixture.now }
         )
@@ -408,6 +494,51 @@ struct CmxIrohRegistryContextProviderStalenessTests {
         }
         return await broker.heldDiscoverCallCount() >= count
     }
+}
+
+/// A broker that exposes the connectivity-v2 authority seam. `discover()` is
+/// deliberately observable so the test proves the registry provider does not
+/// bypass revision reconciliation during a stale-route refresh.
+actor RevisionedRegistryBroker: CmxIrohRegistryServing,
+    CmxConnectivityAuthorityServing {
+    private let syncResponse: CmxConnectivitySyncResponse
+    private var pairGrantResponses: [CmxIrohPairGrantResponse]
+    private var knownRevisions: [UInt64?] = []
+    private var discoverCalls = 0
+
+    init(
+        syncResponse: CmxConnectivitySyncResponse,
+        pairGrantResponses: [CmxIrohPairGrantResponse]
+    ) {
+        self.syncResponse = syncResponse
+        self.pairGrantResponses = pairGrantResponses
+    }
+
+    func syncConnectivity(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        knownRevisions.append(knownRevision)
+        return syncResponse
+    }
+
+    func discover() throws -> CmxIrohDiscoveryResponse {
+        discoverCalls += 1
+        throw TestIrohTransportError.unsupported
+    }
+
+    func issuePairGrant(
+        initiatorBindingID _: String,
+        acceptorBindingID _: String
+    ) throws -> CmxIrohPairGrantResponse {
+        guard !pairGrantResponses.isEmpty else {
+            throw TestRegistryError.noGrantResponse
+        }
+        return pairGrantResponses.removeFirst()
+    }
+
+    func observedKnownRevisions() -> [UInt64?] { knownRevisions }
+
+    func discoveryRequestCount() -> Int { discoverCalls }
 }
 
 /// A registry broker whose discovery response, failure mode, and completion
