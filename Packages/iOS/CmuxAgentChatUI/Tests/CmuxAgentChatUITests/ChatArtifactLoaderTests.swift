@@ -40,6 +40,16 @@ struct ChatArtifactLoaderTests {
         #expect(await source.thumbnailRequestCount() == 2)
     }
 
+    @Test func sourceIdentityIsRetainedForConnectionReplacement() {
+        let loader = ChatArtifactLoader(
+            source: CountingArtifactSource(),
+            sessionID: "session-1",
+            sourceIdentity: "source-1"
+        )
+
+        #expect(loader.sourceIdentity == "source-1")
+    }
+
     @Test func terminalScopeUsesDistinctCacheAndRoutesToTerminalClosures() async throws {
         let cache = ChatArtifactThumbnailCache()
         let chatSource = CountingArtifactSource()
