@@ -890,11 +890,11 @@ function makeLiveRepository(): IrohRepositoryShape {
               accountRevision: await unchangedRevision(),
             };
           }
-          const requestedNamespace = input.clientNamespace ?? "legacy";
-          if (
-            requestedNamespace !== "legacy"
-            || binding.clientNamespace !== "legacy"
-          ) {
+          // Legacy bindings predate request proofs and namespaces. Preserve the
+          // old account-authenticated self-revocation path so an upgraded app can
+          // drain a durable revocation queued by its previous version. A
+          // namespace-less request still cannot revoke a namespaced binding.
+          if (binding.clientNamespace !== "legacy") {
             return {
               revoked: false,
               accountRevision: await unchangedRevision(),

@@ -523,7 +523,7 @@ describe("Iroh trust broker database behavior", () => {
       now: NOW,
     }));
 
-    expect(revoked).toBe(true);
+    expect(revoked).toEqual({ revoked: true, accountRevision: 1 });
     const [stored] = await requiredSql()<Array<{
       revokedAt: Date | null;
       revokedReason: string | null;
