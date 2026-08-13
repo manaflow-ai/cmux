@@ -307,7 +307,7 @@ extension MobileShellComposite {
         // the released dimensions with the newer clear generation and re-pin
         // the Mac surface.
         if let workspaceID {
-            reportedViewportSizesByTerminalKey.removeValue(forKey: viewportKey(
+            reportedViewportSizesByTerminalKey.removeValue(forKey: MobileTerminalViewportKey(
                 workspaceID: workspaceID,
                 terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
             ))
