@@ -15271,10 +15271,21 @@ class TerminalController {
 
         let surfaceId: UUID?
         if let requestedSurfaceId {
-            guard let target = workspace.terminalInputTarget(forPanelID: requestedSurfaceId) else {
-                return nil
+            if requireTerminal {
+                guard let target = workspace.terminalInputTarget(forPanelID: requestedSurfaceId) else {
+                    return nil
+                }
+                surfaceId = target.surfaceID
+            } else {
+                // Non-terminal mobile requests, such as panel-scoped artifact
+                // reads, address any live panel surface. The terminal lookup
+                // above intentionally rejects markdown/file-preview/todo
+                // panels, which made valid artifact requests look closed.
+                guard workspace.panels[requestedSurfaceId] != nil else {
+                    return nil
+                }
+                surfaceId = requestedSurfaceId
             }
-            surfaceId = target.surfaceID
         } else if requireTerminal {
             surfaceId = workspace.focusedTerminalInputTarget()?.surfaceID
                 ?? mobileTerminalPanels(in: workspace).first?.id
