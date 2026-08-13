@@ -463,6 +463,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
         --prod-auth \
         --credentials-file "$PROD_CREDENTIALS_FILE"
     run_build_with_heartbeat iOS env \
+      CMUX_XCODEBUILD_JOBS="${CMUX_IROH_RELEASE_GATE_XCODEBUILD_JOBS:-2}" \
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
@@ -479,6 +480,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./scripts/reload.sh --tag "$TAG"
     run_build_with_heartbeat iOS env \
+      CMUX_XCODEBUILD_JOBS="${CMUX_IROH_RELEASE_GATE_XCODEBUILD_JOBS:-2}" \
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
