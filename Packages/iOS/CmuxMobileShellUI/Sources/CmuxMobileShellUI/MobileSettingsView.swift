@@ -62,7 +62,6 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
-        @Bindable var toasts = self.toasts
         return NavigationStack {
             Form {
                 if initialFocus == .connectionMethod {
@@ -254,13 +253,6 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
 
-                    Toggle(isOn: $toasts.isEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.beta.toasts",
-                            defaultValue: "Toasts"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastsEnabled")
                 }
 
                 #if DEBUG

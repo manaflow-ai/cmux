@@ -8161,23 +8161,6 @@
         }
       }
     },
-    "mobile.settings.beta.toasts": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toasts"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トースト"
-          }
-        }
-      }
-    },
     "mobile.textSheet.copied": {
       "extractionState": "manual",
       "localizations": {
