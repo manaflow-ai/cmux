@@ -127,11 +127,12 @@ struct RemoteBootstrapStagingCommandBuilderTests {
         #expect(execution.stderr.isEmpty)
     }
 
-    @Test("installs through POSIX sh when the remote login shell is fish")
+    @Test(
+        "installs through POSIX sh when the remote login shell is fish",
+        .enabled(if: RemoteBootstrapStagingCommandBuilderTests.fishExecutablePath != nil)
+    )
     func stagesThroughFishLoginShell() throws {
-        guard let fishPath = Self.fishExecutablePath else {
-            return
-        }
+        let fishPath = try #require(Self.fishExecutablePath)
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-bootstrap-fish-\(UUID().uuidString)", isDirectory: true)

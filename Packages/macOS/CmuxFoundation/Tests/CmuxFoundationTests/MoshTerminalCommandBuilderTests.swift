@@ -81,11 +81,12 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
-    @Test("runs remote probes through POSIX sh under a fish login shell")
+    @Test(
+        "runs remote probes through POSIX sh under a fish login shell",
+        .enabled(if: MoshTerminalCommandBuilderTests.fishExecutablePath != nil)
+    )
     func remoteProbeIsShellAgnostic() throws {
-        guard let fishPath = Self.fishExecutablePath else {
-            return
-        }
+        let fishPath = try #require(Self.fishExecutablePath)
         try withFakeCommands(
             sshStatus: 0,
             executeRemoteCommand: true,
