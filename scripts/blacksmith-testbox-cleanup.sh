@@ -107,9 +107,12 @@ if (( pre_status == 0 )); then
       exit "$pre_lookup_status"
     fi
   else
-    pre_workflow="$(awk '{print $4}' <<<"$pre_row")"
-    pre_job="$(awk '{print $5}' <<<"$pre_row")"
-    pre_ref="$(awk '{print $6}' <<<"$pre_row")"
+    # `list --all` currently exposes ID, STATUS, IP, WORKFLOW, JOB, REF, ...;
+    # derive the ownership fields relative to the stable ID/status columns and
+    # verify them against the receipt before issuing a destructive stop.
+    pre_workflow="$(awk '{print $5}' <<<"$pre_row")"
+    pre_job="$(awk '{print $6}' <<<"$pre_row")"
+    pre_ref="$(awk '{print $7}' <<<"$pre_row")"
     if [[ "$pre_workflow" != "$receipt_workflow" || "$pre_job" != "$receipt_job" || "$pre_ref" != "$receipt_ref" ]]; then
       echo "owned Testbox context differs from the warmup receipt; refusing cleanup" >&2
       exit 66
@@ -132,9 +135,10 @@ blacksmith testbox stop --id "$testbox_id" >"$stop_log" 2>&1
 stop_status=$?
 set -e
 if (( stop_status != 0 )); then
-  # A completed Testbox can race the explicit stop call. Tolerate only the
-  # documented terminal-state response, never an arbitrary stop failure.
-  if grep -Eiq 'already[[:space:]]+(stopped|completed)|hydration_failed' "$stop_log"; then
+  # A completed or already-absent Testbox can race the explicit stop call.
+  # Tolerate only the documented terminal/not-found response, never an
+  # arbitrary stop failure.
+  if grep -Eiq '(already[[:space:]]+(stopped|completed)|hydration_failed|not found|HTTP[[:space:]]+404)' "$stop_log"; then
     printf 'stop already reached a terminal state for %s; continuing\n' "$testbox_id" >&2
   else
     echo "failed to stop Testbox $testbox_id; see $stop_log" >&2

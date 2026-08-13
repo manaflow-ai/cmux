@@ -51,6 +51,10 @@ set -euo pipefail
 git submodule update --init ghostty
 cd "$(git rev-parse --show-toplevel)"
 SOURCE_REF="$(git symbolic-ref --short HEAD)"
+[[ "$SOURCE_REF" == "main" ]] || {
+  echo "the token-bearing Testbox lane only accepts reviewed main; use a PR workflow for feature branches" >&2
+  exit 1
+}
 if [[ ! "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || "$SOURCE_REF" == *..* || "$SOURCE_REF" == */ || "$SOURCE_REF" == *//* ]]; then
   echo "HEAD must name a supported pushed branch ref" >&2
   exit 1
@@ -263,11 +267,12 @@ if (( status_ready != 0 )); then
 fi
 ```
 
-The workflow validates that the dispatch ref is a pushed branch, that
-`github.sha` is a full SHA, and that the branch still resolves to that SHA. If
-a direct GitHub dispatch supplies the optional `source_sha` input, it must equal
-`github.sha`. The Blacksmith CLI path relies on the same full SHA passed to the
-remote helper because the CLI only supplies `testbox_id` to workflow inputs.
+The workflow validates that the dispatch ref is reviewed `main`, is a pushed
+branch, that `github.sha` is a full SHA, and that the branch still resolves to
+that SHA. If a direct GitHub dispatch supplies the optional `source_sha` input,
+it must equal `github.sha`. The Blacksmith CLI path relies on the same full SHA
+passed to the remote helper because the CLI only supplies `testbox_id` to
+workflow inputs.
 The workflow concurrency group serializes setup requests by Testbox ID, even
 when source SHAs differ. The remote `flock` begins after Blacksmith's rsync, so
 it protects stage/build/artifact writes only. Blacksmith exposes no pre-rsync
