@@ -1945,13 +1945,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No computers yet. Add one to see its workspaces here."
+            "value": "No computers yet. Auto-Connect finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータがありません。追加するとワークスペースがここに表示されます。"
+            "value": "コンピュータがありません。自動接続で表示されるのは、Mac版cmux 0.64.20以降を実行しているMacです。両方のデバイスで同じcmuxアカウントにサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。"
           }
         }
       }
@@ -3271,13 +3271,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux on your computer with this account and it appears here automatically."
+            "value": "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータの cmux にこのアカウントでサインインすると、ここに自動的に表示されます。"
+            "value": "自動接続でMacを見つけるには、Macでcmux 0.64.20以降を起動し、両方のデバイスでcmuxに同じアカウントでサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。"
           }
         }
       }

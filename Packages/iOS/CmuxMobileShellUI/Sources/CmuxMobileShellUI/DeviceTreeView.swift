@@ -178,11 +178,11 @@ struct DeviceTreeView: View {
                 showAddDevice != nil
                     ? L10n.string(
                         "mobile.computers.empty",
-                        defaultValue: "No computers yet. Add one to see its workspaces here."
+                        defaultValue: "No computers yet. Auto-Connect finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically."
                     )
                     : L10n.string(
                         "mobile.devices.emptyDescription",
-                        defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
+                        defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically."
                     )
             )
             .foregroundStyle(.secondary)

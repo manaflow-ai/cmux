@@ -208,7 +208,7 @@ struct DisconnectedWorkspaceShellView: View {
         } description: {
             Text(L10n.string(
                 "mobile.devices.emptyDescription",
-                defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
+                defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically."
             ))
         } actions: {
             if let showAddDevice {
@@ -325,7 +325,7 @@ struct DisconnectedWorkspaceShellView: View {
                 savedMacs.isEmpty
                     ? L10n.string(
                         "mobile.devices.emptyDescription",
-                        defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
+                        defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically."
                     )
                     : savedMacDescription
             )
