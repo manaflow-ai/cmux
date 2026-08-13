@@ -442,7 +442,7 @@ struct MobileIrohReleaseGateRunnerTests {
         )
         let diagnostics = DiagnosticReport(events: [
             DiagnosticEvent(
-                .discoveryFailed,
+                code: .discoveryFailed,
                 tNanos: 1,
                 b: DiagnosticFailureKind.policyUnavailable.rawValue
             ),
