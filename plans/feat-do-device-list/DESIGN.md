@@ -273,6 +273,13 @@ The launch path never waits on this. Sequence:
    never blank.
 5. Steady state: `sync.delta` frames stream as the DO's collection changes.
 
+The DO records the socket's collection subscription before the first awaited
+backfill or storage read. Deltas broadcast during that baseline read are held
+in a bounded per-socket handshake queue and flushed after the baseline frames,
+so a heartbeat cannot fall between the client's cursor and its live stream. A
+queue overflow closes the socket; the client reconnects and receives a fresh
+snapshot rather than accepting a gap.
+
 If the WS is unreachable, the UI keeps showing the last-synced SQLite state
 (correctly labeled by `updatedAt`/presence as possibly-stale) and retries with
 backoff. This is the "instant and resilient" behavior requirement #2 asks for.
