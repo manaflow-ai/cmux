@@ -58,9 +58,6 @@ public struct AgentsPanelView: View {
                         ? nil
                         : terminalAction(.setup())
                 )
-                if configuration.isRemoteEndpoint {
-                    remoteServerNote(configuration: configuration)
-                }
                 if let switchError = store.lastSwitchError {
                     switchErrorBanner(switchError)
                 }
@@ -152,20 +149,6 @@ public struct AgentsPanelView: View {
     private func terminalAction(_ request: SubrouterTerminalRequest?) -> (() -> Void)? {
         guard let onOpenTerminal, let request else { return nil }
         return { onOpenTerminal(request) }
-    }
-
-    private func remoteServerNote(configuration: SubrouterConfiguration) -> some View {
-        let name = configuration.serverName ?? configuration.endpoint.baseURL.host() ?? ""
-        return Label {
-            Text(String(
-                localized: "subrouter.panel.remoteServer",
-                defaultValue: "Watching server \(name). It assigns accounts to each session automatically."
-            ))
-        } icon: {
-            Image(systemName: "server.rack")
-        }
-        .font(.system(size: 9))
-        .foregroundStyle(.secondary)
     }
 
     private func switchErrorBanner(_ error: SubrouterSwitchError) -> some View {

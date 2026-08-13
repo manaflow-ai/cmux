@@ -266957,23 +266957,6 @@
         }
       }
     },
-    "subrouter.panel.remoteServer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Watching server %@. It assigns accounts to each session automatically."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サーバー %@ を監視中。セッションごとにアカウントを自動割り当てします。"
-          }
-        }
-      }
-    },
     "subrouter.popover.allSignedOut": {
       "extractionState": "manual",
       "localizations": {
