@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 public import CmuxMobileShellModel
