@@ -34,6 +34,65 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorCoordinateState.outsideImage) == "outsideImage")
     }
 
+    @Test func describesDirectDialBootstrapTrace() {
+        let plan = englishPresentation.describe(
+            DiagnosticEvent(code: .transportDialPlanBuilt, tNanos: 1, a: 0, b: 0)
+        )
+        #expect(plan.name == "Direct dial plan assembled")
+        #expect(plan.fields == [
+            .init(key: "public_paths", value: "0"),
+            .init(key: "private_fallback_paths", value: "0"),
+        ])
+
+        let join = englishPresentation.describe(DiagnosticEvent(
+            code: .transportPrivateAddressJoin,
+            tNanos: 1,
+            a: DiagnosticPrivateAddressJoinState.brokerPortsStale.rawValue,
+            b: 2,
+            c: 0
+        ))
+        #expect(join.name == "Private addresses joined broker port")
+        #expect(join.fields.contains(
+            .init(key: "join", value: "Broker ports missing or stale")
+        ))
+        #expect(join.fields.contains(
+            .init(key: "configured_addresses", value: "2")
+        ))
+
+        let lan = englishPresentation.describe(DiagnosticEvent(
+            code: .transportLANDiscovery,
+            tNanos: 1,
+            a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
+            b: 0
+        ))
+        #expect(lan.name == "LAN discovery resolved")
+        #expect(lan.fields.contains(
+            .init(key: "outcome", value: "Local Network permission denied")
+        ))
+
+        let legFailed = englishPresentation.describe(DiagnosticEvent(
+            code: .transportDialLegFailed,
+            tNanos: 1,
+            a: DiagnosticDirectDialLeg.privateFallback.rawValue,
+            b: DiagnosticFailureKind.noRoute.rawValue
+        ))
+        #expect(legFailed.name == "Direct dial leg failed")
+        #expect(legFailed.fields.contains(
+            .init(key: "leg", value: "Private fallback")
+        ))
+
+        let publication = englishPresentation.describe(DiagnosticEvent(
+            code: .lanPublicationState,
+            tNanos: 1,
+            a: DiagnosticLANPublicationState.policyDenied.rawValue,
+            b: 0
+        ))
+        #expect(publication.name == "LAN advertisement state changed")
+        #expect(publication.fields.contains(
+            .init(key: "state", value: "Local Network permission denied")
+        ))
+    }
+
     @Test func describesDialFailure() {
         let event = DiagnosticEvent(
             code: .transportDialFailed,
@@ -169,6 +228,12 @@ import Testing
             .browserInputReplayed: "Browser input replayed",
             .browserEditableFocus: "Browser editable focus",
             .browserPanelCreateResolved: "Browser panel create resolved",
+            .transportDialPlanBuilt: "Direct dial plan assembled",
+            .transportPrivateAddressJoin: "Private addresses joined broker port",
+            .transportLANDiscovery: "LAN discovery resolved",
+            .transportDialLegSucceeded: "Direct dial leg connected",
+            .transportDialLegFailed: "Direct dial leg failed",
+            .lanPublicationState: "LAN advertisement state changed",
             .simulatorStreamLifecycle: "Simulator stream state changed",
             .simulatorFrameLifecycle: "Simulator frame pipeline changed",
             .simulatorInputLifecycle: "Simulator input state changed",
