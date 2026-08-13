@@ -5501,7 +5501,21 @@ final class cmuxUITests: XCTestCase {
             ),
             object: modeControl
         )
-        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+        let completed = XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+        if !completed {
+            // The failed condition is invisible in CI logs (the xcresult is
+            // not uploaded); dump the tree so the blocking element is named.
+            print(
+                """
+                waitForPaneMap(toBeActive: \(isActive)) timed out after \(timeout)s
+                modeControl.exists=\(modeControl.exists) overlay.exists=\(overlay.exists) \
+                refresh.exists=\(app.buttons["MobilePaneMapRefresh"].exists)
+                AX tree:
+                \(app.debugDescription)
+                """
+            )
+        }
+        return completed
     }
 
     @MainActor
