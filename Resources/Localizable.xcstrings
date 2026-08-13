@@ -266470,6 +266470,40 @@
           }
         }
       }
+    },
+    "cli.coderouter.aliases": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "coderouter|cr [coderouter-args...]                 (インストール済み CodeRouter CLI のエイリアス)"
+          }
+        }
+      }
+    },
+    "cli.coderouter.error.launchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not start the CodeRouter CLI. Verify that coderouter or cr is executable and on PATH, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter CLI を起動できませんでした。coderouter または cr が実行可能で PATH に含まれていることを確認して、もう一度お試しください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
