@@ -258,15 +258,17 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
-                    NavigationLink {
-                        TranscriptDemoScreen()
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.transcriptDemo", defaultValue: "Transcript Demo"),
-                            systemImage: "bubble.left.and.text.bubble.right"
-                        )
+                    if AgentGUIAvailability.isUserInterfaceExposed {
+                        NavigationLink {
+                            TranscriptDemoScreen()
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.transcriptDemo", defaultValue: "Transcript Demo"),
+                                systemImage: "bubble.left.and.text.bubble.right"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsTranscriptDemo")
                     }
-                    .accessibilityIdentifier("MobileSettingsTranscriptDemo")
                     Button {
                         showingToastGallery = true
                     } label: {
@@ -350,24 +352,26 @@ struct MobileSettingsView: View {
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
-                    Picker(selection: $displaySettings.transcriptDensity) {
-                        Text(L10n.string(
-                            "mobile.settings.transcriptDensity.comfortable",
-                            defaultValue: "Comfortable"
-                        ))
-                        .tag(TranscriptDensity.comfortable)
-                        Text(L10n.string(
-                            "mobile.settings.transcriptDensity.compact",
-                            defaultValue: "Compact"
-                        ))
-                        .tag(TranscriptDensity.compact)
-                    } label: {
-                        Text(L10n.string(
-                            "mobile.settings.transcriptDensity",
-                            defaultValue: "Transcript Density"
-                        ))
+                    if AgentGUIAvailability.isUserInterfaceExposed {
+                        Picker(selection: $displaySettings.transcriptDensity) {
+                            Text(L10n.string(
+                                "mobile.settings.transcriptDensity.comfortable",
+                                defaultValue: "Comfortable"
+                            ))
+                            .tag(TranscriptDensity.comfortable)
+                            Text(L10n.string(
+                                "mobile.settings.transcriptDensity.compact",
+                                defaultValue: "Compact"
+                            ))
+                            .tag(TranscriptDensity.compact)
+                        } label: {
+                            Text(L10n.string(
+                                "mobile.settings.transcriptDensity",
+                                defaultValue: "Transcript Density"
+                            ))
+                        }
+                        .accessibilityIdentifier("MobileSettingsTranscriptDensityPicker")
                     }
-                    .accessibilityIdentifier("MobileSettingsTranscriptDensityPicker")
 
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))

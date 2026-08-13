@@ -3291,6 +3291,40 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentGUIEntrypointsStayUnavailable() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TRANSCRIPT_DEMO": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(
+            workspaceList.waitForExistence(timeout: 8),
+            "The retired transcript preview route must not replace the normal app UI."
+        )
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        tap(settings, in: app)
+
+        let toastGallery = app.descendants(matching: .any)["MobileSettingsToastGallery"]
+        for _ in 0..<4 where !toastGallery.exists || !toastGallery.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(toastGallery.waitForExistence(timeout: 4))
+        XCTAssertFalse(app.descendants(matching: .any)["MobileSettingsTranscriptDemo"].exists)
+
+        let wrapTitles = app.switches["MobileSettingsWrapTitles"]
+        for _ in 0..<4 where !wrapTitles.exists || !wrapTitles.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(wrapTitles.waitForExistence(timeout: 4))
+        XCTAssertFalse(app.descendants(matching: .any)["MobileSettingsTranscriptDensityPicker"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentGUIToggle"].exists)
+    }
+
+    @MainActor
     func testNotificationFeedPreviewSupportsTriageInteractions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",

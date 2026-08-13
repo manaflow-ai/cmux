@@ -4,6 +4,28 @@ public struct AgentGUIAvailability: Equatable, Sendable {
     public let sessionID: AgentSessionID
     public let kind: AgentKind
 
+    /// Whether the current Agent GUI is exposed through the shipping mobile UI.
+    ///
+    /// The implementation remains compiled and testable while its replacement is
+    /// designed, but no current app surface may make it user-accessible.
+    public static let isUserInterfaceExposed = false
+
+    /// Resolves availability for a user-facing app surface.
+    ///
+    /// This is the single product exposure boundary. ``derive(sessions:selectedTerminalID:)``
+    /// remains available to exercise the retained implementation independently.
+    /// - Parameters:
+    ///   - sessions: Agent sessions known to the current Mac connection.
+    ///   - selectedTerminalID: The terminal currently shown in the workspace.
+    /// - Returns: A matching session only when the product UI is exposed.
+    public static func deriveForUserInterface(
+        sessions: [AgentSessionSnapshot],
+        selectedTerminalID: String?
+    ) -> AgentGUIAvailability? {
+        guard isUserInterfaceExposed else { return nil }
+        return derive(sessions: sessions, selectedTerminalID: selectedTerminalID)
+    }
+
     public static func derive(
         sessions: [AgentSessionSnapshot],
         selectedTerminalID: String?

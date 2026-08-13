@@ -118,7 +118,8 @@ struct CMUXMobileRootView: View {
 
     private var shouldShowTranscriptDemoPreview: Bool {
         #if os(iOS) && DEBUG
-        return UITestConfig.transcriptDemoPreviewEnabled
+        return AgentGUIAvailability.isUserInterfaceExposed
+            && UITestConfig.transcriptDemoPreviewEnabled
         #else
         return false
         #endif
