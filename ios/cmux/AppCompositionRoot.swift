@@ -346,7 +346,7 @@ final class AppCompositionRoot {
             diagnosticLog.recordAppEvent(.appForegrounded)
             iroh.didBecomeActive()
             Task { await pushCoordinator.refreshReadiness() }
-            Task { await featureFlags.refresh() }
+            featureFlags.refreshOnForeground()
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
                 now: now,
