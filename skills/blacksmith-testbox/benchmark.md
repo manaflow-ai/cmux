@@ -147,27 +147,10 @@ cleanup() {
   local cleanup_status=0
   local after_list_status=125
   trap - EXIT
-  if [[ -n "$TBX" && -n "$cleanup_token" && "${CONFIRM_TESTBOX_STOP:-}" == "STOP" ]]; then
+  if [[ -n "$TBX" && -n "$cleanup_token" && -n "${CONFIRM_TESTBOX_STOP_SHA:-}" ]]; then
     set +e
-    scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" PREVIEW
-    preview_status=$?
-    if (( preview_status == 75 )); then
-      if command -v sha256sum >/dev/null; then
-        preview_sha="$(sha256sum "$OUT/cleanup-preview.json" | awk '{print $1}')"
-      elif command -v shasum >/dev/null; then
-        preview_sha="$(shasum -a 256 "$OUT/cleanup-preview.json" | awk '{print $1}')"
-      else
-        echo "no SHA-256 utility available for cleanup preview" >&2
-        cleanup_status=65
-        preview_sha=""
-      fi
-      if [[ -n "$preview_sha" ]]; then
-        scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" "STOP:$preview_sha"
-      fi
-      cleanup_status=$?
-    else
-      cleanup_status="$preview_status"
-    fi
+    scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" "STOP:${CONFIRM_TESTBOX_STOP_SHA}"
+    cleanup_status=$?
     set -e
   else
     # Without the CLI receipt there is no proof that a newly listed box belongs
@@ -185,7 +168,7 @@ cleanup() {
       echo "warmup returned no owned Testbox receipt; no automatic stop was attempted" >&2
     fi
   fi
-  if (( result == 0 && cleanup_status != 0 )) && [[ "${CONFIRM_TESTBOX_STOP:-}" == "STOP" ]]; then
+  if (( result == 0 && cleanup_status != 0 )) && [[ -n "${CONFIRM_TESTBOX_STOP_SHA:-}" ]]; then
     result="$cleanup_status"
   fi
   exit "$result"
@@ -439,8 +422,9 @@ scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" PREVIEW
 ```
 
 A shell `EXIT` trap may call that helper only when an independent operator has
-exported `CONFIRM_TESTBOX_STOP=STOP`; otherwise it preserves the benchmark
-status, records inventory, and leaves the box for explicit manual cleanup.
+exported `CONFIRM_TESTBOX_STOP_SHA` with the SHA-256 of a separately reviewed
+`cleanup-preview.json`; otherwise it preserves the benchmark status, records
+inventory, and leaves the box for explicit manual cleanup.
 Warmup writes `testbox-receipt.json` and an ownership token bound to the exact
 returned ID; cleanup refuses a mismatched ID or token. If warmup fails before
 returning an ID, retain before/after inventories but do not automatically stop a

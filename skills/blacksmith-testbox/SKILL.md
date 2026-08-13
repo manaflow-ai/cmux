@@ -190,6 +190,11 @@ Never print or download `/tmp/.testbox/auth_token`.
 
 ## Remote benchmark stages
 
+The detailed, receipt-producing orchestration in `benchmark.md` is the required
+entry point for a complete benchmark. It creates the unique `OUT_ROOT`, receipt,
+cleanup token, setup artifact capture, and cleanup preview state. Do not copy
+only this stage loop into an ad hoc shell without those prerequisites.
+
 Before each stage, recompute `SOURCE_SHA` and `GHOSTTY_SHA` and repeat the
 clean pushed-branch preflight. Pass the expected values as validated arguments;
 the helper does not trust the remote checkout or a caller-supplied expected SHA
@@ -331,9 +336,9 @@ inventory, accepts the known terminal states `completed`, `stopped`, `cancelled`
 already stopped or completed, and polls for up to two minutes while cancellation
 propagates. Other stop, status, or list failures remain failures.
 Put it in an `EXIT` trap only after an independent operator exports
-`CONFIRM_TESTBOX_STOP=STOP`; the trap performs a preview and confirms its hash
-before stopping. Otherwise preserve the benchmark's original exit status and
-leave the box for manual cleanup. The detailed benchmark writes a
+`CONFIRM_TESTBOX_STOP_SHA` containing the SHA-256 of a separately reviewed
+`cleanup-preview.json`; otherwise preserve the benchmark's original exit status
+and leave the box for manual cleanup. The detailed benchmark writes a
 receipt and ownership token for the exact ID returned by warmup; cleanup refuses an ID
 or token that is not bound to that receipt. If warmup fails before returning an
 ID, retain before/after inventory but do not automatically stop a box, because
