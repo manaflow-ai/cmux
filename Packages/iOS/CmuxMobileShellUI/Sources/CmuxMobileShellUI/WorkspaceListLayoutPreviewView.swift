@@ -743,7 +743,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                         selection: $selectedPrimaryTab,
                         searchCoordinator: primarySearchCoordinator,
                         notificationUnreadCount: 0,
-                        taskComposerAction: {}
+                        taskComposerAction: {},
+                        feed: AnyView(AgentFeedView(store: .fixture(), variant: .commandDeck))
                     ) {
                         workspaceListStack
                     } notifications: {

@@ -33,6 +33,7 @@ public final class MobileDisplaySettings {
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    private static let agentFeedVariantKey = "cmux.mobile.debug.agentFeedVariant.v1"
     #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
@@ -147,9 +148,18 @@ public final class MobileDisplaySettings {
             )
         }
     }
+
+    /// Persisted selection for the debug-only Feed composition lab.
+    var agentFeedVariant: AgentFeedVariant {
+        didSet {
+            defaults.set(agentFeedVariant.rawValue, forKey: Self.agentFeedVariantKey)
+        }
+    }
     #else
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+    /// Production builds ship the calm Orbit composition until the lab graduates.
+    var agentFeedVariant: AgentFeedVariant { .orbit }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
@@ -183,6 +193,9 @@ public final class MobileDisplaySettings {
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.agentFeedVariant = defaults.string(
+            forKey: Self.agentFeedVariantKey
+        ).flatMap(AgentFeedVariant.init(rawValue:)) ?? .orbit
         #endif
     }
 

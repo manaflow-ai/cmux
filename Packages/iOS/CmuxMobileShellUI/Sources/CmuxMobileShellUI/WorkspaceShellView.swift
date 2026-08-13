@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAgentChat
 import Foundation
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -172,6 +173,8 @@ struct WorkspaceShellView: View {
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    @State private var agentFeedStore = AgentFeedStore()
+    @State private var agentFeedRefreshNonce = 0
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -243,9 +246,11 @@ struct WorkspaceShellView: View {
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
                 notificationUnreadCount: presentation.notificationUnreadCount,
+                feedAttentionCount: agentFeedStore.attentionCount,
                 taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                     ? nil
-                    : taskComposerAction
+                    : taskComposerAction,
+                feed: AnyView(agentFeedTabContent())
             ) {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
@@ -343,6 +348,9 @@ struct WorkspaceShellView: View {
             .onChange(of: presentation.notificationFeedItems, initial: true) { _, items in
                 notificationFeedProjection.update(items: items)
             }
+            .task(id: agentFeedRefreshIdentity) {
+                await refreshAgentFeed()
+            }
         }
         #else
         workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
@@ -355,6 +363,100 @@ struct WorkspaceShellView: View {
     private func workspaceTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
             layoutContent(canCreateWorkspaceForSelection: canCreateWorkspaceForSelection)
+        }
+    }
+
+    private var agentFeedRefreshIdentity: String {
+        let workspaceIDs = store.workspaces.map { "\($0.rpcWorkspaceID.rawValue):\($0.name)" }.joined(separator: ",")
+        return "\(store.agentChatEventSourceIdentity)|\(store.connectionState)|\(workspaceIDs)|\(agentFeedRefreshNonce)"
+    }
+
+    private func agentFeedTabContent() -> some View {
+        AgentFeedView(
+            store: agentFeedStore,
+            variant: displaySettings.agentFeedVariant,
+            onOpenWorkspace: { entry in openFeedEntry(entry, focusTerminal: false) },
+            onOpenTerminal: { entry in openFeedEntry(entry, focusTerminal: true) }
+        )
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    agentFeedRefreshNonce &+= 1
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityLabel(L10n.string("mobile.feed.refresh", defaultValue: "Refresh Feed"))
+            }
+        }
+        .accessibilityIdentifier("MobileAgentFeedTab")
+    }
+
+    @MainActor
+    private func refreshAgentFeed() async {
+        guard store.connectionState == .connected,
+              let source = store.makeChatEventSource() else {
+            agentFeedStore.configure(
+                source: nil,
+                sessions: [],
+                workspaceNames: [:],
+                sourceIdentity: "offline"
+            )
+            return
+        }
+
+        // Register the session-list stream before the authoritative seed so a
+        // newly-started agent cannot land in the race between those two calls.
+        let sessionEventStream = await source.sessionEvents()
+        let listedSessions = (try? await source.sessions(workspaceID: nil)) ?? []
+        var sessionsByID = Dictionary(uniqueKeysWithValues: listedSessions.map { ($0.id, $0) })
+        for workspace in store.workspaces {
+            for workspaceID in [workspace.id.rawValue, workspace.rpcWorkspaceID.rawValue] {
+                let cached = store.cachedChatSessions(workspaceID: workspaceID)
+                for session in cached where sessionsByID[session.id] == nil {
+                    sessionsByID[session.id] = session
+                }
+            }
+        }
+        let names = agentFeedWorkspaceNames()
+        let initialSessions = Array(sessionsByID.values)
+        agentFeedStore.configure(
+            source: source,
+            sessions: initialSessions,
+            workspaceNames: names,
+            sourceIdentity: "\(store.agentChatEventSourceIdentity)#\(agentFeedRefreshNonce)"
+        )
+
+        var reducer = ChatSessionListReducer(workspaceID: nil)
+        for await frame in sessionEventStream {
+            guard !Task.isCancelled,
+                  store.connectionState == .connected else { break }
+            let current = agentFeedStore.sessions
+            let next = reducer.applying(frame, to: current)
+            guard next != current else { continue }
+            agentFeedStore.updateSessions(next, workspaceNames: agentFeedWorkspaceNames())
+        }
+    }
+
+    private func agentFeedWorkspaceNames() -> [String: String] {
+        var names: [String: String] = [:]
+        for workspace in store.workspaces {
+            names[workspace.rpcWorkspaceID.rawValue] = workspace.name
+            names[workspace.id.rawValue] = workspace.name
+        }
+        return names
+    }
+
+    private func openFeedEntry(_ entry: AgentFeedEntry, focusTerminal: Bool) {
+        guard let workspaceID = entry.workspaceID,
+              let workspace = store.workspaces.first(where: {
+                  $0.id.rawValue == workspaceID || $0.rpcWorkspaceID.rawValue == workspaceID
+              }) else { return }
+        transitionPrimaryTab(to: .workspaces) {
+            selectWorkspaceImmediately(workspace.id)
+            guard focusTerminal, let terminalID = entry.terminalID else { return }
+            let id = MobileTerminalPreview.ID(rawValue: terminalID)
+            guard workspace.terminals.contains(where: { $0.id == id }) else { return }
+            store.selectTerminal(id)
         }
     }
 
@@ -914,6 +1016,8 @@ struct WorkspaceShellView: View {
             }
         case .search:
             break
+        case .feed:
+            break
         }
     }
 
@@ -976,6 +1080,7 @@ struct WorkspaceShellView: View {
     private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
         switch tab {
         case .workspaces: .workspaces
+        case .feed: .feed
         case .notifications: .notifications
         case .search: .search
         }
