@@ -10110,6 +10110,40 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    private func assertTerminalPresentationPinnedToDock(
+        _ dock: [String: String],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let currentGap = dock["terminalDockPresentationGap"].flatMap(Double.init),
+              let maximumGap = dock["terminalDockMaxPresentationGap"].flatMap(Double.init),
+              let screenScale = dock["screenScale"].flatMap(Double.init),
+              screenScale > 0 else {
+            XCTFail(
+                "Missing terminal presentation-to-dock geometry for \(context). dock=\(dock)",
+                file: file,
+                line: line
+            )
+            return
+        }
+        let twoPhysicalPixels = 2 / screenScale
+        XCTAssertLessThanOrEqual(
+            currentGap,
+            twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock for \(context). dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            maximumGap,
+            twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock during \(context). dock=\(dock)",
+            file: file,
+            line: line
+        )
+    }
+
     /// Verify the built app's two-part keyboard contract at steady state:
     /// the OS-selected geometry source resolves to the real software-keyboard edge,
     /// and the visible composer/toolbar stack resolves to that same target.
@@ -10589,6 +10623,10 @@ final class cmuxUITests: XCTestCase {
             keyboard: initialKeyboard,
             context: "rapid-reversal baseline"
         )
+        assertTerminalPresentationPinnedToDock(
+            surfaceDock(in: app),
+            context: "keyboard-visible baseline"
+        )
         let composerKeyboardInset = initialKeyboard.frame.minY - composerField.frame.maxY
 
         let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
@@ -10633,7 +10671,25 @@ final class cmuxUITests: XCTestCase {
                 1,
                 "Shortcut and Composer bars separated during rapid reversal \(cycle). dock=\(dock)"
             )
+            assertTerminalPresentationPinnedToDock(
+                dock,
+                context: "rapid reversal \(cycle)"
+            )
         }
+
+        hideKeyboardButton.tap()
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        let hiddenDock = waitForDock(in: app, describe: "keyboard-hidden terminal presentation settled") {
+            $0["keyboardUp"] == "0" && $0["keyboardTransitionID"] == "-1"
+        }
+        assertTerminalPresentationPinnedToDock(
+            hiddenDock,
+            context: "keyboard-hidden settle"
+        )
+        assertTerminalRenderBottomAttachedToViewport(
+            hiddenDock,
+            context: "keyboard-hidden settle"
+        )
     }
 
     /// iOS 27 falls back to notification-driven keyboard geometry because its
