@@ -103,7 +103,7 @@ extension WorkspaceDetailView {
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
                     surfaceID: macSurface.id.rawValue
                 ),
-                connectionStatus: connectionStatus
+                connectionStatus: effectiveConnectionStatus
             )
             .id(macSurface.id.rawValue)
         case .markdown(let path):
@@ -114,7 +114,7 @@ extension WorkspaceDetailView {
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
                     surfaceID: macSurface.id.rawValue
                 ),
-                connectionStatus: connectionStatus
+                connectionStatus: effectiveConnectionStatus
             )
             .id(macSurface.id.rawValue)
         case .fallbackCard:

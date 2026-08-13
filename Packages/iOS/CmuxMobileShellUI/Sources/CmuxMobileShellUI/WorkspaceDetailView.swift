@@ -432,7 +432,9 @@ struct WorkspaceDetailView: View {
     /// with a working keyboard. Hidden retained details keep their raw
     /// status: the guard only applies to the selected workspace on the
     /// foreground connection.
-    private var effectiveConnectionStatus: MobileMacConnectionStatus {
+    /// The status shown by all detail surfaces, including foreground recovery
+    /// that has not yet been reflected in the workspace snapshot.
+    var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
            store.selectedWorkspaceUsesForegroundConnection {
             if store.connectionRecoveryFailed {
