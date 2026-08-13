@@ -171,7 +171,7 @@ extension MobileShellComposite {
             let response = try await client.sendRequest(request)
             guard MobileIrohReleaseGateResponseValidator.rpcMethodInventory(
                 response,
-                required: MobileIrohReleaseGateRPCMethodInventory.required
+                required: Self.irohReleaseGateRequiredRPCMethods
             ) else {
                 throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryFailed
             }

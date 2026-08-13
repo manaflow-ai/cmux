@@ -1,8 +1,8 @@
 #if DEBUG
 /// Mobile RPC names whose availability must negotiate over the authenticated
 /// Iroh control stream before a release-gate run can pass.
-enum MobileIrohReleaseGateRPCMethodInventory {
-    static let required: Set<String> = [
+extension MobileShellComposite {
+    static let irohReleaseGateRequiredRPCMethods: Set<String> = [
         "dogfood.feedback.submit",
         "mobile.attach_ticket.create",
         "mobile.browser.back",
