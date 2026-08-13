@@ -427,6 +427,21 @@ struct IrohTailscaleVersionSkewMacGateTests {
         #expect(plan.activatesIroh)
         #expect(plan.startsLegacyListener)
     }
+
+    private func irohAdmissionContext() throws -> MobileHostConnectionAuthorizationContext {
+        let endpointID = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let peer = CmxIrohGrantPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174001",
+            deviceID: "123e4567-e89b-42d3-a456-426614174002",
+            tag: "ios-test",
+            platform: .ios,
+            endpointID: endpointID,
+            identityGeneration: 1
+        )
+        return .irohAdmission(CmxIrohAdmittedPeer(peer: peer))
+    }
 }
 
 @MainActor
