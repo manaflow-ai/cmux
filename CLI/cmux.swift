@@ -3424,17 +3424,25 @@ struct CMUXCLI {
         let childEnvironment = ProcessInfo.processInfo.environment.filter { key, _ in
             !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
         }
-        var executionError: Int32 = 0
-        cliExecFailureErrno {
-            withCStringArray([executablePath] + commandArgs) { argv in
-                withEnvironmentCStringArray(childEnvironment) { environment in
-                    executablePath.withCString { executable in
-                        _ = execve(executable, argv, environment)
-                        // Capture errno before the CString-array cleanup can
-                        // run and potentially overwrite the thread-local value.
-                        executionError = errno
-                    }
-                }
+        var argv = ([executablePath] + commandArgs).map { strdup($0) }
+        let environmentStrings = childEnvironment.keys.sorted().map { key in
+            "\(key)=\(childEnvironment[key] ?? "")"
+        }
+        var environment = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+            for item in environment {
+                free(item)
+            }
+        }
+        argv.append(nil)
+        environment.append(nil)
+
+        let executionError = cliExecFailureErrno {
+            executablePath.withCString { executable in
+                _ = execve(executable, &argv, &environment)
             }
         }
         let errorText = String(cString: strerror(executionError))
