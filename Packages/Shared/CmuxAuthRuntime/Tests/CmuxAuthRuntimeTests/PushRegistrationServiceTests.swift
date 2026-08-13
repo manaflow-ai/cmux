@@ -831,7 +831,7 @@ actor RetryDelayRecorder {
         await upload.value
 
         let requests = await PushRegistrationURLProtocol.script.requests
-        #expect(requests.map(\.httpMethod) == ["POST", "DELETE", "DELETE"])
+        #expect(requests.map(\.httpMethod) == ["POST", "DELETE"])
         #expect(
             requests.map {
                 $0.value(forHTTPHeaderField: "Authorization")
@@ -846,6 +846,31 @@ actor RetryDelayRecorder {
                 forKey: "cmux.notifications.pendingUnregisters.v2"
             ) == nil
         )
+    }
+
+    @Test func disablingDuringInFlightEnableSerializesBackendMutation() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+            .response(200),
+        ])
+        let (service, defaults) = makeScriptedService(accountID: "account-a")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+
+        let enable = Task { await service.setEnabled(true) }
+        await started.waitUntilStarted()
+        let disable = Task { await service.setEnabled(false) }
+
+        await blocker.release()
+        await enable.value
+        await disable.value
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST", "DELETE"]
+        )
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
     }
 
     @Test func signOutDuringInFlightRegistrationDeletesAfterLatePost() async {
