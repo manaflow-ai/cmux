@@ -510,6 +510,9 @@ describe("CodeRouter handoff secret representation", () => {
     ))).toBe(false);
     expect(validTeamSelectorHeaders(new Request(
       "https://cmux.test/api/coderouter/handoff?teamId=team_1&teamId=team_1",
+    ))).toBe(true);
+    expect(validTeamSelectorHeaders(new Request(
+      "https://cmux.test/api/coderouter/handoff?teamId=team_1&teamId=team_2",
     ))).toBe(false);
     expect(validTeamSelectorHeaders(new Request(
       "https://cmux.test/api/coderouter/handoff?teamId=team_1",

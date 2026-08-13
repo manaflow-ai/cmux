@@ -1,45 +1,63 @@
 import { env } from "../../../env";
 import { hasActiveCoderouterSubscription } from "../../../../services/billing/pro";
-import { AccountDeletionMutationBlockedError } from "../../../../services/account/deletionLock";
-import {
-  CodeRouterHandoffEntitlementDenied,
-  issueCoderouterHandoffLease,
-} from "../../../../services/coderouter/repository";
+import { issueCoderouterHandoffLease } from "../../../../services/coderouter/repository";
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
-import { captureCoderouterError } from "../../../../services/errors";
-import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
-import { addCoderouterBreadcrumb, reportCoderouterFailure } from "../../../../services/coderouter/observability";
 import {
-  jsonHandoffResponse,
-  isJsonContentType,
+  mapHandoffWorkflowError,
+  mintCoderouterHandoff,
+  runHandoffWorkflow,
+  type HandoffMintDependencies as WorkflowMintDependencies,
+  type HandoffProtocol,
+} from "../../../../services/coderouter/handoffWorkflow";
+import { reportCoderouterFailure } from "../../../../services/coderouter/observability";
+import {
+  coderouterOpenaiBaseUrl,
   defaultCoderouterHandoffRateLimiter,
+  isBoundedNativeStackRequest,
+  isJsonContentType,
+  hasCoderouterHandoffTeamSelector,
+  jsonHandoffResponse,
   parseEmptyHandoffBody,
+  parseHandoffLeaseBody,
   rateLimitResponse,
   readBoundedBody,
-  isBoundedNativeStackRequest,
   validTeamSelectorHeaders,
+  hasNativeStackAuthHeaders,
   type HandoffRateLimiter,
 } from "./_shared";
 
-type HandoffMintDependencies = {
-  readonly resolveContext: typeof resolveCodeRouterRequestContext;
-  readonly hasActiveEntitlement: typeof hasActiveCoderouterSubscription;
-  readonly issueLease: typeof issueCoderouterHandoffLease;
-  readonly hostedProRequired: () => boolean;
+type HandoffMintDependencies = Omit<
+  WorkflowMintDependencies,
+  "protocol"
+> & {
   readonly rateLimit: HandoffRateLimiter;
-  readonly now?: () => Date;
 };
-
-const defaultRateLimit = defaultCoderouterHandoffRateLimiter;
 
 const defaultDependencies: HandoffMintDependencies = {
   resolveContext: resolveCodeRouterRequestContext,
   hasActiveEntitlement: hasActiveCoderouterSubscription,
   issueLease: issueCoderouterHandoffLease,
   hostedProRequired: () => env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
-  rateLimit: defaultRateLimit,
+  rateLimit: defaultCoderouterHandoffRateLimiter,
   now: () => new Date(),
 };
+
+function protocolFor(
+  dependencies: HandoffMintDependencies,
+): HandoffProtocol {
+  return {
+    rateLimit: dependencies.rateLimit,
+    hasNativeStackAuthHeaders,
+    isBoundedNativeStackRequest,
+    validTeamSelectorHeaders,
+    hasTeamSelector: hasCoderouterHandoffTeamSelector,
+    coderouterOpenaiBaseUrl,
+    readBoundedBody,
+    isJsonContentType,
+    parseEmptyHandoffBody,
+    parseHandoffLeaseBody,
+  };
+}
 
 export const POST = makeCoderouterHandoffPostHandler();
 
@@ -47,134 +65,35 @@ export function makeCoderouterHandoffPostHandler(
   dependencies: HandoffMintDependencies = defaultDependencies,
 ) {
   return async function POST(request: Request): Promise<Response> {
-    const rateLimited = rateLimitResponse(await dependencies.rateLimit(request));
-    if (rateLimited) return rateLimited;
-
-    // This endpoint deliberately does not accept the browser cookie path.
-    // Stack's native access/refresh pair is the authorization assumption
-    // defined by docs/coderouter-handoff-protocol.md.
-    if (
-      !isBoundedNativeStackRequest(request) ||
-      !validTeamSelectorHeaders(request)
-    ) {
-      captureCoderouterEvent({
-        event: "coderouter_handoff_rejected",
-        properties: {
-          surface: "mint",
-          reason: "missing_native_auth",
-        },
-      });
-      return jsonHandoffResponse({ error: "unauthorized" }, 401);
-    }
-
-    const body = await readBoundedBody(request);
-    if (!body.ok) return jsonHandoffResponse(
-      { error: body.status === 413 ? "payload_too_large" : "invalid_request" },
-      body.status,
-    );
-    if (
-      body.body.trim() &&
-      (!isJsonContentType(request) || !parseEmptyHandoffBody(body.body))
-    ) {
-      return jsonHandoffResponse({ error: "invalid_request" }, 400);
-    }
-
-    let resolved;
     try {
-      resolved = await dependencies.resolveContext(request, "use");
-    } catch (error) {
-      captureCoderouterError(error, {
-        operation: "resolve_handoff_mint_context",
-        route: "/api/coderouter/handoff",
-      });
-      return jsonHandoffResponse(
-        {
-          error: "authorization_unavailable",
-          message: "CodeRouter authorization is temporarily unavailable.",
-          retryable: true,
-        },
-        503,
-        { "retry-after": "5" },
+      const result = await runHandoffWorkflow(
+        mintCoderouterHandoff(request, {
+          protocol: protocolFor(dependencies),
+          resolveContext: dependencies.resolveContext,
+          hasActiveEntitlement: dependencies.hasActiveEntitlement,
+          issueLease: dependencies.issueLease,
+          hostedProRequired: dependencies.hostedProRequired,
+          now: dependencies.now,
+        }),
       );
-    }
-    if (!resolved.ok) return resolved.response;
-    if (!resolved.value.team.use) {
-      return jsonHandoffResponse({ error: "forbidden" }, 403);
-    }
-
-    const hostedProRequired = dependencies.hostedProRequired();
-    if (hostedProRequired) {
-      try {
-        if (
-          !(await dependencies.hasActiveEntitlement(
-            resolved.value.user.id,
-            resolved.value.team.teamId,
-          ))
-        ) {
-          return jsonHandoffResponse(
-            {
-              error: "pro_required",
-              message:
-                "Hosted coderouter requires cmux Pro or Team.",
-              retryable: false,
-            },
-            402,
-          );
-        }
-      } catch (error) {
-        captureCoderouterError(error, {
-          operation: "resolve_handoff_entitlement",
-          route: "/api/coderouter/handoff",
-        });
-        return jsonHandoffResponse(
-          {
-            error: "entitlement_unavailable",
-            message: "CodeRouter entitlement could not be verified.",
-            retryable: true,
-          },
-          503,
-          { "retry-after": "5" },
+      if (result._tag === "Left") {
+        return mapHandoffWorkflowError(
+          result.left,
+          jsonHandoffResponse,
+          rateLimitResponse,
         );
       }
-    }
-
-    let issued: Awaited<ReturnType<typeof issueCoderouterHandoffLease>>;
-    try {
-      const issuedAt = dependencies.now?.() ?? new Date();
-      if (hostedProRequired) {
-        issued = await dependencies.issueLease(
-          resolved.value.team.teamId,
-          resolved.value.user.id,
-          issuedAt,
-          async (identity, db) =>
-            await dependencies.hasActiveEntitlement(
-              identity.stackUserId,
-              identity.teamId,
-              db,
-            ),
-        );
-      } else {
-        issued = await dependencies.issueLease(
-          resolved.value.team.teamId,
-          resolved.value.user.id,
-          issuedAt,
-        );
-      }
+      return jsonHandoffResponse({
+        teamId: result.right.teamId,
+        lease: result.right.lease,
+        expiresAt: result.right.expiresAt.toISOString(),
+      });
     } catch (error) {
-      if (error instanceof AccountDeletionMutationBlockedError) {
-        return jsonHandoffResponse(
-          { error: "account_deletion_in_progress", retryable: false },
-          409,
-        );
-      }
-      if (error instanceof CodeRouterHandoffEntitlementDenied) {
-        return jsonHandoffResponse(
-          { error: "pro_required", retryable: false },
-          402,
-        );
-      }
+      // The workflow maps expected failures into typed outcomes. This catch is
+      // only for an unexpected defect; report a low-cardinality operation and
+      // never include request headers, body, or lease values.
       reportCoderouterFailure("rds", error, {
-        operation: "issue_handoff_lease",
+        operation: "handoff_mint_workflow",
       });
       return jsonHandoffResponse(
         {
@@ -186,20 +105,5 @@ export function makeCoderouterHandoffPostHandler(
         { "retry-after": "5" },
       );
     }
-
-    // Never include the lease in telemetry. The value is returned only in this
-    // no-store response and is represented in storage by its digest.
-    captureCoderouterEvent({
-      event: "coderouter_handoff_lease_issued",
-      userId: resolved.value.user.id,
-      teamId: resolved.value.team.teamId,
-      properties: { authorization_mode: "native_stack" },
-    });
-    addCoderouterBreadcrumb("handoff", "Handoff lease issued");
-    return jsonHandoffResponse({
-      teamId: resolved.value.team.teamId,
-      lease: issued.lease,
-      expiresAt: issued.expiresAt.toISOString(),
-    });
   };
 }

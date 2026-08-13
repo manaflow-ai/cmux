@@ -458,6 +458,11 @@ export async function deleteAccount(input: {
 }): Promise<{ removed: boolean; lastAccount: boolean }> {
   const now = input.now ?? new Date();
   return await cloudDb().transaction(async (tx) => {
+    // Removing the last provider account revokes the team's handoff
+    // authority. Serialize that decision with mint/exchange before checking
+    // for remaining accounts; otherwise an exchange that already selected a
+    // lease could claim it after this transaction's revocation update.
+    await lockHandoffTeam(tx, input.teamId);
     const [removed] = await tx
       .delete(coderouterAccounts)
       .where(and(

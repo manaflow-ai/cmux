@@ -175,25 +175,21 @@ export function validTeamSelectorHeaders(request: Request): boolean {
     if (!boundedSelector(value)) return false;
     selectors.add(value);
   }
-  const allowedQueryNames: ReadonlySet<string> = new Set(
-    CODEROUTER_HANDOFF_TEAM_QUERY_NAMES,
-  );
-  let searchParams: URLSearchParams;
   try {
-    searchParams = new URL(request.url).searchParams;
-    for (const name of searchParams.keys()) {
+    const searchParams = new URL(request.url).searchParams;
+    const allowedQueryNames: ReadonlySet<string> = new Set(
+      CODEROUTER_HANDOFF_TEAM_QUERY_NAMES,
+    );
+    // Inspect every occurrence. URLSearchParams.get() would silently choose
+    // the first value for repeated aliases, allowing a later authorization
+    // layer to consume a different selector than the one we validated.
+    for (const [name, value] of searchParams) {
       if (!allowedQueryNames.has(name)) return false;
+      if (!boundedSelector(value)) return false;
+      selectors.add(value);
     }
   } catch {
     return false;
-  }
-  for (const name of CODEROUTER_HANDOFF_TEAM_QUERY_NAMES) {
-    const values = searchParams.getAll(name);
-    if (values.length > 1) return false;
-    const value = values[0];
-    if (value === undefined) continue;
-    if (!boundedSelector(value)) return false;
-    selectors.add(value);
   }
   return selectors.size <= 1;
 }

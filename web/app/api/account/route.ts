@@ -1418,7 +1418,12 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
   const db = cloudDb();
   await db.transaction(async (tx) => {
     const now = new Date();
-    const deletionTeamIds = uniqueNonEmptyStrings([userId, ...accountTeamIds]);
+    // Acquire the extra VM/team locks in a stable order. The handoff
+    // authority helper below uses the same sorted-team rule; keeping this
+    // prelude deterministic prevents two deletion retries with overlapping
+    // teams from waiting on one another in opposite orders.
+    const deletionTeamIds = [...uniqueNonEmptyStrings([userId, ...accountTeamIds])]
+      .sort();
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`,
     );
