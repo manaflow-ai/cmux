@@ -28,6 +28,7 @@ cr usage                      show quota state
 cr doctor                     diagnose login and the Vercel data plane
 cr login / cr logout          manage this machine's coderouter session
 cr login --device-auth        copy a code into coderouter.dev/authorize
+cr capabilities --json        report credential-free CLI capabilities
 cr org current                show the active organization
 cr org list                   list authorized coderouter organizations
 cr org switch <name-or-id>    switch organization and routing credentials

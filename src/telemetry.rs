@@ -62,6 +62,7 @@ pub(crate) struct CommandTelemetry {
 
 impl CommandTelemetry {
     pub(crate) fn start(args: &[OsString]) -> Self {
+        let credential_free = is_capabilities_command(args);
         Self {
             started: Instant::now(),
             dimensions: classify_command(args),
@@ -71,8 +72,14 @@ impl CommandTelemetry {
             } else {
                 "headless"
             },
-            initial_transport: Transport::from_saved_config(),
-            enabled: telemetry_enabled(),
+            // Capability discovery must not inspect or transmit the saved
+            // session. It is intentionally usable before authentication.
+            initial_transport: if credential_free {
+                None
+            } else {
+                Transport::from_saved_config()
+            },
+            enabled: !credential_free && telemetry_enabled(),
         }
     }
 
@@ -121,6 +128,10 @@ impl CommandTelemetry {
         };
         transport.send(&batch);
     }
+}
+
+fn is_capabilities_command(args: &[OsString]) -> bool {
+    args.get(1).and_then(|arg| arg.to_str()) == Some("capabilities")
 }
 
 impl Transport {
@@ -423,6 +434,13 @@ mod tests {
         for value in ["", "0", "false", "no", "off"] {
             assert!(!opt_out_value(value));
         }
+    }
+
+    #[test]
+    fn capability_probe_does_not_load_or_send_the_saved_session() {
+        let telemetry = CommandTelemetry::start(&args(&["coderouter", "capabilities", "--json"]));
+        assert!(!telemetry.enabled);
+        assert!(telemetry.initial_transport.is_none());
     }
 
     #[test]

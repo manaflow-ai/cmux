@@ -15,13 +15,74 @@ fn both_binary_names_show_the_same_help() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("cr add opencode"));
+        .stdout(
+            predicate::str::contains("cr add opencode")
+                .and(predicate::str::contains("cr capabilities --json")),
+        );
     Command::cargo_bin("coderouter")
         .unwrap()
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("cr add codex"));
+        .stdout(
+            predicate::str::contains("cr add codex")
+                .and(predicate::str::contains("cr capabilities --json")),
+        );
+}
+
+#[test]
+fn both_binary_names_report_strict_credential_free_capabilities() {
+    let expected = json!({
+        "product": "coderouter",
+        "cliVersion": env!("CARGO_PKG_VERSION"),
+        "protocolVersion": 1,
+        "authModes": ["standalone-stack", "cmux-broker-v1"],
+        "features": ["route-session", "organization-scope"],
+    });
+
+    for binary in ["coderouter", "cr"] {
+        let root = TempDir::new().unwrap();
+        let config = root.path().join("coderouter");
+        fs::create_dir_all(&config).unwrap();
+        // A capability probe must not need to parse or use the saved session.
+        fs::write(config.join("config.json"), b"not-json").unwrap();
+
+        let output = Command::cargo_bin(binary)
+            .unwrap()
+            .args(["capabilities", "--json"])
+            .env("CODEROUTER_DATA_DIR", root.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{binary} capabilities failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "{binary} capabilities wrote to stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value, expected);
+        assert_eq!(value.as_object().unwrap().len(), 5);
+    }
+}
+
+#[test]
+fn capabilities_rejects_non_json_arguments_without_emitting_json() {
+    let output = Command::cargo_bin("coderouter")
+        .unwrap()
+        .args(["capabilities", "--json", "--extra"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "coderouter: usage: coderouter capabilities --json\n"
+    );
 }
 
 #[cfg(unix)]

@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use serde::Serialize;
 use serde_json::{Value, json};
 use thiserror::Error;
 
@@ -27,6 +28,7 @@ Usage:
   cr login | logout             Manage this machine's coderouter login
   cr login --server <URL>        Sign in to a self-hosted coderouter server
   cr login --code [code|URL]    Sign in without opening a local browser
+  cr capabilities --json        Report credential-free CLI capabilities
   cr org current                Show the active organization
   cr org list                   List available organizations
   cr org switch <name-or-id>    Switch organization and renew routing access
@@ -53,6 +55,16 @@ pub enum Error {
     Io(#[from] io::Error),
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Capabilities {
+    product: &'static str,
+    cli_version: &'static str,
+    protocol_version: u8,
+    auth_modes: [&'static str; 2],
+    features: [&'static str; 2],
+}
+
 pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
     let mut args = args.into_iter();
     let _program = args.next();
@@ -68,6 +80,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
             println!("coderouter {}", env!("CARGO_PKG_VERSION"));
             Ok(0)
         }
+        Some("capabilities") => run_capabilities(&remaining[1..]),
         Some("naked" | "direct") => run_naked(&remaining[1..]),
         Some("add") => run_add(&remaining[1..]),
         Some("remove" | "rm") => run_remove(&remaining[1..]),
@@ -85,6 +98,24 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
             "unknown coderouter command `{value}`; run Codex explicitly with `coderouter codex [arguments...]` (or shorthand `cr codex [arguments...]`)"
         ))),
     }
+}
+
+fn run_capabilities(args: &[OsString]) -> Result<i32, Error> {
+    if args.len() != 1 || args[0].to_str() != Some("--json") {
+        return Err(Error::Usage("usage: coderouter capabilities --json".into()));
+    }
+
+    let capabilities = Capabilities {
+        product: "coderouter",
+        cli_version: env!("CARGO_PKG_VERSION"),
+        protocol_version: 1,
+        auth_modes: ["standalone-stack", "cmux-broker-v1"],
+        features: ["route-session", "organization-scope"],
+    };
+    let output = serde_json::to_string(&capabilities)
+        .map_err(|error| Error::Backend(format!("encode coderouter capabilities: {error}")))?;
+    println!("{output}");
+    Ok(0)
 }
 
 fn run_routed_pi(args: &[OsString]) -> Result<i32, Error> {
@@ -646,6 +677,41 @@ mod tests {
     #[test]
     fn help_is_a_management_command() {
         assert_eq!(run(args(&["cr", "--help"])).unwrap(), 0);
+    }
+
+    #[test]
+    fn capabilities_requires_the_json_format_flag() {
+        for values in [
+            &["cr", "capabilities"][..],
+            &["cr", "capabilities", "--yaml"][..],
+            &["cr", "capabilities", "--json", "extra"][..],
+        ] {
+            let error = run(args(values)).unwrap_err();
+            assert_eq!(error.to_string(), "usage: coderouter capabilities --json");
+        }
+    }
+
+    #[test]
+    fn capabilities_contract_is_strict_and_versioned() {
+        let capabilities = Capabilities {
+            product: "coderouter",
+            cli_version: env!("CARGO_PKG_VERSION"),
+            protocol_version: 1,
+            auth_modes: ["standalone-stack", "cmux-broker-v1"],
+            features: ["route-session", "organization-scope"],
+        };
+        let value = serde_json::to_value(capabilities).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "product": "coderouter",
+                "cliVersion": env!("CARGO_PKG_VERSION"),
+                "protocolVersion": 1,
+                "authModes": ["standalone-stack", "cmux-broker-v1"],
+                "features": ["route-session", "organization-scope"],
+            })
+        );
+        assert_eq!(value.as_object().unwrap().len(), 5);
     }
 
     #[test]
