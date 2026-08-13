@@ -23,6 +23,7 @@ struct MobilePushToggle: View {
     @State private var reconciliationID: UUID?
     @State private var previousValue: Bool?
     @State private var retryValue: Bool?
+    @State private var mutationTimedOut = false
     @State private var showsMutationError = false
 
     var body: some View {
@@ -46,7 +47,7 @@ struct MobilePushToggle: View {
                 .foregroundStyle(.red)
                 .accessibilityIdentifier("MobileSettingsNotificationsError")
 
-                if let retryValue {
+                if mutationTask == nil, reconciliationTask == nil, let retryValue {
                     Button {
                         startMutation(retryValue)
                     } label: {
@@ -83,6 +84,7 @@ struct MobilePushToggle: View {
         reconciliationTimeoutTask?.cancel()
         reconciliationTimeoutTask = nil
         reconciliationID = nil
+        mutationTimedOut = false
         showsMutationError = false
         retryValue = nil
         let mutationID = UUID()
@@ -93,7 +95,7 @@ struct MobilePushToggle: View {
         isUpdating = true
         mutationTask = Task { @MainActor in
             let succeeded = await onChange(requested)
-            guard !Task.isCancelled else { return }
+            guard self.mutationID == mutationID else { return }
             finishMutation(
                 id: mutationID,
                 requested: requested,
@@ -107,28 +109,25 @@ struct MobilePushToggle: View {
                 return
             }
             guard !Task.isCancelled else { return }
-            finishMutation(
-                id: mutationID,
-                requested: requested,
-                succeeded: false,
-                cancelOperation: true,
-                outcomeUnknown: true
-            )
+            guard self.mutationID == mutationID else { return }
+            // Cancellation is only a request. Keep the operation as the
+            // owner of the write until it actually returns, then reconcile.
+            mutationTimedOut = true
+            showsMutationError = true
+            retryValue = requested
+            mutationTask?.cancel()
+            mutationTimeoutTask = nil
         }
     }
 
     private func finishMutation(
         id: UUID,
         requested: Bool,
-        succeeded: Bool,
-        cancelOperation: Bool = false,
-        outcomeUnknown: Bool = false
+        succeeded: Bool
     ) {
         guard mutationID == id else { return }
-        if cancelOperation {
-            mutationTask?.cancel()
-        }
-        if !succeeded, !outcomeUnknown, let previousValue {
+        let outcomeWasUnknown = mutationTimedOut
+        if !succeeded, !outcomeWasUnknown, let previousValue {
             isEnabled = previousValue
         }
         if !succeeded {
@@ -140,34 +139,39 @@ struct MobilePushToggle: View {
         mutationTimeoutTask = nil
         mutationID = nil
         previousValue = nil
+        mutationTimedOut = false
         isUpdating = false
-        if outcomeUnknown {
+        if outcomeWasUnknown {
             startReconciliation(for: requested)
         }
     }
 
     private func cancelMutation() {
+        guard mutationTask != nil else {
+            mutationTimeoutTask?.cancel()
+            mutationTimeoutTask = nil
+            reconciliationTask?.cancel()
+            reconciliationTimeoutTask?.cancel()
+            reconciliationTask = nil
+            reconciliationTimeoutTask = nil
+            reconciliationID = nil
+            return
+        }
+
+        // A disappearing view may cancel the task after its request reached
+        // the service. Preserve the active operation and let its completion
+        // trigger reconciliation, rather than clearing its ownership here.
+        mutationTimedOut = true
+        showsMutationError = true
+        retryValue = isEnabled
         mutationTask?.cancel()
         mutationTimeoutTask?.cancel()
+        mutationTimeoutTask = nil
         reconciliationTask?.cancel()
         reconciliationTimeoutTask?.cancel()
         reconciliationTask = nil
         reconciliationTimeoutTask = nil
         reconciliationID = nil
-        // Cancellation cannot prove that an already-submitted request did not
-        // commit. Keep the optimistic value marked unknown until the next
-        // appearance asks the owner for its authoritative state.
-        if let previousValue {
-            if isEnabled != previousValue {
-                showsMutationError = true
-                retryValue = isEnabled
-            }
-        }
-        mutationTask = nil
-        mutationTimeoutTask = nil
-        mutationID = nil
-        previousValue = nil
-        isUpdating = false
     }
 
     private func startReconciliation(for requested: Bool) {
