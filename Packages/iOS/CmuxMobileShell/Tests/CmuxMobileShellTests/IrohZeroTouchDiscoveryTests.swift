@@ -330,6 +330,43 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func startupBackupRefreshRunsAlongsideLiveDiscovery() async throws {
+        let live = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: []
+        )
+        await pairedMacStore.gateBackupRefresh()
+        let fixture = try await makeFixture(
+            discovery: discovery,
+            reportedDeviceID: "mac-a",
+            pairedMacStore: pairedMacStore
+        )
+        defer {
+            Task { await pairedMacStore.releaseBackupRefresh() }
+            fixture.cleanup()
+        }
+
+        let reconnect = Task { @MainActor in
+            await fixture.shell.reconnectActiveMacIfAvailable(
+                stackUserID: "user-1",
+                refreshBackupBeforeDial: false,
+                refreshBackupInBackground: true
+            )
+        }
+        await pairedMacStore.waitUntilBackupRefreshStarted()
+
+        #expect(try await pollUntil {
+            fixture.factory.attemptedRouteIDs() == ["iroh-mac-a"]
+        })
+        #expect(await reconnect.value)
+        #expect(discovery.callCount() == 1)
+        await pairedMacStore.releaseBackupRefresh()
+        await pairedMacStore.waitUntilBackupRefreshFinished()
+    }
+
+    @Test
     func signOutWhileDiscoveryIsSuspendedPreventsDialAndPersistence() async throws {
         let live = try candidate(deviceID: "mac-a", endpointByte: "a")
         let discovery = SuspendedIrohDiscovery(candidates: [live])
@@ -429,14 +466,26 @@ struct IrohZeroTouchDiscoveryTests {
         discovery: any MobileIrohMacDiscovering,
         reportedDeviceID: String,
         failingRouteIDs: Set<String> = [],
-        rateLimitedRouteIDs: Set<String> = []
+        rateLimitedRouteIDs: Set<String> = [],
+        pairedMacStore: (any MobilePairedMacStoring)? = nil
     ) async throws -> ZeroTouchFixture {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let store = try MobilePairedMacStore(
-            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
-        )
+        let directory: URL?
+        let store: any MobilePairedMacStoring
+        if let pairedMacStore {
+            directory = nil
+            store = pairedMacStore
+        } else {
+            let databaseDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: databaseDirectory,
+                withIntermediateDirectories: true
+            )
+            directory = databaseDirectory
+            store = try MobilePairedMacStore(
+                databaseURL: databaseDirectory.appendingPathComponent("paired-macs.sqlite3")
+            )
+        }
         let router = LivenessHostRouter()
         await router.setHostIdentity(
             deviceID: reportedDeviceID,
@@ -628,13 +677,15 @@ private enum ZeroTouchRouteError: CmxRetryAfterProviding {
 @MainActor
 private struct ZeroTouchFixture {
     let shell: MobileShellComposite
-    let store: MobilePairedMacStore
+    let store: any MobilePairedMacStoring
     let factory: ZeroTouchRouteFactory
     let router: LivenessHostRouter
-    let directory: URL
+    let directory: URL?
 
     func cleanup() {
         Task { await shell.remoteClient?.disconnect() }
-        try? FileManager.default.removeItem(at: directory)
+        if let directory {
+            try? FileManager.default.removeItem(at: directory)
+        }
     }
 }

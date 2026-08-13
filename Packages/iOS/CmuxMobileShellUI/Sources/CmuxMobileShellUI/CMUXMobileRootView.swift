@@ -6,12 +6,18 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
+import OSLog
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
+
+nonisolated private let mobileRootStartupSignposter = OSSignposter(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "mobile-startup"
+)
 
 struct CMUXMobileRootView: View {
     private static let startupRestoringGateSeconds: Double = 6
@@ -861,7 +867,9 @@ struct CMUXMobileRootView: View {
             coordinator: startupConnectionCoordinator,
             runAttempt: { [store, authManager] in
                 await store.reconnectActiveMacIfAvailable(
-                    stackUserID: authManager.currentUser?.id
+                    stackUserID: authManager.currentUser?.id,
+                    refreshBackupBeforeDial: false,
+                    refreshBackupInBackground: true
                 )
             }
         )
@@ -1015,7 +1023,11 @@ struct CMUXMobileRootView: View {
         }
         Task {
             defer { restoringGateDeadline.cancel() }
-            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            _ = await store.reconnectActiveMacIfAvailable(
+                stackUserID: stackUserID,
+                refreshBackupBeforeDial: false,
+                refreshBackupInBackground: true
+            )
             startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
         }
     }
@@ -1032,6 +1044,15 @@ struct CMUXMobileRootView: View {
     }
 
     private func finishAuthenticationBootstrapAndConnect() async {
+        let authBootstrapInterval = mobileRootStartupSignposter.beginInterval(
+            "authBootstrap"
+        )
+        defer {
+            mobileRootStartupSignposter.endInterval(
+                "authBootstrap",
+                authBootstrapInterval
+            )
+        }
         await authManager.awaitBootstrapped()
         guard !Task.isCancelled else { return }
         if authManager.isAuthenticated {

@@ -17,6 +17,7 @@ extension CmxIrohClientRuntime {
     func handleSupervisorNetworkChange(revision: UInt64) {
         guard lifecycleRevision == revision,
               lifecyclePhase.ownsNetworkOperation else { return }
+        initialDiscoverySnapshotAvailable = false
         guard registrationRefreshEnabled else {
             registrationRefreshPending = true
             return
