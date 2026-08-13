@@ -373,61 +373,13 @@ jobs:
           install -m 600 testbox-benchmark/setup-identity.json "$marker"
           test -s "$marker"
 
-      # run-testbox publishes ready best-effort and then keeps the VM alive.
-      # Publish and acknowledge readiness before entering that blocking action;
-      # if this bounded check fails, the always-run action sees a failed job and
-      # reports hydration_failed instead of advertising an unusable box.
-      - name: Verify Testbox readiness acknowledgement
-        if: success()
-        env:
-          EXPECTED_TESTBOX_ID: ${{ inputs.testbox_id }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          state=/tmp/.testbox
-          api_url="$(<"$state/api_url")"
-          auth_token="$(<"$state/auth_token")"
-          runner_host="$(<"$state/runner_host")"
-          runner_ssh_port="$(<"$state/runner_ssh_port")"
-          working_directory="$(<"$state/working_directory")"
-          adopted_run_id="$(<"$state/adopted_run_id")"
-          installation_model_id="$(<"$state/installation_model_id")"
-          payload="$(jq -n \
-            --arg testbox_id "$EXPECTED_TESTBOX_ID" \
-            --arg runner_host "$runner_host" \
-            --arg runner_ssh_port "$runner_ssh_port" \
-            --arg working_directory "$working_directory" \
-            --arg adopted_run_id "$adopted_run_id" \
-            --argjson installation_model_id "$installation_model_id" \
-            '{testbox_id: $testbox_id, installation_model_id: $installation_model_id, status: "ready", ip_address: $runner_host, ssh_port: $runner_ssh_port, working_directory: $working_directory, adopted_run_id: $adopted_run_id, metadata: {}}')"
-          response=""
-          for attempt in 1 2 3 4 5; do
-            set +e
-            response="$(curl -fsS --connect-timeout 2 --max-time 10 \
-              -X POST "$api_url/api/testbox/phone-home" \
-              -H 'Content-Type: application/json' \
-              -H "Authorization: Bearer $auth_token" \
-              --data "$payload" 2>"$RUNNER_TEMP/testbox-ready-phone-home-$attempt.err")"
-            phone_home_status=$?
-            set -e
-            if (( phone_home_status == 0 )); then
-              # The API may acknowledge a valid phone-home with 204 No Content.
-              # Curl success is the acknowledgement; a response body is optional.
-              printf '%s\n' "$response" >"$RUNNER_TEMP/testbox-ready-phone-home-response.txt"
-              exit 0
-            fi
-            if (( attempt < 5 )); then
-              sleep $((attempt * 2))
-            fi
-          done
-          echo "::error::Testbox ready acknowledgement failed after bounded retries" >&2
-          cat "$RUNNER_TEMP"/testbox-ready-phone-home-*.err >&2 || true
-          exit 1
-
-      # Always hand control back to Testbox. The pinned action receives the
-      # final job status and reports hydration_failed, rather than ready, when
-      # any setup or readiness step failed. Rust builds are issued later with
-      # `blacksmith testbox run`.
-      - name: Run Testbox
-        uses: useblacksmith/run-testbox@3f60ff9ceb2c10c3feefa87dc0c6490cffae059d # v2 + hydration-failure reporting
+      # Keepalive is checked into this reviewed workflow instead of importing
+      # an upstream composite that performs an unbounded duplicate ready curl.
+      # It reports hydration_failed on any failed setup/readiness path and
+      # bounds every phone-home request before entering its idle loop.
+      - name: Run trusted Testbox keepalive
         if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: ./scripts/blacksmith-testbox-keepalive.sh
