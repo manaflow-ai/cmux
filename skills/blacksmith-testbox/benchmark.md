@@ -158,9 +158,11 @@ exit "$benchmark_status"
 `first-clean` removes only the remote `cmux-tui/target` directory before a
 debug `cargo build -p cmux-tui --locked`. `incremental-noop` repeats that exact
 command without changing source. `changed-file` appends a comment to
-`cmux-tui/crates/cmux-tui/src/main.rs`, builds, and restores the original bytes
-before the remote command exits. The local worktree is never mutated by the
-helper.
+`cmux-tui/crates/cmux-tui/src/main.rs` immediately before the build, which
+changes Cargo's fingerprint, then restores the original bytes before the remote
+command exits. The helper holds a remote stage lock so concurrent Testbox run
+requests cannot overwrite timing files. The local worktree is never mutated by
+the helper.
 
 The local `*.run.log` files include Testbox run IDs and CLI wall time. The
  downloaded `raw/*.json`, `raw/*.log`, and `raw/*.time` files are the remote

@@ -32,6 +32,11 @@ fi
 
 benchmark_dir="$repo_root/testbox-benchmark"
 mkdir -p "$benchmark_dir"
+# Testbox can acknowledge a run while its remote shell is still flushing
+# output. Serialize stages and hold the lock through artifact writes so a
+# subsequent run cannot overwrite a prior stage's timing file.
+exec 9>"$benchmark_dir/.stage.lock"
+flock -x 9
 log_path="$benchmark_dir/$stage.log"
 time_path="$benchmark_dir/$stage.time"
 json_path="$benchmark_dir/$stage.json"

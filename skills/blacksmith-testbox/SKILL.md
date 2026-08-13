@@ -155,7 +155,8 @@ CLI wall time when evaluating Testbox overhead.
 `zig build --fetch`, and the workflow may restore registry, git, and Zig caches.
 `incremental-noop` measures a second build on the same VM. `changed-file` adds a
 comment to `cmux-tui/crates/cmux-tui/src/main.rs`, builds, and restores the
-original file. These are deliberately different from a cold-VM benchmark.
+original file. The helper serializes stages with a remote lock. These are
+deliberately different from a cold-VM benchmark.
 
 Do not invent a local baseline. The cmux-tui instructions prohibit local Rust
 builds, so local evidence is explicitly unavailable. Prior hosted correctness
