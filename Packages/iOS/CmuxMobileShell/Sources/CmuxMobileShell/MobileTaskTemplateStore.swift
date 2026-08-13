@@ -17,6 +17,8 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     // v4 resets the unshipped seeds onto the environment-only prompt contract.
     private static let templatesKey = "cmux.mobile.taskTemplates.v4"
     private static let seededKey = "cmux.mobile.taskTemplates.seeded.v4"
+    private static let builtInProtectionMigrationKey =
+        "cmux.mobile.taskTemplates.builtInProtectionMigrated.v1"
     private static let legacyKeys = [
         "cmux.mobile.taskTemplates.v1",
         "cmux.mobile.taskTemplates.seeded.v1",
@@ -42,13 +44,17 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     /// Returns all stored templates, seeding defaults on the first read.
     public func listTemplates() -> [MobileTaskTemplate] {
         seedIfNeeded()
-        return loadTemplates()
+        let migrated = migrateBuiltInProtectionIfNeeded(loadTemplates())
+        return reconcileBuiltInTemplates(migrated)
     }
 
     /// Appends a template and persists the full list.
     public func addTemplate(_ template: MobileTaskTemplate) {
         var templates = listTemplates()
-        templates.append(template)
+        var customTemplate = template
+        customTemplate.isBuiltIn = false
+        customTemplate.builtInKind = nil
+        templates.append(customTemplate)
         saveTemplates(templates)
     }
 
@@ -56,7 +62,10 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     public func updateTemplate(_ template: MobileTaskTemplate) {
         var templates = listTemplates()
         guard let index = templates.firstIndex(where: { $0.id == template.id }) else { return }
-        templates[index] = template
+        var updatedTemplate = template
+        updatedTemplate.isBuiltIn = templates[index].isBuiltIn
+        updatedTemplate.builtInKind = templates[index].builtInKind
+        templates[index] = updatedTemplate
         saveTemplates(templates)
     }
 
@@ -64,9 +73,13 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     public func deleteTemplates(ids: Set<MobileTaskTemplate.ID>) {
         guard !ids.isEmpty else { return }
         var templates = listTemplates()
-        templates.removeAll { ids.contains($0.id) }
+        let deletedIDs = Set(templates.lazy.compactMap { template in
+            ids.contains(template.id) && !template.isBuiltIn ? template.id : nil
+        })
+        guard !deletedIDs.isEmpty else { return }
+        templates.removeAll { deletedIDs.contains($0.id) }
         saveTemplates(templates)
-        if let lastTemplateID = lastTemplateID(), ids.contains(lastTemplateID) {
+        if let lastTemplateID = lastTemplateID(), deletedIDs.contains(lastTemplateID) {
             setLastTemplateID(nil)
         }
     }
@@ -169,6 +182,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         let keys = [
             Self.templatesKey,
             Self.seededKey,
+            Self.builtInProtectionMigrationKey,
             Self.lastTemplateIDKey,
             Self.lastMacDeviceIDKey,
             Self.composerDraftKey,
@@ -189,13 +203,17 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
         for key in Self.legacyKeys {
             defaults.removeObject(forKey: key)
         }
-        saveTemplates(MobileTaskTemplate.seedDefaults(
+        saveTemplates(defaultTemplates())
+        defaults.set(true, forKey: Self.seededKey)
+    }
+
+    private func defaultTemplates() -> [MobileTaskTemplate] {
+        MobileTaskTemplate.seedDefaults(
             claudeName: L10n.string("mobile.taskComposer.template.seed.claude", defaultValue: "Claude"),
             codexName: L10n.string("mobile.taskComposer.template.seed.codex", defaultValue: "Codex"),
             openCodeName: L10n.string("mobile.taskComposer.template.seed.opencode", defaultValue: "OpenCode"),
             shellName: L10n.string("mobile.taskComposer.template.seed.shell", defaultValue: "Shell")
-        ))
-        defaults.set(true, forKey: Self.seededKey)
+        )
     }
 
     private func loadTemplates() -> [MobileTaskTemplate] {
@@ -210,6 +228,132 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
                 failure: .protocolViolation
             )
             return []
+        }
+    }
+
+    private func migrateBuiltInProtectionIfNeeded(
+        _ templates: [MobileTaskTemplate]
+    ) -> [MobileTaskTemplate] {
+        guard !defaults.bool(forKey: Self.builtInProtectionMigrationKey) else {
+            return templates
+        }
+
+        var migratedTemplates = templates
+        var didChange = false
+        for index in migratedTemplates.indices
+        where !migratedTemplates[index].isBuiltIn
+            && Self.legacyBuiltInKind(for: migratedTemplates[index]) != nil {
+            migratedTemplates[index].isBuiltIn = true
+            didChange = true
+        }
+        if didChange {
+            saveTemplates(migratedTemplates)
+        }
+        defaults.set(true, forKey: Self.builtInProtectionMigrationKey)
+        return migratedTemplates
+    }
+
+    /// Repairs the shipped/custom ownership boundary on every read. The
+    /// reconciliation is intentionally idempotent so a seed removed by an
+    /// older build is restored, while editable built-in rows retain their
+    /// stable identity and custom rows remain deletable.
+    private func reconcileBuiltInTemplates(
+        _ templates: [MobileTaskTemplate]
+    ) -> [MobileTaskTemplate] {
+        let defaultsByKind = Dictionary(
+            uniqueKeysWithValues: defaultTemplates().compactMap { template in
+                template.builtInKind.map { ($0, template) }
+            }
+        )
+        var working = templates
+        var claimedIndices = Set<Int>()
+        var resolved: [MobileTaskBuiltInTemplateKind: MobileTaskTemplate] = [:]
+
+        func claim(_ index: Int, as kind: MobileTaskBuiltInTemplateKind) {
+            var template = working[index]
+            template.isBuiltIn = true
+            template.builtInKind = kind
+            working[index] = template
+            claimedIndices.insert(index)
+            resolved[kind] = template
+        }
+
+        // New data carries an explicit identity, so edits to name, icon, or
+        // command cannot turn a shipped row into a deletable custom row.
+        for kind in MobileTaskBuiltInTemplateKind.allCases {
+            if let index = working.indices.first(where: {
+                !claimedIndices.contains($0) && working[$0].builtInKind == kind
+            }) {
+                claim(index, as: kind)
+            }
+        }
+
+        // Legacy v4 data has no identity. Claim the first canonical signature
+        // for each missing kind, which matches the original seed-before-custom
+        // ordering and leaves later matching rows custom.
+        for kind in MobileTaskBuiltInTemplateKind.allCases where resolved[kind] == nil {
+            if let index = working.indices.first(where: {
+                !claimedIndices.contains($0)
+                    && Self.legacyBuiltInKind(for: working[$0]) == kind
+            }) {
+                claim(index, as: kind)
+            }
+        }
+
+        // A legacy built-in may have been edited before this migration. It is
+        // still protected, so assign remaining shipped slots by their original
+        // relative order before creating any missing seed rows.
+        let unknownProtectedIndices = working.indices.filter {
+            !claimedIndices.contains($0)
+                && working[$0].isBuiltIn
+                && working[$0].builtInKind == nil
+                && Self.legacyBuiltInKind(for: working[$0]) == nil
+        }
+        for kind in MobileTaskBuiltInTemplateKind.allCases where resolved[kind] == nil {
+            guard let index = unknownProtectedIndices.first(where: { !claimedIndices.contains($0) }) else {
+                break
+            }
+            claim(index, as: kind)
+        }
+
+        // Re-create any shipped row that was actually removed by an older
+        // build. New rows receive a fresh id, while the custom list is kept.
+        for kind in MobileTaskBuiltInTemplateKind.allCases where resolved[kind] == nil {
+            guard let template = defaultsByKind[kind] else { continue }
+            resolved[kind] = template
+        }
+
+        var reconciled = MobileTaskBuiltInTemplateKind.allCases.compactMap { resolved[$0] }
+        for index in working.indices where !claimedIndices.contains(index) {
+            var template = working[index]
+            // A duplicate legacy signature or an old provenance bit without a
+            // corresponding shipped slot is custom data, and must stay deletable.
+            template.isBuiltIn = false
+            template.builtInKind = nil
+            reconciled.append(template)
+        }
+
+        if reconciled != templates {
+            saveTemplates(reconciled)
+        }
+        return reconciled
+    }
+
+    private static func legacyBuiltInKind(
+        for template: MobileTaskTemplate
+    ) -> MobileTaskBuiltInTemplateKind? {
+        guard template.defaultDirectory == nil else { return nil }
+        switch (template.icon, template.command) {
+        case ("agent:claude", "claude -- \"$CMUX_TASK_PROMPT\""):
+            return .claude
+        case ("agent:codex", "codex -- \"$CMUX_TASK_PROMPT\""):
+            return .codex
+        case ("agent:opencode", "opencode --prompt \"$CMUX_TASK_PROMPT\""):
+            return .openCode
+        case ("terminal", ""):
+            return .shell
+        default:
+            return nil
         }
     }
 

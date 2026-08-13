@@ -13,6 +13,9 @@ extension TaskComposerSheet {
               !selectedMacDeviceID.isEmpty else {
             return false
         }
+        if let taskAttachmentsCapabilityOverride {
+            return taskAttachmentsCapabilityOverride
+        }
         return store.supportsTaskAttachments(
             macDeviceID: selectedMacDeviceID,
             instanceTag: selectedMacInstanceTag

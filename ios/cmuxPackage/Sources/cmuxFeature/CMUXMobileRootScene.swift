@@ -180,9 +180,18 @@ public struct CMUXMobileRootScene: View {
         do {
             #if DEBUG
             if UITestConfig.mockDataEnabled {
+                // Manual-pair UI tests can relaunch the app after connecting.
+                // Their injected device name is unique to one test invocation
+                // and survives that relaunch, while every other mock launch
+                // stays isolated. Ports can be reused by later runner jobs.
+                let storeID = UITestConfig.addDeviceName.flatMap { name in
+                    guard UITestConfig.addDevicePort != nil,
+                          name.hasPrefix("manual-") else { return nil }
+                    return name
+                } ?? UUID().uuidString
                 let databaseURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(
-                        "cmux-uitest-paired-macs-\(UUID().uuidString).sqlite3"
+                        "cmux-uitest-paired-macs-\(storeID).sqlite3"
                     )
                 let store = try MobilePairedMacStore(databaseURL: databaseURL)
                 diagnosticLog?.recordAppEvent(.pairedMacStoreOpened)

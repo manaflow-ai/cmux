@@ -189,7 +189,11 @@ final class AppCompositionRoot {
                 await diagnosticLog.clear()
             }
         }
-        self.displaySettings = MobileDisplaySettings(diagnosticLog: diagnosticLog)
+        // Main's display-settings owner intentionally keeps diagnostics out of
+        // the preferences object. The app root still owns the shared log for
+        // services that emit lifecycle events, while display preferences use
+        // their injected defaults store only.
+        self.displaySettings = MobileDisplaySettings()
         // Snapshot raw upgrade eligibility before either current-launch store is
         // constructed. The migration model persists pending/ineligible now and
         // never recomputes after onboarding or Settings writes. UI fixtures use

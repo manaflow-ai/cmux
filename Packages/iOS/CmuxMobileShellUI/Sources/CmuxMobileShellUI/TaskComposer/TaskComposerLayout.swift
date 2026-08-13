@@ -5,17 +5,18 @@ import SwiftUI
 import UIKit
 
 /// A full-screen prompt canvas with compact task controls above the keyboard.
-struct TaskComposerMinimalLayout: View {
+struct TaskComposerLayout: View {
     @Binding var prompt: String
     let genericPromptPlaceholder: String
+    let workspaceName: String
     let directory: String
     let isDisabled: Bool
     let locksDismissal: Bool
     let templates: [MobileTaskTemplate]
     let selectedTemplateID: MobileTaskTemplate.ID?
-    let modelPickerVariant: TaskComposerModelPickerVariant
     let models: [MobileTaskAgentModel]
     let selectedModelID: String?
+    let isModelLoading: Bool
     let isSubmitting: Bool
     let isSubmitEnabled: Bool
     let failureTitle: String
@@ -29,8 +30,7 @@ struct TaskComposerMinimalLayout: View {
     let optionsSheet: () -> TaskComposerOptionsSheet
     let endEditing: () -> Void
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
-    let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
-    let selectModel: (String?) -> Void
+    let selectModel: (MobileTaskAgentModel?) -> Void
     let editTemplates: () -> Void
     let cancel: () -> Void
     let submit: () -> Void
@@ -44,28 +44,33 @@ struct TaskComposerMinimalLayout: View {
     @State private var isOptionsPresented = false
 
     var body: some View {
-        promptCanvas
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                accessoryBar
-            }
-            .navigationTitle(navigationTitle)
-            .mobileInlineNavigationTitle()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(action: cancel) {
-                        Image(systemName: "chevron.left")
-                    }
-                    .disabled(locksDismissal)
-                    .accessibilityLabel(L10n.string(
-                        "mobile.common.cancel",
-                        defaultValue: "Cancel"
-                    ))
-                    .accessibilityIdentifier("MobileTaskComposerCancelButton")
+        TaskComposerKeyboardDock(
+            canvas: promptCanvas,
+            accessory: accessoryBar
+        )
+        // Keep one full-height controller mounted across rotations and Split
+        // View resizing. UIKit's keyboard guide owns the dock position without
+        // recreating the prompt editor or its focus state.
+        .ignoresSafeArea(.container, edges: .bottom)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .navigationTitle(navigationTitle)
+        .mobileInlineNavigationTitle()
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(action: cancel) {
+                    Image(systemName: "chevron.left")
                 }
+                .disabled(locksDismissal)
+                .accessibilityLabel(L10n.string(
+                    "mobile.common.cancel",
+                    defaultValue: "Cancel"
+                ))
+                .accessibilityIdentifier("MobileTaskComposerCancelButton")
             }
-            .sheet(isPresented: $isOptionsPresented) {
-                optionsSheet()
-            }
+        }
+        .sheet(isPresented: $isOptionsPresented) {
+            optionsSheet()
+        }
     }
 
     private var promptCanvas: some View {
@@ -126,31 +131,42 @@ struct TaskComposerMinimalLayout: View {
             }
 
             HStack(spacing: 10) {
-                if showsAttachmentButton {
-                    TaskComposerAttachmentPickerMenu(
-                        style: .circularPlus,
-                        isDisabled: isDisabled,
-                        choosePhotos: chooseAttachmentPhotos,
-                        chooseFiles: chooseAttachmentFiles
-                    )
-                }
-
-                optionsButton
+                leadingUtilityButtons
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
 
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         agentPill
+                            // Keep the provider readable before compressing
+                            // the model label on compact rows.
+                            .layoutPriority(1)
 
-                        if !models.isEmpty, showsStandaloneModelPill {
+                        if !models.isEmpty {
                             modelPill
+                        } else if isModelLoading {
+                            modelLoadingPill
                         }
                     }
+                    // Give the pills the viewport's finite width so their
+                    // one-line labels compress inside their own capsules.
+                    // Without this, ScrollView proposes infinite width and a
+                    // long selected model extends beneath the fixed submit
+                    // control before clipping at the viewport edge.
+                    .containerRelativeFrame(.horizontal, alignment: .leading)
                 }
                 .scrollIndicators(.hidden)
-                .frame(maxWidth: .infinity)
+                // The pills are the row's only compressible region. A zero
+                // minimum lets the fixed 44pt edge controls claim their space
+                // before this viewport receives the remaining width.
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .layoutPriority(0)
+                .clipped()
                 .accessibilityIdentifier("MobileTaskComposerPillScroller")
 
                 submitButton
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
@@ -161,6 +177,25 @@ struct TaskComposerMinimalLayout: View {
         // provides the visual boundary below.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(Color(uiColor: .systemBackground))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileTaskComposerAccessoryBar")
+    }
+
+    private var leadingUtilityButtons: some View {
+        // Adjacent 44pt hit regions leave a deliberate 6pt gap between the
+        // 38pt circles, grouping these related utilities without overlap.
+        HStack(spacing: 0) {
+            optionsButton
+
+            if showsAttachmentButton {
+                TaskComposerAttachmentPickerMenu(
+                    style: .circularPlus,
+                    isDisabled: isDisabled,
+                    choosePhotos: chooseAttachmentPhotos,
+                    chooseFiles: chooseAttachmentFiles
+                )
+            }
+        }
     }
 
     private var optionsButton: some View {
@@ -219,9 +254,6 @@ struct TaskComposerMinimalLayout: View {
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.primary)
-            // A longer title must widen the capsule immediately; animating the
-            // frame clips the label against the stale width until it settles.
-            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
             .background(Color.primary.opacity(0.07), in: Capsule())
@@ -241,44 +273,69 @@ struct TaskComposerMinimalLayout: View {
     }
 
     private var modelPill: some View {
-        Menu {
+        HStack(spacing: 7) {
+            Image(systemName: "cpu")
+                .font(.caption.weight(.semibold))
+                .accessibilityHidden(true)
+
+            Text(selectedModelName)
+                .lineLimit(1)
+
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color.primary.opacity(0.07), in: Capsule())
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        .accessibilityHidden(true)
+        .overlay {
             TaskComposerModelMenuContent(
                 models: models,
                 selectedModelID: selectedModelID,
+                selectedModelName: selectedModelName,
+                isEnabled: !isDisabled,
                 selectModel: selectModel
             )
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "cpu")
-                    .font(.caption.weight(.semibold))
-                    .accessibilityHidden(true)
-
-                Text(selectedModelName)
-                    .lineLimit(1)
-
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.primary)
-            // See agentPill: adopt the new title's width immediately instead
-            // of animating (and clipping) into it.
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 38)
-            .background(Color.primary.opacity(0.07), in: Capsule())
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .tint(Color.primary)
-        .disabled(isDisabled)
-        .taskComposerModelAccessibility(valueName: selectedModelName)
-        .accessibilityIdentifier("MobileTaskComposerModelPill")
-        // See agentPill: identity-swap the Menu so the new title cannot be
-        // clipped by the old button frame mid-animation.
+        // See agentPill: identity-swap the pill so the new title cannot be
+        // clipped by the old frame mid-animation.
         .id(selectedModelName)
+    }
+
+    private var modelLoadingPill: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "cpu")
+                .font(.caption.weight(.semibold))
+                .accessibilityHidden(true)
+
+            Text(L10n.string(
+                "mobile.taskComposer.model.loading",
+                defaultValue: "Loading models"
+            ))
+                .lineLimit(1)
+
+            ProgressView()
+                .controlSize(.mini)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color.primary.opacity(0.07), in: Capsule())
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L10n.string(
+            "mobile.taskComposer.model.loading",
+            defaultValue: "Loading models"
+        ))
+        .accessibilityIdentifier("MobileTaskComposerModelLoadingPill")
     }
 
     private var submitButton: some View {
@@ -320,19 +377,17 @@ struct TaskComposerMinimalLayout: View {
         template.name
     }
 
-    /// The composer layout has ONE canonical model treatment regardless of the
-    /// classic-layout lab variant: a dedicated pill beside the agent pill,
-    /// mirroring the reference composer. The agent menu stays plain (see
-    /// `agentMenuValue`), so the pill is the single model entry point.
-    private var showsStandaloneModelPill: Bool {
-        modelPickerVariant.renderedVariant != .off
-    }
-
     private var selectedModelName: String {
         models.displayName(forSelected: selectedModelID)
     }
 
     private var navigationTitle: String {
+        let trimmedWorkspaceName = workspaceName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        if !trimmedWorkspaceName.isEmpty {
+            return trimmedWorkspaceName
+        }
         guard !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return L10n.string("mobile.taskComposer.title", defaultValue: "New Task")
         }
@@ -353,18 +408,9 @@ struct TaskComposerMinimalLayout: View {
     }
 
     private var agentMenuValue: TaskComposerAgentMenuValue {
-        // Force the plain (non-combined) agent menu: the standalone model
-        // pill is this layout's single model entry point, so the menu must
-        // not duplicate model submenus even when the classic-layout lab
-        // variant is `combined`.
         TaskComposerAgentMenuValue(
             templates: templates,
             selectedTemplateID: selectedTemplateID,
-            modelPickerVariant: modelPickerVariant.renderedVariant == .combined
-                ? .separateRow
-                : modelPickerVariant,
-            models: models,
-            selectedModelID: selectedModelID,
             isDisabled: isDisabled
         )
     }
@@ -372,7 +418,6 @@ struct TaskComposerMinimalLayout: View {
     private var agentMenuActions: TaskComposerAgentMenuActions {
         TaskComposerAgentMenuActions(
             selectTemplate: selectTemplate,
-            selectTemplateAndModel: selectTemplateAndModel,
             editTemplates: editTemplates
         )
     }
