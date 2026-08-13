@@ -4,7 +4,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
 
-/// One bounded personal-account snapshot of authenticated Iroh Mac routes.
+/// One personal-account snapshot of authenticated Iroh Mac routes.
 ///
 /// The catalog is deliberately separate from the team device registry. It only
 /// supplies cached routes when the shell asks for an already-paired Mac,
@@ -65,7 +65,7 @@ public actor MobileIrohRouteCatalog {
         let timestampParser = TimestampParser()
         let pairableMacs = bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
-        }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount)
+        }
         let endpointCounts = Dictionary(
             grouping: pairableMacs,
             by: \CmxIrohBrokerBinding.endpointID
@@ -74,7 +74,7 @@ public actor MobileIrohRouteCatalog {
             endpointCounts[$0.endpointID] == 1
         }
         let grouped = Dictionary(grouping: unambiguousMacs) {
-            $0.deviceID.lowercased()
+            cmxCanonicalDeviceID($0.deviceID)
         }
 
         var replacement: [String: [String: [CmxAttachRoute]]] = [:]
@@ -116,7 +116,7 @@ public actor MobileIrohRouteCatalog {
         let timestampParser = TimestampParser()
         let pairableMacs = Array(bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
-        }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount))
+        })
         let endpointCounts = Dictionary(
             grouping: pairableMacs,
             by: \CmxIrohBrokerBinding.endpointID
@@ -129,7 +129,7 @@ public actor MobileIrohRouteCatalog {
             endpointCounts[$0.endpointID] == 1
         }
         let bindingsByDeviceTag = Dictionary(grouping: unambiguousEndpoints) {
-            DeviceTag(deviceID: $0.deviceID.lowercased(), tag: $0.tag)
+            DeviceTag(deviceID: cmxCanonicalDeviceID($0.deviceID), tag: $0.tag)
         }
         let selectedBindingIDs = Set(
             bindingsByDeviceTag.values.compactMap { candidates in
@@ -161,7 +161,7 @@ public actor MobileIrohRouteCatalog {
                       priority: preferredRoutePriority
                   ) else { return nil }
             return MobileDiscoveredIrohMac(
-                deviceID: binding.deviceID.lowercased(),
+                deviceID: cmxCanonicalDeviceID(binding.deviceID),
                 displayName: binding.displayName,
                 instanceTag: binding.tag,
                 routes: [route],
@@ -211,7 +211,7 @@ public actor MobileIrohRouteCatalog {
         forKnownMacDeviceID macDeviceID: String,
         instanceTag: String?
     ) -> [CmxAttachRoute] {
-        guard let routesByTag = routesByMacDeviceID[macDeviceID.lowercased()] else {
+        guard let routesByTag = routesByMacDeviceID[cmxCanonicalDeviceID(macDeviceID)] else {
             return []
         }
         if let instanceTag {
@@ -373,13 +373,13 @@ public struct PersonalIrohDeviceRegistryDecorator: DeviceRegistryRefreshing {
         var result = team
         var deviceIndexes: [String: Int] = [:]
         for (index, device) in result.enumerated() {
-            let key = device.deviceId.lowercased()
+            let key = cmxCanonicalDeviceID(device.deviceId)
             if deviceIndexes[key] == nil {
                 deviceIndexes[key] = index
             }
         }
         for personalDevice in personal {
-            let deviceKey = personalDevice.deviceId.lowercased()
+            let deviceKey = cmxCanonicalDeviceID(personalDevice.deviceId)
             guard let deviceIndex = deviceIndexes[deviceKey] else {
                 deviceIndexes[deviceKey] = result.endIndex
                 result.append(personalDevice)

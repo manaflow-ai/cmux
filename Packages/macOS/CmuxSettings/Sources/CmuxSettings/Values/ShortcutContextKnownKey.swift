@@ -13,9 +13,10 @@ import Foundation
 /// This catalog is what tooling (docs, autocomplete) advertises as supported.
 ///
 /// The focus keys (``sidebarFocus``, ``browserFocus``, ``markdownFocus``,
-/// ``filePreviewTextEditorFocus``, ``terminalFocus``) are also expressed as ``ShortcutFocusAtom`` cases; a clause
-/// referencing one of those names parses to ``ShortcutWhenClause/atom(_:)`` rather
-/// than ``ShortcutWhenClause/key(_:)`` so existing focus behavior is preserved.
+/// ``filePreviewTextEditorFocus``, ``simulatorFocus``, ``terminalFocus``) are
+/// also expressed as ``ShortcutFocusAtom`` cases; a clause referencing one of
+/// those names parses to ``ShortcutWhenClause/atom(_:)`` rather than
+/// ``ShortcutWhenClause/key(_:)`` so existing focus behavior is preserved.
 public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     /// The right sidebar (vault/files/find/feed/dock) owns focus.
     case sidebarFocus
@@ -27,6 +28,8 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     case filePreviewTextEditorFocus
     /// A terminal owns focus (no other focus atom holds).
     case terminalFocus
+    /// A native Simulator device surface owns focus.
+    case simulatorFocus
     /// The command palette overlay is visible in the shortcut's window.
     case commandPaletteVisible
     /// The focused terminal's find overlay is open.
@@ -44,6 +47,7 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     public var valueType: ShortcutContextValueType {
         switch self {
         case .sidebarFocus, .browserFocus, .markdownFocus, .filePreviewTextEditorFocus, .terminalFocus,
+             .simulatorFocus,
              .commandPaletteVisible, .terminalFindVisible, .workspaceCanvasLayout:
             return .bool
         case .sidebarMode:

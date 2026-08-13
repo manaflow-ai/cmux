@@ -23,6 +23,8 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     override func setUp() {
         super.setUp()
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        // The suite asserts the store never live-applies appearance, so the global observer's own reaction to the defaults writes the store legitimately makes must not be recorded.
+        AppearanceSettingsUserDefaultsObserver.shared.stopObserving()
         KeyboardShortcutSettings.resetAll()
     }
 
@@ -30,6 +32,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppIconSettings.resetLiveEnvironmentProviderForTesting()
         AppearanceSettings.resetLiveEnvironmentProviderForTesting()
+        AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }

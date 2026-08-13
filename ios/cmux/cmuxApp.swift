@@ -2,8 +2,17 @@ import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
+import OSLog
 import SwiftUI
 import cmuxFeature
+#if DEBUG
+import CmuxIrohReleaseGateSupport
+#endif
+
+nonisolated private let cmuxAppConnectivityLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "connectivity"
+)
 
 @main
 struct cmuxApp: App {
@@ -14,14 +23,19 @@ struct cmuxApp: App {
     @MainActor
     private static let root: AppCompositionRoot = {
         let reachability = ReachabilityService()
-        let auth = MobileAuthComposition(reachability: reachability)
-        auth.start()
         let diagnosticLog = DiagnosticLog(
             buildStamp: AppCompositionRoot.diagnosticBuildStamp,
             role: .iosClient
         )
+        let auth = MobileAuthComposition(
+            reachability: reachability,
+            diagnosticLog: diagnosticLog
+        )
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
-            buildScope: MobileIOSBuildScope.current()
+            buildScope: MobileIOSBuildScope.current(),
+            compatibleMacTags: Bundle.main.object(
+                forInfoDictionaryKey: "CMUXCompatibleMacTags"
+            ) as? String
         )
         let iroh = MobileIrohRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
@@ -29,7 +43,21 @@ struct cmuxApp: App {
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
             diagnosticLog: diagnosticLog
         )
-        iroh.configure(auth: auth.coordinator)
+        let connectivityInvalidationServiceURL = PresenceClient
+            .resolvedServiceBaseURL(
+                isDevelopmentAuthChannel: auth.authEnvironment == .development
+            )
+        let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
+            .flatMap { URL(string: $0) }
+        if connectivityInvalidationBaseURL == nil {
+            cmuxAppConnectivityLog.error(
+                "Connectivity invalidation disabled: presence service URL unavailable"
+            )
+        }
+        iroh.configure(
+            auth: auth.coordinator,
+            connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
+        )
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
@@ -74,6 +102,13 @@ struct cmuxApp: App {
                     surfaceID: surfaceUUID,
                     cursor: cursor
                 )
+            },
+            artifactLaneProvider: { request, resourceID, offset in
+                try await iroh.openArtifactLane(
+                    for: request,
+                    resourceID: resourceID,
+                    offset: offset
+                )
             }
         )
 
@@ -81,6 +116,7 @@ struct cmuxApp: App {
             runtime: runtime,
             auth: auth,
             iroh: iroh,
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
         )
@@ -108,6 +144,26 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private var rootScene: some View {
+        Group {
+            #if DEBUG
+            MobileIrohReleaseGateScene(
+                root: mobileRootScene,
+                iroh: Self.root.iroh
+            )
+            #else
+            mobileRootScene
+            #endif
+        }
+        .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(
+            \.dogfoodAttachPreparation,
+            DogfoodAttachPreparation {
+                await Self.root.iroh.prepareForConnection()
+            }
+        )
+    }
+
+    private var mobileRootScene: CMUXMobileRootScene {
         CMUXMobileRootScene(
             runtime: Self.root.runtime,
             auth: Self.root.auth,
@@ -115,19 +171,16 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            connectionMethodStore: Self.root.connectionMethodStore,
+            autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             personalIrohDiscovery: Self.root.iroh,
+            personalIrohForget: Self.root.iroh,
+            buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
-        )
-        .environment(\.irohSettingsController, Self.root.iroh)
-        .environment(
-            \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
-            }
         )
     }
 }

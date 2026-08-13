@@ -9,6 +9,30 @@ private let reconnectRouteLog = Logger(
     category: "MobileReconnectRoutes"
 )
 
+/// Canonical identity for one locally authorized legacy Tailscale endpoint.
+private nonisolated struct MobileTailscaleAuthorizationEndpoint:
+    Hashable, Sendable
+{
+    let macDeviceID: String
+    let host: String
+    let port: Int
+
+    init?(macDeviceID: String, route: CmxAttachRoute) {
+        guard route.kind == .tailscale,
+              case let .hostPort(host, port) = route.endpoint,
+              let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
+                  macDeviceID: macDeviceID,
+                  host: host,
+                  port: port
+              ) else {
+            return nil
+        }
+        self.macDeviceID = evidence.macDeviceID
+        self.host = evidence.host
+        self.port = evidence.port
+    }
+}
+
 enum ReconnectRouteRefreshOutcome: Sendable {
     case refreshedRoutes([CmxAttachRoute])
     case confirmedMissingIroh
@@ -20,27 +44,51 @@ struct ReconnectRefreshSnapshot: Sendable {
         let deviceID: String
         let instanceTag: String?
 
-        init(deviceID: String, instanceTag: String?) {
+        init(
+            deviceID: String,
+            instanceTag: String?,
+            macInstanceTagAuthority: MobileMacInstanceTagAuthority
+        ) {
             self.deviceID = deviceID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            self.instanceTag = MobileMacInstanceTagAuthority.normalized(instanceTag)
+            self.instanceTag = macInstanceTagAuthority.normalize(instanceTag)
         }
     }
 
     private let pairedMacsByAuthority: [Authority: [MobilePairedMac]]
     private let registryRoutes: DeviceRegistryRouteIndex?
+    private let macInstanceTagAuthority: MobileMacInstanceTagAuthority
 
-    init(pairedMacs: [MobilePairedMac], registryDevices: [RegistryDevice]?) {
+    init(
+        pairedMacs: [MobilePairedMac],
+        registryDevices: [RegistryDevice]?,
+        macInstanceTagAuthority: MobileMacInstanceTagAuthority =
+            MobileMacInstanceTagAuthority()
+    ) {
+        self.macInstanceTagAuthority = macInstanceTagAuthority
         pairedMacsByAuthority = Dictionary(grouping: pairedMacs) {
-            Authority(deviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+            Authority(
+                deviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
         }
-        registryRoutes = registryDevices.map(DeviceRegistryRouteIndex.init(devices:))
+        registryRoutes = registryDevices.map {
+            DeviceRegistryRouteIndex(
+                devices: $0,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
+        }
     }
 
     func currentMac(for captured: MobilePairedMac) -> MobilePairedMac? {
         let matches = pairedMacsByAuthority[
-            Authority(deviceID: captured.macDeviceID, instanceTag: captured.instanceTag)
+            Authority(
+                deviceID: captured.macDeviceID,
+                instanceTag: captured.instanceTag,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
         ] ?? []
         return matches.count == 1 ? matches[0] : nil
     }
@@ -55,6 +103,95 @@ struct ReconnectRefreshSnapshot: Sendable {
 
 @MainActor
 extension MobileShellComposite {
+    /// Resolves one immutable pre-Iroh capability for an exact raw Tailscale
+    /// route. Fresh registry/manual routes cannot create this evidence; they
+    /// must match a route retained by the local schema migration.
+    static func legacyTailscaleAuthorizationEvidence(
+        for route: CmxAttachRoute,
+        macDeviceID: String,
+        persistedRoutes: [CmxAttachRoute]
+    ) -> CmxLegacyTailscaleAuthorizationEvidence? {
+        guard route.kind == .tailscale,
+              case let .hostPort(host, port) = route.endpoint else {
+            return nil
+        }
+        for persistedRoute in persistedRoutes where persistedRoute.kind == .tailscale {
+            guard case let .hostPort(persistedHost, persistedPort) = persistedRoute.endpoint,
+                  let evidence = try? CmxLegacyTailscaleAuthorizationEvidence(
+                      macDeviceID: macDeviceID,
+                      host: persistedHost,
+                      port: persistedPort
+                  ),
+                  evidence.authorizes(
+                      macDeviceID: macDeviceID,
+                      host: host,
+                      port: port
+                  ) else {
+                continue
+            }
+            return evidence
+        }
+        return nil
+    }
+
+    /// Whether any paired Mac retains a current route matching an exact local
+    /// Tailscale grant. A grant for an old endpoint is not usable after the Mac
+    /// changes address, so both route sets must still agree.
+    nonisolated static func hasUsableTailscaleAuthorization(
+        in macs: [MobilePairedMac]
+    ) -> Bool {
+        var authorizedEndpoints: Set<MobileTailscaleAuthorizationEndpoint> = []
+        for mac in macs {
+            for route in mac.legacyTailscaleRoutes ?? [] {
+                if let endpoint = MobileTailscaleAuthorizationEndpoint(
+                    macDeviceID: mac.macDeviceID,
+                    route: route
+                ) {
+                    authorizedEndpoints.insert(endpoint)
+                }
+            }
+        }
+        guard !authorizedEndpoints.isEmpty else { return false }
+
+        for mac in macs {
+            for route in mac.routes {
+                guard let endpoint = MobileTailscaleAuthorizationEndpoint(
+                    macDeviceID: mac.macDeviceID,
+                    route: route
+                ) else {
+                    continue
+                }
+                if authorizedEndpoints.contains(endpoint) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Whether Tailscale Only can dial an endpoint the user authorized locally.
+    public var hasUsableTailscaleAuthorization: Bool {
+        if connectionState == .connected,
+           remoteClient?.usesLocallyAuthorizedTailscaleRoute == true {
+            return true
+        }
+        return hasStoredUsableTailscaleAuthorization
+    }
+
+    /// Whether the selected Tailscale method still needs its one-time pairing grant.
+    public var tailscalePairingRequired: Bool {
+        connectionMethodStore?.method == .tailscale
+            && (pairedMacLoadState != .notLoaded || !hasKnownPairedMac)
+            && !hasUsableTailscaleAuthorization
+    }
+
+    /// The strict Tailscale policy for one paired Mac: only exact grant routes
+    /// remain dialable while the user has selected Tailscale.
+    struct TailscaleRouteRequirement {
+        let macDeviceID: String
+        let grantRoutes: [CmxAttachRoute]
+    }
+
     /// Supported routes for reconnecting an already-paired Mac.
     ///
     /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
@@ -64,10 +201,16 @@ extension MobileShellComposite {
     /// still carry Iroh without receiving a Stack bearer. Otherwise an admission
     /// or revocation failure could silently downgrade around the Iroh device
     /// grant. Pairings without an authenticated Iroh identity remain fail-closed.
+    ///
+    /// `tailscaleRequirement` represents the user's explicit Tailscale-only
+    /// connection method. Only stored Tailscale routes carrying a device-local
+    /// grant remain; Iroh is not retained as a fallback, and a method change
+    /// alone grants nothing.
     static func storedReconnectRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool = false
+        preferNonLoopback: Bool = false,
+        tailscaleRequirement: TailscaleRouteRequirement? = nil
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
         var ordered = CmxAttachRoute.addingIrohPrivatePaths(
@@ -80,10 +223,41 @@ extension MobileShellComposite {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
         let irohRoutes = ordered.filter { $0.kind == .iroh }
+        if let tailscaleRequirement {
+            let authorizedTailscale = ordered.filter { route in
+                legacyTailscaleAuthorizationEvidence(
+                    for: route,
+                    macDeviceID: tailscaleRequirement.macDeviceID,
+                    persistedRoutes: tailscaleRequirement.grantRoutes
+                ) != nil
+            }
+            return authorizedTailscale
+        }
         if !irohRoutes.isEmpty {
             return irohRoutes
         }
         return ordered
+    }
+
+    /// The dial order for one stored Mac, honoring the user's connection-method
+    /// choice. With the default automatic method this is exactly
+    /// ``storedReconnectRoutes(_:supportedKinds:preferNonLoopback:tailscaleRequirement:)``
+    /// without a preference.
+    func orderedReconnectRoutes(
+        for mac: MobilePairedMac,
+        supportedKinds: [CmxAttachTransportKind]
+    ) -> [CmxAttachRoute] {
+        Self.storedReconnectRoutes(
+            mac.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscaleRequirement: connectionMethodStore?.method == .tailscale
+                ? TailscaleRouteRequirement(
+                    macDeviceID: mac.macDeviceID,
+                    grantRoutes: mac.legacyTailscaleRoutes ?? []
+                )
+                : nil
+        )
     }
 
     /// Refresh the active row only while its account, device, and authenticated
@@ -108,7 +282,7 @@ extension MobileShellComposite {
             ), let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(
+                      await !self.isHiddenMacDeviceID(
                         macDeviceID,
                         instanceTag: capturedInstanceTag,
                         scope: scope
@@ -124,7 +298,7 @@ extension MobileShellComposite {
                     return
                 }
                 guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(
+                      await !self.isHiddenMacDeviceID(
                         macDeviceID,
                         instanceTag: capturedInstanceTag,
                         scope: scope
@@ -154,7 +328,7 @@ extension MobileShellComposite {
                     reconnectRouteLog.debug("registry refresh upsert failed: \(String(describing: error), privacy: .public)")
                     return
                 }
-                if await self.isForgottenMacDeviceID(
+                if await self.isHiddenMacDeviceID(
                     macDeviceID,
                     instanceTag: capturedInstanceTag,
                     scope: scope
@@ -196,6 +370,10 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        guard foregroundRefreshLifecycleState != .active else { return }
+        foregroundRefreshLifecycleState = .active
+        foregroundRefreshIsActive = true
+        foregroundResumeEpoch &+= 1
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
@@ -210,20 +388,58 @@ extension MobileShellComposite {
         if shouldResync, pairedMacStore == nil {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
+        restartActiveMobileBrowserStreams()
+        restartActiveMobileSimulatorStreams()
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
+        recoverDisconnectedOnForegroundIfNeeded()
+        recoverPendingInactiveRecoveryIfNeeded()
+        resumeSecondaryControlMaintenanceAfterForeground()
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
-        if multiMacAggregationEnabled, connectionState == .connected {
-            self.scheduleSecondaryAggregation()
+        if multiMacAggregationEnabled,
+           connectionState == .connected,
+           remoteClient != nil {
+            self.scheduleSecondaryAggregation(discoverLivePeers: true)
         }
     }
 
-    /// Record that the app left the active scene phase.
+    /// Record that the app entered the background. Transient inactive phases
+    /// must not call this: they do not suspend the process and canceling a
+    /// useful recovery there makes wake latency depend on interruption churn.
     public func suspendForegroundRefresh() {
+        guard foregroundRefreshLifecycleState != .background else { return }
+        foregroundRefreshLifecycleState = .background
+        foregroundRefreshIsActive = false
+        if connectionRecoveryOwner.cancelProbing() {
+            applyConnectionRecoveryOwnerState()
+        }
+        suspendSecondaryConnectionEstablishmentForBackground()
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
+        stopActiveMobileBrowserStreamsForBackground()
+        stopActiveMobileSimulatorStreamsForBackground()
+    }
+
+    /// A foreground return while disconnected redials the stored Mac
+    /// immediately. Covers a recovery that failed while the app was
+    /// backgrounded (its deadline burns during suspension): without this
+    /// the user sits on "Connection lost" until a network change, presence
+    /// push, or backoff timer fires. Gated on a finished startup reconnect
+    /// so it cannot race the launch path, and excluded for reauth-required
+    /// states where a redial cannot help.
+    func recoverDisconnectedOnForegroundIfNeeded() {
+        guard connectionState != .connected,
+              isSignedIn,
+              pairedMacStore != nil,
+              !connectionRequiresReauth,
+              !isReconnectingStoredMac,
+              didFinishStoredMacReconnectAttempt,
+              !connectionRecoveryOwner.isActive else {
+            return
+        }
+        recoverMobileConnection(trigger: .foreground)
     }
 
     func loadReconnectRefreshSnapshot(
@@ -252,7 +468,8 @@ extension MobileShellComposite {
         }
         return ReconnectRefreshSnapshot(
             pairedMacs: pairedMacs,
-            registryDevices: registryDevices
+            registryDevices: registryDevices,
+            macInstanceTagAuthority: macInstanceTagAuthority
         )
     }
 
@@ -273,9 +490,10 @@ extension MobileShellComposite {
               await isScopeCurrent(scope),
               let currentMac = ReconnectRefreshSnapshot(
                   pairedMacs: pairedMacs,
-                  registryDevices: nil
+                  registryDevices: nil,
+                  macInstanceTagAuthority: macInstanceTagAuthority
               ).currentMac(for: captured),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   captured.macDeviceID,
                   instanceTag: captured.instanceTag,
                   scope: scope
@@ -294,14 +512,14 @@ extension MobileShellComposite {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let snapshot,
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   mac.macDeviceID,
                   instanceTag: mac.instanceTag,
                   scope: scope
               ),
               let currentMac = snapshot.currentMac(for: mac),
               await isScopeCurrent(scope),
-              await !isForgottenMacDeviceID(
+              await !isHiddenMacDeviceID(
                   mac.macDeviceID,
                   instanceTag: mac.instanceTag,
                   scope: scope

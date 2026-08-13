@@ -5,6 +5,99 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCClientTests {
+    @Test func connectedTransportReceivesLiveSessionPurposeUpdates()
+        async throws {
+        let transport = SessionPurposeRecordingTransport(
+            automaticallyRespondingRequestIDs: ["purpose-probe"]
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59_123
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            sessionPurpose: .backgroundControl
+        )
+
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "purpose-probe"
+            )
+        )
+        await client.updateTransportSessionPurpose(.foregroundControl)
+
+        #expect(await transport.recordedPurposes() == [
+            .backgroundControl,
+            .backgroundControl,
+            .foregroundControl,
+        ])
+        await client.disconnect()
+    }
+
+    @Test func overlappingPurposeUpdatesReconcileToLatestRole()
+        async throws {
+        let transport = InterleavingSessionPurposeTransport()
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59_123
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            sessionPurpose: .foregroundControl
+        )
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "purpose-probe"
+            )
+        )
+        await transport.blockNextUpdate(to: .backgroundControl)
+        let olderDemotion = Task {
+            await client.updateTransportSessionPurpose(.backgroundControl)
+        }
+        await transport.waitUntilUpdateIsBlocked(on: .backgroundControl)
+        await client.updateTransportSessionPurpose(.foregroundControl)
+        await transport.releaseBlockedUpdate()
+        await olderDemotion.value
+
+        #expect(await transport.currentPurpose() == .foregroundControl)
+        #expect(await transport.recordedCompletedPurposes().suffix(3) == [
+            .foregroundControl,
+            .backgroundControl,
+            .foregroundControl,
+        ])
+        await client.disconnect()
+    }
+
     @Test func cancelledQueuedRPCIsNotWrittenAfterEarlierSendCompletes() async throws {
         let transport = QueuedCancellationProbeTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59123)
@@ -109,6 +202,9 @@ import Testing
               "id": "ws-1",
               "window_id": "window-1",
               "title": "cmux",
+              "description": "Ship the mobile sidebar",
+              "description_truncated": true,
+              "custom_color": "#1565C0",
               "current_directory": "/Users/test/project",
               "is_selected": true,
               "terminals": [
@@ -133,11 +229,112 @@ import Testing
         #expect(response.createdTerminalID == "t-1")
         let workspace = try #require(response.workspaces.first)
         #expect(workspace.windowID == "window-1")
+        #expect(workspace.customDescription == "Ship the mobile sidebar")
+        #expect(workspace.customDescriptionIsTruncated == true)
+        #expect(workspace.customColorHex == "#1565C0")
         #expect(workspace.isSelected)
         #expect(workspace.terminals.first?.isFocused == true)
         #expect(workspace.terminals.first?.isReady == true)
         let mapped = MobileWorkspacePreview(remote: workspace)
         #expect(mapped.windowID == "window-1")
+        #expect(mapped.customDescription == "Ship the mobile sidebar")
+        #expect(mapped.customDescriptionIsTruncated)
+        #expect(mapped.customColorHex == "#1565C0")
+        #expect(mapped.currentDirectory == "/Users/test/project")
+        #expect(mapped.terminals.first?.currentDirectory == "/Users/test/project")
+    }
+
+    @Test func workspaceListResponseKeepsMetadataNilWhenOlderMacOmitsFields() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-older",
+              "title": "older-mac",
+              "is_selected": false,
+              "terminals": []
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let workspace = try #require(response.workspaces.first)
+        #expect(workspace.customDescription == nil)
+        #expect(workspace.customDescriptionIsTruncated == nil)
+        #expect(workspace.customColorHex == nil)
+
+        let mapped = MobileWorkspacePreview(remote: workspace)
+        #expect(mapped.customDescription == nil)
+        #expect(!mapped.customDescriptionIsTruncated)
+        #expect(mapped.customColorHex == nil)
+    }
+
+    @Test func workspaceListResponseTracksWhetherGroupsFieldWasPresent() throws {
+        let absentGroupsJSON = Data("""
+        {
+          "workspaces": []
+        }
+        """.utf8)
+        let emptyGroupsJSON = Data("""
+        {
+          "workspaces": [],
+          "groups": []
+        }
+        """.utf8)
+
+        let absentGroups = try MobileSyncWorkspaceListResponse.decode(absentGroupsJSON)
+        let emptyGroups = try MobileSyncWorkspaceListResponse.decode(emptyGroupsJSON)
+
+        #expect(absentGroups.groups.isEmpty)
+        #expect(!absentGroups.groupsFieldWasPresent)
+        #expect(emptyGroups.groups.isEmpty)
+        #expect(emptyGroups.groupsFieldWasPresent)
+    }
+
+    @Test func workspaceListResponseCarriesWorkspaceGroupIcon() throws {
+        let json = Data("""
+        {
+          "workspaces": [],
+          "groups": [
+            {
+              "id": "group-1",
+              "name": "Release",
+              "is_collapsed": false,
+              "is_pinned": true,
+              "icon_symbol": "shippingbox.fill",
+              "anchor_workspace_id": "workspace-1"
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let remoteGroup = try #require(response.groups.first)
+        #expect(remoteGroup.iconSymbol == "shippingbox.fill")
+
+        let mappedGroup = MobileWorkspaceGroupPreview(remote: remoteGroup)
+        #expect(mappedGroup.iconSymbol == "shippingbox.fill")
+    }
+
+    @Test func workspaceListResponseDefaultsMissingWorkspaceGroupIconToNil() throws {
+        let json = Data("""
+        {
+          "workspaces": [],
+          "groups": [
+            {
+              "id": "group-older",
+              "name": "Older Mac",
+              "is_collapsed": false,
+              "is_pinned": false,
+              "anchor_workspace_id": "workspace-older"
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        #expect(response.groups.first?.iconSymbol == nil)
     }
 
     /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest
@@ -471,6 +668,7 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
+        #expect(!client.usesLocallyAuthorizedTailscaleRoute)
         let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
 
         let task = Task { try await client.sendRequest(request) }
@@ -485,6 +683,114 @@ import Testing
         task.cancel()
         await transport.releaseFirstSend()
         _ = try? await task.value
+    }
+
+    @Test func exactLegacyTailscaleEvidenceCarriesStackBearer() async throws {
+        let macDeviceID = "123e4567-e89b-42d3-a456-426614174004"
+        let route = try hostPortRoute(
+            kind: .tailscale,
+            host: "100.64.0.5",
+            port: 58_465
+        )
+        let evidence = try CmxLegacyTailscaleAuthorizationEvidence(
+            macDeviceID: macDeviceID,
+            host: "100.64.0.5",
+            port: 58_465
+        )
+        let transport = QueuedCancellationProbeTransport()
+        let capture = TransportRequestCapture()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: IntentRecordingTransportFactory(
+                transport: transport,
+                capture: capture
+            ),
+            stackAccessToken: "legacy-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: macDeviceID,
+            macDisplayName: "Legacy Mac",
+            routes: [route],
+            expiresAt: nil,
+            authToken: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            legacyTailscaleAuthorizationEvidence: evidence
+        )
+        #expect(client.usesLocallyAuthorizedTailscaleRoute)
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+
+        let frame = try #require(sent.first)
+        #expect(frame.stackAccessToken == "legacy-stack-token")
+        #expect(frame.attachToken == nil)
+        #expect(
+            capture.request()?.authorizationMode
+                == .legacyTailscaleBearer(evidence)
+        )
+        task.cancel()
+        await transport.releaseFirstSend()
+        _ = try? await task.value
+    }
+
+    @Test func mismatchedLegacyTailscaleEvidenceFailsBeforeFetchingBearer() async throws {
+        let route = try hostPortRoute(
+            kind: .tailscale,
+            host: "100.64.0.6",
+            port: 58_465
+        )
+        let evidence = try CmxLegacyTailscaleAuthorizationEvidence(
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            host: "100.64.0.5",
+            port: 58_465
+        )
+        let transport = QueuedCancellationProbeTransport()
+        let capture = TransportRequestCapture()
+        let stackTokenRequested = AsyncFlag()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: IntentRecordingTransportFactory(
+                transport: transport,
+                capture: capture
+            ),
+            stackAccessTokenProvider: {
+                await stackTokenRequested.set()
+                return "must-not-cross-mismatched-route"
+            }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            macDisplayName: "Legacy Mac",
+            routes: [route],
+            expiresAt: nil,
+            authToken: nil
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            legacyTailscaleAuthorizationEvidence: evidence
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("Expected mismatched legacy route to fail closed")
+        } catch MobileShellConnectionError.insecureManualRoute {
+        } catch {
+            Issue.record("Expected insecureManualRoute, got \(error)")
+        }
+
+        #expect(!(await stackTokenRequested.isSet()))
+        #expect(capture.request() == nil)
+        #expect(try await transport.sentRequests().isEmpty)
     }
 
 }

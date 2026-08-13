@@ -155,6 +155,7 @@ extension AuthCoordinator {
             sessionCache.setHasTokens(true)
             currentUser = fixtureUser
             isAuthenticated = true
+            publishAuthenticatedSessionIdentity()
             return
         }
 
@@ -261,7 +262,7 @@ extension AuthCoordinator {
             // republishing a session whose local tokens are already gone.
             guard generation == sessionGeneration else { return }
             if let user {
-                await applySignedInUser(user)
+                await applySignedInUser(user, publication: .revalidation)
                 return
             }
             authLog.info("Cached session validation returned no current user")

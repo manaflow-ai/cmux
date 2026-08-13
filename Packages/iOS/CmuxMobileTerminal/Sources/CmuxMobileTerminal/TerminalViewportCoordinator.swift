@@ -71,7 +71,8 @@ struct TerminalViewportCoordinator {
                 y: 0,
                 width: bounds.width,
                 height: liveViewportHeight
-            )
+            ),
+            viewportNegotiationUnsettled: inputs.viewportNegotiationUnsettled
         )
     }
 

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Foundation
 import Testing
@@ -15,11 +16,12 @@ import Testing
 
     /// A composite selected on `term-a`. Selection is set by `init` (no `didSet`
     /// draft swap fires), so the store contents stay exactly what each test seeds.
-    private static func makeComposite() -> MobileShellComposite {
+    private static func makeComposite(diagnosticLog: DiagnosticLog? = nil) -> MobileShellComposite {
         MobileShellComposite(
             workspaces: [
                 MobileWorkspacePreview(id: "ws-1", name: "ws", terminals: [terminalA, terminalB]),
-            ]
+            ],
+            diagnosticLog: diagnosticLog
         )
     }
 
@@ -36,6 +38,44 @@ import Testing
         #expect(staged[0].format == "png")
         #expect(staged[1].data == Self.bytes("two"))
         #expect(staged[1].format == "jpg")
+    }
+
+    @Test func mutationsEmitPrivacySafeLifecycleDiagnostics() async throws {
+        let log = DiagnosticLog(capacity: 8)
+        let composite = Self.makeComposite(diagnosticLog: log)
+        let privateBytes = Self.bytes("private-image-content")
+
+        let id = try #require(composite.addPendingAttachment(
+            privateBytes,
+            format: "png",
+            forTerminalID: "term-a"
+        ))
+        composite.removePendingAttachment(id: id, forTerminalID: "term-a")
+        composite.addPendingAttachment(Data(), format: "png", forTerminalID: "term-a")
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 3, clock.now < deadline {
+            await Task.yield()
+        }
+        #expect(await log.processedCount() >= 3)
+        let report = await log.snapshot()
+        #expect(report.events.map(\.a) == [
+            DiagnosticAppEventKind.terminalAttachmentStaged.rawValue,
+            DiagnosticAppEventKind.terminalAttachmentRemoved.rawValue,
+            DiagnosticAppEventKind.terminalAttachmentRejected.rawValue,
+        ])
+        #expect(report.events.map(\.b) == [
+            nil,
+            nil,
+            DiagnosticFailureKind.protocolViolation.rawValue,
+        ])
+        #expect(report.events.allSatisfy { $0.surface != nil })
+
+        let encoded = try JSONEncoder().encode(report)
+        let exported = String(decoding: encoded, as: UTF8.self)
+        #expect(!exported.contains("term-a"))
+        #expect(!exported.contains("private-image-content"))
     }
 
     @Test func addIgnoresEmptyData() {

@@ -18,7 +18,7 @@ func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDeleg
 
     guard let panel = (targetTabManager ?? appDelegate.tabManager)?.selectedTerminalPanel,
           panel.searchState != nil,
-          !browserResponderHasMarkedText(shortcutWindow?.firstResponder),
+          !shortcutResponderHasMarkedText(shortcutWindow?.firstResponder),
           terminalFindFieldOwnsResponder || appDelegate.allowsTerminalKeyboardFocus(
               workspaceId: panel.workspaceId,
               panelId: panel.id,

@@ -1611,7 +1611,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(invalidPrimaryStore.activeSourcePath, primaryURL.path)
     }
 
-    func testPersistedShortcutOverridesSettingsFileShortcutValues() throws {
+    func testSettingsFileShortcutOverridesPersistedShortcutValues() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1638,15 +1638,18 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
+        // A binding in cmux.json outranks a shortcut saved through Settings: the file
+        // owns the action for as long as it defines it, and Settings reports the row as
+        // managed (and disables its recorder) instead of editing it.
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
-            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
         )
         XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
     }
 
     @MainActor
-    func testReloadConfigurationReloadsShortcutSettingsFile() throws {
+    func testReloadConfigurationReloadsShortcutSettingsFile() async throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1684,7 +1687,17 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config")
+        let reloadCompleted = expectation(
+            description: "shortcut settings file reload completed"
+        )
+        XCTAssertTrue(
+            GhosttyApp.shared.reloadConfiguration(
+                source: "test.reload_config"
+            ) {
+                reloadCompleted.fulfill()
+            }
+        )
+        await fulfillment(of: [reloadCompleted], timeout: 10)
 
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
@@ -1798,13 +1811,15 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 #endif
     }
 
-    func testSettingsFileShortcutCanBeOverriddenFromUI() throws {
+    func testSettingsFileShortcutCannotBeSetFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
         let missingSettingsFileURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
-        let editedShortcut = StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+        // Distinct from newTab's built-in cmd+n so the closing assertion can tell a
+        // refused write apart from one that persisted but was outranked.
+        let editedShortcut = StoredShortcut(key: "j", command: true, shift: false, option: true, control: false)
         let managedShortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
 
         try writeSettingsFile(
@@ -1831,10 +1846,15 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             for: .newTab
         )
 
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), editedShortcut)
-
-        KeyboardShortcutSettings.resetShortcut(for: .newTab)
-
+        // The Settings row for a file-managed action is disabled and subtitled
+        // "Managed in cmux.json", and the shared setter also refuses the write behind
+        // it. Check the backing store directly so the managed lookup cannot mask an
+        // accidentally persisted shortcut.
+        XCTAssertNil(
+            UserDefaults.standard.object(
+                forKey: KeyboardShortcutSettings.Action.newTab.defaultsKey
+            )
+        )
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
 
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
@@ -1847,7 +1867,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), KeyboardShortcutSettings.Action.newTab.defaultShortcut)
     }
 
-    func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutWithoutFallingBackToDefault() throws {
+    func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutButFailClosed() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1883,12 +1903,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             invalidShortcut
         )
         XCTAssertTrue(SystemWideHotkeySettings.isManagedBySettingsFile())
-        XCTAssertEqual(SystemWideHotkeySettings.shortcut(), invalidShortcut)
-        XCTAssertNotEqual(SystemWideHotkeySettings.shortcut(), SystemWideHotkeySettings.defaultShortcut)
-        XCTAssertNil(SystemWideHotkeySettings.shortcut().carbonHotKeyRegistration)
+        let effectiveShortcut = SystemWideHotkeySettings.shortcut()
+        XCTAssertEqual(effectiveShortcut, .unbound)
+        XCTAssertNotEqual(effectiveShortcut, SystemWideHotkeySettings.defaultShortcut)
+        XCTAssertNil(effectiveShortcut.carbonHotKeyRegistration)
     }
 
-    func testSystemWideHotkeyLegacyMigrationPreservesInvalidShortcut() throws {
+    func testSystemWideHotkeyLegacyMigrationStoresInvalidShortcutButFailsClosed() throws {
         let invalidShortcut = StoredShortcut(
             key: "b",
             command: false,
@@ -1901,9 +1922,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let defaults = UserDefaults.standard
         defaults.set(encodedShortcut, forKey: SystemWideHotkeySettings.legacyShortcutKey)
 
-        let migratedShortcut = SystemWideHotkeySettings.shortcut()
+        let effectiveShortcut = SystemWideHotkeySettings.shortcut()
 
-        XCTAssertEqual(migratedShortcut, invalidShortcut)
+        XCTAssertEqual(effectiveShortcut, .unbound)
+        XCTAssertNotEqual(effectiveShortcut, SystemWideHotkeySettings.defaultShortcut)
+        XCTAssertNil(effectiveShortcut.carbonHotKeyRegistration)
         XCTAssertNil(defaults.object(forKey: SystemWideHotkeySettings.legacyShortcutKey))
 
         let migratedData = try XCTUnwrap(
@@ -2222,7 +2245,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() throws {
+    func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() async throws {
         let defaults = UserDefaults.standard
         let managedKey = SettingCatalog().app.newWorkspacePlacement.userDefaultsKey
         let previousValue = defaults.object(forKey: managedKey)
@@ -2278,7 +2301,17 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config_app_setting")
+        let reloadCompleted = expectation(
+            description: "managed app settings reload completed"
+        )
+        XCTAssertTrue(
+            GhosttyApp.shared.reloadConfiguration(
+                source: "test.reload_config_app_setting"
+            ) {
+                reloadCompleted.fulfill()
+            }
+        )
+        await fulfillment(of: [reloadCompleted], timeout: 10)
 
         XCTAssertEqual(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.newWorkspacePlacement), .end)
     }
@@ -3051,27 +3084,31 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
-    func testDisabledInheritanceLeavesNewWorkspaceCwdUnsetForGhosttyConfigFallback() throws {
+    func testDisabledInheritanceUsesGhosttyDefaultForNewWorkspaceCwd() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
             let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
 
-            XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
-            XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+            XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, fallbackCwd)
+            XCTAssertEqual(inserted.currentDirectory, fallbackCwd)
         }
     }
 
-    func testExplicitNoInheritanceLeavesNewWorkspaceCwdUnsetWhenGlobalInheritanceEnabled() throws {
+    func testExplicitNoInheritanceUsesGhosttyDefaultWhenGlobalInheritanceEnabled() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
             let inserted = manager.addWorkspace(
@@ -3079,8 +3116,8 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 autoWelcomeIfNeeded: false
             )
 
-            XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
-            XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+            XCTAssertEqual(inserted.focusedTerminalPanel?.requestedWorkingDirectory, fallbackCwd)
+            XCTAssertEqual(inserted.currentDirectory, fallbackCwd)
         }
     }
 
@@ -3227,6 +3264,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         let panel = DetachedWorkspaceTestPanel()
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            sessionRestoreSourceWorkspaceId: nil,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
@@ -3248,6 +3286,9 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             restorableAgentResumeState: nil, restoredAgentCompletedGeneration: nil,
             shellActivityState: nil, restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: resumeBinding,
+            managedAgentResumeBinding: resumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            },
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
@@ -3269,6 +3310,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
+            id: UUID? = nil,
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
@@ -3276,6 +3318,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
+            initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3285,6 +3328,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
+                id: id,
                 title: title,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
@@ -3292,6 +3336,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
+                initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -3580,6 +3625,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
+            id: UUID? = nil,
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
@@ -3587,6 +3633,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
+            initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3596,6 +3643,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
+                id: id,
                 title: title,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
@@ -3603,6 +3651,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
+                initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -4682,10 +4731,25 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
 
+        let reloadState = sourcePanel.surface.captureFontSizeConfigurationReloadState(
+            magnificationPercent: 100
+        )
+        defer {
+            sourcePanel.surface.abandonFontSizeConfigurationReloadReconciliation(
+                from: reloadState,
+                magnificationPercent: 100
+            )
+        }
+
         sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
         XCTAssertNotNil(
             sourcePanel.surface.surface,
             "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+        )
+        _ = sourcePanel.surface.fontSizeLineageSnapshot()
+        XCTAssertNotNil(
+            sourcePanel.surface.surface,
+            "Expected the pending reload snapshot to leave liveness validation to inherited config"
         )
 
         let splitPanel = workspace.newTerminalSplit(
@@ -4716,10 +4780,25 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
 
+        let reloadState = sourcePanel.surface.captureFontSizeConfigurationReloadState(
+            magnificationPercent: 100
+        )
+        defer {
+            sourcePanel.surface.abandonFontSizeConfigurationReloadReconciliation(
+                from: reloadState,
+                magnificationPercent: 100
+            )
+        }
+
         sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
         XCTAssertNotNil(
             sourcePanel.surface.surface,
             "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+        )
+        _ = sourcePanel.surface.fontSizeLineageSnapshot()
+        XCTAssertNotNil(
+            sourcePanel.surface.surface,
+            "Expected the pending reload snapshot to leave liveness validation to inherited config"
         )
 
         let createdPanel = workspace.newTerminalSurface(
@@ -4810,6 +4889,121 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertTrue(
             rightPanel.hostedView.debugRenderStats().isActive,
             "Expected terminal-first-responder recovery to reactivate the selected split pane"
+        )
+    }
+
+    func testTerminalFirstResponderFeedbackPreservesActiveFocusTransaction() {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = originalAppDelegate ?? AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let originalTabManager = appDelegate.tabManager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanel.id),
+              let leftTabId = workspace.surfaceIdFromPanelId(leftPanel.id) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.hostedView)
+        contentView.addSubview(rightPanel.hostedView)
+        leftPanel.hostedView.setVisibleInUI(true)
+        rightPanel.hostedView.setVisibleInUI(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        leftPanel.hostedView.layoutSubtreeIfNeeded()
+        rightPanel.hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        FocusSurfaceBroadcaster.shared.flush()
+
+        var firstResponderFeedbackCount = 0
+        leftPanel.hostedView.setFocusHandler {
+            firstResponderFeedbackCount += 1
+            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+        }
+
+        var observedTransactions: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidFocusSurface,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
+                  notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id,
+                  let transactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID else {
+                return
+            }
+            observedTransactions.append(transactionId)
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        var sawFirstResponderNotification = false
+        var observedFirstResponderTransactions: [UUID] = []
+        let firstResponderToken = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidBecomeFirstResponderSurface,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
+                  notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id else {
+                return
+            }
+            sawFirstResponderNotification = true
+            if let transactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID {
+                observedFirstResponderTransactions.append(transactionId)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(firstResponderToken) }
+
+        let transactionId = UUID()
+        window.makeFirstResponder(nil)
+        workspace.applyTabSelection(
+            tabId: leftTabId,
+            inPane: leftPaneId,
+            focusTransactionId: transactionId
+        )
+        FocusSurfaceBroadcaster.shared.flush()
+
+        XCTAssertGreaterThan(
+            firstResponderFeedbackCount,
+            0,
+            "Expected AppKit first-responder focus to feed back through workspace.focusPanel"
+        )
+        XCTAssertTrue(
+            sawFirstResponderNotification,
+            "Expected the terminal first-responder notification to be posted for the focused panel"
+        )
+        XCTAssertEqual(
+            observedFirstResponderTransactions.last,
+            transactionId,
+            "Terminal first-responder notifications should carry the active focus transaction"
+        )
+        XCTAssertEqual(
+            observedTransactions.last,
+            transactionId,
+            "Terminal first-responder feedback should stay in the active focus transaction instead of starting a new circuit"
         )
     }
 
@@ -6443,7 +6637,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertGreaterThan(
             (snapshot.forkCommand.map { $0 + "\n" } ?? "").utf8.count,
-            SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
+            900
         )
         let forkPanel = try XCTUnwrap(
             workspace.forkAgentConversation(
@@ -6454,7 +6648,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertNil(forkPanel.surface.debugInitialCommand())
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/Users/cmux/project")
-        XCTAssertTrue(forkPanel.surface.initialInput?.hasPrefix("/bin/zsh ") == true)
+        XCTAssertTrue(forkPanel.surface.initialInput?.hasPrefix(" /bin/zsh ") == true)
 
         let launch = try XCTUnwrap(
             workspace.forkAgentWorkspaceLaunch(
@@ -6466,7 +6660,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.initialTerminalCommand)
         XCTAssertFalse(launch.autoConnectRemoteConfiguration)
         XCTAssertNil(launch.remoteConfiguration)
-        XCTAssertTrue(launch.initialTerminalInput.hasPrefix("/bin/zsh "))
+        XCTAssertTrue(launch.initialTerminalInput.hasPrefix(" /bin/zsh "))
     }
 
     func testForkAgentConversationFromLocalTerminalInRemoteWorkspaceStaysLocal() throws {
@@ -6528,7 +6722,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertNil(forkPanel.surface.debugInitialCommand())
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/local project")
-        XCTAssertTrue(forkPanel.surface.initialInput?.hasPrefix("/bin/zsh ") == true)
+        XCTAssertTrue(forkPanel.surface.initialInput?.hasPrefix(" /bin/zsh ") == true)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount)
 
         let launch = try XCTUnwrap(
@@ -6541,7 +6735,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.initialTerminalCommand)
         XCTAssertFalse(launch.autoConnectRemoteConfiguration)
         XCTAssertNil(launch.remoteConfiguration)
-        XCTAssertTrue(launch.initialTerminalInput.hasPrefix("/bin/zsh "))
+        XCTAssertTrue(launch.initialTerminalInput.hasPrefix(" /bin/zsh "))
     }
 
     func testForkAgentConversationInRemoteWorkspaceRejectsLocalLauncherScriptFallback() throws {
@@ -6586,7 +6780,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertGreaterThan(
             (snapshot.forkCommand.map { $0 + "\n" } ?? "").utf8.count,
-            SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
+            900
         )
         XCTAssertNil(snapshot.forkStartupInput(allowLauncherScript: false))
         XCTAssertNil(

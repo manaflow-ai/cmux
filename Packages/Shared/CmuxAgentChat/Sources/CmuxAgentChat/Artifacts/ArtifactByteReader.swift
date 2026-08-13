@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -25,29 +26,19 @@ public struct ArtifactByteReader: Sendable {
     /// Reads metadata for an already-authorized path.
     public func stat(path: String) throws -> ChatArtifactStat {
         let attributes = try attributes(path: path)
-        let isDirectory = (attributes[.type] as? FileAttributeType) == .typeDirectory
-        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-        let modifiedAt = attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
-        let kind = kind(path: path, isDirectory: isDirectory)
-        return ChatArtifactStat(
-            exists: true,
-            isDirectory: isDirectory,
-            size: size,
-            modifiedAt: modifiedAt,
-            kind: kind,
-            mimeType: mimeType(path: path, isDirectory: isDirectory)
-        )
+        return stat(path: path, attributes: attributes)
     }
 
     /// Reads one clamped byte chunk for an already-authorized file path.
     public func fetch(path: String, offset: Int64, length: Int) throws -> ChatArtifactChunk {
-        let stat = try stat(path: path)
-        guard !stat.isDirectory else { throw Error.unsupportedMedia }
-        guard let handle = FileHandle(forReadingAtPath: path) else {
-            throw Error.fileNotFound
+        let attributes = try attributes(path: path)
+        guard (attributes[.type] as? FileAttributeType) == .typeRegular else {
+            throw Error.unsupportedMedia
         }
+        let opened = try openVerifiedRegularFile(path: path)
+        let handle = opened.handle
         defer { try? handle.close() }
-        let totalSize = stat.size
+        let totalSize = opened.size
         let clampedOffset = min(max(offset, 0), totalSize)
         try handle.seek(toOffset: UInt64(clampedOffset))
         let data = try handle.read(upToCount: max(0, length)) ?? Data()
@@ -60,15 +51,37 @@ public struct ArtifactByteReader: Sendable {
         )
     }
 
+    private func stat(
+        path: String,
+        attributes: [FileAttributeKey: Any]
+    ) -> ChatArtifactStat {
+        let fileType = attributes[.type] as? FileAttributeType
+        let isDirectory = fileType == .typeDirectory
+        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        let modifiedAt = attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
+        let kind = kind(
+            path: path,
+            isDirectory: isDirectory,
+            isRegularFile: fileType == .typeRegular
+        )
+        return ChatArtifactStat(
+            exists: true,
+            isDirectory: isDirectory,
+            size: size,
+            modifiedAt: modifiedAt,
+            kind: kind,
+            mimeType: mimeType(path: path, isDirectory: isDirectory)
+        )
+    }
+
     /// Generates a JPEG thumbnail for an already-authorized image path.
     public func thumbnail(path: String, maxDimension: Int) throws -> ChatArtifactThumbnail {
+        let opened = try openVerifiedRegularFile(path: path)
+        try? opened.handle.close()
         guard kind(path: path, isDirectory: false) == .image else {
             throw Error.unsupportedMedia
         }
         let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: path) else {
-            throw Error.fileNotFound
-        }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             throw Error.unsupportedMedia
         }
@@ -132,12 +145,33 @@ public struct ArtifactByteReader: Sendable {
         )
     }
 
-    /// Infers preview category from a path extension and a bounded UTF-8 sniff.
+    /// Infers preview category from directory status, extension, and a verified regular-file UTF-8 sniff.
     public func kind(path: String, isDirectory: Bool) -> ChatArtifactKind {
+        return kind(
+            path: path,
+            isDirectory: isDirectory,
+            isRegularFile: nil
+        )
+    }
+
+    private func kind(
+        path: String,
+        isDirectory: Bool,
+        isRegularFile: Bool?
+    ) -> ChatArtifactKind {
         if isDirectory { return .directory }
+        if isRegularFile == false { return .binary }
         let fileExtension = URL(fileURLWithPath: path).pathExtension
         let type = fileExtension.isEmpty ? nil : UTType(filenameExtension: fileExtension)
         guard let type, !type.isDynamic else {
+            let verifiedRegularFile: Bool
+            if let isRegularFile {
+                verifiedRegularFile = isRegularFile
+            } else {
+                let attributes = try? attributes(path: path)
+                verifiedRegularFile = (attributes?[.type] as? FileAttributeType) == .typeRegular
+            }
+            guard verifiedRegularFile else { return .binary }
             return isUTF8Text(path: path) ? .text : .binary
         }
         if type.conforms(to: .image) { return .image }
@@ -148,9 +182,10 @@ public struct ArtifactByteReader: Sendable {
     }
 
     private func isUTF8Text(path: String) -> Bool {
-        guard let handle = FileHandle(forReadingAtPath: path) else {
+        guard let opened = try? openVerifiedRegularFile(path: path) else {
             return false
         }
+        let handle = opened.handle
         defer { try? handle.close() }
         let bytes: Data
         do {
@@ -185,6 +220,35 @@ public struct ArtifactByteReader: Sendable {
             return String(data: prefix, encoding: .utf8) != nil
         }
         return false
+    }
+
+    /// Opens `path` without blocking and validates the opened descriptor as a regular file.
+    func openVerifiedRegularFile(path: String) throws -> (handle: FileHandle, size: Int64) {
+        // Set close-on-exec atomically at open; fcntl afterward cannot close the fork race.
+        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { throw Error.fileNotFound }
+
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0 else {
+            Darwin.close(descriptor)
+            throw Error.fileNotFound
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFREG else {
+            Darwin.close(descriptor)
+            throw Error.unsupportedMedia
+        }
+
+        let flags = Darwin.fcntl(descriptor, F_GETFL, 0)
+        guard flags >= 0,
+              Darwin.fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
+            Darwin.close(descriptor)
+            throw Error.fileNotFound
+        }
+
+        return (
+            FileHandle(fileDescriptor: descriptor, closeOnDealloc: true),
+            max(Int64(metadata.st_size), 0)
+        )
     }
 
     private func utf8ScalarLength(leadingByte: UInt8) -> Int? {

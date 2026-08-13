@@ -3,13 +3,23 @@ public import Foundation
 
 /// Resolves fresh same-account reachability and a locally verified pair grant per dial.
 public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
+    private struct VerifiedDiscoverySnapshot: Sendable {
+        let response: CmxIrohDiscoveryResponse
+        let verifiedAt: Date
+    }
+
+    private static let maximumVerifiedDiscoveryReuseAge: TimeInterval = 30
+
     public typealias LANFallbackProvider = @Sendable (
         _ target: CmxIrohBrokerBindingMetadata,
         _ authenticatedBindings: [CmxIrohBrokerBindingMetadata],
         _ rendezvous: CmxIrohLANRendezvous
     ) async -> [CmxIrohPathHint]
+    public typealias CustomPrivateFallbackProvider = @Sendable (
+        _ expectedMacDeviceID: String
+    ) async -> [CmxIrohCustomPrivatePathBootstrap]
 
-    let supervisor: CmxIrohEndpointSupervisor
+    let localEndpointIdentity: @Sendable () async throws -> CmxIrohPeerIdentity
     let broker: any CmxIrohRegistryServing
     var localBindingExpectation: CmxIrohLocalBindingExpectation
     var managedRelayURLs: Set<String>
@@ -17,11 +27,14 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     let networkPathSnapshot: (@Sendable () async throws -> CmxIrohNetworkPathSnapshot)?
     var offlinePolicy: CmxIrohClientOfflinePolicyContext?
     let lanFallback: LANFallbackProvider?
+    let customPrivateFallback: CustomPrivateFallbackProvider?
     let verifier: CmxIrohGrantVerifier
     let now: @Sendable () -> Date
     var grantCache: [CmxIrohPeerIdentity: CmxIrohRegistryGrantCache] = [:]
     var pairGrantRetryDeadline: (code: String?, date: Date)?
     var lanAuthorities: [CmxIrohPeerIdentity: CmxIrohRegistryLANAuthority] = [:]
+    private var verifiedDiscoverySnapshot: VerifiedDiscoverySnapshot?
+    private var authoritativeDiscovery: CmxIrohDiscoveryResponse?
 
     /// Creates a public-route provider from the generation-less seam.
     public init(
@@ -33,10 +46,15 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         activeNetworkProfiles: @escaping @Sendable () async -> Set<CmxIrohNetworkProfileKey>,
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
+        customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.supervisor = supervisor
+        localEndpointIdentity = {
+            let endpoint = try await supervisor.activeEndpoint()
+            return await endpoint.identity()
+        }
         self.broker = broker
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
@@ -45,8 +63,13 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         networkPathSnapshot = nil
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
+        self.customPrivateFallback = customPrivateFallback
         self.verifier = verifier
         self.now = now
+        verifiedDiscoverySnapshot = verifiedDiscovery.map {
+            VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
+        }
+        authoritativeDiscovery = verifiedDiscovery
     }
 
     /// Creates a provider with generation-aware private-network validation.
@@ -59,10 +82,15 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot,
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
+        customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.supervisor = supervisor
+        localEndpointIdentity = {
+            let endpoint = try await supervisor.activeEndpoint()
+            return await endpoint.identity()
+        }
         self.broker = broker
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
@@ -70,8 +98,45 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.networkPathSnapshot = networkPathSnapshot
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
+        self.customPrivateFallback = customPrivateFallback
         self.verifier = verifier
         self.now = now
+        verifiedDiscoverySnapshot = verifiedDiscovery.map {
+            VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
+        }
+        authoritativeDiscovery = verifiedDiscovery
+    }
+
+    /// Creates a provider owned by the unified connectivity endpoint engine.
+    public init(
+        localEndpointIdentity: @escaping @Sendable () async throws -> CmxIrohPeerIdentity,
+        broker: any CmxIrohRegistryServing,
+        localBindingExpectation: CmxIrohLocalBindingExpectation,
+        managedRelayURLs: Set<String>,
+        allowedRouteRelayURLs: Set<String>? = nil,
+        networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot,
+        offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
+        lanFallback: LANFallbackProvider? = nil,
+        customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
+        verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.localEndpointIdentity = localEndpointIdentity
+        self.broker = broker
+        self.localBindingExpectation = localBindingExpectation
+        self.managedRelayURLs = managedRelayURLs
+        self.allowedRouteRelayURLs = allowedRouteRelayURLs ?? managedRelayURLs
+        self.networkPathSnapshot = networkPathSnapshot
+        self.offlinePolicy = offlinePolicy
+        self.lanFallback = lanFallback
+        self.customPrivateFallback = customPrivateFallback
+        self.verifier = verifier
+        self.now = now
+        verifiedDiscoverySnapshot = verifiedDiscovery.map {
+            VerifiedDiscoverySnapshot(response: $0, verifiedAt: now())
+        }
+        authoritativeDiscovery = verifiedDiscovery
     }
 
     public func context(
@@ -84,37 +149,44 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             throw CmxIrohRegistryContextError.unsupportedRoute
         }
         lanAuthorities.removeValue(forKey: targetIdentity)
-        let endpoint = try await supervisor.activeEndpoint()
-        let localIdentity = await endpoint.identity()
+        let localIdentity = try await localEndpointIdentity()
         guard localBindingExpectation.platform == .ios,
               localBindingExpectation.endpointID == localIdentity else {
             throw CmxIrohRegistryContextError.localBindingUnavailable
         }
+        let clock = now()
         let discovery: CmxIrohDiscoveryResponse
-        do {
-            discovery = try await broker.discover()
-        } catch {
-            let clock = now()
-            guard Self.isConnectivity(error),
-                  let cached = try await cachedPolicy(
-                      for: request,
-                      confirmedDiscovery: nil,
-                      at: clock
-                  ) else {
-                throw error
+        if let verified = takeVerifiedDiscovery(at: clock) {
+            discovery = verified
+        } else {
+            do {
+                discovery = try await refreshAuthoritativeDiscovery()
+            } catch {
+                guard Self.isConnectivity(error),
+                      let cached = try await cachedPolicy(
+                          for: request,
+                          confirmedDiscovery: nil,
+                          at: clock
+                      ) else {
+                    throw error
+                }
+                rememberCachedLANAuthority(cached)
+                return try await context(
+                    targetBinding: cached.targetBinding,
+                    routeHints: routeHints,
+                    pairGrantToken: cached.pairGrant.grant,
+                    at: clock
+                )
             }
-            rememberCachedLANAuthority(cached)
-            return try await context(
-                targetBinding: cached.targetBinding,
-                routeHints: routeHints,
-                pairGrantToken: cached.pairGrant.grant,
-                at: clock
-            )
         }
         guard discovery.routeContractVersion == 1 else {
             throw CmxIrohRegistryContextError.incompatibleContract
         }
-        guard Set(discovery.relayFleet) == managedRelayURLs else {
+        // Without a verified managed fleet there is nothing to cross-check and
+        // allowedRouteRelayURLs is empty, so no relay hint survives filtering;
+        // direct dial plans stay valid while relays remain unusable.
+        guard managedRelayURLs.isEmpty
+            || Set(discovery.relayFleet) == managedRelayURLs else {
             throw CmxIrohRegistryContextError.relayFleetMismatch
         }
         lanAuthorities.removeAll(keepingCapacity: false)
@@ -141,7 +213,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         replaceLANAuthorities(with: discovery)
         let initiator = CmxIrohGrantPeer(binding: localBinding)
         let acceptor = CmxIrohGrantPeer(binding: targetBinding)
-        let clock = now()
         let pairGrant: CmxIrohPairGrantResponse
         do {
             pairGrant = try await grant(
@@ -152,7 +223,10 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 now: clock
             )
         } catch {
-            guard Self.isConnectivity(error),
+            // Backpressure may reuse an existing signed grant only after this
+            // discovery has re-confirmed both exact endpoint authorities.
+            guard Self.isConnectivity(error)
+                    || CmxIrohBrokerCooldown.directiveSeconds(for: error) != nil,
                   let cached = try await cachedPolicy(
                       for: request,
                       confirmedDiscovery: discovery,
@@ -194,16 +268,48 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         localBindingExpectation: CmxIrohLocalBindingExpectation,
         managedRelayURLs: Set<String>,
         allowedRouteRelayURLs: Set<String>,
-        offlinePolicy: CmxIrohClientOfflinePolicyContext?
+        offlinePolicy: CmxIrohClientOfflinePolicyContext?,
+        verifiedDiscovery: CmxIrohDiscoveryResponse? = nil
     ) {
         if self.localBindingExpectation != localBindingExpectation {
             grantCache.removeAll(keepingCapacity: false)
             lanAuthorities.removeAll(keepingCapacity: false)
+            verifiedDiscoverySnapshot = nil
+            authoritativeDiscovery = nil
         }
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
         self.allowedRouteRelayURLs = allowedRouteRelayURLs
         self.offlinePolicy = offlinePolicy
+        if let verifiedDiscovery {
+            verifiedDiscoverySnapshot = VerifiedDiscoverySnapshot(
+                response: verifiedDiscovery,
+                verifiedAt: now()
+            )
+            authoritativeDiscovery = verifiedDiscovery
+        }
+    }
+
+    /// Consumes the startup or refresh response once, preventing an immediate
+    /// duplicate broker lookup while bounding the revocation visibility delay.
+    private func takeVerifiedDiscovery(at clock: Date) -> CmxIrohDiscoveryResponse? {
+        guard let snapshot = verifiedDiscoverySnapshot else { return nil }
+        verifiedDiscoverySnapshot = nil
+        let age = clock.timeIntervalSince(snapshot.verifiedAt)
+        guard age >= 0, age <= Self.maximumVerifiedDiscoveryReuseAge else {
+            return nil
+        }
+        return snapshot.response
+    }
+
+    private func refreshAuthoritativeDiscovery() async throws
+        -> CmxIrohDiscoveryResponse
+    {
+        let discovery = try await CmxAuthoritativeDiscoveryResolver(
+            broker: broker
+        ).resolve(cached: authoritativeDiscovery)
+        authoritativeDiscovery = discovery
+        return discovery
     }
 
     private func context(
@@ -213,6 +319,15 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         at clock: Date
     ) async throws -> CmxIrohClientContext {
         let targetIdentity = targetBinding.endpointID
+        var routeHints = authoritativePrivateRouteHints(
+            routeHints,
+            targetBinding: targetBinding,
+            at: clock
+        )
+        routeHints.append(contentsOf: await customPrivateRouteHints(
+            targetBinding: targetBinding,
+            at: clock
+        ))
         let pathSnapshot = try await availableNetworkPathSnapshot(
             for: targetBinding.pathHints + routeHints,
             at: clock
@@ -251,6 +366,82 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             credential: try .pairGrant(pairGrantToken),
             privateFallbackAuthorization: fallbackAuthorization
         )
+    }
+
+    /// Replaces legacy TCP-derived VPN ports with the endpoint-signed Iroh UDP
+    /// port for the same address family. Private IPs stay local, while stale or
+    /// incomplete broker metadata removes the hint instead of guessing.
+    private func authoritativePrivateRouteHints(
+        _ hints: [CmxIrohPathHint],
+        targetBinding: CmxIrohBrokerBinding,
+        at clock: Date
+    ) -> [CmxIrohPathHint] {
+        let lastSeenAt = CmxIrohISO8601Date.parse(targetBinding.lastSeenAt)
+        let portsAreFresh = lastSeenAt.map {
+            $0 <= clock.addingTimeInterval(CmxIrohPathHint.maximumObservationClockSkew)
+                && $0 >= clock.addingTimeInterval(-CmxIrohPathHint.maximumPrivateHintTTL)
+        } ?? false
+        let directPorts = portsAreFresh ? targetBinding.directPorts : nil
+        return hints.compactMap { hint in
+            guard hint.kind == .directAddress,
+                  hint.privacyScope != .publicInternet,
+                  hint.source == .tailscale || hint.source == .customVPN else {
+                return hint
+            }
+            return directPorts?.replacingPort(in: hint)
+        }
+    }
+
+    /// Resolves explicit addresses only after broker discovery authenticated
+    /// this exact Mac tuple. The broker's current UDP port is authoritative;
+    /// the configured address contributes reachability only.
+    private func customPrivateRouteHints(
+        targetBinding: CmxIrohBrokerBinding,
+        at clock: Date
+    ) async -> [CmxIrohPathHint] {
+        guard let customPrivateFallback,
+              let directPorts = freshDirectPorts(
+                  targetBinding: targetBinding,
+                  at: clock
+              ) else { return [] }
+        let configured = await customPrivateFallback(targetBinding.deviceID)
+        var hints: [CmxIrohPathHint] = []
+        for path in configured.prefix(CmxAttachEndpoint.maximumIrohPathHintCount) {
+            let port: UInt16?
+            switch path.address.family {
+            case .ipv4: port = directPorts.ipv4
+            case .ipv6: port = directPorts.ipv6
+            }
+            guard let port,
+                  let hint = try? CmxIrohPathHint(
+                      kind: .directAddress,
+                      value: path.address.socketAddress(port: port),
+                      source: .customVPN,
+                      privacyScope: .privateNetwork,
+                      observedAt: clock,
+                      expiresAt: clock.addingTimeInterval(
+                          CmxIrohPathHint.maximumPrivateHintTTL
+                      ),
+                      networkProfile: path.networkProfile
+                  ),
+                  !hints.contains(hint) else { continue }
+            hints.append(hint)
+        }
+        return hints
+    }
+
+    private func freshDirectPorts(
+        targetBinding: CmxIrohBrokerBinding,
+        at clock: Date
+    ) -> CmxIrohDirectPorts? {
+        guard let lastSeenAt = CmxIrohISO8601Date.parse(targetBinding.lastSeenAt),
+              lastSeenAt <= clock.addingTimeInterval(
+                  CmxIrohPathHint.maximumObservationClockSkew
+              ),
+              lastSeenAt >= clock.addingTimeInterval(
+                  -CmxIrohPathHint.maximumPrivateHintTTL
+              ) else { return nil }
+        return targetBinding.directPorts
     }
 
     private func cachedPolicy(
@@ -356,8 +547,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             $0.platform == .mac && $0.pairingEnabled
         }
         let counts = Dictionary(grouping: pairableMacs, by: \.endpointID).mapValues(\.count)
-        for target in pairableMacs.prefix(CmxIrohDiscoveryResponse.maximumBindingCount)
-        where counts[target.endpointID] == 1 {
+        for target in pairableMacs where counts[target.endpointID] == 1 {
             replacement[target.endpointID] = CmxIrohRegistryLANAuthority(
                 target: target,
                 bindings: discovery.bindings,
@@ -378,12 +568,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             bindings: bindings ?? [policy.targetBinding],
             rendezvous: policy.lanRendezvous
         )
-        if lanAuthorities.count > CmxIrohDiscoveryResponse.maximumBindingCount {
-            let keep = Set(lanAuthorities.keys.sorted {
-                $0.endpointID < $1.endpointID
-            }.prefix(CmxIrohDiscoveryResponse.maximumBindingCount))
-            lanAuthorities = lanAuthorities.filter { keep.contains($0.key) }
-        }
     }
 
     public func validatePrivateFallback(

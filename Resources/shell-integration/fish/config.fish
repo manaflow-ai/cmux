@@ -21,6 +21,120 @@ if test "$_cmux_integration_enabled" != 0
     set -g _CMUX_TTY_NAME ""
     set -g _CMUX_TTY_REPORTED 0
     set -g _CMUX_PWD_LAST_PWD ""
+    set -g _CMUX_TMUX_PULL_SIGNATURE ""
+    set -g _CMUX_TMUX_PUSH_SIGNATURE ""
+    # Keep CMUX_SOCKET_CAPABILITY inherited; tmux's global environment is
+    # readable by clients that were not started inside cmux.
+    set -g _CMUX_TMUX_SYNC_KEYS \
+        CMUX_BUNDLED_CLI_PATH \
+        CMUX_BUNDLE_ID \
+        CMUXD_UNIX_PATH \
+        CMUXTERM_REPO_ROOT \
+        CMUX_DEBUG_LOG \
+        CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION \
+        CMUX_PORT \
+        CMUX_PORT_END \
+        CMUX_PORT_RANGE \
+        CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD \
+        CMUX_SHELL_INTEGRATION \
+        CMUX_SHELL_INTEGRATION_DIR \
+        CMUX_SOCKET_ENABLE \
+        CMUX_SOCKET_MODE \
+        CMUX_SOCKET_PATH \
+        CMUX_SSH_ATTEMPT_ID \
+        CMUX_TAB_ID \
+        CMUX_TAG \
+        CMUX_TERMINAL_LIFECYCLE_ID \
+        CMUX_WORKSPACE_ID
+    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_PANEL_ID CMUX_SURFACE_ID
+
+    function _cmux_tmux_sync_key_is_managed --argument-names candidate
+        contains -- "$candidate" $_CMUX_TMUX_SYNC_KEYS
+    end
+
+    function _cmux_tmux_shell_env_signature
+        set -l parts
+        for key in $_CMUX_TMUX_SYNC_KEYS
+            set -q $key; or continue
+            test -n "$$key"; or continue
+            set -a parts "$key=$$key"
+        end
+        string join \x1f -- $parts
+    end
+
+    function _cmux_tmux_publish_cmux_environment
+        if set -q TMUX; and test -n "$TMUX"
+            return 0
+        end
+        command -sq tmux; or functions -q tmux; or return 0
+
+        set -l signature (_cmux_tmux_shell_env_signature)
+        test -n "$signature"; or return 0
+        test "$signature" = "$_CMUX_TMUX_PUSH_SIGNATURE"; and return 0
+
+        for key in $_CMUX_TMUX_SYNC_KEYS
+            set -q $key; or continue
+            test -n "$$key"; or continue
+            tmux set-environment -g "$key" "$$key" >/dev/null 2>&1; or return 0
+        end
+        for key in $_CMUX_TMUX_SURFACE_SCOPED_KEYS
+            tmux set-environment -gu "$key" >/dev/null 2>&1; or return 0
+        end
+        set -g _CMUX_TMUX_PUSH_SIGNATURE "$signature"
+    end
+
+    function _cmux_tmux_refresh_cmux_environment
+        set -q TMUX; and test -n "$TMUX"; or return 0
+        command -sq tmux; or functions -q tmux; or return 0
+
+        set -l did_change 0
+        for key in $_CMUX_TMUX_SURFACE_SCOPED_KEYS
+            if set -q $key
+                set -e $key
+                set did_change 1
+            end
+        end
+
+        set -l output (tmux show-environment 2>/dev/null); or return 0
+        set -l filtered
+        for line in $output
+            string match -q 'CMUX_*=*' -- "$line"; or continue
+            set -l parts (string split -m 1 '=' -- "$line")
+            _cmux_tmux_sync_key_is_managed "$parts[1]"; or continue
+            set -a filtered "$line"
+        end
+        test (count $filtered) -gt 0; or return 0
+
+        set -l signature (string join \x1e -- $filtered)
+        if test "$signature" = "$_CMUX_TMUX_PULL_SIGNATURE"; and test "$did_change" = 0
+            return 0
+        end
+
+        for line in $filtered
+            set -l parts (string split -m 1 '=' -- "$line")
+            set -l key "$parts[1]"
+            set -l value "$parts[2]"
+            if not set -q $key; or test "$$key" != "$value"
+                set -gx $key "$value"
+                set did_change 1
+            end
+        end
+
+        set -g _CMUX_TMUX_PULL_SIGNATURE "$signature"
+        if test "$did_change" = 1
+            set -g _CMUX_TTY_REPORTED 0
+            set -g _CMUX_SHELL_ACTIVITY_LAST ""
+            set -g _CMUX_PWD_LAST_PWD ""
+        end
+    end
+
+    function _cmux_tmux_sync_cmux_environment
+        if set -q TMUX; and test -n "$TMUX"
+            _cmux_tmux_refresh_cmux_environment
+        else
+            _cmux_tmux_publish_cmux_environment
+        end
+    end
 
     function _cmux_restore_scrollback_once
         set -l path "$CMUX_RESTORE_SCROLLBACK_FILE"
@@ -67,16 +181,32 @@ if test "$_cmux_integration_enabled" != 0
         test -n "$relay_cli"
     end
 
+    function _cmux_write_socket_payload --argument-names payload
+        if set -q CMUX_SOCKET_CAPABILITY
+            and test -n "$CMUX_SOCKET_CAPABILITY"
+            and not string match -qr '[[:space:]]' -- "$CMUX_SOCKET_CAPABILITY"
+            printf '_cmux_capability_v1 %s %s\n' "$CMUX_SOCKET_CAPABILITY" "$payload"
+        else
+            printf '%s\n' "$payload"
+        end
+    end
+
     function _cmux_send --argument-names payload
         test -n "$payload"; or return 0
         test -n "$CMUX_SOCKET_PATH"; or return 0
+        if test -x /usr/bin/nc
+            # Apple's -N takes a value, so use the bounded response-waiting form.
+            _cmux_write_socket_payload "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; or true
+            return 0
+        end
         switch "$_CMUX_SEND_TOOL"
             case ncat
-                printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only >/dev/null 2>&1
+                _cmux_write_socket_payload "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only >/dev/null 2>&1
             case socat
-                printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
+                _cmux_write_socket_payload "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
             case nc
-                printf '%s\n' "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; or printf '%s\n' "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1
+                _cmux_write_socket_payload "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; or \
+                    _cmux_write_socket_payload "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1
         end
     end
 
@@ -112,17 +242,30 @@ if test "$_cmux_integration_enabled" != 0
         "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 &
     end
 
+    function _cmux_relay_rpc --argument-names method params
+        _cmux_socket_uses_remote_relay; or return 1
+        set -l relay_cli (_cmux_relay_cli_path)
+        test -n "$relay_cli"; or return 1
+        set -l response ("$relay_cli" rpc "$method" "$params" 2>/dev/null); or return 1
+        set response (string join '' -- $response)
+        string match -q '*"ok":false*' -- "$response"; and return 1
+        string match -q '*"ok": false*' -- "$response"; and return 1
+        return 0
+    end
+
     function _cmux_report_tty_via_relay
         _cmux_socket_uses_remote_relay; or return 1
         test -n "$_CMUX_TTY_NAME"; or return 1
+        test -n "$CMUX_TERMINAL_LIFECYCLE_ID"; or return 1
+        test -n "$CMUX_SSH_ATTEMPT_ID"; or return 1
         set -l workspace_id (_cmux_relay_workspace_id); or return 1
         set -l tty_name_json (_cmux_json_escape "$_CMUX_TTY_NAME")
-        set -l params "{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\""
+        set -l params "{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\",\"attempt_id\":\"$CMUX_SSH_ATTEMPT_ID\""
         if test -n "$CMUX_PANEL_ID"
             set params "$params,\"surface_id\":\"$CMUX_PANEL_ID\""
         end
         set params "$params}"
-        _cmux_relay_rpc_bg surface.report_tty "$params"
+        _cmux_relay_rpc surface.report_tty "$params"
     end
 
     function _cmux_report_pwd_via_relay --argument-names pwd
@@ -138,6 +281,21 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_relay_rpc_bg surface.report_pwd "$params"
     end
 
+    function _cmux_report_shell_activity_state_via_relay --argument-names state
+        _cmux_socket_uses_remote_relay; or return 1
+        test -n "$state"; or return 1
+        set -l workspace_id (_cmux_relay_workspace_id); or return 1
+        set -l params "{\"workspace_id\":\"$workspace_id\",\"state\":\"$state\""
+        if test -n "$CMUX_PANEL_ID"
+            set params "$params,\"surface_id\":\"$CMUX_PANEL_ID\""
+        end
+        if test -n "$CMUX_TERMINAL_LIFECYCLE_ID"
+            set params "$params,\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
+        end
+        set params "$params}"
+        _cmux_relay_rpc_bg surface.report_shell_state "$params"
+    end
+
     function _cmux_ports_kick_via_relay --argument-names reason
         _cmux_socket_uses_remote_relay; or return 1
         set -l workspace_id (_cmux_relay_workspace_id); or return 1
@@ -150,26 +308,44 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_relay_rpc_bg surface.ports_kick "$params"
     end
 
-    function _cmux_path_prepend_unique_directory --argument-names directory
+    function _cmux_path_prepend_unique_directory --argument-names directory skipped_directory
         test -n "$directory"; or return 0
         set -l next_path "$directory"
         for entry in $PATH
             test "$entry" = "$directory"; and continue
+            test -n "$skipped_directory"; and test "$entry" = "$skipped_directory"; and continue
             set -a next_path "$entry"
         end
         set -gx PATH $next_path
     end
 
+    function _cmux_fix_path
+        set -q CMUX_SHELL_INTEGRATION_DIR; and test -n "$CMUX_SHELL_INTEGRATION_DIR"; or return 0
+        set -l integration_dir (string trim -r -c / -- "$CMUX_SHELL_INTEGRATION_DIR")
+        string match -q '*/Resources/shell-integration' -- "$integration_dir"; or return 0
+        set -l resources_dir (string replace -r '/shell-integration$' '' -- "$integration_dir")
+        set -l gui_dir (string replace -r '/Resources$' '/MacOS' -- "$resources_dir")
+        set -l bin_dir "$resources_dir/bin"
+        test -d "$bin_dir"; or return 0
+        _cmux_path_prepend_unique_directory "$bin_dir" "$gui_dir"
+    end
+
     function _cmux_install_cli_command_shim --argument-names command_name wrapper_path
-        set -l tmp_root /tmp
-        if set -q TMPDIR; and test -n "$TMPDIR"
-            set tmp_root "$TMPDIR"
-        end
         set -l surface_component "$fish_pid"
         if set -q CMUX_SURFACE_ID; and test -n "$CMUX_SURFACE_ID"
             set surface_component "$CMUX_SURFACE_ID"
         end
-        set -l shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        set -l shim_root ""
+        if set -q CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+            set shim_root (string trim -r -c / -- "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT")
+        end
+        if test -z "$shim_root"; or not string match -q "*/cmux-cli-shims/$surface_component" -- "$shim_root"
+            set -l tmp_root /tmp
+            if set -q TMPDIR; and test -n "$TMPDIR"
+                set tmp_root "$TMPDIR"
+            end
+            set shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        end
         set -l shim_path "$shim_root/$command_name"
         mkdir -p "$shim_root" >/dev/null 2>&1; or return 0
         begin
@@ -270,19 +446,30 @@ if test "$_cmux_integration_enabled" != 0
             set -g _CMUX_TTY_REPORTED 1
             _cmux_send_bg "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
         else if _cmux_socket_uses_remote_relay
+            # Treat the first relay report as a readiness barrier. Latch only
+            # after acknowledgement so later prompts retry transient failures.
+            _cmux_report_tty_via_relay; or return 0
             set -g _CMUX_TTY_REPORTED 1
-            _cmux_report_tty_via_relay
         end
     end
 
     function _cmux_report_shell_activity_state --argument-names state
         test -n "$state"; or return 0
-        _cmux_socket_is_unix; or return 0
         test -n "$CMUX_TAB_ID"; or return 0
-        test -n "$CMUX_PANEL_ID"; or return 0
+        if _cmux_socket_is_unix
+            test -n "$CMUX_PANEL_ID"; or return 0
+        end
         test "$_CMUX_SHELL_ACTIVITY_LAST" = "$state"; and return 0
         set -g _CMUX_SHELL_ACTIVITY_LAST "$state"
-        _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if _cmux_socket_is_unix
+            set -l payload "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+            if test -n "$CMUX_TERMINAL_LIFECYCLE_ID"
+                set payload "$payload --terminal-lifecycle-id=$CMUX_TERMINAL_LIFECYCLE_ID"
+            end
+            _cmux_send_bg "$payload"
+        else
+            _cmux_report_shell_activity_state_via_relay "$state"; or set -g _CMUX_SHELL_ACTIVITY_LAST ""
+        end
     end
 
     function _cmux_reset_terminal_keyboard_protocols
@@ -303,12 +490,14 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_preexec --on-event fish_preexec
+        _cmux_tmux_sync_cmux_environment
         _cmux_report_tty_once
         _cmux_report_shell_activity_state running
         _cmux_ports_kick command
     end
 
     function _cmux_prompt --on-event fish_prompt
+        _cmux_tmux_sync_cmux_environment
         _cmux_reset_terminal_keyboard_protocols
         _cmux_report_tty_once
         _cmux_report_shell_activity_state prompt
@@ -363,3 +552,9 @@ if not set -q CMUX_FISH_USER_CONFIG_ALREADY_LOADED; and test -n "$_cmux_user_con
         source "$_cmux_user_config"
     end
 end
+
+# Run after the user's config so cmux's bundled commands keep precedence even
+# when shell startup replaced PATH. Remote integrations do not use the bundled
+# `shell-integration` layout, so the helper leaves their PATH unchanged.
+functions -q _cmux_fix_path; and _cmux_fix_path
+functions -e _cmux_fix_path

@@ -8,8 +8,9 @@ extension PullRequestProbeService {
     /// Repositories are fetched concurrently. A repository whose cached entry is
     /// fresh (younger than ``repoCacheLifetime``) and already covers every
     /// candidate branch is served from cache when `allowCachedResults` permits;
-    /// otherwise the recent-PRs pages are fetched and any still-unresolved
-    /// branches get targeted per-branch lookups.
+    /// otherwise each candidate branch is resolved with a targeted per-branch
+    /// `head={owner}:{branch}` lookup, which keeps the response small and its
+    /// ETag stable so the coordinator's `If-None-Match` cache stays effective.
     ///
     /// - Parameters:
     ///   - repoDirectoriesBySlug: Repositories to fetch (slug → representative directory).
@@ -54,7 +55,7 @@ extension PullRequestProbeService {
                         repoSlug: repoSlug,
                         candidateBranches: candidateBranchesByRepo[repoSlug] ?? [],
                         cachedEntry: cacheBySlug[repoSlug],
-                        useCachedRecentWindow: allowCachedResults
+                        useFreshCache: allowCachedResults
                             && (cacheBySlug[repoSlug].map {
                                 now.timeIntervalSince($0.fetchedAt) < Self.repoCacheLifetime
                             } ?? false),
@@ -81,19 +82,19 @@ extension PullRequestProbeService {
     }
 
     /// Fetches one repository: serve from cache when permitted and complete,
-    /// else page the recent PRs and per-branch-look-up any leftover branches.
+    /// else resolve every candidate branch with a per-branch `head=` lookup.
     nonisolated func repoFetchResult(
         repoSlug: String,
         candidateBranches: Set<String>,
         cachedEntry: WorkspacePullRequestRepoCacheEntry?,
-        useCachedRecentWindow: Bool,
+        useFreshCache: Bool,
         authHeader: String
     ) async -> WorkspacePullRequestRepoFetchResult {
         let normalizedCandidateBranches = Set(
             candidateBranches.compactMap(GitMetadataService.normalizedBranchName)
         )
 
-        if useCachedRecentWindow,
+        if useFreshCache,
            let cachedEntry {
             let unresolvedBranches = Self.unresolvedBranches(
                 normalizedCandidateBranches,
@@ -126,61 +127,22 @@ extension PullRequestProbeService {
         }
 
         let fetchTimestamp = Date()
-        var page = 1
-        var fetchedPageCount = 0
-        var allPullRequests: [GitHubPullRequestProbeItem] = []
-
-        while page <= Self.repoPageLimit {
-            let endpoint = "repos/\(repoSlug)/pulls?state=all&sort=updated&direction=desc&per_page=\(Self.repoPageSize)&page=\(page)"
-            guard let response = await performRequest(
-                endpoint: endpoint,
-                authHeader: authHeader
-            ) else {
-                debugLog("workspace.prRefresh.repo.fail repo=\(repoSlug) page=\(page) status=nil")
-                return .transientFailure
-            }
-
-            guard response.statusCode == 200,
-                  let pullRequests = Self.decodeJSON([WorkspacePullRequestRESTItem].self, from: response.data) else {
-                debugLog("workspace.prRefresh.repo.fail repo=\(repoSlug) page=\(page) status=\(response.statusCode)")
-                return .transientFailure
-            }
-
-            fetchedPageCount += 1
-            allPullRequests.append(contentsOf: pullRequests.map(Self.probeItem))
-            if pullRequests.count < Self.repoPageSize {
-                break
-            }
-            page += 1
-        }
-
-        let recentWindowEntry = WorkspacePullRequestRepoCacheEntry(
+        let baseEntry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: fetchTimestamp,
-            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: allPullRequests)
+            pullRequestsByBranch: [:]
         )
-        let unresolvedBranches = Self.unresolvedBranches(
-            normalizedCandidateBranches,
-            in: recentWindowEntry
+        let lookupOutcome = await branchLookupOutcome(
+            repoSlug: repoSlug,
+            candidateBranches: normalizedCandidateBranches.sorted(),
+            baseEntry: baseEntry,
+            refreshedAt: fetchTimestamp,
+            authHeader: authHeader
         )
-        let lookupOutcome: WorkspacePullRequestBranchLookupOutcome
-        if unresolvedBranches.isEmpty {
-            lookupOutcome = WorkspacePullRequestBranchLookupOutcome(
-                cacheEntry: recentWindowEntry,
-                transientBranches: []
-            )
-        } else {
-            lookupOutcome = await branchLookupOutcome(
-                repoSlug: repoSlug,
-                candidateBranches: unresolvedBranches,
-                baseEntry: recentWindowEntry,
-                refreshedAt: fetchTimestamp,
-                authHeader: authHeader
-            )
-        }
         debugLog(
-            "workspace.prRefresh.repo.success repo=\(repoSlug) pages=\(fetchedPageCount) " +
+            "workspace.prRefresh.repo.perBranch repo=\(repoSlug) " +
+            "branchLookups=\(normalizedCandidateBranches.count) " +
             "branches=\(lookupOutcome.cacheEntry.pullRequestsByBranch.count) " +
-            "branchLookups=\(unresolvedBranches.count) transient=\(lookupOutcome.transientBranches.count)"
+            "transient=\(lookupOutcome.transientBranches.count)"
         )
         return .success(
             lookupOutcome.cacheEntry,
@@ -287,6 +249,28 @@ extension PullRequestProbeService {
             return .transientFailure
         }
 
+        // A 404 on this `head=` lookup is repo-level, not branch-level: the pulls
+        // list endpoint returns `200 []` (handled below as `.notFound`) for a
+        // branch with no matching PR, so a 404 means the repo is not readable
+        // under this credential right now — renamed, deleted, or not visible.
+        // That last case is not necessarily permanent: GitHub also returns 404
+        // (rather than 403) when a token is missing a scope or SSO authorization
+        // for a private repo, to avoid disclosing the repo's existence. We still
+        // resolve `.notFound` so the branch folds into `knownAbsentBranches` and
+        // stops re-polling on the fast loop, but that suppression is bounded: it
+        // only applies while a cache entry stays fresh (`< repoCacheLifetime`).
+        // The cold path rebuilds with an empty known-absent set, and a
+        // cache-bypassing refresh (branchChange/shellPrompt/commandHint) or cache
+        // eviction clears it sooner — so a transiently-inaccessible repo (or
+        // regained access) re-resolves within one cache window instead of being
+        // hidden. The `200 []` no-PR case below shares this same bounded backoff.
+        if response.statusCode == 404 {
+            debugLog(
+                "workspace.prRefresh.branch.notFound repo=\(repoSlug) branch=\(branch)"
+            )
+            return .notFound
+        }
+
         guard response.statusCode == 200,
               let pullRequests = Self.decodeJSON([WorkspacePullRequestRESTItem].self, from: response.data) else {
             debugLog(
@@ -302,6 +286,8 @@ extension PullRequestProbeService {
         if let preferredPullRequest = Self.preferredPullRequest(from: matchingPullRequests) {
             return .found(preferredPullRequest)
         }
+        // `200` with no PR matching this branch's head: same `.notFound` /
+        // bounded known-absent backoff as the repo-level 404 above.
         return .notFound
     }
 

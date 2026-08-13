@@ -15,12 +15,7 @@ extension MobileShellComposite {
     }
 
     static func diagnosticSurfaceHandle(_ surfaceID: String) -> UInt32 {
-        // Swift's Hasher is randomly seeded for each process. The same surface
-        // remains correlatable inside one report, but the exported number cannot
-        // become a stable cross-launch identifier.
-        var hasher = Hasher()
-        hasher.combine(surfaceID)
-        return UInt32(truncatingIfNeeded: hasher.finalize())
+        DiagnosticCorrelation().handle(for: surfaceID) ?? 0
     }
 
     static func workspaceActionCapabilities(
@@ -29,6 +24,8 @@ extension MobileShellComposite {
     ) -> MobileWorkspaceActionCapabilities {
         MobileWorkspaceActionCapabilities(
             supportsWorkspaceActions: supportedHostCapabilities.contains("workspace.actions.v1"),
+            supportsWorkspaceMetadata: supportedHostCapabilities.contains("workspace.actions.v1")
+                && supportedHostCapabilities.contains(Self.workspaceMetadataCapability),
             supportsReadStateActions: supportedHostCapabilities.contains("workspace.read_state.v1"),
             supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1"),
             supportsMoveActions: supportedHostCapabilities.contains("workspace.move.v1") && allowsMacScopedMutations,

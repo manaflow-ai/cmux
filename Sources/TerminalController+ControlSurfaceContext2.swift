@@ -41,6 +41,10 @@ extension TerminalController {
         )
     }
 
+    func controlSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped onto
     /// the shared ``ControlSurfaceBrowserDisabledOutcome``.
     private func surfaceBrowserDisabledOutcome(
@@ -148,6 +152,14 @@ extension TerminalController {
                 focus: focus,
                 creationPolicy: .automationPreload,
                 bypassRemoteProxy: useLocalContext,
+                initialDividerPosition: dividerPosition
+            )?.id
+        } else if panelType == .simulator {
+            newId = ws.newSimulatorSplit(
+                from: targetSurfaceId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
                 initialDividerPosition: dividerPosition
             )?.id
         } else {
@@ -372,6 +384,11 @@ extension TerminalController {
                 creationPolicy: .automationPreload,
                 bypassRemoteProxy: useLocalContext
             )?.id
+        } else if panelType == .simulator {
+            newPanelId = ws.newSimulatorSurface(
+                inPane: paneId,
+                focus: focus
+            )?.id
         } else if panelType == .agentSession {
             newPanelId = ws.newAgentSessionSurface(
                 inPane: paneId,
@@ -422,12 +439,21 @@ extension TerminalController {
 
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let resolution = controlWindowDockSurfaceClose(routing: routing, surfaceID: surfaceID, tabManager: tabManager) {
+        if hasSurfaceIDParam, surfaceID == nil {
+            return .invalidSurfaceID
+        }
+        if let resolution = controlWindowDockSurfaceClose(
+            routing: routing,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            tabManager: tabManager
+        ) {
             return resolution
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
@@ -435,6 +461,7 @@ extension TerminalController {
         }
         guard let surfaceId = resolvedSurfaceIdForClose(
             explicitSurfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
             routing: routing,
             fallbackWorkspace: ws
         ) else {
@@ -509,21 +536,6 @@ extension TerminalController {
         }
         workspace.markCloseHistoryEligible(panelId: surfaceId)
         return workspace.closePanel(surfaceId, force: force)
-    }
-
-    /// The byte-faithful twin of `v2PanelType`'s token mapping (the `v2PanelType`
-    /// helper takes `[String: Any]`; the coordinator passes the raw token, so this
-    /// maps a token directly, identical to the legacy switch).
-    private func surfacePanelType(forRawToken raw: String) -> PanelType? {
-        switch v2NormalizedToken(raw) {
-        case "terminal": return .terminal
-        case "browser": return .browser
-        case "markdown": return .markdown
-        case "filepreview": return .filePreview
-        case "rightsidebartool": return .rightSidebarTool
-        case "agentsession": return .agentSession
-        default: return nil
-        }
     }
 
     private func surfaceRemoteContextWantsLocal(_ raw: String?) -> Bool {

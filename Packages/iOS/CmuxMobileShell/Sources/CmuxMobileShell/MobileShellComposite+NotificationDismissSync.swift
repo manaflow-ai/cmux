@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
 internal import Foundation
@@ -33,6 +34,7 @@ extension MobileShellComposite {
             return (id: id, macDeviceID: mac?.isEmpty == false ? mac : nil)
         }
         guard !trimmed.isEmpty else { return }
+        recordAppEvent(.notificationFeedItemDismissed, count: trimmed.count)
         if enqueueFirst {
             pendingDismissQueue.enqueue(trimmed)
         }
@@ -47,7 +49,15 @@ extension MobileShellComposite {
         macDeviceID: String?
     ) async {
         let ids = dismisses.map(\.id)
-        guard let client = notificationDismissClient(for: macDeviceID) else { return }
+        guard let client = notificationDismissClient(for: macDeviceID) else {
+            recordAppEvent(
+                .notificationFeedItemDismissed,
+                correlationID: macDeviceID,
+                failure: .endpointUnavailable,
+                count: ids.count
+            )
+            return
+        }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.dismiss",
@@ -58,17 +68,38 @@ extension MobileShellComposite {
             )
             _ = try await client.sendRequest(request)
             pendingDismissQueue.remove(dismisses)
+            recordAppEvent(
+                .notificationFeedItemDismissed,
+                correlationID: macDeviceID,
+                count: ids.count
+            )
         } catch {
-            mobileShellLog.error("notification dismiss sync failed count=\(ids.count, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            mobileShellLog.error("notification dismiss sync failed count=\(ids.count, privacy: .public) error=\(String(describing: error), privacy: .private)")
+            recordAppEvent(
+                .notificationFeedItemDismissed,
+                correlationID: macDeviceID,
+                failure: DiagnosticFailureKind.classify(error),
+                count: ids.count
+            )
         }
     }
 
     private func notificationDismissClient(for macDeviceID: String?) -> MobileCoreRPCClient? {
         guard let macDeviceID, !macDeviceID.isEmpty else { return remoteClient }
-        if foregroundMacDeviceID == macDeviceID {
+        // Dismiss records are device-scoped (push payloads carry no instance
+        // tag). Route only when the owning build is unambiguous ACROSS STORED
+        // pairings: the emitting build may be offline while a sibling is the
+        // sole live client, and Mac-local ids can collide across builds.
+        let storedSiblings = pairedMacsForIdentityMatching.filter {
+            $0.macDeviceID == macDeviceID
+        }
+        guard storedSiblings.count <= 1 else { return nil }
+        if foregroundMacDeviceID == macDeviceID, let remoteClient {
             return remoteClient
         }
-        return secondaryMacSubscriptions[macDeviceID]?.client
+        return secondaryMacSubscriptions
+            .first { $0.value.macDeviceID == macDeviceID }?
+            .value.client
     }
 
     func flushPendingNotificationDismisses(macDeviceID: String? = nil) async {
@@ -90,6 +121,7 @@ extension MobileShellComposite {
             .filter { !$0.isEmpty }
         guard !trimmed.isEmpty else { return }
         await deliveredNotificationClearer.removeDelivered(ids: trimmed)
+        recordAppEvent(.notificationFeedItemDismissed, count: trimmed.count)
     }
 
     /// Set the phone app icon badge to the Mac's authoritative unread total.
@@ -98,6 +130,7 @@ extension MobileShellComposite {
     /// self-heals on the next event, push, or reconcile response.
     public func applyAuthoritativeUnreadBadge(_ count: Int) {
         deliveredNotificationClearer.setBadgeCount(max(0, count))
+        recordAppEvent(.notificationBadgeReconciled, count: max(0, count))
     }
 
     func scheduleNotificationReconcile(client: MobileCoreRPCClient) {
@@ -116,6 +149,7 @@ extension MobileShellComposite {
     }
 
     func reconcileNotificationsWithMac(client: MobileCoreRPCClient) async {
+        let startedAt = appDiagnosticNow()
         let deliveredIDs = await deliveredNotificationClearer.deliveredIdentifiers()
         guard !Task.isCancelled,
               remoteClient === client,
@@ -132,11 +166,21 @@ extension MobileShellComposite {
             guard remoteClient === client else { return }
             let response = try MobileNotificationReconcileResponse.decode(data)
             await applyNotificationReconcile(response)
+            recordAppEvent(
+                .notificationBadgeReconciled,
+                startedAt: startedAt,
+                count: response.unreadCount
+            )
             MobileDebugLog.anchormux(
                 "notif.reconcile delivered=\(deliveredIDs.count) handled=\(response.handledIDs.count) unread=\(response.unreadCount.map(String.init) ?? "nil")"
             )
         } catch {
             MobileDebugLog.anchormux("notif.reconcile_failed error=\(error)")
+            recordAppEvent(
+                .notificationBadgeReconcileFailed,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
         }
     }
 

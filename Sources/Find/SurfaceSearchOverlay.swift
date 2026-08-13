@@ -22,7 +22,7 @@ struct SurfaceSearchOverlay: View {
     let surfaceId: UUID
     @ObservedObject var searchState: TerminalSurface.SearchState
     let canApplyFocusRequest: () -> Bool
-    let onNavigateSearch: (_ action: String) -> Void
+    let onNavigateSearch: (_ direction: TerminalSearchNavigation) -> Void
     let onSearchTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
     let onClose: () -> Void
@@ -51,10 +51,7 @@ struct SurfaceSearchOverlay: View {
                         onClose()
                     },
                     onReturn: { isShift in
-                        let action = isShift
-                            ? "navigate_search:previous"
-                            : "navigate_search:next"
-                        onNavigateSearch(action)
+                        onNavigateSearch(isShift ? .previous : .next)
                     }
                 )
                 .accessibilityIdentifier("TerminalFindSearchTextField")
@@ -85,7 +82,7 @@ struct SurfaceSearchOverlay: View {
                     #if DEBUG
                     cmuxDebugLog("findbar.next surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    onNavigateSearch("navigate_search:next")
+                    onNavigateSearch(.next)
                 }) {
                     Image(systemName: "chevron.up")
                 }
@@ -96,7 +93,7 @@ struct SurfaceSearchOverlay: View {
                     #if DEBUG
                     cmuxDebugLog("findbar.prev surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    onNavigateSearch("navigate_search:previous")
+                    onNavigateSearch(.previous)
                 }) {
                     Image(systemName: "chevron.down")
                 }

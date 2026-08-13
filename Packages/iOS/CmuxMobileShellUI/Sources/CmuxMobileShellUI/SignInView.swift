@@ -12,8 +12,10 @@ import AppKit
 #endif
 
 struct SignInView: View {
+    private let usesStandaloneChrome: Bool
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var email = ""
     @State private var code = ""
     @State private var showCodeEntry = false
@@ -24,25 +26,45 @@ struct SignInView: View {
     private let errorPresentation = SignInErrorPresentation()
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                GameOfLifeHeader()
-                    .ignoresSafeArea()
 
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        UIApplication.shared.dismissMobileKeyboard()
+    init(usesStandaloneChrome: Bool = true) {
+        self.usesStandaloneChrome = usesStandaloneChrome
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if usesStandaloneChrome {
+            NavigationStack {
+                ZStack {
+                    GameOfLifeHeader()
+                        .ignoresSafeArea()
+
+                    keyboardDismissSurface
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        signInEntrySwitcher
                     }
-                    .ignoresSafeArea()
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    signInEntrySwitcher
                 }
+                .mobileInlineNavigationTitle()
             }
-            .mobileInlineNavigationTitle()
+        } else {
+            ScrollView {
+                signInEntrySwitcher
+                    .padding(.vertical, 8)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(keyboardDismissSurface)
         }
+    }
+
+    private var keyboardDismissSurface: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture {
+                UIApplication.shared.dismissMobileKeyboard()
+            }
     }
 
     @ViewBuilder
@@ -181,10 +203,12 @@ struct SignInView: View {
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .contentShape(.capsule)
+                        .mobileButtonLoading(authManager.isLoading, tint: .primary)
                 }
                 .disabled(code.count != 6 || isAuthInProgress)
                 .mobileGlassProminentButton()
                 .accessibilityIdentifier("signin.verifyCode")
+                .accessibilityLabel(L10n.string("mobile.signIn.verifyCode", defaultValue: "Verify code"))
 
                 Button {
                     let autofocusEmailOnReturn = isCodeFocused
@@ -236,10 +260,13 @@ struct SignInView: View {
 
     private func sendCode(autofocusCodeOnSuccess: Bool) async {
         error = nil
+        diagnosticLog?.recordAppEvent(.authSignInStarted)
         analytics.capture("ios_sign_in_started", ["method": .string("email_code")])
         do {
             try await authManager.sendCode(to: email)
+            diagnosticLog?.recordAppEvent(.authCodeRequested)
             guard !authManager.isAuthenticated else {
+                diagnosticLog?.recordAppEvent(.authSignInSucceeded)
                 return
             }
             shouldAutofocusCode = autofocusCodeOnSuccess
@@ -248,11 +275,16 @@ struct SignInView: View {
             }
         } catch {
             if case AuthError.cancelled = error {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
                 return
             }
             shouldAutofocusCode = false
             self.error = detailedErrorMessage(error)
+            diagnosticLog?.recordAppEvent(
+                .authCodeRequestFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("email_code"),
                 "failure_reason": .string(signInFailureReason(error)),
@@ -262,15 +294,22 @@ struct SignInView: View {
 
     private func verifyCode() async {
         error = nil
+        diagnosticLog?.recordAppEvent(.authVerificationStarted)
         do {
             try await authManager.verifyCode(code)
+            diagnosticLog?.recordAppEvent(.authSignInSucceeded)
         } catch {
             if case AuthError.cancelled = error {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
                 return
             }
             self.error = detailedErrorMessage(error)
             code = ""
+            diagnosticLog?.recordAppEvent(
+                .authSignInFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("email_code"),
                 "failure_reason": .string(signInFailureReason(error)),
@@ -282,19 +321,27 @@ struct SignInView: View {
         error = nil
         signingInProviders.insert(provider)
         defer { signingInProviders.remove(provider) }
+        diagnosticLog?.recordAppEvent(.authSignInStarted)
         analytics.capture("ios_sign_in_started", ["method": .string(provider.analyticsMethod)])
         do {
             try await provider.signIn(using: authManager)
+            diagnosticLog?.recordAppEvent(.authSignInSucceeded)
         } catch {
             if case AuthError.cancelled = error {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string(provider.analyticsMethod)])
                 return
             }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
+                diagnosticLog?.recordAppEvent(.authSignInCancelled)
                 analytics.capture("ios_sign_in_cancelled", ["method": .string(provider.analyticsMethod)])
                 return
             }
             self.error = detailedErrorMessage(error)
+            diagnosticLog?.recordAppEvent(
+                .authSignInFailed,
+                failure: DiagnosticFailureKind.classify(error)
+            )
             analytics.capture("ios_sign_in_failed", [
                 "method": .string(provider.analyticsMethod),
                 "failure_reason": .string(signInFailureReason(error)),

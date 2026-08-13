@@ -3,7 +3,7 @@
   "git": {
     "deploymentEnabled": {
       "main": true,
-      "*": false
+      "**": false
     }
   },
   "regions": [
@@ -17,6 +17,10 @@
     {
       "path": "/api/cron/vm-alerts",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/billing-reconcile",
+      "schedule": "23 * * * *"
     },
     {
       "path": "/api/internal/vm/leases/revoke-expired",

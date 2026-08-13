@@ -1,13 +1,19 @@
 {
-  "name": "cmux",
-  "version": "0.1.2",
-  "description": "Typed TypeScript client for cmux-tui frontends",
+  "name": "cmux-sdk",
+  "version": "1.0.0",
+  "description": "Typed TypeScript resource client for cmux",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/manaflow-ai/cmux.git",
     "directory": "cmux-tui/bindings/typescript"
   },
   "homepage": "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/bindings/typescript",
+  "license": "MIT",
+  "keywords": [
+    "cmux",
+    "terminal",
+    "sdk"
+  ],
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
@@ -28,9 +34,19 @@
       "default": "./dist/src/browser.js"
     },
     "./node": {
-      "types": "./dist/src/index.d.ts",
-      "import": "./dist/src/index.js",
-      "default": "./dist/src/index.js"
+      "types": "./dist/src/node.d.ts",
+      "import": "./dist/src/node.js",
+      "default": "./dist/src/node.js"
+    },
+    "./raw": {
+      "browser": {
+        "types": "./dist/src/raw/browser.d.ts",
+        "import": "./dist/src/raw/browser.js",
+        "default": "./dist/src/raw/browser.js"
+      },
+      "types": "./dist/src/raw/index.d.ts",
+      "import": "./dist/src/raw/index.js",
+      "default": "./dist/src/raw/index.js"
     }
   },
   "sideEffects": false,
@@ -40,7 +56,10 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test dist/test/*.test.js",
+    "generate": "python3 ../codegen/generate.py --write --language typescript",
+    "check:generated": "python3 ../codegen/generate.py --check --language typescript",
+    "test": "npm run check:generated && npm run build && node --test dist/test/*.test.js && npm run verify:package",
+    "verify:package": "node scripts/verify-packaged-consumer.mjs",
     "e2e": "npm run build && node dist/e2e/e2e.js"
   },
   "engines": {

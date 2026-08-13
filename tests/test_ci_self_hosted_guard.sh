@@ -839,6 +839,252 @@ check_web_db_behavior_tests() {
   echo "PASS: web DB behavior tests run through the discovery runner"
 }
 
+check_web_test_runner_behavior() {
+  local fixture_dir fixture_runner args_log expected_args live_mode
+  fixture_dir="$(mktemp -d)"
+  trap 'rm -rf -- "$fixture_dir"' EXIT
+  fixture_runner="$fixture_dir/web/scripts/run-tests.sh"
+  args_log="$fixture_dir/bun-args.log"
+  mkdir -p \
+    "$fixture_dir/web/.hidden" \
+    "$fixture_dir/web/node_modules/fixture" \
+    "$fixture_dir/web/scripts" \
+    "$fixture_dir/web/tests/nested" \
+    "$fixture_dir/bin"
+  cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_runner"
+  touch \
+    "$fixture_dir/web/.hidden/ignored.test.ts" \
+    "$fixture_dir/web/node_modules/fixture/ignored.test.ts" \
+    "$fixture_dir/web/scripts/alpha_spec.mts" \
+    "$fixture_dir/web/tests/beta.test.ts" \
+    "$fixture_dir/web/tests/nested/gamma_test.tsx" \
+    "$fixture_dir/web/tests/nested/omega.spec.mjs"
+
+  cat > "$fixture_dir/bin/bun" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then
+  printf '%s\n' "${CMUX_WEB_TEST_RUNNER_BUN_VERSION:-1.3.14}"
+  exit 0
+fi
+printf '%s\n' "$@" > "$CMUX_WEB_TEST_RUNNER_ARGS_LOG"
+EOF
+  chmod +x "$fixture_dir/bin/bun"
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner default discovery should execute"
+    exit 1
+  fi
+
+  expected_args=$'test\n--isolate\n./scripts/alpha_spec.mts\n./tests/beta.test.ts\n./tests/nested/gamma_test.tsx\n./tests/nested/omega.spec.mjs'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: shared web test runner must sort recursive Bun test patterns and exclude hidden dependencies"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    CMUX_WEB_TEST_RUNNER_BUN_VERSION="1.2.14" \
+    /bin/bash "$fixture_runner" >/dev/null 2>&1; then
+    echo "FAIL: shared web test runner must reject Bun versions with process-global mock leakage"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    CMUX_WEB_TEST_RUNNER_BUN_VERSION="1.3.13" \
+    /bin/bash "$fixture_runner" >/dev/null 2>&1; then
+    echo "FAIL: shared web test runner must enforce the patch-level Bun isolation boundary"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" \
+    --coverage -t "fixture runs" --bail=2 --parallel=2; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner option-only discovery should execute"
+    exit 1
+  fi
+  expected_args+=$'\n--coverage\n-t\nfixture runs\n--bail=2\n--parallel=2'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: option-only runs must retain sorted discovery before forwarding options"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --changed=main; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner changed-file discovery should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--changed=main'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: changed-file selection must retain Bun-owned discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" tests/beta; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner explicit filter should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\ntests/beta'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: explicit test filters must remain scoped instead of expanding to every test"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --bail tests/beta; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner optional flag plus filter should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--bail\ntests/beta'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: optional-valued flags must not consume a following test filter"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  for live_mode in --watch --hot; do
+    if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+      CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+      /bin/bash "$fixture_runner" "$live_mode"; then
+      rm -rf "$fixture_dir"
+      echo "FAIL: shared web test runner $live_mode mode should execute"
+      exit 1
+    fi
+    expected_args=$'test\n--isolate\n'"$live_mode"
+    if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+      echo "FAIL: $live_mode mode must delegate live test discovery to Bun"
+      cat "$args_log"
+      rm -rf "$fixture_dir"
+      exit 1
+    fi
+  done
+
+  cat > "$fixture_dir/web/bunfig.toml" <<'EOF'
+[test]
+root = "tests"
+EOF
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner configured-root discovery should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: default root-bearing Bun config must retain Bun-owned discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  rm -f "$fixture_dir/web/bunfig.toml"
+
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" --config=ci.bunfig.toml; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner alternate-config discovery should execute"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--config=ci.bunfig.toml'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: alternate Bun configs must retain Bun-owned discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  cat > "$fixture_dir/bin/find" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "./tests/beta.test.ts"
+exit 1
+EOF
+  chmod +x "$fixture_dir/bin/find"
+  rm -f "$args_log"
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_runner" \
+    >"$fixture_dir/discovery.stdout" 2>"$fixture_dir/discovery.stderr"; then
+    echo "FAIL: shared web test runner must reject partial discovery results"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  if ! grep -Fq "Web test discovery failed" "$fixture_dir/discovery.stderr"; then
+    echo "FAIL: shared web test runner must explain discovery failures"
+    cat "$fixture_dir/discovery.stderr"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  if [[ -e "$args_log" ]]; then
+    echo "FAIL: shared web test runner must not execute Bun after discovery fails"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+  rm -f "$fixture_dir/bin/find"
+
+  mkdir -p "$fixture_dir/empty/scripts"
+  cp "$ROOT_DIR/web/scripts/run-tests.sh" "$fixture_dir/empty/scripts/run-tests.sh"
+  if ! PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_dir/empty/scripts/run-tests.sh" \
+    --pass-with-no-tests; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner must honor --pass-with-no-tests"
+    exit 1
+  fi
+  expected_args=$'test\n--isolate\n--pass-with-no-tests'
+  if [[ "$(cat "$args_log")" != "$expected_args" ]]; then
+    echo "FAIL: --pass-with-no-tests must retain Bun-owned empty discovery"
+    cat "$args_log"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  if PATH="$fixture_dir/bin:/usr/bin:/bin" \
+    CMUX_WEB_TEST_RUNNER_ARGS_LOG="$args_log" \
+    /bin/bash "$fixture_dir/empty/scripts/run-tests.sh" \
+    >"$fixture_dir/empty.stdout" 2>"$fixture_dir/empty.stderr"; then
+    rm -rf "$fixture_dir"
+    echo "FAIL: shared web test runner must fail when no tests exist"
+    exit 1
+  fi
+  if ! grep -Fq "No web test files found" "$fixture_dir/empty.stderr"; then
+    echo "FAIL: shared web test runner must explain an empty test suite"
+    cat "$fixture_dir/empty.stderr"
+    rm -rf "$fixture_dir"
+    exit 1
+  fi
+
+  rm -rf "$fixture_dir"
+  trap - EXIT
+  echo "PASS: shared web test runner sorts recursive discovery and fails closed when empty"
+}
+
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -1027,4 +1273,5 @@ check_gui_smoke_unsupported_launch_handling
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
+check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation

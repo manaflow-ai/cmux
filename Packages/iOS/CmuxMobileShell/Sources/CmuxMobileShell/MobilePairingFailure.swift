@@ -24,6 +24,9 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// cellular). Caught by the reachability preflight before any connect, so it
     /// fails fast instead of waiting out the per-route timeouts.
     case offline
+    /// Tailscale could not prove that the selected route is currently bound to
+    /// the exact endpoint this device authorized locally.
+    case tailscaleUnavailable
     /// Could not route to a selected legacy host address. Iroh routes carry no
     /// host here because their EndpointID is resolved by the transport layer.
     case hostUnreachable(host: String?, port: Int?)
@@ -88,11 +91,60 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The pairing code carried no route kind this device build can dial (for
     /// example an iroh-only ticket on a build without the iroh transport).
     case noSupportedRoute
+    /// Two cancellation-ignoring route cleanups are still alive. Retrying in
+    /// this process cannot start another transport without exceeding the cap.
+    case routeCleanupBlocked
+    /// Another connection attempt already owns this route. The Mac did not
+    /// fail to respond; the active attempt resolves the route on its own, so
+    /// the user should wait for it rather than treat this as a timeout.
+    case connectAttemptGated
     /// The attempt was cancelled (the user tapped Cancel, or a newer attempt
     /// superseded it). Not surfaced as an error.
     case cancelled
     /// Anything else: a still-actionable generic "could not connect".
     case unknown(host: String?, port: Int?)
+}
+
+extension MobilePairingFailureCategory: DiagnosticFailureProviding {
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .offline:
+            .offline
+        case .tailscaleUnavailable:
+            .endpointUnavailable
+        case .hostUnreachable:
+            .hostUnreachable
+        case .listenerNotRunning:
+            .connectionRefused
+        case .localNetworkBlocked:
+            .permissionDenied
+        case .dnsFailed:
+            .dnsFailed
+        case .handshakeTimedOut:
+            .timedOut
+        case .connectionDropped:
+            .connectionClosed
+        case .accountMismatch, .emailMismatch:
+            .accountMismatch
+        case .authFailed, .ticketExpired:
+            .authorizationFailed
+        case .authEnvironmentMismatch, .buildIncompatible:
+            .identityMismatch
+        case .invalidCode, .unrecognizedVersion:
+            .protocolViolation
+        case .loopbackRejected, .unsupportedRoute, .noSupportedRoute,
+             .macUpdateRequired:
+            .unsupportedRoute
+        case .routeCleanupBlocked:
+            .endpointUnavailable
+        case .connectAttemptGated:
+            .routeGated
+        case .cancelled:
+            .cancelled
+        case .unknown:
+            .unknown
+        }
+    }
 }
 
 extension MobilePairingFailureCategory {
@@ -101,6 +153,7 @@ extension MobilePairingFailureCategory {
     public var analyticsReason: String {
         switch self {
         case .offline: return "offline"
+        case .tailscaleUnavailable: return "tailscale_unavailable"
         case .hostUnreachable: return "host_unreachable"
         case .listenerNotRunning: return "listener_not_running"
         case .localNetworkBlocked: return "local_network_blocked"
@@ -119,6 +172,8 @@ extension MobilePairingFailureCategory {
         case .macUpdateRequired: return "mac_update_required"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
+        case .routeCleanupBlocked: return "route_cleanup_blocked"
+        case .connectAttemptGated: return "connect_attempt_gated"
         case .cancelled: return "cancelled"
         case .unknown: return "other"
         }
@@ -145,6 +200,11 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.fail.offline",
                 defaultValue: "This device looks offline. Connect to Wi-Fi or cellular, then try again."
+            )
+        case .tailscaleUnavailable:
+            return L10n.string(
+                "mobile.pairing.tailscaleUnavailable",
+                defaultValue: "Tailscale is not ready for this connection."
             )
         case let .hostUnreachable(host, port):
             return Self.hostPortMessage(
@@ -248,7 +308,7 @@ extension MobilePairingFailureCategory {
         case .invalidCode:
             return L10n.string(
                 "mobile.pairing.invalidCode",
-                defaultValue: "This isn't a cmux pairing QR. Scan the code shown in the Pair iPhone window on your Mac."
+                defaultValue: "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Tailscale Pairing."
             )
         case .unrecognizedVersion:
             return L10n.string(
@@ -258,7 +318,11 @@ extension MobilePairingFailureCategory {
         case .loopbackRejected:
             return L10n.string(
                 "mobile.pairing.loopbackRejected",
-                defaultValue: "This code points at the Mac itself (localhost), so your iPhone can't use it. Update cmux on the Mac and scan its Iroh code."
+                defaultValue: """
+                This code points at the Mac itself (localhost), so your iPhone can't use it. \
+                On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. \
+                Then scan a fresh code.
+                """
             )
         case .macUpdateRequired:
             return L10n.string(
@@ -274,6 +338,16 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.unsupportedRoute",
                 defaultValue: "This pairing code is not supported."
+            )
+        case .routeCleanupBlocked:
+            return L10n.string(
+                "mobile.pairing.routeCleanupBlocked",
+                defaultValue: "cmux paused new connections because earlier connection cleanups are still stuck."
+            )
+        case .connectAttemptGated:
+            return L10n.string(
+                "mobile.pairing.connectAttemptGated",
+                defaultValue: "Already reconnecting to this computer."
             )
         case .cancelled:
             return ""
@@ -296,6 +370,11 @@ extension MobilePairingFailureCategory {
         switch self {
         case .offline:
             return nil
+        case .tailscaleUnavailable:
+            return L10n.string(
+                "mobile.pairing.guidance.tailscaleUnavailable",
+                defaultValue: "Open Tailscale on both devices, confirm they use the same network, then scan a fresh Pair iPhone code from the Mac."
+            )
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
                 "mobile.pairing.guidance.reachability",
@@ -337,7 +416,7 @@ extension MobilePairingFailureCategory {
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
-                defaultValue: "Open the pairing window on your Mac and scan a fresh QR or link."
+                defaultValue: "On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. Then scan a fresh QR or link."
             )
         case .unrecognizedVersion:
             return L10n.string(
@@ -348,6 +427,16 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.macUpdateRequired",
                 defaultValue: "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
+            )
+        case .routeCleanupBlocked:
+            return L10n.string(
+                "mobile.pairing.guidance.routeCleanupBlocked",
+                defaultValue: "Force-quit and reopen cmux on this iPhone, then reconnect. If this returns, restart cmux on the Mac."
+            )
+        case .connectAttemptGated:
+            return L10n.string(
+                "mobile.pairing.guidance.connectAttemptGated",
+                defaultValue: "A connection attempt is already in progress. Give it a moment to finish; retry only if this computer stays disconnected."
             )
         case .invalidCode, .loopbackRejected, .cancelled, .unknown:
             return nil
@@ -387,7 +476,7 @@ extension MobilePairingFailureCategory {
             case .receiveFailed, .sendFailed:
                 return .connectionDropped(host: host, port: port)
             case .tailscaleAuthorizationUnavailable:
-                return .hostUnreachable(host: host, port: port)
+                return .tailscaleUnavailable
             case .authorizationIntentRequired, .unsupportedAuthorizationMode:
                 return .unsupportedRoute
             case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
@@ -401,6 +490,11 @@ extension MobilePairingFailureCategory {
             switch connectionError {
             case .requestTimedOut:
                 return .handshakeTimedOut(host: host, port: port)
+            case .connectAttemptGated:
+                // Another attempt owns this route: the Mac did not time out,
+                // so timeout guidance ("No response from …") would misdirect
+                // the user. Surface the wait-for-active-attempt state instead.
+                return .connectAttemptGated
             case .insecureManualRoute:
                 return .unsupportedRoute
             case .attachTicketExpired:
@@ -411,6 +505,8 @@ extension MobilePairingFailureCategory {
                 return .accountMismatch
             case .connectionClosed, .transportWriteTimedOut:
                 return .connectionDropped(host: host, port: port)
+            case .routeCleanupBlocked:
+                return .routeCleanupBlocked
             case .invalidResponse:
                 return .unknown(host: host, port: port)
             case let .rpcError(code, message):

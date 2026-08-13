@@ -2,18 +2,17 @@ import AppKit
 import CmuxTerminal
 
 extension AppDelegate.MainWindowContext {
-    /// The Dock for this window, created on first access and retained until
-    /// the context is unregistered. Seeded from `~/.config/cmux/dock.json`
-    /// with a home base directory, like the app-wide Dock was on a fresh launch.
-    func windowDockStore() -> DockSplitStore {
-        if let existing = windowDock { return existing }
-        let store = DockSplitStore(
-            workspaceId: windowId,
-            scope: .global,
-            baseDirectoryProvider: { nil },
-            remoteBrowserSettingsProvider: { .local }
-        )
+    /// The Dock for this window, created on first access and retained until the
+    /// context is unregistered. Session restore wins; otherwise global config seeds it.
+    func windowDockStore(notificationStore: TerminalNotificationStore?) -> DockSplitStore {
+        if let existing = windowDock {
+            existing.notificationStore = notificationStore
+            return existing
+        }
+        let store = tabManager.makeWindowDockStore(windowId: windowId)
+        store.notificationStore = notificationStore
         windowDock = store
+        workspaceTerminalFontSizeCoordinator.attachWindowDock(store)
         return store
     }
 
@@ -21,9 +20,44 @@ extension AppDelegate.MainWindowContext {
         windowDock
     }
 
+    func restoreWindowDockSessionSnapshot(
+        _ snapshot: SessionWindowSnapshot?,
+        notificationStore: TerminalNotificationStore?,
+        excludingStableIdentities: Set<UUID> = []
+    ) {
+        let promptBatch = SurfaceResumeRunPromptBatch.shared
+        promptBatch.beginRestorePass()
+        defer { promptBatch.endRestorePass() }
+
+        guard let dockSnapshot = snapshot?.dock, let tabManagerSnapshot = snapshot?.tabManager else { return }
+        windowDockStore(notificationStore: notificationStore).restoreSessionSnapshot(
+            dockSnapshot,
+            excludingStableIdentities: excludingStableIdentities,
+            sourceWorkspaceResolver: { [tabManager] originalId in
+                tabManager.restoredSessionWorkspace(
+                    originalId: originalId,
+                    from: tabManagerSnapshot
+                )
+            }
+        )
+    }
+
+    func windowDockSessionSnapshot(
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex?,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+    ) -> SessionSplitContainerSnapshot? {
+        existingWindowDock()?.sessionSnapshot(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+    }
+
     /// Tears down this context's Dock, closing any live terminals/browsers and
     /// their portals, so no Dock panel outlives its window.
     func teardownWindowDock() {
+        workspaceTerminalFontSizeCoordinator.cancelWindowOwnedWork()
         guard let dock = windowDock else { return }
         windowDock = nil
         dock.closeAllPanels()
@@ -34,8 +68,8 @@ extension AppDelegate.MainWindowContext {
 ///
 /// Every main window hosts its own independent `DockSplitStore`: a window's
 /// right-sidebar Dock panel mounts that window's store, created lazily the
-/// first time the window shows the Dock and seeded from the global Dock config
-/// (`~/.config/cmux/dock.json`) exactly like a fresh launch. A window's Dock —
+/// first time the window shows the Dock. Session state restores it when present;
+/// otherwise `~/.config/cmux/dock.json` seeds it. A window's Dock —
 /// including its live terminal/browser panels — is torn down when the window
 /// unregisters, so no PTYs outlive their window.
 ///
@@ -44,6 +78,19 @@ extension AppDelegate.MainWindowContext {
 /// (`workspace_id`) self-describing: they name the window whose Dock they hit.
 
 extension AppDelegate {
+    func restoreWindowDockSessionSnapshot(
+        forWindowId windowId: UUID,
+        from snapshot: SessionWindowSnapshot?,
+        excludingStableIdentities: Set<UUID>
+    ) {
+        mainWindowContexts.values.first(where: { $0.windowId == windowId })?
+            .restoreWindowDockSessionSnapshot(
+                snapshot,
+                notificationStore: notificationStore,
+                excludingStableIdentities: excludingStableIdentities
+            )
+    }
+
     /// Legacy Dock routing alias, kept for CLI compatibility with the retired
     /// app-wide Global Dock. A `workspace_id` equal to this constant means "the
     /// Dock" generically and resolves to the Dock of whichever window the rest
@@ -69,13 +116,13 @@ extension AppDelegate {
         guard let context = mainWindowContext(forWindowId: windowId) else {
             preconditionFailure("Window Dock requested for an unregistered main window")
         }
-        return context.windowDockStore()
+        return context.windowDockStore(notificationStore: notificationStore)
     }
 
     /// The Dock for a registered window-owner id, created on first access. `nil`
     /// means `windowId` is not a live window-Dock owner.
     func windowDockForRegisteredOwner(_ windowId: UUID) -> DockSplitStore? {
-        mainWindowContext(forWindowId: windowId)?.windowDockStore()
+        mainWindowContext(forWindowId: windowId)?.windowDockStore(notificationStore: notificationStore)
     }
 
     /// The Dock of `tabManager`'s window, created on first access for a live
@@ -85,7 +132,7 @@ extension AppDelegate {
     /// quit. Only an existing store remains addressable during close races.
     func windowDock(for tabManager: TabManager) -> DockSplitStore? {
         if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
-            return context.windowDockStore()
+            return context.windowDockStore(notificationStore: notificationStore)
         }
         guard let windowId = windowId(for: tabManager) else { return nil }
         return existingWindowDock(forWindowId: windowId)
@@ -137,7 +184,11 @@ extension AppDelegate {
     @discardableResult
     func closeWindowDockRuntimeSurface(surfaceId: UUID, force: Bool) -> Bool {
         guard let dock = windowDockContainingPanel(surfaceId) else { return false }
-        if dock.closePanel(surfaceId, force: force) {
+        if dock.closePanel(
+            surfaceId,
+            force: force,
+            recordsHistory: false
+        ) {
             notificationStore?.clearNotifications(forTabId: dock.workspaceId, surfaceId: surfaceId)
         }
         return true
@@ -165,5 +216,15 @@ extension AppDelegate {
             return tabManagerForWindowDockOwner(dock.workspaceId)
         }
         return tabManagerFor(tabId: dock.workspaceId)
+    }
+}
+
+extension SessionWindowSnapshot {
+    @MainActor
+    func omitsRemoteMirrorOnlyWindow(liveWorkspaces: [Workspace]) -> Bool {
+        tabManager.workspaces.isEmpty &&
+            dock == nil &&
+            !liveWorkspaces.isEmpty &&
+            liveWorkspaces.allSatisfy { $0.isRemoteTmuxMirror }
     }
 }

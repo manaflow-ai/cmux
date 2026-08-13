@@ -3,6 +3,48 @@ internal import CmuxMobilePairedMac
 internal import CmuxMobileShellModel
 
 extension MobileShellComposite {
+    /// Select one authoritative stored row per physical device identifier.
+    ///
+    /// UUID spellings share a lowercase identity, while opaque identifiers stay
+    /// case-sensitive. The freshest row owns all routes and metadata; no route
+    /// or customization fields are merged from an older alias.
+    static func coalescePairedMacsByCanonicalDeviceID(
+        _ macs: [MobilePairedMac]
+    ) -> [MobilePairedMac] {
+        var selectedByDeviceID: [String: MobilePairedMac] = [:]
+        var deviceOrder: [String] = []
+
+        for mac in macs where !mac.macDeviceID.isEmpty {
+            let canonicalDeviceID = cmxCanonicalDeviceID(mac.macDeviceID)
+            guard let selected = selectedByDeviceID[canonicalDeviceID] else {
+                selectedByDeviceID[canonicalDeviceID] = mac
+                deviceOrder.append(canonicalDeviceID)
+                continue
+            }
+            let shouldReplace: Bool
+            let candidateUsesCanonicalSpelling = mac.macDeviceID == canonicalDeviceID
+            let selectedUsesCanonicalSpelling = selected.macDeviceID == canonicalDeviceID
+            if mac.lastSeenAt != selected.lastSeenAt {
+                shouldReplace = mac.lastSeenAt > selected.lastSeenAt
+            } else if candidateUsesCanonicalSpelling != selectedUsesCanonicalSpelling {
+                shouldReplace = candidateUsesCanonicalSpelling
+            } else if mac.isActive != selected.isActive {
+                shouldReplace = mac.isActive
+            } else {
+                shouldReplace = mac.id < selected.id
+            }
+            if shouldReplace {
+                selectedByDeviceID[canonicalDeviceID] = mac
+            }
+        }
+
+        return deviceOrder.compactMap { deviceID in
+            guard var selected = selectedByDeviceID[deviceID] else { return nil }
+            selected.macDeviceID = deviceID
+            return selected
+        }
+    }
+
     /// Collapse duplicate paired-Mac rows that have the same Mac-reported name
     /// and dial the same host/port.
     ///
@@ -147,6 +189,63 @@ extension MobileShellComposite {
     }
 }
 
+/// Index every stored device id to the physical-route alias component it
+/// belongs to. Dial endpoints preserve the presentation alias model, while
+/// the cryptographic Iroh endpoint joins renamed rows that still compete
+/// for one physical control connection.
+@MainActor
+func physicalMacAliasCanonicalIDsByCanonicalID(
+    in macs: [MobilePairedMac],
+    supportedKinds: [CmxAttachTransportKind],
+    preferNonLoopback: Bool
+) -> [String: Set<String>] {
+    var unionFind = PairedMacAliasUnionFind()
+    var canonicalIDs: Set<String> = []
+    var firstCanonicalIDByDialEndpoint: [String: String] = [:]
+    var firstCanonicalIDByIrohEndpoint: [String: String] = [:]
+
+    for mac in macs where !mac.macDeviceID.isEmpty {
+        let canonicalID = cmxCanonicalDeviceID(mac.macDeviceID)
+        canonicalIDs.insert(canonicalID)
+        unionFind.insert(canonicalID)
+
+        if let dialEndpoint = mac.dialEndpointKey(
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ) {
+            if let first = firstCanonicalIDByDialEndpoint[dialEndpoint] {
+                unionFind.union(canonicalID, first)
+            } else {
+                firstCanonicalIDByDialEndpoint[dialEndpoint] = canonicalID
+            }
+        }
+        if let irohEndpoint = MobileShellComposite.irohEndpointID(
+            for: mac,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ) {
+            if let first = firstCanonicalIDByIrohEndpoint[irohEndpoint] {
+                unionFind.union(canonicalID, first)
+            } else {
+                firstCanonicalIDByIrohEndpoint[irohEndpoint] = canonicalID
+            }
+        }
+    }
+
+    var groupsByRoot: [String: Set<String>] = [:]
+    for canonicalID in canonicalIDs {
+        let root = unionFind.root(of: canonicalID)
+        groupsByRoot[root, default: []].insert(canonicalID)
+    }
+    var aliasesByCanonicalID: [String: Set<String>] = [:]
+    for aliases in groupsByRoot.values {
+        for canonicalID in aliases {
+            aliasesByCanonicalID[canonicalID] = aliases
+        }
+    }
+    return aliasesByCanonicalID
+}
+
 private extension MobilePairedMac {
     @MainActor
     func dialEndpointKey(
@@ -163,7 +262,7 @@ private extension MobilePairedMac {
             preferNonLoopback: preferNonLoopback
         )
         if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
-            return "iroh:\(identity.endpointID):name:\(displayName.lowercased()):instance:\(instanceTag ?? "")"
+            return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
         }
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
             reconnectRoutes,
@@ -172,7 +271,7 @@ private extension MobilePairedMac {
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             return nil
         }
-        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased()):instance:\(instanceTag ?? "")"
+        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased())"
     }
 
     func mergingCustomization(from other: MobilePairedMac) -> MobilePairedMac {

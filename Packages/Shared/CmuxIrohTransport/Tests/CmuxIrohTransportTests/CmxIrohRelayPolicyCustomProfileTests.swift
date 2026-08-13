@@ -25,6 +25,12 @@ extension CmxIrohRelayPolicyTests {
         #expect(throws: CmxIrohRelayPolicyError.invalidClaims) {
             try CmxIrohCustomRelay(url: "http://relay.example.net/")
         }
+        #expect(throws: CmxIrohRelayPolicyError.invalidClaims) {
+            try CmxIrohCustomRelay(
+                url: "https://relay.example.net/",
+                authenticationToken: "invalid\nprovider-token"
+            )
+        }
     }
 
     @Test
