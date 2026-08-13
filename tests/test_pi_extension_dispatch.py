@@ -586,6 +586,57 @@ await handlers.get("session_shutdown")({ reason: "session A complete" }, slow);
     return 0
 
 
+def check_session_start_allows_slow_cmux(bun: str, root: Path, extension_path: Path) -> int:
+    completed_marker = root / "slow-session-start-completed"
+    slow_cmux = root / "slow-session-start-cmux"
+    make_executable(
+        slow_cmux,
+        """#!/usr/bin/env python3
+import os
+import sys
+import time
+
+sys.stdin.read()
+# Model the observed session-start hook duration.
+time.sleep(6)
+with open(os.environ["CMUX_TEST_PI_SESSION_START_MARKER"], "w", encoding="utf-8") as stream:
+    stream.write("completed")
+print('{"workspace_id":"00000000-0000-0000-0000-000000008673","surface_id":"00000000-0000-0000-0000-000000008672"}')
+""",
+    )
+    source = """
+import { existsSync } from "node:fs";
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const sessionStart = handlers.get("session_start");
+if (typeof sessionStart !== "function") throw new Error("missing session_start");
+sessionStart({}, {
+  cwd: "/tmp/pi-slow-session-start",
+  sessionManager: { getSessionId() { return "pi-slow-session-start"; } }
+});
+const deadline = Date.now() + 10_000;
+while (!existsSync(process.env.CMUX_TEST_PI_SESSION_START_MARKER)) {
+  if (Date.now() >= deadline) throw new Error("session-start hook did not complete");
+  await Bun.sleep(50);
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=slow_cmux,
+        source=source,
+        extra_env={"CMUX_TEST_PI_SESSION_START_MARKER": str(completed_marker)},
+    )
+    if result.returncode != 0:
+        print(f"FAIL: session-start hook timed out before cmux completed: {result.stderr!r}")
+        return 1
+
+    return 0
+
+
 def check_panel_only_target_fails_closed(bun: str, root: Path, extension_path: Path) -> int:
     marker = root / "panel-only-cmux-called"
     fake_cmux = root / "panel-only-cmux"
@@ -2591,6 +2642,7 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
         check_hot_path_defers_projection_and_reuses_launch_probes,
         check_completion_precedes_next_prompt,
         check_cross_session_lifecycle_isolation,
+        check_session_start_allows_slow_cmux,
         check_panel_only_target_fails_closed,
         check_feed_backlog,
         check_terminal_feed_compaction,

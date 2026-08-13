@@ -27,9 +27,8 @@ class PiCmuxCommandDispatcher {
   private static readonly maxCompactedTerminalSummaries = 64;
   // Leave headroom for the feed.push envelope under the relay's 16 KiB frame limit.
   private static readonly maxFeedInputBytes = 12 * 1024;
-  // The app may spend three seconds committing acknowledged Feed ingress and the
-  // CLI owns a four-second end-to-end deadline. Observe that outcome before the
-  // extension classifies a terminal delivery as failed.
+  // Allow cmux to commit a slow session hook before the extension stops the CLI.
+  private static readonly commandDeadlineMs = 15000;
   private static readonly feedDrainDeadlineMs = 4500;
   private controlQueues = new Map<string | null, Promise<void>>();
   private pendingFeedCommands = new Map<string, PiFeedCommand>();
@@ -479,8 +478,8 @@ class PiCmuxCommandDispatcher {
           if (cancellation.cancelled) cancellation.cancel();
         }
         timeout = setTimeout(() => {
-          beginTermination(new Error("cmux command timed out after 5000ms"));
-        }, 5000);
+          beginTermination(new Error(`cmux command timed out after ${PiCmuxCommandDispatcher.commandDeadlineMs}ms`));
+        }, PiCmuxCommandDispatcher.commandDeadlineMs);
         child.stdin.end(input);
       } catch (error) {
         settle({ ok: false, status: null, stdout, stderr, error });
