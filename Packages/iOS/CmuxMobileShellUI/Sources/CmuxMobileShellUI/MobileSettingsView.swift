@@ -238,6 +238,8 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
+                    // The legacy Toasts preference was permanently retired; do
+                    // not expose a control for that disabled setting.
                     Toggle(isOn: $displaySettings.taskComposerEnabled) {
                         Text(L10n.string(
                             "mobile.settings.taskComposer",

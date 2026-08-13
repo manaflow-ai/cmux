@@ -10,6 +10,7 @@ struct MobilePushToggle: View {
     @Binding var isEnabled: Bool
     @Binding var isUpdating: Bool
     let onChange: @MainActor (Bool) async -> Bool
+    @State private var mutationTask: Task<Void, Never>?
 
     var body: some View {
         Toggle(
@@ -21,24 +22,38 @@ struct MobilePushToggle: View {
         )
         .accessibilityIdentifier("MobileSettingsNotifications")
         .disabled(isUpdating)
+        .onDisappear {
+            mutationTask?.cancel()
+            mutationTask = nil
+            isUpdating = false
+        }
     }
 
     private var binding: Binding<Bool> {
         Binding(
             get: { isEnabled },
             set: { requested in
-                guard !isUpdating else { return }
-                let previous = isEnabled
-                isEnabled = requested
-                isUpdating = true
-                Task { @MainActor in
-                    defer { isUpdating = false }
-                    if !(await onChange(requested)) {
-                        isEnabled = previous
-                    }
-                }
+                startMutation(requested)
             }
         )
+    }
+
+    private func startMutation(_ requested: Bool) {
+        guard mutationTask == nil, !isUpdating else { return }
+        let previous = isEnabled
+        isEnabled = requested
+        isUpdating = true
+        mutationTask = Task { @MainActor in
+            defer {
+                mutationTask = nil
+                isUpdating = false
+            }
+            let succeeded = await onChange(requested)
+            guard !Task.isCancelled else { return }
+            if !succeeded {
+                isEnabled = previous
+            }
+        }
     }
 }
 #endif
