@@ -127,6 +127,6 @@ struct CmxIrohConnectionDiagnosticRecorderTests {
         ])
         #expect(events.allSatisfy { $0.c == 23 })
         #expect(events.allSatisfy { $0.surface == 7 })
-        #expect(events.last?.ms == UInt32(Int32.max))
+        #expect(events[4].ms == UInt32(Int32.max))
     }
 }
