@@ -64,18 +64,15 @@ extension GhosttySurfaceView {
         submission: VerifiedReplayRenderSubmission,
         generation: UInt64
     ) {
-        enqueueVerifiedReplaySubmissionOnSurfaceQueue(
-            outputQueue: outputQueue,
-            read: read,
-            submission: submission,
-            generation: generation
-        ) { [weak self] observed, submission, generation in
-            self?.acceptVerifiedReplayObservedFrame(
-                observed,
-                submission: submission,
-                generation: generation
+        enqueueRenderSubmission(
+            GhosttySurfaceView.RenderSubmission(
+                token: submission.token,
+                generation: generation,
+                kind: .verifiedReplay,
+                surface: submission.surface,
+                verifiedReplayRead: read
             )
-        }
+        )
     }
 
     @discardableResult
@@ -90,39 +87,6 @@ extension GhosttySurfaceView {
         pendingVerifiedReplayPresentation = nil
         pending.continuation.resume(returning: result)
         return true
-    }
-}
-
-private nonisolated func enqueueVerifiedReplaySubmissionOnSurfaceQueue(
-    outputQueue: GhosttySurfaceWorkQueue,
-    read: VerifiedReplaySurfaceRead?,
-    submission: VerifiedReplayRenderSubmission,
-    generation: UInt64,
-    acceptObservedFrame: @escaping @MainActor @Sendable (
-        MobileTerminalRenderGridFrame?,
-        VerifiedReplayRenderSubmission,
-        UInt64
-    ) -> Void
-) {
-    guard let read else {
-        outputQueue.async {
-            ghostty_surface_render_now_with_token(submission.surface, submission.token)
-        }
-        return
-    }
-    outputQueue.async {
-        let observed = verifiedReplayExportThenSubmit(
-            export: { exportVerifiedReplayGridSynchronously(read) },
-            submit: {
-                ghostty_surface_render_now_with_token(
-                    submission.surface,
-                    submission.token
-                )
-            }
-        )
-        Task { @MainActor in
-            acceptObservedFrame(observed, submission, generation)
-        }
     }
 }
 
@@ -209,7 +173,7 @@ extension MobileTerminalRenderGridFrame {
     }
 }
 
-private nonisolated func exportVerifiedReplayGridSynchronously(
+nonisolated func exportVerifiedReplayGridSynchronously(
     _ read: VerifiedReplaySurfaceRead
 ) -> MobileTerminalRenderGridFrame? {
     let exported = read.surfaceID.withCString { pointer in

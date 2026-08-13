@@ -61,10 +61,12 @@ extension GhosttySurfaceView {
         pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = true
         localScrollApplyInFlightGeneration = interactionGeneration
+        let token = makeSurfaceOperationID()
         let displayScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
         let operation = LocalScrollbackSurfaceOperation(
             surface: surface,
-            generation: surfaceGeneration
+            generation: surfaceGeneration,
+            token: token
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
@@ -92,6 +94,15 @@ extension GhosttySurfaceView {
                     self.completePendingLocalScrollDrains(returning: false)
                     return
                 }
+                self.enqueueRenderSubmission(
+                    GhosttySurfaceView.RenderSubmission(
+                        token: operation.token,
+                        generation: operation.generation,
+                        kind: .localScroll,
+                        surface: operation.surface,
+                        verifiedReplayRead: nil
+                    )
+                )
                 self.drawForWakeup()
                 self.scheduleVisibleArtifactCountUpdate()
                 self.completePendingLocalScrollDrains()
@@ -125,5 +136,6 @@ private nonisolated struct LocalScrollbackSurfaceOperation: @unchecked Sendable 
     // using this pointer is enqueued on that generation's serial output queue.
     let surface: ghostty_surface_t
     let generation: UInt64
+    let token: UInt64
 }
 #endif
