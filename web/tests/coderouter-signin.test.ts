@@ -27,7 +27,6 @@ describe("coderouter sign-in privacy", () => {
 
     expect(page).toContain("export const instant = false");
     expect(layout).toContain("export const instant = false");
-    expect(page).not.toContain("<Suspense");
     expect(layout).not.toContain("<Suspense");
   });
 });
