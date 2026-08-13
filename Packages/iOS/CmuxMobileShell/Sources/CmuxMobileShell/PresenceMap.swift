@@ -31,6 +31,9 @@ public struct PresenceMap: Equatable, Sendable {
     /// the map, so the rollup must stay O(instances of one device), never
     /// O(all instances on the team).
     private var instancesByDevice: [String: [String: PresenceInstance]] = [:]
+    /// Number of exact `(deviceId, tag)` instances currently in the map.
+    /// Maintained during reduction so per-frame diagnostics stay constant-time.
+    private var instanceCountStorage = 0
     /// Distinguishes the startup window from an authoritative empty snapshot.
     /// A snapshot with zero devices still proves every absent Mac is offline.
     public private(set) var hasReceivedSnapshot = false
@@ -40,6 +43,9 @@ public struct PresenceMap: Equatable, Sendable {
     /// Whether any presence data has been received yet. The device tree only
     /// overrides its registry-derived "last seen" hints once a snapshot exists.
     public var isEmpty: Bool { instancesByDevice.isEmpty }
+
+    /// Number of exact app instances represented by the latest presence state.
+    public var instanceCount: Int { instanceCountStorage }
 
     /// Apply one stream frame. A snapshot replaces the whole map (the protocol
     /// is snapshot-first on every (re)subscribe, which is also how a dropped
@@ -55,8 +61,15 @@ public struct PresenceMap: Equatable, Sendable {
                 }
             }
             instancesByDevice = next
+            instanceCountStorage = next.values.reduce(into: 0) { count, instances in
+                count += instances.count
+            }
         case .online(let instance), .routes(let instance), .offline(let instance, _):
+            let isNew = instancesByDevice[instance.deviceId]?[instance.tag] == nil
             instancesByDevice[instance.deviceId, default: [:]][instance.tag] = instance
+            if isNew {
+                instanceCountStorage += 1
+            }
         case .seen(let deviceId, let tag, let lastSeenAt):
             guard var instance = instancesByDevice[deviceId]?[tag] else { return }
             instance.lastSeenAt = lastSeenAt

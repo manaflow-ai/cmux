@@ -160,7 +160,9 @@ public struct NotificationFeedPreviewView: View {
             markAllRead: {
                 items = items.map { $0.updating(isRead: true) }
             },
-            refresh: {}
+            refresh: {},
+            loadMore: {},
+            filterChanged: { _ in }
         )
     }
 

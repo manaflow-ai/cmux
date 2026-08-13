@@ -106,6 +106,34 @@ import Testing
         #expect(map.deviceSummary(deviceId: "mac-c")?.online == true)
     }
 
+    @Test func instanceCountTracksSnapshotReplacementAndTransitionUpserts() {
+        var map = PresenceMap()
+        #expect(map.instanceCount == 0)
+
+        map.apply(snapshot([
+            instance(deviceId: "mac-a", tag: "stable"),
+            instance(deviceId: "mac-a", tag: "nightly"),
+            instance(deviceId: "mac-b", tag: "stable"),
+        ]))
+        #expect(map.instanceCount == 3)
+
+        map.apply(.offline(
+            instance(deviceId: "mac-a", tag: "stable", online: false),
+            reason: .timeout
+        ))
+        #expect(map.instanceCount == 3)
+
+        map.apply(.online(instance(deviceId: "mac-b", tag: "debug")))
+        map.apply(.online(instance(deviceId: "mac-b", tag: "debug")))
+        map.apply(.seen(deviceId: "mac-z", tag: "missing", lastSeenAt: 9_000))
+        #expect(map.instanceCount == 4)
+
+        map.apply(snapshot([instance(deviceId: "mac-c")]))
+        #expect(map.instanceCount == 1)
+        map.apply(snapshot([]))
+        #expect(map.instanceCount == 0)
+    }
+
     @Test func soleRouteAdvertisingInstanceRequiresExactlyOneOnlineRouteBearer() throws {
         let routes = [
             try CmxAttachRoute(id: "r", kind: .tailscale, endpoint: .hostPort(host: "100.0.0.1", port: 51000))
