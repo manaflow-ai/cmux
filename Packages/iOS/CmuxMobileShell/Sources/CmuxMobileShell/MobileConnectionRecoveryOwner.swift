@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 /// Main-actor authority for one foreground Mac recovery attempt.
@@ -12,6 +13,11 @@ final class MobileConnectionRecoveryOwner {
         let id: UUID
         let trigger: String
         let sourceConnectionGeneration: UUID
+
+        /// Process-local recovery trace handle safe to place in a report.
+        var diagnosticID: UInt32 {
+            DiagnosticCorrelation().handle(for: id.uuidString) ?? 1
+        }
     }
 
     enum Phase: Equatable {

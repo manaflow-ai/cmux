@@ -120,7 +120,9 @@ extension MobileShellComposite {
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-                transportConnectObserver: transportConnectDiagnosticObserver,
+                transportConnectObserver: transportConnectDiagnosticObserver(
+                    peerID: probeTicket.macDeviceID
+                ),
                 sessionPurpose: .probe
             )
         }

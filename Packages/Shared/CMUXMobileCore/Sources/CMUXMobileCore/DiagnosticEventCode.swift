@@ -258,20 +258,47 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// account identifiers, file paths, URLs, workspace titles, or error text.
     case appFeatureAction = 65
 
-    // MARK: Relay-free bootstrap diagnostics
+    // Raw values 66-70 are reserved for app-wide diagnostic expansion.
 
-    /// A privacy-safe count of public/private dial candidates before dialing.
+    // MARK: Iroh bootstrap diagnostics
+
+    /// One direct dial plan was assembled before any connect attempt. `a` is
+    /// the public path hint count and `b` is the private fallback path hint
+    /// count. A plan with both counts zero proves no dial packet was sent.
     case transportDialPlanBuilt = 71
-    /// A configured private address was joined to an authenticated endpoint.
+    /// Configured private addresses were joined with the target Mac's
+    /// broker-registered UDP port for one dial. `a` is the join state
+    /// (``DiagnosticPrivateAddressJoinState``), `b` is the configured
+    /// address count, and `c` is the resulting dialable hint count.
     case transportPrivateAddressJoin = 72
-    /// LAN discovery completed without retaining addresses in diagnostics.
+    /// Account-private LAN discovery resolved for one dial. `a` is the
+    /// outcome (``DiagnosticLANDiscoveryOutcome``) and `b` is the resolved
+    /// hint count.
     case transportLANDiscovery = 73
-    /// One direct/private dial leg succeeded.
+    /// One direct dial leg connected. `a` is the leg
+    /// (``DiagnosticDirectDialLeg``).
     case transportDialLegSucceeded = 74
-    /// One direct/private dial leg failed. `b` is ``DiagnosticFailureKind``.
+    /// One direct dial leg failed before a connection existed. `a` is the
+    /// leg (``DiagnosticDirectDialLeg``) and `b` is the classified
+    /// ``DiagnosticFailureKind``.
     case transportDialLegFailed = 75
-    /// Mac LAN publication changed state without exposing addresses.
+    /// The Mac's account-private LAN advertisement changed publication
+    /// state. `a` is the state (``DiagnosticLANPublicationState``) and `b`
+    /// is the synchronization reason (0 applied, 1 listener setting
+    /// disabled, 2 runtime context unavailable).
     case lanPublicationState = 76
+
+    /// The transport dial was associated with the admitted session it opened.
+    /// `surface` is the process-local peer alias, `a` is the dial attempt ID,
+    /// and `c` is the matching session ID.
+    case transportDialSessionLinked = 77
+    /// A pending dial was cancelled by a lifecycle owner. `surface` is the
+    /// peer alias, `a` is ``DiagnosticCancellationReason``, `ms` is elapsed
+    /// dial time, and `c` is the dial attempt ID.
+    case transportDialCancelled = 78
+    /// A close carried a bounded remote reason token. `surface` is the peer
+    /// alias, `a` is ``DiagnosticRemoteCloseReason``, and `c` is the session ID.
+    case transportCloseReason = 79
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.
