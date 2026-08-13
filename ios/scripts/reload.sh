@@ -452,8 +452,8 @@ run_and_capture() {
   shift
 
   set +e
-  "$@" 2>&1 | tee "$log_path"
-  local status="${PIPESTATUS[0]}"
+  "$@" >"$log_path" 2>&1
+  local status="$?"
   set -e
 
   return "$status"
@@ -509,12 +509,20 @@ requested_id = os.environ.get("IOS_DEVICE_ID_REQUEST", "")
 requested_name = os.environ.get("IOS_DEVICE_NAME_REQUEST", "")
 
 with tempfile.NamedTemporaryFile() as output:
-    result = subprocess.run(
-        ["xcrun", "devicectl", "list", "devices", "--json-output", output.name],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["xcrun", "devicectl", "list", "devices", "--json-output", output.name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=float(os.environ.get("CMUX_IPHONE_DEVICECTL_LIST_TIMEOUT_SECONDS", "20")),
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            "error: devicectl list timed out while resolving the iPhone",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     if result.returncode != 0:
         print(result.stderr, file=sys.stderr, end="")
         raise SystemExit(result.returncode)
@@ -779,22 +787,17 @@ reload_device() {
 
   ensure_mac_build
 
-  # Reachability uses ONE probe implementation (the queue script's), so the
-  # local and cloud reload paths agree on what "unreachable" means, including
-  # the CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE test hook. select_device still owns
-  # name/ambiguity resolution for reachable devices, and its failure is treated
-  # as unreachable too (the phone can drop between probe and selection).
-  # A --device-name target never falls back to the DEFAULT device id: queueing
-  # a build for a different phone than the one named would install it on the
-  # wrong device.
+  # select_device owns both reachability and name/ambiguity resolution for
+  # reachable devices. If it fails, treat the phone as unreachable and queue
+  # the build instead of hanging on a separate preflight probe.
   local probe_id="$DEVICE_ID"
   if [[ -z "$probe_id" && -z "$DEVICE_NAME" ]]; then
     probe_id="$DEFAULT_DEVICE_ID"
   fi
+  local selection=""
   local device_unreachable=0
-  if [[ -n "$probe_id" && -x "$QUEUE_SCRIPT" ]] \
-      && ! "$QUEUE_SCRIPT" probe --device-id "$probe_id" >/dev/null 2>&1; then
-    device_unreachable=1
+  if [[ -n "$DEVICE_ID" ]]; then
+    selection="$DEVICE_ID"$'\t'"$DEVICE_ID"$'\t'"${DEVICE_NAME:-$DEVICE_ID}"
   elif ! selection="$(select_device)"; then
     device_unreachable=1
   fi

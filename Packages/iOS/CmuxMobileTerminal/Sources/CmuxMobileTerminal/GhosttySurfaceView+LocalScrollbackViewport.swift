@@ -70,13 +70,13 @@ extension GhosttySurfaceView {
                     viewportOffsetRows: after.offset,
                     visibleRows: after.len
                 )
-                self.localViewportState.inFlight?.renderRequested = true
                 self.enqueueRenderSubmission(
                     GhosttySurfaceView.RenderSubmission(
                         token: operation.token,
                         generation: operation.generation,
                         kind: .localViewport,
                         surface: operation.surface,
+                        scrollBoundary: nil,
                         verifiedReplayRead: nil
                     )
                 )

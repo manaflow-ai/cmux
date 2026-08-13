@@ -47,6 +47,7 @@ set -euo pipefail
 
 QUEUE_DIR="${CMUX_IPHONE_QUEUE_DIR:-$HOME/Library/Application Support/cmux-dev/iphone-install-queue}"
 CONFIG_DIR="${CMUX_CONFIG_DIR:-$HOME/.config/cmux}"
+export CMUX_IPHONE_DEVICECTL_LIST_TIMEOUT_SECONDS="${CMUX_IPHONE_DEVICECTL_LIST_TIMEOUT_SECONDS:-20}"
 PENDING_DIR="$QUEUE_DIR/pending"
 FAILED_DIR="$QUEUE_DIR/failed"
 LOGS_DIR="$QUEUE_DIR/logs"
@@ -94,10 +95,15 @@ import json, os, subprocess, sys, tempfile
 
 want = os.environ["WANT_ID"].strip().lower()
 with tempfile.NamedTemporaryFile() as output:
-    result = subprocess.run(
-        ["xcrun", "devicectl", "list", "devices", "--json-output", output.name],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    try:
+        result = subprocess.run(
+            ["xcrun", "devicectl", "list", "devices", "--json-output", output.name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=float(os.environ.get("CMUX_IPHONE_DEVICECTL_LIST_TIMEOUT_SECONDS", "20")),
+        )
+    except subprocess.TimeoutExpired:
+        print("no"); raise SystemExit(0)
     if result.returncode != 0:
         print("no"); raise SystemExit(0)
     output.seek(0)

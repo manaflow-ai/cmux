@@ -155,13 +155,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let generation: UInt64
         let kind: RenderSubmissionKind
         let surface: ghostty_surface_t
+        let scrollBoundary: TerminalScrollBoundary?
         let verifiedReplayRead: VerifiedReplaySurfaceRead?
     }
     var renderSubmission: RenderSubmission?
     var pendingRenderSubmission: RenderSubmission?
-    /// Latest output scrollbar boundary waiting for the frame that consumed it
-    /// to reach the IOSurface layer. This prevents UIKit's mechanics view from
-    /// observing a new row model before the corresponding pixels exist.
+    /// Latest output scrollbar boundary waiting to be attached to the next
+    /// ordinary render submission.
     var pendingScrollBoundaryForPresentation: TerminalScrollBoundary?
     private let surfaceFreeDrainWatchdog = SurfaceFreeDrainWatchdog()
     /// True while the app is inactive/backgrounded. On iOS `render_now`
@@ -2720,9 +2720,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     completion?(false)
                     return
                 }
-                // Keep the row boundary paired with the frame that consumed
-                // this output. Publishing it before the IOSurface assignment
-                // lets UIKit move the mechanics view ahead of its pixels.
+                // Keep the row boundary paired with the render submission that
+                // will carry this output to the IOSurface layer.
                 if let publishedBoundary {
                     self.pendingScrollBoundaryForPresentation = publishedBoundary
                 }
@@ -3464,9 +3463,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 generation: surfaceGeneration,
                 kind: .ordinary,
                 surface: surface,
+                scrollBoundary: pendingScrollBoundaryForPresentation,
                 verifiedReplayRead: nil
             )
         )
+        pendingScrollBoundaryForPresentation = nil
     }
 
     /// Queues a render behind the currently presented frame. A request never
@@ -3563,8 +3564,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = nil
         surfaceHasReceivedOutput = true
         snapshotFallbackView.isHidden = true
-        if let boundary = pendingScrollBoundaryForPresentation {
-            pendingScrollBoundaryForPresentation = nil
+        if let boundary = submission.scrollBoundary {
             handleScrollBoundaryChange(boundary)
         }
         #if DEBUG

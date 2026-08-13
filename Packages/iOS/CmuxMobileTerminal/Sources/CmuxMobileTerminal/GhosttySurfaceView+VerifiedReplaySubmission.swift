@@ -70,6 +70,7 @@ extension GhosttySurfaceView {
                 generation: generation,
                 kind: .verifiedReplay,
                 surface: submission.surface,
+                scrollBoundary: nil,
                 verifiedReplayRead: read
             )
         )
@@ -173,7 +174,7 @@ extension MobileTerminalRenderGridFrame {
     }
 }
 
-private nonisolated func exportVerifiedReplayGridSynchronously(
+nonisolated func exportVerifiedReplayGridSynchronously(
     _ read: VerifiedReplaySurfaceRead
 ) -> MobileTerminalRenderGridFrame? {
     let exported = read.surfaceID.withCString { pointer in
