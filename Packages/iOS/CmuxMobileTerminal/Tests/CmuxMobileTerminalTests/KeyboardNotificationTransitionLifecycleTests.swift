@@ -130,6 +130,64 @@ struct KeyboardNotificationTransitionLifecycleTests {
         #expect(probe["keyboardUp"] == "1")
     }
 
+    @Test("a delayed duplicate will cannot replace the active reversal")
+    func delayedDuplicateWillDoesNotReplaceActiveReversal() throws {
+        let forceWorkaroundKey = "CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK"
+        let priorValue = ProcessInfo.processInfo.environment[forceWorkaroundKey]
+        setenv(forceWorkaroundKey, "1", 1)
+        defer {
+            if let priorValue {
+                setenv(forceWorkaroundKey, priorValue, 1)
+            } else {
+                unsetenv(forceWorkaroundKey)
+            }
+        }
+
+        let runtime = try GhosttyRuntime.shared()
+        let delegate = Delegate()
+        let view = GhosttySurfaceView(runtime: runtime, delegate: delegate)
+        view.autoFocusOnWindowAttach = false
+        view.isRenderDispatchSuppressed = true
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        view.frame = window.bounds
+        window.addSubview(view)
+        window.isHidden = false
+        view.layoutIfNeeded()
+        defer {
+            view.prepareForDismantle()
+            view.removeFromSuperview()
+            window.isHidden = true
+        }
+
+        let shownFrame = CGRect(x: 0, y: 574, width: 402, height: 300)
+        let hiddenFrame = CGRect(x: 0, y: 874, width: 402, height: 300)
+        let interruptedFrame = CGRect(x: 0, y: 720, width: 402, height: 300)
+
+        postKeyboardFrameChange(
+            UIResponder.keyboardWillChangeFrameNotification,
+            beginFrame: shownFrame,
+            endFrame: hiddenFrame
+        )
+        postKeyboardFrameChange(
+            UIResponder.keyboardWillChangeFrameNotification,
+            beginFrame: interruptedFrame,
+            endFrame: shownFrame
+        )
+
+        // UIKit can deliver a duplicate of the superseded hide leg after the
+        // reversal starts. That older will must not reclaim the dock target.
+        postKeyboardFrameChange(
+            UIResponder.keyboardWillChangeFrameNotification,
+            beginFrame: shownFrame,
+            endFrame: hiddenFrame
+        )
+
+        let probe = probeValues(view.composerDockProbeValue)
+        #expect(probe["keyboardDockSource"] == "notification")
+        #expect(probe["keyboardTransitionTarget"] == "300.000")
+        #expect(probe["keyboardUp"] == "1")
+    }
+
     @Test("matching raw frames re-resolve overlap after the owner resizes")
     func ownerResizeUsesSettledCoordinateSpace() throws {
         let forceWorkaroundKey = "CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK"
