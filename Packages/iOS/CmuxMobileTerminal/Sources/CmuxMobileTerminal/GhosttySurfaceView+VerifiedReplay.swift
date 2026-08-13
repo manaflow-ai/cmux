@@ -541,7 +541,8 @@ extension GhosttySurfaceView {
             generation: surfaceGeneration,
             kind: .verifiedReplay,
             surface: surface,
-            verifiedReplayRead: pending.read
+            verifiedReplayRead: pending.read,
+            presentationRetryCount: 0
         )
         if !replaceInFlightRenderSubmission(with: replacement) {
             // Geometry changes can race the failure callback. If the old

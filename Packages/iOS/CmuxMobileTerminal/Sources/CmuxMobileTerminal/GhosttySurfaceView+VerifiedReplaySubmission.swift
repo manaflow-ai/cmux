@@ -78,7 +78,8 @@ extension GhosttySurfaceView {
                 generation: generation,
                 kind: .verifiedReplay,
                 surface: submission.surface,
-                verifiedReplayRead: read
+                verifiedReplayRead: read,
+                presentationRetryCount: 0
             )
         )
     }
