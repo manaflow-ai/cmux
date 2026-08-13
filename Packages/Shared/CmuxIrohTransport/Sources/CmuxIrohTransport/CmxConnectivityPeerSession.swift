@@ -41,6 +41,13 @@ actor CmxConnectivityPeerSession {
     /// one non-cooperative endpoint implementation from blocking every redial.
     static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
 
+    /// Bounded grace between an `.unavailable` selected-path observation and
+    /// eviction. Iroh can briefly publish no selected path while moving between
+    /// direct and relay paths. Immediate eviction tears down an admitted RPC
+    /// session during that normal transition. A persistently pathless session
+    /// still cannot outlive this deadline if its closure callback stalls.
+    static var allPathsClosedEvictionGraceSeconds: TimeInterval { 15 }
+
     let peerID: CmxConnectivityPeerID
     private let buildSession: SessionBuilder
     private let handleSnapshot: SnapshotHandler
@@ -56,6 +63,10 @@ actor CmxConnectivityPeerSession {
         UUID: CheckedContinuation<Void, Never>
     ] = [:]
     private var activeConnection: ActiveConnection?
+    private var allPathsClosedEviction: (
+        connectionID: UUID,
+        task: Task<Void, Never>
+    )?
     private var controlOwner: ControlOwner?
     private var controlWaiters: [ControlWaiter] = []
     private var failure = DiagnosticFailureKind.none
@@ -419,6 +430,7 @@ actor CmxConnectivityPeerSession {
     ) async {
         guard let activeConnection, activeConnection.id == id else { return }
         self.activeConnection = nil
+        disarmAllPathsClosedEviction(for: activeConnection.id)
         let removedOwner = controlOwner
         let closurePurpose = removedOwner?.purpose
             ?? activeConnection.initialPurpose
@@ -450,6 +462,7 @@ actor CmxConnectivityPeerSession {
         guard let activeConnection,
               id == nil || activeConnection.id == id else { return }
         self.activeConnection = nil
+        disarmAllPathsClosedEviction(for: activeConnection.id)
         let removedOwner = controlOwner
         let closurePurpose = removedOwner?.purpose
             ?? activeConnection.initialPurpose
@@ -659,15 +672,54 @@ actor CmxConnectivityPeerSession {
         guard !(await activeConnection.session.isClosed()),
               self.activeConnection?.id == id else { return }
         guard path != .unavailable else {
-            await removeActiveConnection(
-                matching: id,
-                releasesControlOwner: true,
-                reason: .allPathsClosed,
-                failure: .noRoute
-            )
+            armAllPathsClosedEviction(for: id)
             return
         }
+        disarmAllPathsClosedEviction(for: id)
         publishSnapshot()
+    }
+
+    private func armAllPathsClosedEviction(for id: UUID) {
+        guard activeConnection?.id == id else { return }
+        if allPathsClosedEviction?.connectionID == id { return }
+        allPathsClosedEviction?.task.cancel()
+        let clock = clock
+        let deadline = clock.now().addingTimeInterval(
+            Self.allPathsClosedEvictionGraceSeconds
+        )
+        let task = Task { [weak self] in
+            try? await clock.sleep(until: deadline)
+            guard !Task.isCancelled else { return }
+            await self?.evictIfPathsStillClosed(for: id)
+        }
+        allPathsClosedEviction = (connectionID: id, task: task)
+    }
+
+    private func disarmAllPathsClosedEviction(for id: UUID) {
+        guard let armed = allPathsClosedEviction,
+              armed.connectionID == id else { return }
+        armed.task.cancel()
+        allPathsClosedEviction = nil
+    }
+
+    private func evictIfPathsStillClosed(for id: UUID) async {
+        if let armed = allPathsClosedEviction, armed.connectionID == id {
+            allPathsClosedEviction = nil
+        }
+        guard let active = activeConnection, active.id == id else { return }
+        // Re-read live state at the deadline so a dropped recovery event cannot
+        // evict a healthy connection. The closure observer remains authoritative
+        // when the QUIC connection itself has already terminated.
+        guard !(await active.session.isClosed()),
+              self.activeConnection?.id == id else { return }
+        guard await active.session.observedSelectedPath() == .unavailable,
+              self.activeConnection?.id == id else { return }
+        await removeActiveConnection(
+            matching: id,
+            releasesControlOwner: true,
+            reason: .allPathsClosed,
+            failure: .noRoute
+        )
     }
 
     private func makeDiagnosticSessionID() -> Int {
