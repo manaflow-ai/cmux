@@ -1,6 +1,6 @@
 public import Foundation
 
-/// Release-safe, device-local Iroh path constraint chosen in Settings.
+/// Legacy device-local Iroh path preference retained for version compatibility.
 public enum CmxIrohPathPreference: String, CaseIterable, Equatable, Sendable {
     /// Allows Iroh to select automatic, direct, private-network, or relay paths.
     case automatic = "auto"
@@ -14,11 +14,14 @@ public enum CmxIrohPathPreference: String, CaseIterable, Equatable, Sendable {
     /// Shared defaults key used independently by the macOS and iOS apps.
     public static let defaultsKey = "cmux.iroh.pathPreference"
 
-    /// The transport constraint this preference imposes on the runtime.
+    /// The release transport mode after normalizing retired preferences.
+    ///
+    /// Relay-only is a DEBUG verification mode. A value persisted by an older
+    /// release must not constrain a current production connection.
     public var transportVerificationMode: CmxIrohTransportVerificationMode {
         switch self {
         case .automatic: .automatic
-        case .relayOnly: .relayOnly
+        case .relayOnly: .automatic
         case .neverUseRelays: .directOnly
         }
     }

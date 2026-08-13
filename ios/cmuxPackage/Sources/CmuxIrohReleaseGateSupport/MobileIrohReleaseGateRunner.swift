@@ -75,6 +75,7 @@ final class MobileIrohReleaseGateRunner {
         let scenario: String
         let passed: Bool
         let hostStatusVerified: Bool
+        let rpcMethodInventoryVerified: Bool
         let terminalRoundTripVerified: Bool
         let workspaceMutationVerified: Bool
         let independentEventsVerified: Bool
@@ -92,6 +93,11 @@ final class MobileIrohReleaseGateRunner {
         let routeKind: String?
         let selectedPath: String?
         let failure: String?
+        /// Last privacy-safe transport diagnostic observed when readiness timed out.
+        /// Raw values belong to the stable ``DiagnosticEventCode`` vocabulary.
+        let lastDiagnosticEventCode: UInt16?
+        /// Raw ``DiagnosticFailureKind`` carried by that event, when present.
+        let lastDiagnosticFailureKind: Int?
     }
 
     struct Readiness: Equatable, Sendable {
@@ -113,8 +119,18 @@ final class MobileIrohReleaseGateRunner {
     private enum Failure: String, Sendable {
         case timeout
         case readinessUnavailable = "readiness_unavailable"
+        case notSignedIn = "not_signed_in"
+        case notConnected = "not_connected"
+        case nonIrohRoute = "non_iroh_route"
+        case workspaceUnavailable = "workspace_unavailable"
+        case terminalUnavailable = "terminal_unavailable"
         case pathPolicyMismatch = "path_policy_mismatch"
         case unknownProbeFailure = "unknown_probe_failure"
+    }
+
+    private enum Progress: Equatable, Sendable {
+        case awaitingReadiness(lastObserved: Readiness?)
+        case running
     }
 
     struct Dependencies {
@@ -124,9 +140,31 @@ final class MobileIrohReleaseGateRunner {
             String
         ) async throws -> MobileIrohReleaseGateProbeResult
         let settingsUpdates: @MainActor () -> AsyncStream<CmxIrohSettingsSnapshot>
+        let diagnosticReport: @MainActor () async -> DiagnosticReport
         let writeReport: @MainActor (Report, URL) throws -> Void
         let postReportReady: @MainActor () -> Void
         let timeout: Duration
+
+        init(
+            readinessUpdates: (@MainActor (CMUXMobileShellStore) -> AsyncStream<Readiness>)?,
+            runProbe: @escaping @MainActor (
+                CMUXMobileShellStore,
+                String
+            ) async throws -> MobileIrohReleaseGateProbeResult,
+            settingsUpdates: @escaping @MainActor () -> AsyncStream<CmxIrohSettingsSnapshot>,
+            diagnosticReport: @escaping @MainActor () async -> DiagnosticReport = { .empty },
+            writeReport: @escaping @MainActor (Report, URL) throws -> Void,
+            postReportReady: @escaping @MainActor () -> Void,
+            timeout: Duration
+        ) {
+            self.readinessUpdates = readinessUpdates
+            self.runProbe = runProbe
+            self.settingsUpdates = settingsUpdates
+            self.diagnosticReport = diagnosticReport
+            self.writeReport = writeReport
+            self.postReportReady = postReportReady
+            self.timeout = timeout
+        }
     }
 
     private let configuration: Configuration
@@ -135,6 +173,7 @@ final class MobileIrohReleaseGateRunner {
     private var observationID: UUID?
     private var runTask: Task<Void, Never>?
     private var completedProbe: MobileIrohReleaseGateProbeResult?
+    private var progress: Progress = .awaitingReadiness(lastObserved: nil)
 
     init(
         configuration: Configuration,
@@ -160,6 +199,9 @@ final class MobileIrohReleaseGateRunner {
             },
             settingsUpdates: {
                 settingsController.irohSettingsUpdates()
+            },
+            diagnosticReport: {
+                await settingsController.irohDiagnosticReport()
             },
             writeReport: { report, url in
                 try Self.write(report: report, to: url)
@@ -197,6 +239,7 @@ final class MobileIrohReleaseGateRunner {
 
     private func runOnce(store: CMUXMobileShellStore) async {
         completedProbe = nil
+        progress = .awaitingReadiness(lastObserved: nil)
         try? fileManager.removeItem(at: configuration.reportURL)
         let report = await boundedReport(store: store)
         do {
@@ -260,11 +303,13 @@ final class MobileIrohReleaseGateRunner {
                     return
                 }
                 guard !Task.isCancelled, let self else { return }
+                let deadline = await self.deadlineFailure()
                 continuation.yield(Self.failureReport(
                     mode: mode,
                     scenario: scenario,
-                    failure: .timeout,
-                    completedProbe: self.completedProbe
+                    failure: deadline.failure,
+                    completedProbe: self.completedProbe,
+                    lastDiagnosticEvent: deadline.lastDiagnosticEvent
                 ))
                 continuation.finish()
                 operationTask.cancel()
@@ -291,6 +336,7 @@ final class MobileIrohReleaseGateRunner {
                 ?? readinessUpdates(for: store)
             var observedReady = false
             for await state in readiness {
+                progress = .awaitingReadiness(lastObserved: state)
                 mobileIrohReleaseGateLog.info(
                     "readiness signedIn=\(state.isSignedIn, privacy: .public) connected=\(state.isConnected, privacy: .public) iroh=\(state.usesIroh, privacy: .public) workspace=\(state.hasWorkspaceMutation, privacy: .public) terminal=\(state.hasTerminal, privacy: .public)"
                 )
@@ -334,6 +380,7 @@ final class MobileIrohReleaseGateRunner {
                 }
             }
         }
+        progress = .running
         guard !Task.isCancelled else {
             return Self.failureReport(
                 mode: configuration.mode,
@@ -439,6 +486,70 @@ final class MobileIrohReleaseGateRunner {
         )
     }
 
+    private struct DeadlineFailure: Sendable {
+        let failure: Failure
+        let lastDiagnosticEvent: DiagnosticEvent?
+    }
+
+    private func deadlineFailure() async -> DeadlineFailure {
+        let failure: Failure
+        guard case let .awaitingReadiness(lastObserved) = progress,
+              let readiness = lastObserved else {
+            return DeadlineFailure(failure: .timeout, lastDiagnosticEvent: nil)
+        }
+        if !readiness.isSignedIn {
+            failure = .notSignedIn
+        } else if !readiness.isConnected {
+            failure = .notConnected
+        } else if !readiness.usesIroh {
+            failure = .nonIrohRoute
+        } else if !readiness.hasWorkspaceMutation {
+            failure = .workspaceUnavailable
+        } else if !readiness.hasTerminal {
+            failure = .terminalUnavailable
+        } else {
+            failure = .timeout
+        }
+        guard failure == .notConnected else {
+            return DeadlineFailure(failure: failure, lastDiagnosticEvent: nil)
+        }
+        let report = await dependencies.diagnosticReport()
+        return DeadlineFailure(
+            failure: failure,
+            lastDiagnosticEvent: report.events.last(where: Self.isConnectionDiagnosticEvent)
+        )
+    }
+
+    private nonisolated static func isConnectionDiagnosticEvent(_ event: DiagnosticEvent) -> Bool {
+        switch event.code {
+        case .pairFail,
+             .pairUnreachable,
+             .transportDialStarted,
+             .transportDialConnected,
+             .transportDialFailed,
+             .hostAuthenticated,
+             .rpcReady,
+             .endpointStarting,
+             .endpointActive,
+             .endpointStopped,
+             .endpointFailed,
+             .relayPolicyRefreshStarted,
+             .relayPolicyRefreshSucceeded,
+             .relayPolicyRefreshFailed,
+             .routeUnavailable,
+             .discoveryStarted,
+             .discoverySucceeded,
+             .discoveryFailed,
+             .admissionSucceeded,
+             .admissionFailed,
+             .hostAuthenticationFailed,
+             .rpcFailed:
+            true
+        default:
+            false
+        }
+    }
+
     private func readinessUpdates(
         for store: CMUXMobileShellStore
     ) -> AsyncStream<Readiness> {
@@ -522,10 +633,11 @@ final class MobileIrohReleaseGateRunner {
         selectedPath: String
     ) -> Report {
         Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: mode.rawValue,
             scenario: scenario.rawValue,
             passed: probe.hostStatusVerified
+                && probe.rpcMethodInventoryVerified
                 && probe.terminalRoundTripVerified
                 && probe.workspaceMutationVerified
                 && probe.independentEventsVerified
@@ -534,6 +646,7 @@ final class MobileIrohReleaseGateRunner {
                 && probe.artifactScanCountVerified
                 && scenarioPassed(scenario, probe: probe),
             hostStatusVerified: probe.hostStatusVerified,
+            rpcMethodInventoryVerified: probe.rpcMethodInventoryVerified,
             terminalRoundTripVerified: probe.terminalRoundTripVerified,
             workspaceMutationVerified: probe.workspaceMutationVerified,
             independentEventsVerified: probe.independentEventsVerified,
@@ -550,7 +663,9 @@ final class MobileIrohReleaseGateRunner {
             soakDurationSeconds: probe.soakDurationSeconds,
             routeKind: CmxAttachTransportKind.iroh.rawValue,
             selectedPath: selectedPath,
-            failure: nil
+            failure: nil,
+            lastDiagnosticEventCode: nil,
+            lastDiagnosticFailureKind: nil
         )
     }
 
@@ -580,11 +695,12 @@ final class MobileIrohReleaseGateRunner {
         selectedPath: String?
     ) -> Report {
         Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: mode.rawValue,
             scenario: scenario.rawValue,
             passed: false,
             hostStatusVerified: false,
+            rpcMethodInventoryVerified: false,
             terminalRoundTripVerified: false,
             workspaceMutationVerified: false,
             independentEventsVerified: false,
@@ -601,7 +717,9 @@ final class MobileIrohReleaseGateRunner {
             soakDurationSeconds: 0,
             routeKind: CmxAttachTransportKind.iroh.rawValue,
             selectedPath: selectedPath,
-            failure: failure.rawValue
+            failure: failure.rawValue,
+            lastDiagnosticEventCode: nil,
+            lastDiagnosticFailureKind: nil
         )
     }
 
@@ -609,14 +727,16 @@ final class MobileIrohReleaseGateRunner {
         mode: CmxIrohTransportVerificationMode,
         scenario: MobileIrohReleaseGateScenario,
         failure: Failure,
-        completedProbe: MobileIrohReleaseGateProbeResult? = nil
+        completedProbe: MobileIrohReleaseGateProbeResult? = nil,
+        lastDiagnosticEvent: DiagnosticEvent? = nil
     ) -> Report {
         Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: mode.rawValue,
             scenario: scenario.rawValue,
             passed: false,
             hostStatusVerified: completedProbe?.hostStatusVerified ?? false,
+            rpcMethodInventoryVerified: completedProbe?.rpcMethodInventoryVerified ?? false,
             terminalRoundTripVerified: completedProbe?.terminalRoundTripVerified ?? false,
             workspaceMutationVerified: completedProbe?.workspaceMutationVerified ?? false,
             independentEventsVerified: completedProbe?.independentEventsVerified ?? false,
@@ -633,7 +753,9 @@ final class MobileIrohReleaseGateRunner {
             soakDurationSeconds: completedProbe?.soakDurationSeconds ?? 0,
             routeKind: completedProbe == nil ? nil : CmxAttachTransportKind.iroh.rawValue,
             selectedPath: nil,
-            failure: failure.rawValue
+            failure: failure.rawValue,
+            lastDiagnosticEventCode: lastDiagnosticEvent?.code.rawValue,
+            lastDiagnosticFailureKind: lastDiagnosticEvent?.diagnosticFailureKind?.rawValue
         )
     }
 }

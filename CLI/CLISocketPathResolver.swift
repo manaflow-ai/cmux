@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import CmuxSettings
 
-nonisolated enum CLIExecutableLocator {
+enum CLIExecutableLocator {
     static func currentExecutableURL() -> URL? {
         var size: UInt32 = 0
         _ = _NSGetExecutablePath(nil, &size)
@@ -74,14 +74,14 @@ nonisolated enum CLIExecutableLocator {
     }
 }
 
-nonisolated enum CLISocketPathSource: Equatable, Sendable {
+enum CLISocketPathSource: Equatable, Sendable {
     case explicitFlag
     case environment
     case implicitDefault
 }
 
 /// The observable result of resolving an implicit CLI socket path.
-nonisolated struct CLISocketPathResolution: Sendable {
+struct CLISocketPathResolution: Sendable {
     let source: CLISocketPathSource
     let requestedPath: String
     let candidatePaths: [String]
@@ -122,7 +122,7 @@ nonisolated struct CLISocketPathResolution: Sendable {
     }
 }
 
-nonisolated struct CLISocketPathResolver {
+struct CLISocketPathResolver {
     enum SocketPathEntry {
         case missing
         case socket(ownerUserID: uid_t)
