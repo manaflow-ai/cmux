@@ -65,6 +65,8 @@ public final class ToastCenter {
     /// from the presenter so reintroducing it later is a one-line decision.
     private static let shippedEnabled = false
 
+    /// Creates a presenter using the shipped product policy, which currently
+    /// keeps toast presentation disabled.
     public convenience init(
         clock: any Clock<Duration> = ContinuousClock(),
         diagnosticLog: DiagnosticLog? = nil
