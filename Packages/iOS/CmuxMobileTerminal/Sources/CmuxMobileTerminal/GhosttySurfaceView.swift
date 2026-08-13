@@ -3518,7 +3518,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     )
                     return
                 }
-                let observed = verifiedReplayExportThenSubmit(
+                let observed: MobileTerminalRenderGridFrame? = verifiedReplayExportThenSubmit(
                     export: {
                         guard let read = submission.verifiedReplayRead else { return nil }
                         return exportVerifiedReplayGridSynchronously(read)
