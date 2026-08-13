@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 # This helper is intentionally remote-only. The local benchmark plan invokes it
-# through `blacksmith testbox run`; the guard makes an accidental local launch a
-# no-op instead of running a Rust build on the developer's Mac.
+# through `blacksmith testbox run`; the environment flag is only a first guard.
+# The Blacksmith kernel marker and /tmp/.testbox state below are the stronger
+# signals that this command is running in the prepared Testbox VM.
 if [[ "${CMUX_TESTBOX_REMOTE:-}" != "1" ]]; then
   echo "refusing to run outside a Blacksmith Testbox (set CMUX_TESTBOX_REMOTE=1 only in the remote command)" >&2
   exit 64
 fi
+if [[ ! -r /proc/cmdline ]] || ! grep -Eq '(^|[[:space:]])metadata_port=[^[:space:]]+' /proc/cmdline; then
+  echo "refusing to run without the Blacksmith Testbox metadata marker" >&2
+  exit 64
+fi
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: CMUX_TESTBOX_REMOTE=1 $0 {first-clean|incremental-noop|changed-file}" >&2
+if [[ $# -ne 3 ]]; then
+  echo "usage: CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=tbx_... $0 {first-clean|incremental-noop|changed-file} <source-sha> <ghostty-gitlink-sha>" >&2
   exit 64
 fi
 
 stage="$1"
+expected_source_sha="$2"
+expected_ghostty_sha="$3"
 case "$stage" in
   first-clean|incremental-noop|changed-file) ;;
   *)
@@ -23,99 +31,369 @@ case "$stage" in
     ;;
 esac
 
+for value_name in expected_source_sha expected_ghostty_sha; do
+  value="${!value_name}"
+  if [[ ! "$value" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "$value_name must be a lowercase 40-character commit SHA" >&2
+    exit 64
+  fi
+done
+
+testbox_id="${CMUX_TESTBOX_ID:-}"
+if [[ ! "$testbox_id" =~ ^tbx_[A-Za-z0-9_-]+$ ]]; then
+  echo "CMUX_TESTBOX_ID must identify the claimed Testbox" >&2
+  exit 64
+fi
+
+state_dir=/tmp/.testbox
+if [[ ! -d "$state_dir" || ! -s "$state_dir/auth_token" || ! -f "$state_dir/testbox_id" ]]; then
+  echo "refusing to run without the Testbox state files" >&2
+  exit 64
+fi
+state_testbox_id="$(tr -d '\r\n' <"$state_dir/testbox_id")"
+if [[ "$state_testbox_id" != "$testbox_id" ]]; then
+  echo "Testbox state belongs to $state_testbox_id, expected $testbox_id" >&2
+  exit 66
+fi
+
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-if [[ ! -f cmux-tui/Cargo.toml || ! -f ghostty/.git || ! -f ghostty/build.zig.zon ]]; then
+ghostty_root="$repo_root/ghostty"
+if [[ ! -f cmux-tui/Cargo.toml || ! -f ghostty/build.zig.zon ]]; then
   echo "cmux-tui and its Ghostty source submodule must be initialized" >&2
   exit 65
 fi
+if [[ "$(git -C ghostty rev-parse --show-toplevel 2>/dev/null || true)" != "$ghostty_root" ]]; then
+  echo "ghostty is not an initialized submodule checkout" >&2
+  exit 65
+fi
+expected_tree_sha="$(git rev-parse "${expected_source_sha}^{tree}")"
 
 benchmark_dir="$repo_root/testbox-benchmark"
+command -v flock >/dev/null || {
+  echo "flock is required for serialized Testbox stages" >&2
+  exit 65
+}
 mkdir -p "$benchmark_dir"
 # Testbox can acknowledge a run while its remote shell is still flushing
-# output. Serialize stages and hold the lock through artifact writes so a
+# output. Serialize stages and hold the lock through all artifact writes so a
 # subsequent run cannot overwrite a prior stage's timing file.
 exec 9>"$benchmark_dir/.stage.lock"
 flock -x 9
+
 log_path="$benchmark_dir/$stage.log"
 time_path="$benchmark_dir/$stage.time"
 json_path="$benchmark_dir/$stage.json"
+pre_identity_path="$benchmark_dir/.$stage.pre-identity.json"
+post_identity_path="$benchmark_dir/.$stage.post-identity.json"
 changed_file="cmux-tui/crates/cmux-tui/src/main.rs"
 changed_backup=""
 
-# shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
 restore_changed_file() {
-  if [[ -n "$changed_backup" && -f "$changed_backup" ]]; then
-    cp "$changed_backup" "$repo_root/$changed_file"
-    rm -f "$changed_backup"
+  if [[ -n "$changed_backup" ]]; then
+    if [[ ! -f "$changed_backup" ]]; then
+      echo "changed-file backup disappeared: $changed_backup" >&2
+      return 1
+    fi
+    if ! cp "$changed_backup" "$repo_root/$changed_file"; then
+      return 1
+    fi
+    if ! rm -f "$changed_backup"; then
+      return 1
+    fi
+    changed_backup=""
   fi
 }
-trap restore_changed_file EXIT
+
+# Always restore the deliberately changed source, including when Cargo exits
+# non-zero. Do not let cleanup replace the build result unless restoration
+# itself fails.
+# shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
+finish_source() {
+  local result=$?
+  if [[ -n "$changed_backup" ]]; then
+    if ! restore_changed_file; then
+      echo "failed to restore $changed_file" >&2
+      (( result == 0 )) && result=67
+    fi
+  fi
+  exit "$result"
+}
+trap finish_source EXIT
+
+clean_status() {
+  local top_status ghostty_status
+  top_status="$(git status --porcelain=v1 --untracked-files=normal)"
+  if [[ -n "$top_status" ]]; then
+    printf '%s\n' "top-level source is dirty:" "$top_status" >&2
+    return 1
+  fi
+  ghostty_status="$(git -C ghostty status --porcelain=v1 --untracked-files=normal)"
+  if [[ -n "$ghostty_status" ]]; then
+    printf '%s\n' "Ghostty submodule is dirty:" "$ghostty_status" >&2
+    return 1
+  fi
+}
+
+capture_identity() {
+  python3 - "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" "$repo_root" <<'PY'
+import json
+import os
+import pathlib
+import platform
+import subprocess
+import sys
+
+expected_source_sha, expected_tree_sha, expected_ghostty_sha, testbox_id, repo_root = sys.argv[1:]
+repo = pathlib.Path(repo_root)
+ghostty = repo / "ghostty"
+
+def run(command, cwd=repo):
+    return subprocess.check_output(command, cwd=cwd, text=True, stderr=subprocess.STDOUT).strip()
+
+def optional_file(path):
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+def status(cwd=repo):
+    return subprocess.check_output(
+        ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
+        cwd=cwd,
+        text=True,
+    ).splitlines()
+
+source_sha = run(["git", "rev-parse", "HEAD"])
+source_tree_sha = run(["git", "rev-parse", "HEAD^{tree}"])
+ghostty_gitlink_sha = run(["git", "rev-parse", "HEAD:ghostty"])
+ghostty_head_sha = run(["git", "-C", "ghostty", "rev-parse", "HEAD"])
+record = {
+    "commit_sha": source_sha,
+    "tree_sha": source_tree_sha,
+    "expected_commit_sha": expected_source_sha,
+    "expected_tree_sha": expected_tree_sha,
+    "dirty_files": status(),
+    "ghostty": {
+        "gitlink_sha": ghostty_gitlink_sha,
+        "expected_gitlink_sha": expected_ghostty_sha,
+        "head_sha": ghostty_head_sha,
+        "dirty_files": status(ghostty),
+    },
+    "testbox_id": testbox_id,
+    "testbox_state": {
+        "adopted_run_id": optional_file(pathlib.Path("/tmp/.testbox/adopted_run_id")),
+        "runner_host": optional_file(pathlib.Path("/tmp/.testbox/runner_host")),
+        "runner_ssh_port": optional_file(pathlib.Path("/tmp/.testbox/runner_ssh_port")),
+    },
+}
+print(json.dumps(record, sort_keys=True))
+PY
+}
+
+verify_identity() {
+  local identity_path="$1"
+  python3 - "$identity_path" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" <<'PY'
+import json
+import pathlib
+import sys
+
+path, expected_source_sha, expected_tree_sha, expected_ghostty_sha, expected_testbox_id = sys.argv[1:]
+record = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+errors = []
+if record.get("commit_sha") != expected_source_sha:
+    errors.append(f"source commit {record.get('commit_sha')} != {expected_source_sha}")
+if record.get("expected_commit_sha") != expected_source_sha:
+    errors.append("source expectation was not recorded")
+if record.get("tree_sha") != expected_tree_sha:
+    errors.append(f"source tree {record.get('tree_sha')} != {expected_tree_sha}")
+if record.get("expected_tree_sha") != expected_tree_sha:
+    errors.append("source tree expectation was not recorded")
+if record.get("dirty_files"):
+    errors.append("top-level source is dirty")
+ghostty = record.get("ghostty", {})
+if ghostty.get("gitlink_sha") != expected_ghostty_sha:
+    errors.append(f"Ghostty gitlink {ghostty.get('gitlink_sha')} != {expected_ghostty_sha}")
+if ghostty.get("expected_gitlink_sha") != expected_ghostty_sha:
+    errors.append("Ghostty expectation was not recorded")
+if ghostty.get("head_sha") != expected_ghostty_sha:
+    errors.append(f"Ghostty checkout {ghostty.get('head_sha')} != {expected_ghostty_sha}")
+if ghostty.get("dirty_files"):
+    errors.append("Ghostty submodule is dirty")
+if record.get("testbox_id") != expected_testbox_id:
+    errors.append("Testbox identity mismatch")
+if errors:
+    for error in errors:
+        print(f"source guard: {error}", file=sys.stderr)
+    raise SystemExit(66)
+PY
+}
+
+# Verify the immutable source and submodule before every stage. The changed-file
+# stage is allowed to become dirty only after this check and must be clean again
+# before its JSON record is emitted.
+clean_status
+capture_identity >"$pre_identity_path"
+verify_identity "$pre_identity_path"
+
+runner_label="blacksmith-32vcpu-ubuntu-2404"
+zig_bin="${CMUX_ZIG:-$(command -v zig)}"
+rust_toolchain="$(rustup show active-toolchain)"
+rustc_version="$(rustc --version)"
+cargo_version="$(cargo --version)"
+zig_version="$("$zig_bin" version)"
+rust_toolchain_file_sha256="$(sha256sum cmux-tui/rust-toolchain.toml | cut -d ' ' -f 1)"
+cargo_lock_sha256="$(sha256sum cmux-tui/Cargo.lock | cut -d ' ' -f 1)"
+ghostty_zon_sha256="$(sha256sum ghostty/build.zig.zon | cut -d ' ' -f 1)"
 
 case "$stage" in
   first-clean)
     rm -rf "$repo_root/cmux-tui/target"
     ;;
   changed-file)
+    if [[ ! -f "$repo_root/$changed_file" ]]; then
+      echo "changed-file target is missing: $changed_file" >&2
+      exit 65
+    fi
     changed_backup="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-testbox-source.XXXXXX")"
     cp "$repo_root/$changed_file" "$changed_backup"
-    printf '\n// Blacksmith Testbox changed-file timing marker.\n' >> "$repo_root/$changed_file"
+    printf '\n// Blacksmith Testbox changed-file timing marker.\n' >>"$repo_root/$changed_file"
     ;;
 esac
 
 start_epoch="$(python3 -c 'import time; print(time.time())')"
+rm -f "$time_path" "$log_path" "$json_path" "$post_identity_path"
 set +e
 (
   cd "$repo_root/cmux-tui"
   /usr/bin/time -p -o "$time_path" cargo build -p cmux-tui --locked
 ) >"$log_path" 2>&1
-status=$?
+build_status=$?
 set -e
 end_epoch="$(python3 -c 'import time; print(time.time())')"
 
-python3 - "$stage" "$start_epoch" "$end_epoch" "$status" "$time_path" "$changed_file" >"$json_path" <<'PY'
+restore_status=0
+if ! restore_changed_file; then
+  echo "failed to restore $changed_file" >&2
+  restore_status=67
+fi
+
+post_identity_status=0
+if ! capture_identity >"$post_identity_path"; then
+  echo "failed to capture post-stage source identity" >&2
+  post_identity_status=66
+  printf '{}\n' >"$post_identity_path"
+fi
+if (( post_identity_status == 0 )); then
+  if ! verify_identity "$post_identity_path"; then
+    post_identity_status=66
+  fi
+fi
+
+final_status="$build_status"
+if (( final_status == 0 && restore_status != 0 )); then
+  final_status="$restore_status"
+elif (( final_status == 0 && post_identity_status != 0 )); then
+  final_status="$post_identity_status"
+fi
+
+python3 - "$stage" "$start_epoch" "$end_epoch" "$build_status" "$final_status" "$time_path" "$pre_identity_path" "$post_identity_path" "$changed_file" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" "$runner_label" "$rust_toolchain" "$rustc_version" "$cargo_version" "$zig_bin" "$zig_version" "$rust_toolchain_file_sha256" "$cargo_lock_sha256" "$ghostty_zon_sha256" >"$json_path" <<'PY'
 import datetime as dt
 import json
 import os
+import pathlib
 import platform
-import subprocess
 import sys
 
-stage, start, end, status, time_path, changed_file = sys.argv[1:]
-start = float(start)
-end = float(end)
-status = int(status)
+(
+    stage,
+    start,
+    end,
+    build_status,
+    final_status,
+    time_path,
+    pre_identity_path,
+    post_identity_path,
+    changed_file,
+    expected_source_sha,
+    expected_tree_sha,
+    expected_ghostty_sha,
+    testbox_id,
+    runner_label,
+    rust_toolchain,
+    rustc_version,
+    cargo_version,
+    zig_bin,
+    zig_version,
+    rust_toolchain_file_sha256,
+    cargo_lock_sha256,
+    ghostty_zon_sha256,
+) = sys.argv[1:]
+
+def read_json(path):
+    try:
+        return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
 remote_time = {}
-with open(time_path, encoding="utf-8") as handle:
-    for line in handle:
-        key, _, value = line.strip().partition(" ")
+try:
+    for line in pathlib.Path(time_path).read_text(encoding="utf-8").splitlines():
+        key, _, value = line.partition(" ")
         if key in {"real", "user", "sys"}:
             remote_time[f"time_{key}_seconds"] = float(value)
+except OSError:
+    pass
 
-try:
-    git_sha = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
-    ).strip()
-except subprocess.CalledProcessError:
-    git_sha = "unknown"
-
+pre = read_json(pre_identity_path)
+post = read_json(post_identity_path)
 record = {
-    "schema": 1,
+    "schema": 2,
     "stage": stage,
     "command": "cargo build -p cmux-tui --locked",
-    "exit_code": status,
-    "ok": status == 0,
-    "started_at": dt.datetime.fromtimestamp(start, dt.timezone.utc).isoformat(),
-    "finished_at": dt.datetime.fromtimestamp(end, dt.timezone.utc).isoformat(),
-    "wall_seconds": round(end - start, 3),
-    "git_sha": git_sha,
+    "build_exit_code": int(build_status),
+    "exit_code": int(final_status),
+    "ok": int(final_status) == 0,
+    "started_at": dt.datetime.fromtimestamp(float(start), dt.timezone.utc).isoformat(),
+    "finished_at": dt.datetime.fromtimestamp(float(end), dt.timezone.utc).isoformat(),
+    "wall_seconds": round(float(end) - float(start), 3),
+    "source": {
+        "expected_commit_sha": expected_source_sha,
+        "expected_tree_sha": expected_tree_sha,
+        "before": pre,
+        "after": post,
+        "changed_file": changed_file if stage == "changed-file" else None,
+        "restored": stage != "changed-file" or not post.get("dirty_files"),
+    },
+    "ghostty": {
+        "expected_gitlink_sha": expected_ghostty_sha,
+        "before_gitlink_sha": pre.get("ghostty", {}).get("gitlink_sha"),
+        "before_head_sha": pre.get("ghostty", {}).get("head_sha"),
+        "after_gitlink_sha": post.get("ghostty", {}).get("gitlink_sha"),
+        "after_head_sha": post.get("ghostty", {}).get("head_sha"),
+    },
+    "testbox": {
+        "id": testbox_id,
+        "adopted_run_id": pre.get("testbox_state", {}).get("adopted_run_id"),
+    },
     "runner": {
+        "label": runner_label,
         "hostname": platform.node(),
         "arch": platform.machine(),
         "cpu_count": os.cpu_count(),
         "uname": " ".join(platform.uname()),
+        "host_from_testbox_state": pre.get("testbox_state", {}).get("runner_host"),
     },
-    "changed_file": changed_file if stage == "changed-file" else None,
+    "toolchain": {
+        "rust_toolchain": rust_toolchain,
+        "rustc": rustc_version,
+        "cargo": cargo_version,
+        "rust_toolchain_file_sha256": rust_toolchain_file_sha256,
+        "cargo_lock_sha256": cargo_lock_sha256,
+        "zig_path": zig_bin,
+        "zig": zig_version,
+        "ghostty_build_zig_zon_sha256": ghostty_zon_sha256,
+    },
     **remote_time,
 }
 print(json.dumps(record, sort_keys=True))
@@ -123,7 +401,11 @@ PY
 
 cat "$log_path"
 printf '\n--- /usr/bin/time -p (%s) ---\n' "$stage"
-cat "$time_path"
+if [[ -f "$time_path" ]]; then
+  cat "$time_path"
+else
+  echo "time output unavailable" >&2
+fi
 printf '\n--- structured timing (%s) ---\n' "$stage"
 cat "$json_path"
-exit "$status"
+exit "$final_status"

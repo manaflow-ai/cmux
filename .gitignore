@@ -75,5 +75,5 @@ artifacts/
 tmux-*.log
 
 # Remote-only Blacksmith cmux-tui benchmark output
-testbox-benchmark/
-.cmux-scratch/
+/testbox-benchmark/
+/.cmux-scratch/
