@@ -40,7 +40,7 @@ import Testing
         let plan = englishPresentation.describe(
             DiagnosticEvent(code: .transportDialPlanBuilt, tNanos: 1, a: 0, b: 0)
         )
-        #expect(plan.name == "Direct dial plan assembled")
+        #expect(plan.name == "Transport dial plan built")
         #expect(plan.fields == [
             .init(key: "public_paths", value: "0"),
             .init(key: "private_fallback_paths", value: "0"),
@@ -53,7 +53,7 @@ import Testing
             b: 2,
             c: 0
         ))
-        #expect(join.name == "Private addresses joined broker port")
+        #expect(join.name == "Private address candidate joined")
         #expect(join.fields.contains(
             .init(key: "join", value: "Broker ports missing or stale")
         ))
@@ -67,7 +67,7 @@ import Testing
             a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
             b: 0
         ))
-        #expect(lan.name == "LAN discovery resolved")
+        #expect(lan.name == "LAN discovery completed")
         #expect(lan.fields.contains(
             .init(key: "outcome", value: "Local Network permission denied")
         ))
@@ -89,7 +89,7 @@ import Testing
             a: DiagnosticLANPublicationState.policyDenied.rawValue,
             b: 0
         ))
-        #expect(publication.name == "LAN advertisement state changed")
+        #expect(publication.name == "LAN publication state changed")
         #expect(publication.fields.contains(
             .init(key: "state", value: "Local Network permission denied")
         ))
@@ -238,12 +238,12 @@ import Testing
             .browserInputReplayed: "Browser input replayed",
             .browserEditableFocus: "Browser editable focus",
             .browserPanelCreateResolved: "Browser panel create resolved",
-            .transportDialPlanBuilt: "Direct dial plan assembled",
-            .transportPrivateAddressJoin: "Private addresses joined broker port",
-            .transportLANDiscovery: "LAN discovery resolved",
-            .transportDialLegSucceeded: "Direct dial leg connected",
+            .transportDialPlanBuilt: "Transport dial plan built",
+            .transportPrivateAddressJoin: "Private address candidate joined",
+            .transportLANDiscovery: "LAN discovery completed",
+            .transportDialLegSucceeded: "Direct dial leg succeeded",
             .transportDialLegFailed: "Direct dial leg failed",
-            .lanPublicationState: "LAN advertisement state changed",
+            .lanPublicationState: "LAN publication state changed",
             .transportDialSessionLinked: "Transport dial linked to session",
             .transportDialCancelled: "Transport dial cancelled",
             .transportCloseReason: "Remote close reason",

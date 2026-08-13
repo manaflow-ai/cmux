@@ -367,7 +367,7 @@ public struct DiagnosticEventPresentation: Sendable {
         .pairFail, .transportDialFailed, .transportDialLegFailed, .recoveryFailed, .endpointFailed,
         .relayPolicyRefreshFailed, .sessionClosed, .routeUnavailable,
         .discoveryFailed, .admissionFailed, .hostAuthenticationFailed,
-        .rpcFailed, .transportCloseAttribution, .transportDialLegFailed,
+        .rpcFailed, .transportCloseAttribution,
         .appFeatureAction,
     ]
 
@@ -493,18 +493,6 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.browserEditableFocus", defaultValue: "Browser editable focus")
         case .browserPanelCreateResolved:
             localized("diagnostics.event.browserPanelCreateResolved", defaultValue: "Browser panel create resolved")
-        case .transportDialPlanBuilt:
-            localized("diagnostics.event.transportDialPlanBuilt", defaultValue: "Direct dial plan assembled")
-        case .transportPrivateAddressJoin:
-            localized("diagnostics.event.transportPrivateAddressJoin", defaultValue: "Private addresses joined broker port")
-        case .transportLANDiscovery:
-            localized("diagnostics.event.transportLANDiscovery", defaultValue: "LAN discovery resolved")
-        case .transportDialLegSucceeded:
-            localized("diagnostics.event.transportDialLegSucceeded", defaultValue: "Direct dial leg connected")
-        case .transportDialLegFailed:
-            localized("diagnostics.event.transportDialLegFailed", defaultValue: "Direct dial leg failed")
-        case .lanPublicationState:
-            localized("diagnostics.event.lanPublicationState", defaultValue: "LAN advertisement state changed")
         case .transportDialSessionLinked:
             localized("diagnostics.event.transportDialSessionLinked", defaultValue: "Transport dial linked to session")
         case .transportDialCancelled:
