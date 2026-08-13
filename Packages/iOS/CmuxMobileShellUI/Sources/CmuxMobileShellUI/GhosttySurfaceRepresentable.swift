@@ -13,12 +13,11 @@ import UIKit
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
-    @Environment(\.scenePhase) private var scenePhase
-
     let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
+    let terminalPresentationIsActive: Bool
     /// Whether the mounted surface should grab the keyboard when it attaches to
     /// a window. Driven by the host's autofocus-suppression state so chrome
     /// actions (create workspace/terminal, switch terminal) do not pop the
@@ -52,7 +51,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             store: store,
-            terminalPresentationIsActive: scenePhase == .active,
+            terminalPresentationIsActive: terminalPresentationIsActive,
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFolderTapEnabled: terminalFolderTapEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
@@ -126,7 +125,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // coordinator mounts/unmounts the hosted compose field into the surface's
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIView`.
-        context.coordinator.setTerminalPresentationActive(scenePhase == .active)
+        context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
