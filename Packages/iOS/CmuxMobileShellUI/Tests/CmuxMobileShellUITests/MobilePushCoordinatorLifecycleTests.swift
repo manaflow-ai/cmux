@@ -559,6 +559,38 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
+    @Test func settingsOptOutPreemptsAnInFlightEnable() async {
+        let gate = LifecycleSetEnabledGate()
+        let registration = LifecyclePushRegistration(
+            enabled: false,
+            setEnabledGate: gate
+        )
+        let suiteName = "push-coordinator-settings-preempt-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            unregisterForRemoteNotifications: {}
+        )
+
+        coordinator.setEnabledIntent(true)
+        await gate.waitUntilStarted()
+
+        coordinator.setEnabledIntent(false)
+        #expect(!coordinator.isEnabled)
+
+        await gate.release()
+        for _ in 0..<100 {
+            if await registration.snapshot == .disabled { break }
+            await Task.yield()
+        }
+        #expect(await registration.snapshot == .disabled)
+        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+    }
+
+    @MainActor
     @Test func foregroundAndReachabilityRecoveryShareOneExhaustedRegistrationRetry() async {
         let gate = LifecycleSyncGate()
         let registration = LifecyclePushRegistration(

@@ -113,11 +113,13 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var registrationSnapshotTask: Task<Void, Never>?
     @ObservationIgnored private var registrationRecoveryTask:
         Task<PushRegistrationSnapshot, Never>?
+    @ObservationIgnored private var registrationRecoveryToken: UUID?
     /// Settings owns the user intent, while the registration service owns the
-    /// network side effect. Keeping the drain task here means a settings view
-    /// can disappear without cancelling an opt-out that is already visible.
-    @ObservationIgnored private var pendingSettingsIntent: Bool?
+    /// network side effect. This task is app-lifetime state, not view-lifetime
+    /// state, and a newer intent cancels the coordinator work without waiting
+    /// for the old task to unwind.
     @ObservationIgnored private var settingsMutationTask: Task<Void, Never>?
+    @ObservationIgnored private var settingsMutationToken = UUID()
     @ObservationIgnored private var workspaceAuthorizationRequestInFlight = false
     @ObservationIgnored private var hasRequestedRemoteRegistration = false
 
@@ -201,22 +203,30 @@ public final class MobilePushCoordinator {
     public var isEnabled: Bool { enabledMirror }
 
     /// Apply a Settings preference immediately and finish its registration work
-    /// from the app-lifetime coordinator. Repeated taps are coalesced to the
-    /// latest intent and are serialized with the registration actor, so a view
-    /// lifecycle cannot strand or reorder a mutation.
+    /// from the app-lifetime coordinator. A newer intent cancels the old
+    /// coordinator task and starts independently, so an opt-out can preempt an
+    /// authorization prompt or other suspended enable path.
     public func setEnabledIntent(_ enabled: Bool) {
-        guard enabled != enabledMirror || pendingSettingsIntent != nil else {
-            return
-        }
+        guard enabled != enabledMirror else { return }
+        cancelSettingsMutation()
+        let token = UUID()
+        settingsMutationToken = token
         if enabled {
             persistEnabledIntent()
         } else {
             prepareDisable()
         }
-        pendingSettingsIntent = enabled
-        guard settingsMutationTask == nil else { return }
         settingsMutationTask = Task { @MainActor [weak self] in
-            await self?.drainSettingsMutations()
+            guard let self else { return }
+            if enabled {
+                _ = await self.enable(
+                    trigger: "settings_toggle",
+                    settingsMutationToken: token
+                )
+            } else {
+                await self.finishDisable(settingsMutationToken: token)
+            }
+            self.finishSettingsMutation(token)
         }
     }
 
@@ -283,7 +293,7 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
-        await enable(trigger: "settings_toggle")
+        await enable(trigger: "settings_toggle", settingsMutationToken: nil)
     }
 
     /// Requests or recovers push only after the authenticated workspace shell
@@ -313,8 +323,19 @@ public final class MobilePushCoordinator {
         }
     }
 
-    private func enable(trigger: String) async -> Bool {
+    private func enable(
+        trigger: String,
+        settingsMutationToken: UUID? = nil
+    ) async -> Bool {
+        guard isCurrentSettingsMutation(settingsMutationToken),
+              settingsMutationToken == nil || enabledMirror else {
+            return false
+        }
         let priorSettings = await notificationSettings()
+        guard isCurrentSettingsMutation(settingsMutationToken),
+              settingsMutationToken == nil || enabledMirror else {
+            return false
+        }
         apply(settings: priorSettings)
         let priorStatus = priorSettings.authorization
         persistEnabledIntent()
@@ -337,6 +358,10 @@ public final class MobilePushCoordinator {
         case .denied, .unsupported:
             granted = false
         }
+        guard isCurrentSettingsMutation(settingsMutationToken),
+              settingsMutationToken == nil || enabledMirror else {
+            return false
+        }
         guard granted else {
             await refreshReadiness()
             diagnosticLog?.recordAppEvent(.pushAuthorizationDenied)
@@ -348,18 +373,38 @@ public final class MobilePushCoordinator {
         }
         if priorStatus == .notDetermined {
             apply(settings: await notificationSettings())
+            guard isCurrentSettingsMutation(settingsMutationToken),
+                  settingsMutationToken == nil || enabledMirror else {
+                return false
+            }
         }
         diagnosticLog?.recordAppEvent(.pushAuthorizationGranted)
         analytics.capture("ios_push_optin_granted", ["trigger": .string(trigger)])
-        await activateRegistrationIfNeeded()
-        await recoverRegistrationIfNeeded()
-        return true
+        await activateRegistrationIfNeeded(settingsMutationToken: settingsMutationToken)
+        guard isCurrentSettingsMutation(settingsMutationToken),
+              settingsMutationToken == nil || enabledMirror else {
+            return false
+        }
+        await recoverRegistrationIfNeeded(settingsMutationToken: settingsMutationToken)
+        return isCurrentSettingsMutation(settingsMutationToken)
     }
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
+        cancelSettingsMutation()
         prepareDisable()
         await finishDisable()
+    }
+
+    private func cancelSettingsMutation() {
+        settingsMutationTask?.cancel()
+        settingsMutationTask = nil
+        settingsMutationToken = UUID()
+    }
+
+    private func finishSettingsMutation(_ token: UUID) {
+        guard settingsMutationToken == token else { return }
+        settingsMutationTask = nil
     }
 
     private func prepareDisable() {
@@ -367,35 +412,33 @@ public final class MobilePushCoordinator {
         enabledMirror = false
         registrationSnapshot = .disabled
         hasRequestedRemoteRegistration = false
+        registrationRecoveryTask?.cancel()
+        registrationRecoveryTask = nil
+        registrationRecoveryToken = nil
         unregisterForRemoteNotifications()
     }
 
-    private func finishDisable() async {
+    private func finishDisable(settingsMutationToken: UUID? = nil) async {
         // The production registration service owns this same persisted key
         // and checks its previous value to decide whether server cleanup is
         // required. Let it observe the prior `true` before mirroring the final
         // preference here; writing `false` first would skip token removal.
         await registration.setEnabled(false)
-        guard !enabledMirror else { return }
+        guard isCurrentSettingsMutation(settingsMutationToken), !enabledMirror else {
+            return
+        }
         defaults.set(false, forKey: Self.enabledKey)
-        registrationSnapshot = await registration.snapshot
+        let snapshot = await registration.snapshot
+        guard isCurrentSettingsMutation(settingsMutationToken), !enabledMirror else {
+            return
+        }
+        registrationSnapshot = snapshot
     }
 
-    private func drainSettingsMutations() async {
-        while let requested = pendingSettingsIntent {
-            pendingSettingsIntent = nil
-            if requested {
-                // A newer opt-out can arrive while authorization or token
-                // recovery is suspended. The next loop iteration will perform
-                // the corresponding cleanup, and the coordinator's mirror
-                // remains authoritative throughout.
-                guard enabledMirror else { continue }
-                _ = await enable(trigger: "settings_toggle")
-            } else {
-                await finishDisable()
-            }
-        }
-        settingsMutationTask = nil
+    private func isCurrentSettingsMutation(_ token: UUID?) -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard let token else { return true }
+        return settingsMutationToken == token
     }
 
     /// Hand a freshly-registered APNs token to the network layer.
@@ -456,9 +499,17 @@ public final class MobilePushCoordinator {
         authorization = settings.authorization
     }
 
-    private func activateRegistrationIfNeeded() async {
-        guard enabledMirror, Self.permitsDelivery(authorization) else { return }
+    private func activateRegistrationIfNeeded(
+        settingsMutationToken: UUID? = nil
+    ) async {
+        guard isCurrentSettingsMutation(settingsMutationToken),
+              enabledMirror,
+              Self.permitsDelivery(authorization)
+        else { return }
         let current = await registration.snapshot
+        guard isCurrentSettingsMutation(settingsMutationToken), enabledMirror else {
+            return
+        }
         registrationSnapshot = PushRegistrationSnapshot(
             isEnabled: true,
             hasDeviceToken: current.hasDeviceToken,
@@ -469,8 +520,15 @@ public final class MobilePushCoordinator {
         requestRemoteRegistrationIfNeeded()
         if !current.isEnabled {
             await registration.setEnabled(true)
+            guard isCurrentSettingsMutation(settingsMutationToken), enabledMirror else {
+                return
+            }
         }
-        registrationSnapshot = await registration.snapshot
+        let snapshot = await registration.snapshot
+        guard isCurrentSettingsMutation(settingsMutationToken), enabledMirror else {
+            return
+        }
+        registrationSnapshot = snapshot
     }
 
     private func requestRemoteRegistrationIfNeeded() {
@@ -497,12 +555,24 @@ public final class MobilePushCoordinator {
         await recoverRegistrationIfNeeded()
     }
 
-    private func recoverRegistrationIfNeeded() async {
+    private func recoverRegistrationIfNeeded(
+        settingsMutationToken: UUID? = nil
+    ) async {
+        guard isCurrentSettingsMutation(settingsMutationToken) else {
+            return
+        }
         guard enabledMirror else {
             registrationSnapshot = .disabled
             return
         }
         let current = await registration.snapshot
+        guard isCurrentSettingsMutation(settingsMutationToken) else {
+            return
+        }
+        guard enabledMirror else {
+            registrationSnapshot = .disabled
+            return
+        }
         registrationSnapshot = current
         guard current.isEnabled, current.hasDeviceToken,
               current.backendState == .registrationRequired
@@ -511,21 +581,33 @@ public final class MobilePushCoordinator {
 
         let recovery: Task<PushRegistrationSnapshot, Never>
         let ownsRecovery: Bool
+        let recoveryToken: UUID?
         if let registrationRecoveryTask {
             recovery = registrationRecoveryTask
             ownsRecovery = false
+            recoveryToken = nil
         } else {
             let registration = self.registration
+            let token = UUID()
             recovery = Task {
                 await registration.syncTokenIfPossible()
                 return await registration.snapshot
             }
             registrationRecoveryTask = recovery
+            registrationRecoveryToken = token
             ownsRecovery = true
+            recoveryToken = token
         }
         let recovered = await recovery.value
-        if ownsRecovery {
+        guard isCurrentSettingsMutation(settingsMutationToken) else {
+            return
+        }
+        guard enabledMirror else {
+            return
+        }
+        if ownsRecovery, registrationRecoveryToken == recoveryToken {
             registrationRecoveryTask = nil
+            registrationRecoveryToken = nil
         }
         registrationSnapshot = recovered
         recordRegistrationOutcome(recovered)
