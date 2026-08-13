@@ -260,10 +260,12 @@ extension GhosttySurfaceView {
         // GPU write and layer assignment is behind us, so the CPU pixel copy
         // cannot race swap-chain reuse.
         verifiedReplayRenderSuppressed = true
+        _ = renderPresentationGate.setSuppressed(true)
         var retainedFrozenPresentation = false
         defer {
             if !retainedFrozenPresentation {
                 verifiedReplayRenderSuppressed = false
+                resumeQueuedRenderAfterReplaySuppression()
             }
         }
         guard let frozen = await makeVerifiedReplayFrozenPresentationForFreeze(
@@ -420,6 +422,7 @@ extension GhosttySurfaceView {
         verifiedReplayReadyTransactionID = nil
         verifiedReplayRenderSuppressed = false
         CATransaction.commit()
+        resumeQueuedRenderAfterReplaySuppression()
     }
 
     /// Called by Ghostty after one exact tokened command reaches the model
