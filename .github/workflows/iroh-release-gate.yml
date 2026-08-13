@@ -55,7 +55,6 @@ jobs:
         run: ./scripts/ci/run-iroh-tailscale-compatibility-gate.sh
 
   simulator-e2e:
-    needs: tailscale-version-skew
     env:
       # The app gates compile optimized Swift for both endpoints. Xcode 26's
       # AArch64 GlobalISel path is not reliable for that exact build shape, so
