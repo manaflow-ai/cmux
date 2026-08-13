@@ -38,12 +38,34 @@ import Testing
 
     @Test func describesDirectDialBootstrapTrace() {
         let plan = englishPresentation.describe(
-            DiagnosticEvent(code: .transportDialPlanBuilt, tNanos: 1, a: 0, b: 0)
+            DiagnosticEvent(
+                code: .transportDialPlanBuilt,
+                tNanos: 1,
+                a: 2,
+                b: 0,
+                c: 1
+            )
         )
         #expect(plan.name == "Transport dial plan built")
         #expect(plan.fields == [
-            .init(key: "public_paths", value: "0"),
+            .init(key: "public_paths", value: "2"),
             .init(key: "private_fallback_paths", value: "0"),
+            .init(key: "public_relay_urls", value: "1"),
+        ])
+
+        let discovery = englishPresentation.describe(DiagnosticEvent(
+            code: .discoverySucceeded,
+            tNanos: 1,
+            ms: 340,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: 2,
+            c: 3
+        ))
+        #expect(discovery.fields == [
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "bindings", value: "2"),
+            .init(key: "duration", value: "340 ms"),
+            .init(key: "relay_fleet", value: "3"),
         ])
 
         let join = englishPresentation.describe(DiagnosticEvent(
