@@ -223,22 +223,22 @@ final class MobilePairingModel {
     ) -> String {
         switch bundleIdentifier {
         case "com.cmux.app":
-            String(
+            return String(
                 localized: "mobile.pairing.target.appStore",
                 defaultValue: "cmux"
             )
         case "dev.cmux.app.beta":
-            String(
+            return String(
                 localized: "mobile.pairing.target.beta",
                 defaultValue: "cmux BETA"
             )
         case "dev.cmux.app.internal":
-            String(
+            return String(
                 localized: "mobile.pairing.target.internal",
                 defaultValue: "cmux INTERNAL"
             )
         case "dev.cmux.app.demo":
-            String(
+            return String(
                 localized: "mobile.pairing.target.demo",
                 defaultValue: "cmux DEMO"
             )
