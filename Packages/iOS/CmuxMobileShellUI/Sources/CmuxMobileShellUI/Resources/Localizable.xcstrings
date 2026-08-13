@@ -1495,6 +1495,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "応答がありません。エージェントは待機を終了しました。" } }
       }
     },
+    "mobile.agentFeed.card.responseUnavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No response. This request is no longer available." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "応答がありません。このリクエストは利用できなくなりました。" } }
+      }
+    },
     "mobile.agentFeed.card.lastResponse" : {
       "extractionState" : "manual",
       "localizations" : {

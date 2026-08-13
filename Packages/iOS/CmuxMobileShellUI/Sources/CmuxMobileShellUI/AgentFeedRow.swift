@@ -50,7 +50,7 @@ struct AgentFeedRow: View, Equatable {
         AgentFeedRowChrome(
             design: design,
             sourceLabel: copy.sourceLabel(item.wire.source),
-            isActionable: requiresResponse,
+            isActionable: requiresResponse && interactionsEnabled,
             actionNeededLabel: localizer.string(
                 "mobile.agentFeed.chrome.actionNeeded",
                 defaultValue: "Action needed"
@@ -139,94 +139,107 @@ struct AgentFeedRow: View, Equatable {
 
     @ViewBuilder
     private var actionArea: some View {
-        switch item.wire.payload {
-        case .permission(_, let toolName, let safeInput, let supportedModes)
-            where requiresResponse:
-            VStack(alignment: .leading, spacing: 8) {
-                Text(toolName).font(.headline)
-                if !safeInput.isEmpty { Text(safeInput).font(.caption).foregroundStyle(.secondary) }
-                if supportedModes.isEmpty {
-                    Text(localizer.string(
-                        "mobile.agentFeed.permission.malformed",
-                        defaultValue: "No inline permission options were provided. Open Agent to respond."
-                    ))
-                    .foregroundStyle(.secondary)
-                } else {
-                    ViewThatFits {
-                        HStack { permissionButtons(supportedModes) }
-                        VStack(alignment: .leading) { permissionButtons(supportedModes) }
-                    }
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            if requiresResponse && !interactionsEnabled && !item.isTurnCompletion {
+                Text(localizer.string(
+                    "mobile.agentFeed.card.responseUnavailable",
+                    defaultValue: "No response. This request is no longer available."
+                ))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("MobileAgentFeedResponseUnavailable-\(suffix)")
             }
-        case .exitPlan(_, let plan, let summary, _) where requiresResponse:
-            VStack(alignment: .leading, spacing: 8) {
-                if let summary { Text(summary).font(.headline) }
-                Text(plan).font(.body).textSelection(.enabled)
-                TextField(
-                    localizer.string("mobile.agentFeed.plan.feedback", defaultValue: "Request changes"),
-                    text: Binding(get: { planFeedback }, set: { actions.setPlanFeedback($0) }),
-                    axis: .vertical
-                )
-                .lineLimit(2...6)
-                .disabled(!interactionsEnabled || isSending)
-                .accessibilityIdentifier("MobileAgentFeedPlanFeedback-\(suffix)")
-                ViewThatFits {
-                    HStack { planButtons }
-                    VStack(alignment: .leading) { planButtons }
-                }
-            }
-        case .question(_, let questions) where requiresResponse:
-            if questions.isEmpty {
-                Text(localizer.string("mobile.agentFeed.question.malformed", defaultValue: "This question could not be displayed. Open the agent to respond."))
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(questions) { question in questionView(question) }
-                    Button(localizer.string("mobile.agentFeed.question.submit", defaultValue: "Submit Answers")) {
-                        actions.decide(.question(selections: encodedQuestionAnswers(questions)))
-                    }
-                    .disabled(!interactionsEnabled || isSending || !questionsAreValid(questions))
-                    .frame(minHeight: 44)
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier("MobileAgentFeedQuestionSubmit-\(suffix)")
-                }
-            }
-        case .boolean(_, let prompt, let yesLabel, let noLabel, let defaultValue) where requiresResponse:
-            let resolvedYesLabel = booleanLabel(yesLabel, value: true)
-            let resolvedNoLabel = booleanLabel(noLabel, value: false)
-            VStack(alignment: .leading, spacing: 10) {
-                Text(prompt).font(.headline)
-                ViewThatFits {
-                    HStack {
-                        booleanButton(label: resolvedNoLabel, value: false, systemImage: "xmark.circle")
-                        booleanButton(label: resolvedYesLabel, value: true, systemImage: "checkmark.circle")
-                    }
-                    VStack(alignment: .leading) {
-                        booleanButton(label: resolvedNoLabel, value: false, systemImage: "xmark.circle")
-                        booleanButton(label: resolvedYesLabel, value: true, systemImage: "checkmark.circle")
-                    }
-                }
-                if let defaultValue {
-                    Text(defaultValue ? resolvedYesLabel : resolvedNoLabel)
-                        .font(.caption)
+
+            switch item.wire.payload {
+            case .permission(_, let toolName, let safeInput, let supportedModes)
+                where requiresResponse:
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(toolName).font(.headline)
+                    if !safeInput.isEmpty { Text(safeInput).font(.caption).foregroundStyle(.secondary) }
+                    if supportedModes.isEmpty {
+                        Text(localizer.string(
+                            "mobile.agentFeed.permission.malformed",
+                            defaultValue: "No inline permission options were provided. Open Agent to respond."
+                        ))
                         .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
+                    } else {
+                        ViewThatFits {
+                            HStack { permissionButtons(supportedModes) }
+                            VStack(alignment: .leading) { permissionButtons(supportedModes) }
+                        }
+                    }
                 }
+            case .exitPlan(_, let plan, let summary, _) where requiresResponse:
+                VStack(alignment: .leading, spacing: 8) {
+                    if let summary { Text(summary).font(.headline) }
+                    Text(plan).font(.body).textSelection(.enabled)
+                    TextField(
+                        localizer.string("mobile.agentFeed.plan.feedback", defaultValue: "Request changes"),
+                        text: Binding(get: { planFeedback }, set: { actions.setPlanFeedback($0) }),
+                        axis: .vertical
+                    )
+                    .lineLimit(2...6)
+                    .disabled(!interactionsEnabled || isSending)
+                    .accessibilityIdentifier("MobileAgentFeedPlanFeedback-\(suffix)")
+                    ViewThatFits {
+                        HStack { planButtons }
+                        VStack(alignment: .leading) { planButtons }
+                    }
+                }
+            case .question(_, let questions) where requiresResponse:
+                if questions.isEmpty {
+                    Text(localizer.string("mobile.agentFeed.question.malformed", defaultValue: "This question could not be displayed. Open the agent to respond."))
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(questions) { question in questionView(question) }
+                        Button(localizer.string("mobile.agentFeed.question.submit", defaultValue: "Submit Answers")) {
+                            actions.decide(.question(selections: encodedQuestionAnswers(questions)))
+                        }
+                        .disabled(!interactionsEnabled || isSending || !questionsAreValid(questions))
+                        .frame(minHeight: 44)
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("MobileAgentFeedQuestionSubmit-\(suffix)")
+                    }
+                }
+            case .boolean(_, let prompt, let yesLabel, let noLabel, let defaultValue) where requiresResponse:
+                let resolvedYesLabel = booleanLabel(yesLabel, value: true)
+                let resolvedNoLabel = booleanLabel(noLabel, value: false)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(prompt).font(.headline)
+                    ViewThatFits {
+                        HStack {
+                            booleanButton(label: resolvedNoLabel, value: false, systemImage: "xmark.circle")
+                            booleanButton(label: resolvedYesLabel, value: true, systemImage: "checkmark.circle")
+                        }
+                        VStack(alignment: .leading) {
+                            booleanButton(label: resolvedNoLabel, value: false, systemImage: "xmark.circle")
+                            booleanButton(label: resolvedYesLabel, value: true, systemImage: "checkmark.circle")
+                        }
+                    }
+                    if let defaultValue {
+                        Text(defaultValue ? resolvedYesLabel : resolvedNoLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+                }
+            case .form(_, let title, let fields, let externalURL) where requiresResponse:
+                formView(title: title, fields: fields, externalURL: externalURL)
+            case .stop where requiresResponse:
+                turnCompletionActionArea
+            case .lifecycle where item.isTurnCompletion && requiresResponse:
+                turnCompletionActionArea
+            case .unknown where requiresResponse:
+                Text(localizer.string(
+                    "mobile.agentFeed.action.unsupported",
+                    defaultValue: "This request needs a newer version of cmux. Open Agent to respond."
+                ))
+                .foregroundStyle(.secondary)
+            default:
+                EmptyView()
             }
-        case .form(_, let title, let fields, let externalURL) where requiresResponse:
-            formView(title: title, fields: fields, externalURL: externalURL)
-        case .stop where requiresResponse:
-            turnCompletionActionArea
-        case .lifecycle where item.isTurnCompletion && requiresResponse:
-            turnCompletionActionArea
-        case .unknown where requiresResponse:
-            Text(localizer.string(
-                "mobile.agentFeed.action.unsupported",
-                defaultValue: "This request needs a newer version of cmux. Open Agent to respond."
-            ))
-            .foregroundStyle(.secondary)
-        default:
-            EmptyView()
         }
     }
 
