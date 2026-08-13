@@ -2751,11 +2751,22 @@ class TabManager: ObservableObject {
         var sent = 0
         for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel })
         where Self.isClaudeAgentCommand(panel.configuredCommand) {
-            // Deliver via sendInput so the trailing Return arrives as a real key
-            // event. Claude's TUI runs in bracketed-paste mode, where a raw CR
-            // byte (what sendText writes) lands as a newline in the composer
-            // instead of submitting the slash command.
-            panel.sendInput("/rename \(safeName)\r")
+            // Deliver via sendInput so the Return arrives as a real key event
+            // (sendInput maps a trailing CR to a kVK_Return key, not a raw CR
+            // byte — Claude's TUI runs in bracketed-paste mode, where a raw CR
+            // lands as a newline in the composer instead of submitting).
+            //
+            // Send the text and the submitting Return SEPARATELY, with a short
+            // delay. On a remote pane (cmux→ssh→tmux→Claude) a Return bundled
+            // with the text races ahead of the bracketed-paste content and
+            // Claude's composer drops it, leaving the command typed-but-unsent
+            // (the user then has to press Return by hand). A standalone, slightly
+            // delayed Return submits cleanly on both local and remote panes.
+            panel.sendInput("/rename \(safeName)")
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                panel.sendInput("\r")
+            }
             sent += 1
         }
         #if DEBUG
