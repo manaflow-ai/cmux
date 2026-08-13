@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Kieruj żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
-      "coderouterLink": "otwórz coderouter"
+      "coderouterLink": "otwórz coderouter",
+      "iosAppName": "aplikacja iOS",
+      "iosAppDescription": "Zainstaluj aplikację cmux na iOS przez TestFlight (dostęp beta).",
+      "iosLink": "Otwórz aplikację iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",

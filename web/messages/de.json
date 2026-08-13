@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten verteilen.",
-      "coderouterLink": "coderouter öffnen"
+      "coderouterLink": "coderouter öffnen",
+      "iosAppName": "iOS-App",
+      "iosAppDescription": "Installiere die cmux iOS-App über TestFlight (Beta-Zugang).",
+      "iosLink": "iOS-App öffnen"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",

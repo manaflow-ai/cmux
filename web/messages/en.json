@@ -115,7 +115,10 @@
       "vaultLink": "open vault",
       "coderouterName": "coderouter",
       "coderouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
-      "coderouterLink": "open coderouter"
+      "coderouterLink": "open coderouter",
+      "iosAppName": "iOS app",
+      "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
+      "iosLink": "open iOS app"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",

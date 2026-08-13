@@ -29,6 +29,12 @@ export default async function DashboardIndexPage({
       description: t("coderouterDescription"),
       link: t("coderouterLink"),
     },
+    {
+      href: "/dashboard/testflight",
+      name: t("iosAppName"),
+      description: t("iosAppDescription"),
+      link: t("iosLink"),
+    },
   ];
   if (isVaultEnabled()) {
     products.unshift({

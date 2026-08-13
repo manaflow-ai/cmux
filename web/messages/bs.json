@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Usmjeravajte LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
-      "coderouterLink": "otvori coderouter"
+      "coderouterLink": "otvori coderouter",
+      "iosAppName": "iOS aplikacija",
+      "iosAppDescription": "Instalirajte cmux iOS aplikaciju putem TestFlight-a (beta pristup).",
+      "iosLink": "Otvori iOS aplikaciju"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
