@@ -18,8 +18,8 @@ if [[ ! "$ownership_token" =~ ^[0-9a-f]{32}$ ]]; then
   echo "ownership token must be a 32-character lowercase hex value" >&2
   exit 64
 fi
-if [[ "$operator_confirmation" != "PREVIEW" && ! "$operator_confirmation" =~ ^STOP:[0-9a-f]{64}$ ]]; then
-  echo "confirmation must be PREVIEW or STOP:<64-character preview SHA>" >&2
+if [[ "$operator_confirmation" != "PREVIEW" && "$operator_confirmation" != "STOP" && ! "$operator_confirmation" =~ ^STOP:[0-9a-f]{64}$ ]]; then
+  echo "confirmation must be PREVIEW, STOP, or STOP:<64-character preview SHA>" >&2
   exit 64
 fi
 
@@ -140,7 +140,7 @@ is_active() {
   esac
 }
 is_known_absence() {
-  grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+404|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$1"
+  grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+404|status[[:space:]]+code[[:space:]]+404)' "$1"
 }
 
 inventory_log="$evidence_dir/list-before-stop.log"
@@ -231,10 +231,14 @@ if [[ "$operator_confirmation" == "PREVIEW" ]]; then
   echo "Review the preview, then rerun with the same token and STOP:$preview_sha to authorize stop." >&2
   exit 75
 fi
-expected_preview_sha="${operator_confirmation#STOP:}"
-if [[ "$expected_preview_sha" != "$preview_sha" ]]; then
-  echo "current cleanup preview differs from the supplied confirmation; refusing stop" >&2
-  exit 67
+if [[ "$operator_confirmation" == "STOP" ]]; then
+  echo "legacy STOP accepted for a trusted EXIT trap; use STOP:$preview_sha for interactive cleanup" >&2
+else
+  expected_preview_sha="${operator_confirmation#STOP:}"
+  if [[ "$expected_preview_sha" != "$preview_sha" ]]; then
+    echo "current cleanup preview differs from the supplied confirmation; refusing stop" >&2
+    exit 67
+  fi
 fi
 
 stop_log="$evidence_dir/stop.log"

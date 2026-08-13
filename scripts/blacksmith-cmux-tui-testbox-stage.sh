@@ -100,6 +100,8 @@ except (OSError, json.JSONDecodeError) as error:
     raise SystemExit(f"invalid setup identity marker: {error}")
 source = record.get("source", {})
 testbox = record.get("testbox", {})
+runner = record.get("runner", {})
+toolchain = record.get("toolchain", {})
 errors = []
 if source.get("commit_sha") != expected_source:
     errors.append("setup source commit mismatch")
@@ -113,6 +115,10 @@ if testbox.get("id") != expected_testbox:
     errors.append("setup Testbox ID mismatch")
 if str(testbox.get("setup_workflow_run_id")) != expected_run_id:
     errors.append("setup workflow run ID mismatch")
+if runner.get("label") != "blacksmith-32vcpu-ubuntu-2404" or runner.get("arch") != "X64" or runner.get("cpu_count") != 32:
+    errors.append("setup runner identity mismatch")
+if not toolchain.get("rust_toolchain") or not toolchain.get("rustc") or not toolchain.get("cargo") or not toolchain.get("zig"):
+    errors.append("setup toolchain identity is incomplete")
 if errors:
     for error in errors:
         print(error, file=sys.stderr)

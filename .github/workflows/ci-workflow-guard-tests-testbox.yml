@@ -47,11 +47,11 @@ jobs:
       # those external controls or move this action into branch-controlled code.
       # It attaches the VM requested by `blacksmith testbox warmup` and leaves
       # it alive after this setup job.
-      - name: Guard trusted source ref
-        if: github.ref != 'refs/heads/main'
+      - name: Guard trusted repository and source ref
+        if: github.repository != 'manaflow-ai/cmux' || github.ref != 'refs/heads/main'
         shell: bash
         run: |
-          echo "::error::Testbox token-bearing setup is restricted to reviewed main" >&2
+          echo "::error::Testbox token-bearing setup is restricted to manaflow-ai/cmux reviewed main" >&2
           exit 1
 
       - name: Validate Testbox ID before token-bearing action
