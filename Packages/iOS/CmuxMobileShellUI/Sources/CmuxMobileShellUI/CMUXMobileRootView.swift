@@ -45,6 +45,11 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
+    /// Prevents the initial authenticated publication from dialing before the
+    /// auth coordinator finishes loading the account's effective team. That
+    /// first team transition invalidates attempts created in the teamless
+    /// scope, so connection startup belongs after this barrier.
+    @State private var didFinishAuthBootstrap = false
     @State private var didExceedStartupRestoringGate = false
     /// One owner for the setup reminder's loading, required, and dismissed
     /// presentation phases. Durable readiness remains in the shell store.
@@ -285,6 +290,7 @@ struct CMUXMobileRootView: View {
             // lifecycle callbacks, so it cannot start a duplicate dial.
             await authManager.awaitBootstrapped()
             guard !Task.isCancelled else { return }
+            didFinishAuthBootstrap = true
             if !consumePendingURLIfReady() {
                 reconnectStoredMacIfNeeded()
             }
@@ -988,12 +994,15 @@ struct CMUXMobileRootView: View {
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
     private func reconnectStoredMacIfNeeded() {
-        guard isAuthenticated, !authManager.isRestoringSession else { return }
+        guard isAuthenticated,
+              didFinishAuthBootstrap,
+              !authManager.isRestoringSession else { return }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
         guard !startedUITestAttachURL,
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                didFinishAuthBootstrap: didFinishAuthBootstrap,
                 isRestoringSession: authManager.isRestoringSession,
                 connectionState: store.connectionState
               ) else { return }
