@@ -76,7 +76,13 @@ struct AgentFeedRow: View, Equatable {
                             requiresResponse: requiresResponse,
                             localizer: localizer
                         )
-                        AgentFeedContext(item: item, isExpanded: isExpanded, localizer: localizer)
+                        AgentFeedContext(
+                            item: item,
+                            isExpanded: isExpanded,
+                            requiresResponse: requiresResponse,
+                            interactionsEnabled: interactionsEnabled,
+                            localizer: localizer
+                        )
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityElement(children: .ignore)
@@ -210,9 +216,9 @@ struct AgentFeedRow: View, Equatable {
         case .form(_, let title, let fields, let externalURL) where requiresResponse:
             formView(title: title, fields: fields, externalURL: externalURL)
         case .stop where requiresResponse:
-            replyComposer
+            turnCompletionActionArea
         case .lifecycle where item.isTurnCompletion && requiresResponse:
-            replyComposer
+            turnCompletionActionArea
         case .unknown where requiresResponse:
             Text(localizer.string(
                 "mobile.agentFeed.action.unsupported",
@@ -560,6 +566,26 @@ struct AgentFeedRow: View, Equatable {
         }
     }
 
+    /// A completed turn is only replyable while its exact route is live. When
+    /// the row came from cache, a disconnected Mac, or a stale route, do not
+    /// leave a disabled editor on screen. Show the final answer when the host
+    /// captured one, otherwise make the absence of a response explicit.
+    @ViewBuilder
+    private var turnCompletionActionArea: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if interactionsEnabled {
+                replyComposer
+            } else if item.wire.lastAssistantMessage == nil {
+                Text(localizer.string(
+                    "mobile.agentFeed.card.noResponse",
+                    defaultValue: "No response. The agent stopped waiting."
+                ))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private func questionView(_ question: MobileWorkstreamQuestion) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if question.inputType != nil,
@@ -716,10 +742,23 @@ struct AgentFeedRow: View, Equatable {
                 payload: item.wire.payload,
                 source: item.wire.source
             ),
+            completionAccessibilityText,
             item.wire.createdAt.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)),
         ]
         .compactMap { $0 }
         .formatted()
+    }
+
+    private var completionAccessibilityText: String? {
+        guard item.isTurnCompletion else { return nil }
+        if let message = item.wire.lastAssistantMessage {
+            return message
+        }
+        guard !interactionsEnabled else { return nil }
+        return localizer.string(
+            "mobile.agentFeed.card.noResponse",
+            defaultValue: "No response. The agent stopped waiting."
+        )
     }
 }
 
@@ -792,6 +831,8 @@ private struct AgentFeedRowHeader: View {
 private struct AgentFeedContext: View {
     let item: MobileAgentFeedItem
     let isExpanded: Bool
+    let requiresResponse: Bool
+    let interactionsEnabled: Bool
     let localizer: AgentFeedLocalizer
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var copy: AgentFeedRowCopy { AgentFeedRowCopy(localizer: localizer) }
@@ -803,10 +844,22 @@ private struct AgentFeedContext: View {
                     .font(.subheadline.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text(copy.payloadSummary(item.wire.payload))
+            if item.isTurnCompletion,
+               (!requiresResponse || !interactionsEnabled),
+               item.wire.lastAssistantMessage == nil {
+                Text(localizer.string(
+                    "mobile.agentFeed.card.noResponse",
+                    defaultValue: "No response. The agent stopped waiting."
+                ))
                 .font(.subheadline)
-                .lineLimit(isExpanded || dynamicTypeSize.isAccessibilitySize ? nil : 4)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(copy.payloadSummary(item.wire.payload))
+                    .font(.subheadline)
+                    .lineLimit(isExpanded || dynamicTypeSize.isAccessibilitySize ? nil : 4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let resolution = copy.resolutionLabel(
                 item.wire.status,
                 payload: item.wire.payload,
@@ -815,6 +868,21 @@ private struct AgentFeedContext: View {
                 Text(resolution)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+            }
+            if item.isTurnCompletion,
+               let lastAssistantMessage = item.wire.lastAssistantMessage {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(localizer.string(
+                        "mobile.agentFeed.card.lastResponse",
+                        defaultValue: "Last response"
+                    ))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    Text(lastAssistantMessage)
+                        .textSelection(.enabled)
+                        .lineLimit(isExpanded || dynamicTypeSize.isAccessibilitySize ? nil : 6)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if isExpanded, let cwd = item.wire.cwd {
                 Text(cwd)

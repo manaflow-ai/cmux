@@ -230,6 +230,17 @@ struct AgentFeedView: View {
 
     private func interactionsEnabled(for item: MobileAgentFeedItem) -> Bool {
         guard item.connectionStatus == .connected else { return false }
+        // A completed-turn reply must target the exact live surface that
+        // emitted it. Cached rows can retain the event after that surface was
+        // removed, so keep them readable without exposing a disabled composer.
+        if item.isTurnCompletion {
+            guard let workspaceID = item.wire.workspaceID,
+                  !workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let surfaceID = item.wire.surfaceID,
+                  !surfaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return false
+            }
+        }
         switch status {
         case .ready, .partial: return true
         case .idle, .loading, .offlineCached, .reconnecting, .unavailable, .requiresMacUpdate, .failed:

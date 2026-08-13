@@ -74,6 +74,58 @@ struct WorkstreamStoreTests {
         #expect(!store.appendUserReply(to: stopID, text: "Duplicate"))
     }
 
+    @Test("Stop hooks retain the final assistant message in carried context")
+    func stopCarriesFinalAssistantMessage() throws {
+        let data = Data(#"{"session_id":"s-final","hook_event_name":"Stop","_source":"codex","last_assistant_message":"The patch is ready for review."}"#.utf8)
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        let store = WorkstreamStore(ringCapacity: 10)
+
+        store.ingest(event)
+
+        #expect(store.items.first?.context?.assistantPreamble == "The patch is ready for review.")
+    }
+
+    @Test("Session-end hooks retain an explicit final assistant message")
+    func sessionEndCarriesFinalAssistantMessage() throws {
+        let data = Data(#"{"session_id":"s-session-end","hook_event_name":"SessionEnd","_source":"opencode","extra":{"assistant_response":"The session is complete."}}"#.utf8)
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        let store = WorkstreamStore(ringCapacity: 10)
+
+        store.ingest(event)
+
+        #expect(store.items.first?.context?.assistantPreamble == "The session is complete.")
+    }
+
+    @Test("Session-end event context is treated as the final response")
+    func sessionEndContextCarriesFinalAssistantMessage() throws {
+        let data = Data(#"{"session_id":"s-session-context","hook_event_name":"SessionEnd","_source":"opencode","context":{"assistantPreamble":"Closed cleanly."}}"#.utf8)
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        let store = WorkstreamStore(ringCapacity: 10)
+
+        store.ingest(event)
+
+        #expect(store.items.first?.context?.assistantPreamble == "Closed cleanly.")
+    }
+
+    @Test("A stop without an explicit answer does not reuse an older assistant preamble")
+    func stopWithoutFinalAnswerDoesNotClaimOldPreamble() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "s-no-final",
+            hookEventName: .notification,
+            source: "codex",
+            context: WorkstreamContext(assistantPreamble: "I am starting the work.")
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "s-no-final",
+            hookEventName: .stop,
+            source: "codex",
+            toolInputJSON: #"{"reason":"waiting"}"#
+        ))
+
+        #expect(store.items.last?.context?.assistantPreamble == nil)
+    }
+
     @Test("Unknown major lifecycle events remain chronological telemetry")
     func unknownLifecycleTelemetry() throws {
         let store = WorkstreamStore(ringCapacity: 10)

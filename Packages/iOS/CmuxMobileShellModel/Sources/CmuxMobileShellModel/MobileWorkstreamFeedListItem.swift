@@ -10,6 +10,10 @@ public struct MobileWorkstreamFeedListItem: Decodable, Equatable, Sendable, Iden
     public let updatedAt: Date
     public let cwd: String?
     public let title: String?
+    /// Last assistant text attached to a completed turn. The host sends this
+    /// separately from the typed stop payload so a stale/offline row can show
+    /// the answer instead of presenting a disabled reply composer.
+    public let lastAssistantMessage: String?
     public let workspaceID: String?
     public let surfaceID: String?
     public let status: MobileWorkstreamFeedStatus
@@ -24,6 +28,7 @@ public struct MobileWorkstreamFeedListItem: Decodable, Equatable, Sendable, Iden
         updatedAt: Date,
         cwd: String? = nil,
         title: String? = nil,
+        lastAssistantMessage: String? = nil,
         workspaceID: String? = nil,
         surfaceID: String? = nil,
         status: MobileWorkstreamFeedStatus,
@@ -37,6 +42,7 @@ public struct MobileWorkstreamFeedListItem: Decodable, Equatable, Sendable, Iden
         self.updatedAt = updatedAt
         self.cwd = cwd
         self.title = title
+        self.lastAssistantMessage = lastAssistantMessage
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.status = status
@@ -45,6 +51,12 @@ public struct MobileWorkstreamFeedListItem: Decodable, Equatable, Sendable, Iden
 
     private enum CodingKeys: String, CodingKey {
         case id, source, kind, status, title, cwd, decision, questions, fields, selections, mode, feedback
+        case lastAssistantMessage = "last_assistant_message"
+        case lastAssistantMessageCamel = "lastAssistantMessage"
+        case assistantMessage = "assistant_message"
+        case assistantMessageCamel = "assistantMessage"
+        case assistantPreamble = "assistantPreamble"
+        case assistantPreambleSnake = "assistant_preamble"
         case workstreamID = "workstream_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -92,6 +104,12 @@ public struct MobileWorkstreamFeedListItem: Decodable, Equatable, Sendable, Iden
         )
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         title = try c.decodeIfPresent(String.self, forKey: .title)
+        lastAssistantMessage = try c.decodeIfPresent(String.self, forKey: .lastAssistantMessage)
+            ?? c.decodeIfPresent(String.self, forKey: .lastAssistantMessageCamel)
+            ?? c.decodeIfPresent(String.self, forKey: .assistantMessage)
+            ?? c.decodeIfPresent(String.self, forKey: .assistantMessageCamel)
+            ?? c.decodeIfPresent(String.self, forKey: .assistantPreamble)
+            ?? c.decodeIfPresent(String.self, forKey: .assistantPreambleSnake)
         workspaceID = try c.decodeIfPresent(String.self, forKey: .workspaceID)
         surfaceID = try c.decodeIfPresent(String.self, forKey: .surfaceID)
 

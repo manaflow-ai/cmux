@@ -251,7 +251,8 @@ struct AgentFeedPreviewConfiguration {
         title: "OpenCode finished a turn",
         status: .telemetry,
         payload: .stop(reason: "Implementation is ready for a reply."),
-        macIndex: 3
+        macIndex: 3,
+        lastAssistantMessage: "The implementation is ready. I can continue with the focused verification when you reply."
     )
 
     static let toolErrorItem = item(
@@ -421,7 +422,8 @@ struct AgentFeedPreviewConfiguration {
         macDisplayName: String? = nil,
         workstreamID: String? = nil,
         cwd: String? = "/cmux/worktrees/agent-feed",
-        routeAvailable: Bool = true
+        routeAvailable: Bool = true,
+        lastAssistantMessage: String? = nil
     ) -> MobileAgentFeedItem {
         let date = Date(timeIntervalSince1970: 1_800_000_000 - minutesAgo * 60)
         let uuid = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", id))!
@@ -449,6 +451,7 @@ struct AgentFeedPreviewConfiguration {
                 updatedAt: date,
                 cwd: cwd,
                 title: title,
+                lastAssistantMessage: lastAssistantMessage,
                 workspaceID: routeAvailable ? "workspace-\(macIndex + 1)" : nil,
                 surfaceID: routeAvailable ? "surface-\(id)" : nil,
                 status: status,

@@ -1495,6 +1495,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "応答がありません。エージェントは待機を終了しました。" } }
       }
     },
+    "mobile.agentFeed.card.lastResponse" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Last response" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最後の応答" } }
+      }
+    },
     "mobile.agentFeed.card.routeUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {

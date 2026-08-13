@@ -217,6 +217,7 @@ public struct AgentFeedPreviewView: View {
                 updatedAt: Date(),
                 cwd: wire.cwd,
                 title: wire.title,
+                lastAssistantMessage: wire.lastAssistantMessage,
                 workspaceID: wire.workspaceID,
                 surfaceID: wire.surfaceID,
                 status: .resolved(decision: decision),

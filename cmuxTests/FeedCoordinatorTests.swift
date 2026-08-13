@@ -191,6 +191,39 @@ struct FeedCoordinatorTests {
         #expect(dict["supported_modes"] as? [String] == ["deny"])
     }
 
+    @Test func mobileFeedEncodingCarriesCompletedTurnAnswer() throws {
+        let item = WorkstreamItem(
+            workstreamId: "completed-turn",
+            source: .codex,
+            kind: .stop,
+            payload: .stop(reason: nil),
+            context: WorkstreamContext(
+                assistantPreamble: "The implementation is ready for your next instruction."
+            )
+        )
+
+        let dict = FeedSocketEncoding.itemDict(item)
+
+        #expect(
+            dict["last_assistant_message"] as? String
+                == "The implementation is ready for your next instruction."
+        )
+    }
+
+    @Test func mobileFeedEncodingDoesNotRepeatAnswerOnToolRows() throws {
+        let item = WorkstreamItem(
+            workstreamId: "tool-row",
+            source: .codex,
+            kind: .toolUse,
+            payload: .toolUse(toolName: "shell", toolInputJSON: "{}"),
+            context: WorkstreamContext(assistantPreamble: "A previous turn is complete.")
+        )
+
+        let dict = FeedSocketEncoding.itemDict(item)
+
+        #expect(dict["last_assistant_message"] == nil)
+    }
+
     @Test func codexAppServerApprovalBuildsActionableFeedEvent() throws {
         let event = CodexTeamsApprovalBridge.feedEvent(
             method: "item/commandExecution/requestApproval",

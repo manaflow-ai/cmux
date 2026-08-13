@@ -722,6 +722,23 @@ public final class WorkstreamStore {
             context = WorkstreamContext(lastUserMessage: text).mergingMissing(from: context)
         case .assistantMessage(let text):
             context = WorkstreamContext(assistantPreamble: text).mergingMissing(from: context)
+        case .stop, .sessionEnd:
+            // Stop hooks commonly carry the final assistant turn as a
+            // top-level `last_assistant_message` field rather than inside
+            // `tool_input`. Preserve it in the same carried context used by
+            // the desktop Feed so mobile can render a useful completed-turn
+            // card even when the reply route is stale or offline.
+            // Some adapters put the answer in the explicit event context
+            // instead. A fallback context from an earlier assistant preamble
+            // is deliberately not treated as a final answer, otherwise a
+            // stopped turn with no response would display an old preamble.
+            if let finalMessage = Self.assistantMessage(from: event)
+                ?? event.context?.assistantPreamble {
+                context = WorkstreamContext(assistantPreamble: finalMessage)
+                    .mergingMissing(from: context)
+            } else {
+                context = context.flatMap { Self.removingAssistantMessage(from: $0) }
+            }
         case .exitPlan(_, let plan, _):
             let preview = WorkstreamExitPlanPreview(rawPlan: plan)
             context = WorkstreamContext(
@@ -774,6 +791,76 @@ public final class WorkstreamStore {
                 ?? (dict["cause"] as? String)
         }
         return nil
+    }
+
+    /// Extracts the final assistant text emitted by stop/session adapters.
+    /// Providers disagree on whether this is in `tool_input`, a nested
+    /// notification/data object, or an extra top-level field, so keep the
+    /// accepted key set deliberately small and fail closed for other values.
+    private static func assistantMessage(from event: WorkstreamEvent) -> String? {
+        let keys = [
+            "last_assistant_message",
+            "lastAssistantMessage",
+            "assistant_message",
+            "assistantMessage",
+            "assistantPreamble",
+            "assistant_preamble",
+            "assistant_response",
+            "assistantResponse",
+            "last_response",
+            "lastResponse",
+            "final_message",
+            "finalMessage",
+            "final_response",
+            "finalResponse",
+            "last_agent_message",
+            "lastAgentMessage",
+        ]
+        for json in [event.extraFieldsJSON, event.toolInputJSON] {
+            guard let json,
+                  let data = json.data(using: .utf8),
+                  let value = try? JSONSerialization.jsonObject(
+                      with: data,
+                      options: [.fragmentsAllowed]
+                  ) else { continue }
+            if let text = assistantMessage(from: value, keys: keys) {
+                return text
+            }
+        }
+        return nil
+    }
+
+    private static func assistantMessage(from value: Any, keys: [String]) -> String? {
+        guard let dictionary = value as? [String: Any] else { return nil }
+        for key in keys {
+            if let text = dictionary[key] as? String,
+               let normalized = normalizedMessage(text) {
+                return normalized
+            }
+        }
+        for key in ["notification", "data", "context", "message", "extra", "payload", "response"] {
+            if let nested = dictionary[key] as? [String: Any],
+               let text = assistantMessage(from: nested, keys: keys) {
+                return text
+            }
+        }
+        return nil
+    }
+
+    private static func removingAssistantMessage(from context: WorkstreamContext) -> WorkstreamContext? {
+        let stripped = WorkstreamContext(
+            lastUserMessage: context.lastUserMessage,
+            planSummary: context.planSummary,
+            allowedPrompts: context.allowedPrompts,
+            toolSummary: context.toolSummary,
+            permissionMode: context.permissionMode
+        )
+        return stripped.isEmpty ? nil : stripped
+    }
+
+    private static func normalizedMessage(_ value: String) -> String? {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private static func todos(from json: String?) -> [WorkstreamTaskTodo] {

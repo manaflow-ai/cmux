@@ -114,6 +114,16 @@ struct MobileAgentFeedTests {
         #expect(row.surfaceID == "surface-exact")
     }
 
+    @Test func completedTurnPreservesLastAssistantMessage() throws {
+        let row = try decodeRow(
+            id: "00000000-0000-0000-0000-000000000013",
+            kind: "stop",
+            extra: #""reason":"waiting","last_assistant_message":"The patch is ready.""#
+        )
+
+        #expect(row.lastAssistantMessage == "The patch is ready.")
+    }
+
     @Test func legacyListResponseDefaultsToNoOlderHistory() throws {
         let data = Data("""
         {"revision":1,"items":[]}

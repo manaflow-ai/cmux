@@ -2173,6 +2173,27 @@ enum FeedSocketEncoding {
         ]
         if let cwd = item.cwd { dict["cwd"] = cwd }
         if let title = item.title { dict["title"] = title }
+        // Completed-turn cards are useful only when the user can see what the
+        // agent last said. Keep this bounded and separate from raw tool
+        // payloads so the mobile cache can retain the answer without exposing
+        // command input or failed output.
+        let carriesCompletedTurnAnswer: Bool = {
+            switch item.payload {
+            case .stop, .sessionEnd:
+                return true
+            default:
+                return false
+            }
+        }()
+        if carriesCompletedTurnAnswer,
+           let lastAssistantMessage = item.context?.assistantPreamble {
+            assignLimitedText(
+                lastAssistantMessage,
+                key: "last_assistant_message",
+                to: &dict,
+                limit: primaryTextLimit
+            )
+        }
         switch item.status {
         case .pending:
             dict["status"] = "pending"
