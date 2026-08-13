@@ -56,6 +56,138 @@ fn naked_executes_codex_without_coderouter_routing_environment() {
 
 #[cfg(unix)]
 #[test]
+fn authenticated_telemetry_is_allowlisted_and_never_captures_naked_arguments() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::mpsc;
+
+    let server = Server::http("127.0.0.1:0").unwrap();
+    let address = server.server_addr().to_ip().unwrap();
+    let base_url = format!("http://{address}");
+    let (sent, received) = mpsc::channel();
+    thread::spawn(move || {
+        let mut request = server.recv().unwrap();
+        assert_eq!(request.url(), "/api/coderouter/analytics");
+        let authorization = request
+            .headers()
+            .iter()
+            .find(|header| header.field.equiv("Authorization"))
+            .map(|header| header.value.as_str().to_owned());
+        let mut body = String::new();
+        request.as_reader().read_to_string(&mut body).unwrap();
+        request.respond(Response::empty(204)).unwrap();
+        sent.send((authorization, body)).unwrap();
+    });
+
+    let root = TempDir::new().unwrap();
+    write_config(&root, &base_url);
+    let config_path = root.path().join("coderouter/config.json");
+    let mut config: serde_json::Value =
+        serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+    config["teamName"] = json!("very-private-team-name");
+    fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let codex = root.path().join("codex");
+    fs::write(&codex, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        root.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let sensitive = [
+        "private-child-subcommand",
+        "/Users/alice/private/project",
+        "sk-secret-token",
+        "person@example.com",
+        "private prompt",
+    ];
+    Command::cargo_bin("cr")
+        .unwrap()
+        .arg("naked")
+        .args(sensitive)
+        .env("PATH", path)
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .env_remove("DO_NOT_TRACK")
+        .env_remove("CODEROUTER_TELEMETRY_DISABLED")
+        .assert()
+        .success();
+
+    let (authorization, body) = received.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(authorization.as_deref(), Some("Bearer route-secret"));
+    let payload: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(payload["events"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        payload["events"][0]["event"],
+        "coderouter_cli_command_started"
+    );
+    assert_eq!(
+        payload["events"][1]["event"],
+        "coderouter_cli_command_completed"
+    );
+    assert_eq!(payload["events"][0]["properties"]["command"], "agent");
+    assert_eq!(payload["events"][0]["properties"]["agent"], "codex");
+    assert_eq!(payload["events"][0]["properties"]["mode"], "direct");
+    for value in sensitive {
+        assert!(!body.contains(value), "telemetry leaked {value:?}");
+    }
+    for forbidden in [
+        "team-1",
+        "very-private-team-name",
+        "access",
+        "refresh",
+        "route-secret",
+        "accountId",
+        "teamId",
+        "userId",
+        "email",
+        "path",
+        "arguments",
+    ] {
+        assert!(!body.contains(forbidden), "telemetry leaked {forbidden:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn telemetry_opt_out_sends_no_request() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for variable in ["DO_NOT_TRACK", "CODEROUTER_TELEMETRY_DISABLED"] {
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let address = server.server_addr().to_ip().unwrap();
+        let base_url = format!("http://{address}");
+        let root = TempDir::new().unwrap();
+        write_config(&root, &base_url);
+        let codex = root.path().join("codex");
+        fs::write(&codex, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!(
+            "{}:{}",
+            root.path().display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        Command::cargo_bin("cr")
+            .unwrap()
+            .arg("naked")
+            .env("PATH", path)
+            .env("CODEROUTER_DATA_DIR", root.path())
+            .env_remove("DO_NOT_TRACK")
+            .env_remove("CODEROUTER_TELEMETRY_DISABLED")
+            .env(variable, "1")
+            .assert()
+            .success();
+
+        assert!(
+            server
+                .recv_timeout(Duration::from_millis(350))
+                .unwrap()
+                .is_none(),
+            "{variable} should prevent the telemetry request"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn codex_routes_directly_to_vercel_without_a_daemon() {
     use std::os::unix::fs::PermissionsExt;
 

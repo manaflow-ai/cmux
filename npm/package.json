@@ -12,6 +12,7 @@
     "cr": "bin/coderouter.js"
   },
   "files": [
+    "README.md",
     "bin",
     "vendor"
   ],
