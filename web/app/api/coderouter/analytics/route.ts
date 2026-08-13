@@ -4,6 +4,8 @@ import { captureCoderouterEvent } from
   "../../../../services/coderouter/analytics";
 import { resolveCoderouterUsageTeam } from
   "../../../../services/coderouter/requestContext";
+import { readBoundedJsonRecord } from
+  "../../../../services/subrouter/boundedJson";
 
 const MAX_BODY_BYTES = 8 * 1024;
 
@@ -88,22 +90,9 @@ export async function POST(request: Request): Promise<Response> {
   const resolved = await resolveCoderouterUsageTeam(request);
   if (!resolved.ok) return resolved.response;
 
-  let text: string;
-  try {
-    text = await request.text();
-  } catch {
-    return Response.json({ error: "invalid_request" }, { status: 400 });
-  }
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
-    return new Response(null, { status: 413 });
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return Response.json({ error: "invalid_request" }, { status: 400 });
-  }
-  const batch = batchSchema.safeParse(parsed);
+  const bounded = await readBoundedJsonRecord(request, MAX_BODY_BYTES);
+  if (!bounded.ok) return new Response(null, { status: bounded.status });
+  const batch = batchSchema.safeParse(bounded.value);
   if (!batch.success) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }

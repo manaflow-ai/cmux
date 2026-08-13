@@ -33,6 +33,16 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
       event: "coderouter_auth_rejected",
       properties: { surface: "responses", reason: "missing_route_token" },
     });
+    captureRouteHealth({
+      request,
+      startedAt,
+      status: 401,
+      attempted: 0,
+      refreshRetries: 0,
+      outcome: "unauthorized",
+      failureStage: "auth",
+      responseStreamed: false,
+    });
     return jsonError(
       "unauthorized",
       401,
@@ -47,6 +57,16 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
     captureCoderouterEvent({
       event: "coderouter_auth_rejected",
       properties: { surface: "responses", reason: "invalid_route_token" },
+    });
+    captureRouteHealth({
+      request,
+      startedAt,
+      status: 401,
+      attempted: 0,
+      refreshRetries: 0,
+      outcome: "unauthorized",
+      failureStage: "auth",
+      responseStreamed: false,
     });
     return jsonError(
       "unauthorized",
@@ -405,7 +425,7 @@ function jsonError(
 }
 
 function captureRouteHealth(input: {
-  readonly identity: { readonly teamId: string; readonly stackUserId: string };
+  readonly identity?: { readonly teamId: string; readonly stackUserId: string };
   readonly request: Request;
   readonly startedAt: number;
   readonly status: number;
@@ -436,7 +456,7 @@ function captureRouteHealth(input: {
   // independent of response consumption and token parsing.
   captureCoderouterEvent({
     event: "coderouter_route_health",
-    teamId: input.identity.teamId,
+    teamId: input.identity?.teamId,
     properties: {
       provider: "codex",
       agent,

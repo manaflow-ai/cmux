@@ -88,7 +88,13 @@ const cachedTeamMetrics = unstable_cache(
 export async function loadCoderouterTeamMetrics(
   authorizedTeamId: string,
 ): Promise<CoderouterTeamMetrics> {
-  return await cachedTeamMetrics(authorizedTeamId);
+  const metrics = await cachedTeamMetrics(authorizedTeamId);
+  captureMetricsOutcome(
+    authorizedTeamId,
+    metrics.kind,
+    metrics.kind === "ready" ? "none" : "request",
+  );
+  return metrics;
 }
 
 async function queryCoderouterTeamMetrics(
@@ -98,7 +104,6 @@ async function queryCoderouterTeamMetrics(
   const config = dependencies.config();
   if (!config) {
     dependencies.reportFailure?.("configuration_missing");
-    captureMetricsOutcome(authorizedTeamId, "unavailable", "configuration");
     return { kind: "unavailable" };
   }
   try {
@@ -125,11 +130,6 @@ async function queryCoderouterTeamMetrics(
     );
     if (!response.ok) {
       dependencies.reportFailure?.("endpoint_status", response.status);
-      captureMetricsOutcome(
-        authorizedTeamId,
-        "unavailable",
-        "endpoint_status",
-      );
       return { kind: "unavailable" };
     }
     const responseText = await response.text();
@@ -138,20 +138,10 @@ async function queryCoderouterTeamMetrics(
       parsedBody = JSON.parse(responseText);
     } catch {
       dependencies.reportFailure?.("malformed_response");
-      captureMetricsOutcome(
-        authorizedTeamId,
-        "unavailable",
-        "response_parse",
-      );
       return { kind: "unavailable" };
     }
     if (!isPlainRecord(parsedBody)) {
       dependencies.reportFailure?.("malformed_response");
-      captureMetricsOutcome(
-        authorizedTeamId,
-        "unavailable",
-        "response_validation",
-      );
       return { kind: "unavailable" };
     }
     const body = parsedBody;
@@ -168,28 +158,16 @@ async function queryCoderouterTeamMetrics(
       results.length > MAX_ROWS
     ) {
       dependencies.reportFailure?.("malformed_response");
-      captureMetricsOutcome(
-        authorizedTeamId,
-        "unavailable",
-        "response_validation",
-      );
       return { kind: "unavailable" };
     }
     const metrics = metricsFromRows(results, dependencies.now());
     if (!metrics) {
       dependencies.reportFailure?.("invalid_metrics");
-      captureMetricsOutcome(
-        authorizedTeamId,
-        "unavailable",
-        "response_validation",
-      );
       return { kind: "unavailable" };
     }
-    captureMetricsOutcome(authorizedTeamId, "ready", "none");
     return metrics;
   } catch {
     dependencies.reportFailure?.("request_failed");
-    captureMetricsOutcome(authorizedTeamId, "unavailable", "request");
     return { kind: "unavailable" };
   }
 }
