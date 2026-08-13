@@ -5,6 +5,9 @@ internal import Foundation
 extension MobileShellComposite {
     /// Presentation-only duplicate collapse for the Computers screen.
     public var displayPairedMacs: [MobilePairedMac] {
+        if deviceListMustFailClosed {
+            return []
+        }
         let source = authoritativeSyncedPairedMacs ?? pairedMacs
         return Self.coalescePairedMacsByDialEndpoint(
             source,
@@ -24,22 +27,30 @@ extension MobileShellComposite {
               authoritativeTeam == deviceListRenderedTeamID else {
             return nil
         }
-        let now = Date()
+        let existingByAuthority = pairedMacs.reduce(
+            into: [MacPairingKey: MobilePairedMac]()
+        ) { result, mac in
+            // Preserve the first row just as the previous linear search did,
+            // while making each device-instance lookup constant time.
+            result[MacPairingKey(mac)] = result[MacPairingKey(mac)] ?? mac
+        }
         return registryDevices.flatMap { device in
-            device.instances.compactMap { instance in
-                guard !device.deviceId.isEmpty else { return nil }
-                let existing = pairedMacs.first {
-                    $0.macDeviceID == device.deviceId
-                        && macInstanceTagAuthority.sameStoredAuthority(
-                            $0.instanceTag,
-                            instance.tag
-                        )
-                }
+            guard !device.deviceId.isEmpty else { return [MobilePairedMac]() }
+            return device.instances.compactMap { instance in
+                let existing = existingByAuthority[
+                    MacPairingKey(
+                        macDeviceID: device.deviceId,
+                        instanceTag: instance.tag
+                    )
+                ]
                 return MobilePairedMac(
                     macDeviceID: device.deviceId,
                     displayName: device.displayName,
                     routes: instance.routes,
-                    createdAt: existing?.createdAt ?? now,
+                    // The authoritative record supplies a stable fallback for
+                    // new rows. `Date()` here would change the identity value on
+                    // every observation and make the projection look mutated.
+                    createdAt: existing?.createdAt ?? instance.lastSeenAt,
                     lastSeenAt: instance.lastSeenAt,
                     isActive: connectedMacDeviceID == device.deviceId
                         && macInstanceTagAuthority.sameStoredAuthority(

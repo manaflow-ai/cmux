@@ -277,8 +277,10 @@ The DO records the socket's collection subscription before the first awaited
 backfill or storage read. Deltas broadcast during that baseline read are held
 in a bounded per-socket handshake queue and flushed after the baseline frames,
 so a heartbeat cannot fall between the client's cursor and its live stream. A
-queue overflow closes the socket; the client reconnects and receives a fresh
-snapshot rather than accepting a gap.
+queue overflow closes the socket; the client reconnects with its last committed
+durable cursor, and the DO chooses a retained delta replay or a fresh snapshot
+according to the epoch and tombstone GC floor. Either response restores cursor
+continuity without accepting a gap.
 
 If the WS is unreachable, the UI keeps showing the last-synced SQLite state
 (correctly labeled by `updatedAt`/presence as possibly-stale) and retries with

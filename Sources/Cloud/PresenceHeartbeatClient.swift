@@ -135,11 +135,14 @@ final class PresenceHeartbeatClient {
         guard let accessToken else { return }
         let identity = pendingSignOutIdentity
         pendingSignOutIdentity = nil
-        var identities = pendingDepartureIdentities
         if let identity,
-           !identities.contains(where: { Self.samePresenceScope($0, identity) }) {
-            identities.append(identity)
+           !pendingDepartureIdentities.contains(where: {
+               Self.samePresenceScope($0, identity)
+           }) {
+            pendingDepartureIdentities.append(identity)
+            trimPendingDepartures()
         }
+        let identities = pendingDepartureIdentities
         guard !identities.isEmpty else { return }
         for departure in identities {
             await sendHeartbeat(
@@ -328,6 +331,11 @@ final class PresenceHeartbeatClient {
             identity: identity
         )
         guard succeeded else { return }
+        // A normal beat can finish after sign-out, a team switch, or a route
+        // restart. Its server request is harmless because the worker fences the
+        // old lifecycle, but its local bookkeeping must not make that stale
+        // identity look current and defeat the next departure flush.
+        guard generation == nil || lifecycleGeneration == generation else { return }
         if signedOut {
             pendingDepartureIdentities.removeAll {
                 Self.samePresenceScope($0, identity)

@@ -188,7 +188,6 @@ export function applyHeartbeat(
   // lifecycle support fails closed until the normal offline timeout.
   if (
     existing?.signedOut === true &&
-    existingLifecycle !== undefined &&
     (incomingLifecycle === undefined || incomingLifecycle === existingLifecycle) &&
     !beat.signedOut &&
     !beat.stopping

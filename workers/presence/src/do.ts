@@ -92,7 +92,8 @@ const MAX_SYNC_HELLO_BYTES = 4096;
  * heartbeats keep arriving. Queue a bounded number of deltas until the
  * baseline snapshot/catch-up response has been sent, then flush them in the
  * same order they were broadcast. If a pathological burst exceeds this cap,
- * closing the socket makes the client reconnect and obtain a fresh snapshot
+ * closing the socket makes the client reconnect from its durable cursor; the
+ * normal epoch/GC-floor decision then chooses replay or a fresh snapshot
  * rather than risking an unbounded server-side buffer or a cursor gap. */
 const MAX_SYNC_HANDSHAKE_FRAMES = 1024;
 /** Drop an SSE subscriber once this many frames sit unread in its stream
@@ -776,7 +777,6 @@ export class TeamPresence extends DurableObject {
     if (queue.frames.length >= MAX_SYNC_HANDSHAKE_FRAMES) {
       queue.overflowed = true;
       queue.frames = [];
-      this.closeSyncHandshake(ws, "sync handshake overflow");
       return true;
     }
     queue.frames.push(frame);
@@ -887,10 +887,6 @@ export class TeamPresence extends DurableObject {
     let syncRetry: number | null = null;
     try {
       await this.syncDeviceRecords(now);
-      // Only a successful full reconciliation clears the durable retry marker.
-      // A later heartbeat may have failed for another device, so a successful
-      // one-device hot-path projection is insufficient evidence to clear it.
-      await this.ctx.storage.delete(SYNC_RETRY_ATTEMPT_KEY);
       await gcTombstones(this.syncStorage(), DEVICES_COLLECTION, now);
       // Include the next tombstone-GC deadline so a fully-offline team (no
       // instances left to schedule a heartbeat-driven alarm) still wakes to GC
@@ -908,6 +904,9 @@ export class TeamPresence extends DurableObject {
           if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
         }
       }
+      // Only a complete projection + GC pass clears the durable retry marker.
+      // A partial pass must keep the bounded backoff intact.
+      await this.ctx.storage.delete(SYNC_RETRY_ATTEMPT_KEY);
     } catch (err) {
       console.error("sync projection/GC failed (alarm); presence unaffected", err);
       try {

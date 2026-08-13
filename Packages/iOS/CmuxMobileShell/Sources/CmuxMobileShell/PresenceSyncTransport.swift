@@ -158,6 +158,7 @@ public actor PresenceSyncTransport: SyncTransport {
         }
     }
 
+    @concurrent
     nonisolated private static func sendPingOnce(
         _ task: URLSessionWebSocketTask
     ) async throws {

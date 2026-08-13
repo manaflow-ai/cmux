@@ -38,7 +38,13 @@ public struct PairedMacMigration: Sendable {
         if try await syncStore.migrationCompleted(accountID: accountID, teamID: teamID) {
             return 0
         }
-        let macs = try await pairedStore.loadAll(stackUserID: accountID)
+        // The provisional cache is written under one selected team. Reading
+        // every team here would make a cold local-first launch briefly project
+        // another team's paired Macs before the authoritative stream arrives.
+        let macs = try await pairedStore.loadAll(
+            stackUserID: accountID,
+            teamID: teamID
+        )
         var seeded = 0
         let encoder = JSONEncoder()
         for mac in macs {

@@ -3182,6 +3182,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored private var syncSeededTeams: Set<String> = []
     @ObservationIgnored private var syncGeneration = 0
 
+    /// Local-first mode fails closed when its durable projection could not be
+    /// opened. Falling back to paired rows in this state can resurrect a Mac
+    /// that the authoritative stream already removed after sign-out.
+    var deviceListMustFailClosed: Bool {
+        deviceListLocalFirst && syncStore == nil
+    }
+
     /// The cmux device id of the Mac the live connection currently targets, or
     /// `nil` when not connected. Used by the device tree to mark which device row
     /// is live.
@@ -3221,6 +3228,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return activeMacInstanceTag
     }
 
+    /// Apply the shared visibility and ordering rules to any registry-shaped
+    /// device list. Keeping this projection in one pass avoids each list source
+    /// independently scanning paired rows and accidentally drifting in behavior.
+    private func projectRegistryDevices(
+        _ devices: [RegistryDevice],
+        hiddenIDs: Set<String>,
+        connectedID: String?
+    ) -> [RegistryDevice] {
+        compatibleRegistryDevices(devices)
+            .filter { device in
+                !hiddenIDs.contains(device.deviceId)
+                    && !hiddenIDs.contains(where: {
+                        MobilePairedMac.pairingIdentity(from: $0).macDeviceID
+                            == device.deviceId
+                    })
+            }
+            .sorted { lhs, rhs in
+                let lhsConnected = lhs.deviceId == connectedID
+                let rhsConnected = rhs.deviceId == connectedID
+                if lhsConnected != rhsConnected { return lhsConnected }
+                return lhs.lastSeenAt > rhs.lastSeenAt
+            }
+    }
+
     /// Reload ``registryDevices`` from the team-scoped device registry.
     ///
     /// Best-effort and failure-tolerant: a missing registry, an unauthorized
@@ -3232,6 +3263,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func loadRegistryDevices() async {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.deviceRegistryLoadStarted)
+        if deviceListMustFailClosed {
+            registryDevices = []
+            recordAppEvent(
+                .deviceRegistryLoadFailed,
+                startedAt: startedAt,
+                failure: .connectionClosed
+            )
+            return
+        }
         // A shell constructed from an already-restored session does not get an
         // `isSignedIn` didSet edge. The first device-tree load is therefore the
         // lifecycle entrypoint that must arm the durable sync stream.
@@ -3242,43 +3282,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // after its cursor has advanced past the first snapshot. Before that,
         // retain the registry fallback so a first launch never blanks the UI.
         if deviceListLocalFirst,
-           syncStore != nil,
+           let syncStore,
            let scope = await currentScopeSnapshot(),
            let teamID = scope.teamID,
            !teamID.isEmpty {
-            deviceListRenderedTeamID = teamID
-            if let syncStore {
-                await seedDeviceListMigrationIfNeeded(
-                    scope: scope,
-                    teamID: teamID,
-                    store: syncStore
-                )
-            }
+            await seedDeviceListMigrationIfNeeded(
+                scope: scope,
+                teamID: teamID,
+                store: syncStore
+            )
             let loaded = await syncStoreDevices(teamID: teamID, scope: scope)
-            let cursor: Int
-            if let syncStore {
-                cursor = (try? await syncStore.cursor(
+            do {
+                let cursor = try await syncStore.cursor(
                     teamID: teamID,
                     collection: devicesSyncCollection
-                )) ?? 0
-            } else {
-                cursor = 0
-            }
-            guard await isScopeCurrent(scope) else { return }
-            if cursor > 0 {
-                deviceListAuthoritativeTeamID = teamID
-                // An SQLite read failure is transient. Preserve the last
-                // rendered projection instead of converting an I/O blip into a
-                // false empty authoritative list. An actual empty array is a
-                // valid signed-out/tombstoned snapshot and still replaces it.
-                if let loaded {
-                    registryDevices = loaded
+                )
+                guard await isScopeCurrent(scope) else { return }
+                deviceListRenderedTeamID = teamID
+                deviceListAuthoritativeTeamID = cursor > 0 ? teamID : nil
+                if cursor > 0 {
+                    // An SQLite read failure is transient. Preserve the last
+                    // rendered projection instead of converting an I/O blip
+                    // into a false empty authoritative list. An actual empty
+                    // array is a valid signed-out/tombstoned snapshot and still
+                    // replaces it.
+                    if let loaded {
+                        registryDevices = loaded
+                    }
+                    return
                 }
-                return
-            }
-            if let loaded, !loaded.isEmpty {
-                registryDevices = loaded
-                return
+                if let loaded, !loaded.isEmpty {
+                    registryDevices = loaded
+                    return
+                }
+            } catch {
+                mobileShellLog.debug(
+                    "device-list cursor read failed: \(String(describing: error), privacy: .public)"
+                )
             }
             // Cursor zero means the sync cache has never reconciled this team.
             // Fall through to the existing registry request while the sync loop
@@ -3331,23 +3371,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // never repopulate another scope's devices after sign-out, account switch,
         // or same-account team switch.
         guard await isScopeCurrent(scope) else { return }
-        let connectedID = connectedMacDeviceID
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
         guard await isScopeCurrent(scope) else { return }
-        let compatible = compatibleRegistryDevices(loaded)
-        registryDevices = compatible
-            .filter { device in
-                !hiddenIDs.contains(device.deviceId)
-                    && !hiddenIDs.contains(where: {
-                        MobilePairedMac.pairingIdentity(from: $0).macDeviceID == device.deviceId
-                    })
-            }
-            .sorted { lhs, rhs in
-            let lhsConnected = lhs.deviceId == connectedID
-            let rhsConnected = rhs.deviceId == connectedID
-            if lhsConnected != rhsConnected { return lhsConnected }
-            return lhs.lastSeenAt > rhs.lastSeenAt
-        }
+        registryDevices = projectRegistryDevices(
+            loaded,
+            hiddenIDs: hiddenIDs,
+            connectedID: connectedMacDeviceID
+        )
         recordAppEvent(
             .deviceRegistryLoadSucceeded,
             startedAt: startedAt,
@@ -3366,6 +3396,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// (and its connect-on-tap) keeps working with the cloud down. The connected
     /// device sorts first, then most-recently-seen.
     public var deviceTreeDevices: [RegistryDevice] {
+        if deviceListMustFailClosed {
+            return []
+        }
         if !registryDevices.isEmpty { return registryDevices }
         if deviceListLocalFirst,
            let authoritativeTeam = deviceListAuthoritativeTeamID,
@@ -3418,21 +3451,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard await isScopeCurrent(scope) else { return nil }
             let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
             guard await isScopeCurrent(scope) else { return nil }
-            let connectedID = connectedMacDeviceID
-            return compatibleRegistryDevices(loaded)
-                .filter { device in
-                    !hiddenIDs.contains(device.deviceId)
-                        && !hiddenIDs.contains(where: {
-                            MobilePairedMac.pairingIdentity(from: $0).macDeviceID
-                                == device.deviceId
-                        })
-                }
-                .sorted { lhs, rhs in
-                    let lhsConnected = lhs.deviceId == connectedID
-                    let rhsConnected = rhs.deviceId == connectedID
-                    if lhsConnected != rhsConnected { return lhsConnected }
-                    return lhs.lastSeenAt > rhs.lastSeenAt
-                }
+            return projectRegistryDevices(
+                loaded,
+                hiddenIDs: hiddenIDs,
+                connectedID: connectedMacDeviceID
+            )
         } catch {
             mobileShellLog.debug(
                 "device-list sync read failed: \(String(describing: error), privacy: .public)"
@@ -3481,15 +3504,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // actor. The builder below briefly hops to the shell actor for scope
         // checks and UI invalidation, then the long-lived socket retains only
         // the Sendable sync client and a weak callback to the shell.
-        syncTask = Task { [weak self] in
-            let clock = ContinuousClock()
+        let schedulingClock = controlPlaneSchedulingClock
+        syncTask = Task.detached { [weak self, schedulingClock] in
+            let clock = schedulingClock
             var backoff: Duration = .seconds(1)
             while !Task.isCancelled {
                 guard let client = await self?.makeDeviceListSyncClient(
                     generation: generation
                 ) else {
-                    if Task.isCancelled { return }
-                    guard (try? await clock.sleep(for: .seconds(1))) != nil else { return }
+                    guard !Task.isCancelled,
+                          await self?.isDeviceListSyncGenerationCurrent(generation) == true else {
+                        return
+                    }
+                    guard (try? await clock.sleep(for: backoff)) != nil else { return }
+                    backoff = min(backoff * 2, .seconds(60))
                     continue
                 }
                 do {
@@ -3503,7 +3531,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
                 guard !Task.isCancelled,
-                      self?.isDeviceListSyncGenerationCurrent(generation) == true else { return }
+                      await self?.isDeviceListSyncGenerationCurrent(generation) == true else { return }
                 guard (try? await clock.sleep(for: backoff)) != nil else { return }
                 backoff = min(backoff * 2, .seconds(60))
             }
@@ -3579,10 +3607,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // membership. Seeding a rev-0 fallback after that point could
             // resurrect a Mac whose signed-out tombstone the snapshot already
             // reconciled away. Only cold, never-reconciled teams may be seeded.
-            guard let cursor = try? await store.cursor(
-                teamID: teamID,
-                collection: devicesSyncCollection
-            ), cursor == 0 else {
+            let cursor: Int
+            do {
+                cursor = try await store.cursor(
+                    teamID: teamID,
+                    collection: devicesSyncCollection
+                )
+            } catch {
+                mobileShellLog.debug(
+                    "device-list cursor read failed: \(String(describing: error), privacy: .public)"
+                )
+                return
+            }
+            guard cursor == 0 else {
                 syncSeededTeams.insert(teamID)
                 return
             }
@@ -3644,29 +3681,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
+        let cursor: Int
+        do {
+            cursor = try await store.cursor(
+                teamID: teamID,
+                collection: devicesSyncCollection
+            )
+        } catch {
+            mobileShellLog.debug(
+                "device-list cursor read failed: \(String(describing: error), privacy: .public)"
+            )
+            return
+        }
         guard syncGeneration == generation,
               await isScopeCurrent(scope) else { return }
         let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
-        let visible = compatibleRegistryDevices(loaded).filter { device in
-            !hiddenIDs.contains(device.deviceId)
-                && !hiddenIDs.contains(where: {
-                    MobilePairedMac.pairingIdentity(from: $0).macDeviceID == device.deviceId
-                })
-        }
-        let connectedID = connectedMacDeviceID
-        registryDevices = visible.sorted { lhs, rhs in
-            let lhsConnected = lhs.deviceId == connectedID
-            let rhsConnected = rhs.deviceId == connectedID
-            if lhsConnected != rhsConnected { return lhsConnected }
-            return lhs.lastSeenAt > rhs.lastSeenAt
-        }
         deviceListRenderedTeamID = teamID
-        if let cursor = try? await store.cursor(
-            teamID: teamID,
-            collection: devicesSyncCollection
-        ), cursor > 0 {
-            deviceListAuthoritativeTeamID = teamID
-        }
+        deviceListAuthoritativeTeamID = cursor > 0 ? teamID : nil
+        // Keep this assignment last. It is the observed projection, so readers
+        // cannot see the new authority markers with the previous list in between
+        // a snapshot/delta commit and its render update.
+        registryDevices = projectRegistryDevices(
+            loaded,
+            hiddenIDs: hiddenIDs,
+            connectedID: connectedMacDeviceID
+        )
     }
 
     // MARK: - Live presence
