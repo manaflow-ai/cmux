@@ -51,12 +51,49 @@ RELOAD_PUBLICATION_SKIP_REASON=""
 reload_socket_is_live() {
   local socket_path="$1"
   [[ -S "$socket_path" ]] || return 1
-  if command -v nc >/dev/null 2>&1 && nc -z -U -w 1 "$socket_path" </dev/null >/dev/null 2>&1; then
-    return 0
-  fi
   if command -v perl >/dev/null 2>&1; then
-    perl -MSocket -e 'my $path = shift; socket(my $socket, PF_UNIX, SOCK_STREAM, 0) or exit 1; connect($socket, sockaddr_un($path)) or exit 1; exit 0;' "$socket_path" >/dev/null 2>&1
+    # A listener with a saturated Unix-socket backlog can leave a blocking
+    # connect() parked forever. Make the probe non-blocking and give the
+    # kernel at most two seconds to complete it. A timeout (or an
+    # indeterminate probe error) is treated as live so stale cleanup never
+    # races a listener that is merely unable to accept right now.
+    perl -MFcntl=:DEFAULT -MSocket -MIO::Select -MErrno=EAGAIN,EWOULDBLOCK,EINPROGRESS,EALREADY,EISCONN,ECONNREFUSED,ENOENT -e '
+      my $path = shift;
+      exit 1 unless -S $path;
+      socket(my $socket, PF_UNIX, SOCK_STREAM, 0) or exit 0;
+      my $flags = fcntl($socket, F_GETFL, 0);
+      defined($flags) && fcntl($socket, F_SETFL, $flags | O_NONBLOCK) or exit 0;
+      if (connect($socket, sockaddr_un($path))) {
+        close($socket);
+        exit 0;
+      }
+      my $connect_error = 0 + $!;
+      unless ($connect_error == EINPROGRESS || $connect_error == EALREADY
+          || $connect_error == EAGAIN || $connect_error == EWOULDBLOCK) {
+        close($socket);
+        exit(($connect_error == ECONNREFUSED || $connect_error == ENOENT) ? 1 : 0);
+      }
+      my $selector = IO::Select->new($socket);
+      my @ready = $selector->can_write(2);
+      unless (@ready) {
+        close($socket);
+        exit 0;
+      }
+      my $error_bytes = getsockopt($socket, SOL_SOCKET, SO_ERROR);
+      unless (defined($error_bytes)) {
+        close($socket);
+        exit 0;
+      }
+      my $socket_error = unpack("i", $error_bytes);
+      close($socket);
+      exit 0 if $socket_error == 0 || $socket_error == EISCONN;
+      exit 1 if $socket_error == ECONNREFUSED || $socket_error == ENOENT;
+      exit 0;
+    ' "$socket_path" >/dev/null 2>&1
     return $?
+  fi
+  if command -v nc >/dev/null 2>&1 && nc -z -U -w 2 "$socket_path" </dev/null >/dev/null 2>&1; then
+    return 0
   fi
   return 1
 }
@@ -68,9 +105,16 @@ reload_cleanup_tag_state_with_lock() {
   local legacy_marker_path="$4"
   local tmp_marker="$5"
   local pointer_path="$6"
+  local publish_socket_path="${7:-}"
+  local publish_cli_path="${8:-}"
   local lock_path="${socket_path}.lock"
-  perl -MFcntl=:DEFAULT -MFcntl=:flock -MSocket -MErrno=EEXIST,ECONNREFUSED,ENOENT -e '
+  perl -MFcntl=:DEFAULT -MFcntl=:flock -MSocket -MIO::Select -MFile::Basename=dirname -MFile::Temp=tempfile -MErrno=EEXIST,ECONNREFUSED,ENOENT,EAGAIN,EWOULDBLOCK,EINPROGRESS,EALREADY,EISCONN -e '
     my ($socket_path, $lock_path, $slug, @discovery_paths) = @ARGV;
+    my ($publish_socket_path, $publish_cli_path) = ("", "");
+    if (@discovery_paths >= 6) {
+      $publish_cli_path = pop @discovery_paths;
+      $publish_socket_path = pop @discovery_paths;
+    }
     my $pointer_path = pop @discovery_paths;
     my $pointer_lock_path = "${pointer_path}.lock";
     my $created_lock = 0;
@@ -121,6 +165,65 @@ reload_cleanup_tag_state_with_lock() {
         : $current eq $expected;
       return 0 unless $still_matches;
       return unlink($path) || $! == ENOENT;
+    }
+
+    sub socket_is_live_or_unknown {
+      my ($path) = @_;
+      return 0 unless -S $path;
+      socket(my $probe, PF_UNIX, SOCK_STREAM, 0) or return 1;
+      my $flags = fcntl($probe, F_GETFL, 0);
+      return 1 unless defined($flags) && fcntl($probe, F_SETFL, $flags | O_NONBLOCK);
+      if (connect($probe, sockaddr_un($path))) {
+        close($probe);
+        return 1;
+      }
+      my $connect_error = 0 + $!;
+      unless ($connect_error == EINPROGRESS || $connect_error == EALREADY
+          || $connect_error == EAGAIN || $connect_error == EWOULDBLOCK) {
+        close($probe);
+        return ($connect_error == ECONNREFUSED || $connect_error == ENOENT) ? 0 : 1;
+      }
+      my $selector = IO::Select->new($probe);
+      my @ready = $selector->can_write(2);
+      unless (@ready) {
+        close($probe);
+        return 1;
+      }
+      my $error_bytes = getsockopt($probe, SOL_SOCKET, SO_ERROR);
+      unless (defined($error_bytes)) {
+        close($probe);
+        return 1;
+      }
+      my $socket_error = unpack("i", $error_bytes);
+      close($probe);
+      return 1 if $socket_error == 0 || $socket_error == EISCONN;
+      return 0 if $socket_error == ECONNREFUSED || $socket_error == ENOENT;
+      return 1;
+    }
+
+    sub write_discovery_file {
+      my ($path, $value) = @_;
+      return 0 unless defined($value) && length($value) <= 4095 && $value !~ /[\r\n\0]/;
+      my $directory = dirname($path);
+      return 0 unless -d $directory;
+      my @target = lstat($path);
+      if (@target) {
+        return 0 unless (($target[2] & 0170000) == 0100000)
+            && $target[4] == $< && $target[3] == 1;
+      } elsif ($! != ENOENT) {
+        return 0;
+      }
+      my ($temporary_fh, $temporary_path) = eval {
+        tempfile(".cmux-discovery.XXXXXX", DIR => $directory, UNLINK => 0)
+      };
+      return 0 unless $temporary_fh && $temporary_path;
+      my $ok = print {$temporary_fh} $value, "\n";
+      $ok = 0 unless close($temporary_fh);
+      unless ($ok && rename($temporary_path, $path)) {
+        unlink($temporary_path);
+        return 0;
+      }
+      return 1;
     }
 
     sub acquire_owned_file_lock {
@@ -187,22 +290,10 @@ reload_cleanup_tag_state_with_lock() {
       exit 1;
     }
 
-    # A successful connect, or any error other than the two definitive stale
-    # results, protects the path. Age and inode timestamps are never consulted.
-    my $socket_live = 0;
-    if (-S $socket_path) {
-      if (socket(my $probe, PF_UNIX, SOCK_STREAM, 0)) {
-        if (connect($probe, sockaddr_un($socket_path))) {
-          $socket_live = 1;
-        } elsif ($! != ECONNREFUSED && $! != ENOENT) {
-          $socket_live = 1;
-        }
-        close($probe);
-      } else {
-        $socket_live = 1;
-      }
-    }
-    if ($socket_live) {
+    # The non-blocking probe has a bounded poll deadline. A timeout or any
+    # indeterminate result protects the path; only ECONNREFUSED/ENOENT prove
+    # that the listener is stale. Age and inode timestamps are never consulted.
+    if (socket_is_live_or_unknown($socket_path)) {
       unlink_created_lock($lock_path, \@lock_stat, $created_lock);
       flock($fh, LOCK_UN);
       close($fh);
@@ -231,14 +322,24 @@ reload_cleanup_tag_state_with_lock() {
       }
     }
 
-    # Marker and pointer cleanup stays inside the same lock ownership window.
-    # A replacement listener cannot publish new state until every conditional
-    # removal has finished.
-    for my $marker (@discovery_paths) {
-      unless (clear_matching_discovery_file($marker, $socket_path, 0)) {
+    # Marker cleanup and (for a successful tagged reload) marker publication
+    # stay inside the same lock ownership window. A replacement listener cannot
+    # publish new state until every conditional removal and write has finished.
+    if (length($publish_socket_path)) {
+      unless (write_discovery_file($discovery_paths[0], $publish_socket_path)
+          && write_discovery_file($discovery_paths[2], $publish_socket_path)
+          && clear_matching_discovery_file($discovery_paths[1], $socket_path, 0)) {
         flock($fh, LOCK_UN);
         close($fh);
         exit 1;
+      }
+    } else {
+      for my $marker (@discovery_paths) {
+        unless (clear_matching_discovery_file($marker, $socket_path, 0)) {
+          flock($fh, LOCK_UN);
+          close($fh);
+          exit 1;
+        }
       }
     }
     # The pointer is global across tags, so its own persistent lock must cover
@@ -251,7 +352,10 @@ reload_cleanup_tag_state_with_lock() {
       exit 1;
     }
     my $cli_suffix = "/cmux DEV ${slug}.app/Contents/Resources/bin/cmux";
-    unless (clear_matching_discovery_file($pointer_path, $cli_suffix, 1)) {
+    my $pointer_ok = length($publish_cli_path)
+      ? write_discovery_file($pointer_path, $publish_cli_path)
+      : clear_matching_discovery_file($pointer_path, $cli_suffix, 1);
+    unless ($pointer_ok) {
       flock($pointer_lock_fh, LOCK_UN);
       close($pointer_lock_fh);
       flock($fh, LOCK_UN);
@@ -275,30 +379,73 @@ reload_cleanup_tag_state_with_lock() {
     flock($fh, LOCK_UN);
     close($fh);
     exit 0;
-  ' "$socket_path" "$lock_path" "$slug" "$marker_path" "$legacy_marker_path" "$tmp_marker" "$pointer_path" >/dev/null 2>&1
+  ' "$socket_path" "$lock_path" "$slug" "$marker_path" "$legacy_marker_path" "$tmp_marker" "$pointer_path" "$publish_socket_path" "$publish_cli_path" >/dev/null 2>&1
 }
 
 cleanup_stale_tag_state() {
   local slug="$1"
   local socket_path="${2:-/tmp/cmux-debug-${slug}.sock}"
+  local publish_socket_path="${3:-}"
+  local publish_cli_path="${4:-}"
   local marker_name="dev-${slug}-last-socket-path"
+  local tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
+  case "${BUNDLE_ID:-}" in
+    com.cmuxterm.app)
+      marker_name="last-socket-path"
+      tmp_marker="/tmp/cmux-last-socket-path"
+      ;;
+    com.cmuxterm.app.nightly)
+      marker_name="nightly-last-socket-path"
+      tmp_marker="/tmp/cmux-nightly-last-socket-path"
+      ;;
+    com.cmuxterm.app.nightly.*)
+      local nightly_slug="$(sanitize_path "${BUNDLE_ID#com.cmuxterm.app.nightly.}")"
+      if [[ -n "$nightly_slug" ]]; then
+        marker_name="nightly-${nightly_slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-nightly-${nightly_slug}-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.staging)
+      marker_name="staging-last-socket-path"
+      tmp_marker="/tmp/cmux-staging-last-socket-path"
+      ;;
+    com.cmuxterm.app.staging.*)
+      local staging_slug="$(sanitize_path "${BUNDLE_ID#com.cmuxterm.app.staging.}")"
+      if [[ -n "$staging_slug" ]]; then
+        marker_name="staging-${staging_slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-staging-${staging_slug}-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.debug)
+      marker_name="dev-${slug}-last-socket-path"
+      tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
+      ;;
+    com.cmuxterm.app.debug.*)
+      local debug_slug="$(sanitize_path "${BUNDLE_ID#com.cmuxterm.app.debug.}")"
+      if [[ -n "$debug_slug" ]]; then
+        marker_name="dev-${debug_slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-dev-${debug_slug}-last-socket-path"
+      fi
+      ;;
+  esac
   local marker_path="${LAST_SOCKET_PATH_DIR}/${marker_name}"
   local legacy_marker_path="${LEGACY_SOCKET_PATH_DIR}/${marker_name}"
-  local tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
 
-  # A connect test is authoritative. Never tear down a path that a replacement
-  # instance has already reclaimed.
-  if reload_socket_is_live "$socket_path"; then
-    return 1
-  fi
+  # The Perl transaction performs the liveness probe after acquiring the tag
+  # lock, so validation, stale-node removal, and publication share one owner.
   local pointer_path="/tmp/cmux-last-cli-path"
+  if [[ -n "$publish_socket_path" ]]; then
+    mkdir -p "$LAST_SOCKET_PATH_DIR" || return 1
+  fi
   reload_cleanup_tag_state_with_lock \
     "$socket_path" \
     "$slug" \
     "$marker_path" \
     "$legacy_marker_path" \
     "$tmp_marker" \
-    "$pointer_path"
+    "$pointer_path" \
+    "$publish_socket_path" \
+    "$publish_cli_path"
 }
 
 cleanup_stale_cli_pointer_target() {
@@ -388,8 +535,11 @@ write_dev_cli_shim() {
   local cli_path_file="${3:-/tmp/cmux-last-cli-path}"
   local cli_path_file_literal=""
   local fallback_bin_literal=""
+  local socket_probe_function=""
   printf -v cli_path_file_literal '%q' "$cli_path_file"
   printf -v fallback_bin_literal '%q' "$fallback_bin"
+  socket_probe_function="$(declare -f reload_socket_is_live)"
+  socket_probe_function="${socket_probe_function/reload_socket_is_live/socket_is_live}"
   mkdir -p "$(dirname "$target")"
   cat > "$target" <<EOF
 #!/usr/bin/env bash
@@ -419,22 +569,7 @@ for arg in "\$@"; do
   esac
 done
 
-# A socket node can outlive its listener. The reload shim must test the
-# listener, not just the file, before selecting a dev CLI from the ambient
-# pointer. `nc` is present on macOS; Perl is the conservative fallback for
-# stripped-down developer environments.
-socket_is_live() {
-  local socket_path="\$1"
-  [[ -S "\$socket_path" ]] || return 1
-  if command -v nc >/dev/null 2>&1 && nc -z -U -w 1 "\$socket_path" </dev/null >/dev/null 2>&1; then
-    return 0
-  fi
-  if command -v perl >/dev/null 2>&1; then
-    perl -MSocket -e 'my \$path = shift; socket(my \$socket, PF_UNIX, SOCK_STREAM, 0) or exit 1; connect(\$socket, sockaddr_un(\$path)) or exit 1; exit 0;' "\$socket_path" >/dev/null 2>&1
-    return \$?
-  fi
-  return 1
-}
+${socket_probe_function}
 
 cli_bundle_for_path() {
   local cli_path="\$1"
@@ -584,7 +719,7 @@ select_cmux_shim_target() {
   return 1
 }
 
-publish_reload_cli_path() {
+publish_reload_cli_links() {
   local cli_path="$1"
   if [[ ! -x "$cli_path" ]]; then
     return 0
@@ -593,7 +728,6 @@ publish_reload_cli_path() {
     return 0
   fi
 
-  reload_write_cli_pointer "/tmp/cmux-last-cli-path" "$cli_path" || return 1
   ln -sfn "$cli_path" /tmp/cmux-cli || true
 
   # Stable shim that always follows the last reload-selected dev CLI.
@@ -604,6 +738,19 @@ publish_reload_cli_path() {
   if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
     write_dev_cli_shim "$CMUX_SHIM_TARGET" "/Applications/cmux.app/Contents/Resources/bin/cmux"
   fi
+}
+
+publish_reload_cli_path() {
+  local cli_path="$1"
+  if [[ ! -x "$cli_path" ]]; then
+    return 0
+  fi
+  if [[ "$NO_GLOBAL_CLI_LINKS" == "1" ]]; then
+    return 0
+  fi
+
+  reload_write_cli_pointer "/tmp/cmux-last-cli-path" "$cli_path" || return 1
+  publish_reload_cli_links "$cli_path"
 }
 
 reload_write_cli_pointer() {
@@ -692,71 +839,6 @@ reload_write_discovery_file() {
     rm -f -- "$temporary"
     return 1
   fi
-}
-
-write_last_socket_path() {
-  local socket_path="$1"
-  local marker_name="dev-last-socket-path"
-  local tmp_marker="/tmp/cmux-dev-last-socket-path"
-  local bundle_id="${BUNDLE_ID:-}"
-  local slug=""
-
-  case "$bundle_id" in
-    com.cmuxterm.app)
-      marker_name="last-socket-path"
-      tmp_marker="/tmp/cmux-last-socket-path"
-      ;;
-    com.cmuxterm.app.nightly)
-      marker_name="nightly-last-socket-path"
-      tmp_marker="/tmp/cmux-nightly-last-socket-path"
-      ;;
-    com.cmuxterm.app.nightly.*)
-      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.nightly.}")"
-      if [[ -n "$slug" ]]; then
-        marker_name="nightly-${slug}-last-socket-path"
-        tmp_marker="/tmp/cmux-nightly-${slug}-last-socket-path"
-      else
-        marker_name="nightly-last-socket-path"
-        tmp_marker="/tmp/cmux-nightly-last-socket-path"
-      fi
-      ;;
-    com.cmuxterm.app.staging)
-      marker_name="staging-last-socket-path"
-      tmp_marker="/tmp/cmux-staging-last-socket-path"
-      ;;
-    com.cmuxterm.app.staging.*)
-      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.staging.}")"
-      if [[ -n "$slug" ]]; then
-        marker_name="staging-${slug}-last-socket-path"
-        tmp_marker="/tmp/cmux-staging-${slug}-last-socket-path"
-      else
-        marker_name="staging-last-socket-path"
-        tmp_marker="/tmp/cmux-staging-last-socket-path"
-      fi
-      ;;
-    com.cmuxterm.app.debug)
-      slug="${TAG_SLUG:-}"
-      if [[ -n "$slug" ]]; then
-        marker_name="dev-${slug}-last-socket-path"
-        tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
-      fi
-      ;;
-    com.cmuxterm.app.debug.*)
-      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.debug.}")"
-      if [[ -n "$slug" ]]; then
-        marker_name="dev-${slug}-last-socket-path"
-        tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
-      fi
-      ;;
-    *)
-      marker_name="last-socket-path"
-      tmp_marker="/tmp/cmux-last-socket-path"
-      ;;
-  esac
-
-  mkdir -p "$LAST_SOCKET_PATH_DIR"
-  reload_write_discovery_file "${LAST_SOCKET_PATH_DIR}/${marker_name}" "$socket_path" || true
-  reload_write_discovery_file "$tmp_marker" "$socket_path" || true
 }
 
 usage() {
@@ -1596,23 +1678,31 @@ fi
 if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then
   # A forced quit can release the flock without running the app's synchronous
   # cleanup hook. Re-run the liveness-gated cleanup after the process is gone,
-  # before publishing this reload's marker and pointer.
-  if ! cleanup_stale_tag_state "$TAG_SLUG"; then
+  # and publish this reload's marker and pointer while the same tag lock is
+  # still held. This closes the handoff window where a parallel reload could
+  # publish state for a socket it does not own.
+  RELOAD_PUBLISH_CLI_PATH=""
+  if [[ "$NO_GLOBAL_CLI_LINKS" != "1" && -x "$CLI_PATH" ]]; then
+    RELOAD_PUBLISH_CLI_PATH="$CLI_PATH"
+  fi
+  if ! cleanup_stale_tag_state \
+      "$TAG_SLUG" \
+      "/tmp/cmux-debug-${TAG_SLUG}.sock" \
+      "/tmp/cmux-debug-${TAG_SLUG}.sock" \
+      "$RELOAD_PUBLISH_CLI_PATH"; then
     # A replacement process may have reclaimed this tag while the old app was
     # terminating. Do not overwrite its discovery marker or ambient CLI pointer.
     CAN_PUBLISH_RELOAD_STATE=0
     RELOAD_PUBLICATION_SKIP_REASON="tag socket stayed live or its lock is owned by a replacement instance"
   fi
 fi
-if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then
-  # Publish only after the previous instance has stopped, so its termination
-  # cleanup cannot erase this reload's fresh pointer and marker.
-  write_last_socket_path "/tmp/cmux-debug-${TAG_SLUG}.sock"
-fi
-if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 ]]; then
-  if ! publish_reload_cli_path "$CLI_PATH"; then
+if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && "$NO_GLOBAL_CLI_LINKS" != "1" ]]; then
+  # The pointer itself was published in the tag-lock transaction above. These
+  # convenience links/shims do not participate in socket ownership and can be
+  # updated after the transaction without changing discovery semantics.
+  if ! publish_reload_cli_links "$CLI_PATH"; then
     CAN_PUBLISH_RELOAD_STATE=0
-    RELOAD_PUBLICATION_SKIP_REASON="could not acquire or update the shared ambient CLI pointer"
+    RELOAD_PUBLICATION_SKIP_REASON="could not update the ambient CLI convenience links"
   fi
 fi
 

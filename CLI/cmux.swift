@@ -3607,7 +3607,11 @@ struct CMUXCLI {
         )
         if !socketResolution.hasLiveSocket,
            socketPathSource == .implicitDefault,
-           !commandCanLaunchAppWhenSocketUnavailable(command) {
+           !commandCanProceedWithoutLiveSocket(
+                command: command,
+                commandArgs: commandArgs,
+                environment: processEnv
+           ) {
             throw CLIError(message: socketResolution.failureMessage)
         }
         // Explicit paths are intentionally not second-guessed. Their selected
@@ -6036,6 +6040,105 @@ struct CMUXCLI {
             return false
         }
         return FileManager.default.fileExists(atPath: resolvePath(arg))
+    }
+
+    /// Returns whether a command can reach its own dispatch path without a live
+    /// implicit socket. Commands that launch cmux or only touch local state must
+    /// validate their arguments before discovery reports a transport failure.
+    private func commandCanProceedWithoutLiveSocket(
+        command: String,
+        commandArgs: [String],
+        environment: [String: String]
+    ) -> Bool {
+        if commandCanLaunchAppWhenSocketUnavailable(command) {
+            return true
+        }
+
+        switch command {
+        case "themes", "setup-hooks", "uninstall-hooks":
+            return true
+        case "codex":
+            let subcommand = commandArgs.first?.lowercased()
+            return subcommand == "install-hooks" || subcommand == "uninstall-hooks"
+        case "codex-hook", "feed-hook":
+            return hookInvocationHasNoSocketTarget(commandArgs: commandArgs, environment: environment)
+        case "hooks":
+            return hooksInvocationCanProceedWithoutLiveSocket(
+                commandArgs: commandArgs,
+                environment: environment
+            )
+        case "feed":
+            // `feed tui` is the socket-backed exception; help, clear, and
+            // malformed subcommands are all local argument/config paths.
+            return commandArgs.first?.lowercased() != "tui"
+        case "disable-browser", "enable-browser", "browser-status":
+            return true
+        case "browser":
+            let availabilityAction = commandArgs
+                .filter { $0 != "--json" }
+                .first?
+                .lowercased()
+            guard let availabilityAction else { return false }
+            return ["disable", "enable", "status"].contains(availabilityAction)
+        case "claude-teams":
+            return claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs)
+        case "codex-teams":
+            return codexTeamsIsInformationalInvocation(commandArgs: commandArgs)
+        case "omo":
+            return omoIsNonLaunchInvocation(commandArgs: commandArgs)
+        case "omx":
+            return omxIsNonLaunchInvocation(commandArgs: commandArgs)
+        case "omc":
+            return AgentLaunchInvocationClassifier().omcLaunchIsNonLaunch(args: commandArgs)
+        default:
+            return false
+        }
+    }
+
+    /// Returns whether a hook invocation is the documented no-op outside cmux.
+    private func hookInvocationHasNoSocketTarget(
+        commandArgs: [String],
+        environment: [String: String]
+    ) -> Bool {
+        let hasExplicitTarget = commandArgs.contains {
+            $0 == "--workspace" || $0 == "--surface"
+                || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=")
+        }
+        let hasAmbientTarget = ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID"].contains {
+            environment[$0]?.isEmpty == false
+        }
+        return !hasExplicitTarget && !hasAmbientTarget
+    }
+
+    /// Returns whether `hooks` is a local setup/help path or an outside-cmux
+    /// compatibility no-op; actual hook delivery remains socket-backed.
+    private func hooksInvocationCanProceedWithoutLiveSocket(
+        commandArgs: [String],
+        environment: [String: String]
+    ) -> Bool {
+        guard let first = commandArgs.first?.lowercased() else {
+            return true
+        }
+        switch first {
+        case "help", "--help", "-h", "setup", "install", "uninstall":
+            return true
+        case "feed", "claude":
+            return hookInvocationHasNoSocketTarget(commandArgs: commandArgs, environment: environment)
+        default:
+            guard Self.agentDef(named: first) != nil else {
+                // Let the local parser report an unknown target instead of
+                // masking it with a missing-socket error.
+                return true
+            }
+            let action = commandArgs.dropFirst().first?.lowercased()
+            if action == "install" || action == "uninstall" || action == "inject-args" {
+                return true
+            }
+            guard Self.hooksCommandNeedsCmuxTarget(commandArgs) else {
+                return false
+            }
+            return hookInvocationHasNoSocketTarget(commandArgs: commandArgs, environment: environment)
+        }
     }
 
     /// Commands whose existing client path deliberately launches cmux when no
