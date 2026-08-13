@@ -724,6 +724,8 @@ allowed_keys = {
     "routeKind",
     "selectedPath",
     "failure",
+    "lastDiagnosticEventCode",
+    "lastDiagnosticFailureKind",
 }
 allowed_paths = {
     "automatic": {"direct", "private_network", "managed_relay", "custom_relay"},

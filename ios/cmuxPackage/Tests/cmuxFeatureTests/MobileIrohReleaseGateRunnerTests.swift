@@ -393,7 +393,9 @@ struct MobileIrohReleaseGateRunnerTests {
             soakDurationSeconds: 330,
             routeKind: "iroh",
             selectedPath: "managed_relay",
-            failure: nil
+            failure: nil,
+            lastDiagnosticEventCode: DiagnosticEventCode.discoveryFailed.rawValue,
+            lastDiagnosticFailureKind: DiagnosticFailureKind.policyUnavailable.rawValue
         )
         let encoded = try JSONEncoder().encode(report)
         let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
@@ -421,12 +423,61 @@ struct MobileIrohReleaseGateRunnerTests {
             "soakDurationSeconds",
             "routeKind",
             "selectedPath",
+            "lastDiagnosticEventCode",
+            "lastDiagnosticFailureKind",
         ])
         let encodedString = try #require(String(data: encoded, encoding: .utf8))
         #expect(!encodedString.contains("stream_id"))
         #expect(!encodedString.contains("workspace_id"))
         #expect(!encodedString.contains("session_id"))
         #expect(!encodedString.contains("\"artifacts\""))
+    }
+
+    @Test
+    func disconnectedTimeoutCarriesOnlyStableDiagnosticTaxonomy() async throws {
+        let configuration = try temporaryConfiguration(mode: .automatic)
+        var capturedReport: MobileIrohReleaseGateRunner.Report?
+        let updates = AsyncStream<MobileIrohReleaseGateRunner.Readiness>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let diagnostics = DiagnosticReport(events: [
+            DiagnosticEvent(
+                .discoveryFailed,
+                tNanos: 1,
+                b: DiagnosticFailureKind.policyUnavailable.rawValue
+            ),
+        ])
+        let runner = MobileIrohReleaseGateRunner(
+            configuration: configuration,
+            dependencies: .init(
+                readinessUpdates: { _ in updates.stream },
+                runProbe: { _, _ in Self.successfulProbe },
+                settingsUpdates: { Self.finishedSettingsUpdates() },
+                diagnosticReport: { diagnostics },
+                writeReport: { report, url in
+                    capturedReport = report
+                    try Self.write(report: report, to: url)
+                },
+                postReportReady: {},
+                timeout: .milliseconds(20)
+            )
+        )
+
+        let runTask = Task { @MainActor in
+            await runner.run(store: CMUXMobileShellStore.preview())
+        }
+        updates.continuation.yield(.init(
+            isSignedIn: true,
+            isConnected: false,
+            usesIroh: false,
+            hasWorkspaceMutation: false,
+            hasTerminal: false
+        ))
+        await runTask.value
+
+        #expect(capturedReport?.failure == "not_connected")
+        #expect(capturedReport?.lastDiagnosticEventCode == DiagnosticEventCode.discoveryFailed.rawValue)
+        #expect(capturedReport?.lastDiagnosticFailureKind == DiagnosticFailureKind.policyUnavailable.rawValue)
     }
 
     private static let successfulProbe = MobileIrohReleaseGateProbeResult(
