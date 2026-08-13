@@ -131,7 +131,14 @@ for line in text.splitlines():
     except ValueError:
         raise SystemExit(66)
     trailing = fields[workflow_index + 1:]
-    if expected_job in trailing and expected_ref not in trailing:
+    # Known schemas either end after CREATED (no job/ref columns) or expose
+    # JOB and REF immediately after WORKFLOW. If either expected field appears,
+    # require the exact pair in the exact order; reject all ambiguous contexts.
+    if len(trailing) >= 2 and trailing[:2] == [expected_job, expected_ref]:
+        pass
+    elif expected_job in trailing or expected_ref in trailing:
+        raise SystemExit(66)
+    elif len(trailing) not in (1, 2):
         raise SystemExit(66)
     print(status)
     raise SystemExit(0)
@@ -159,7 +166,7 @@ is_active() {
   esac
 }
 is_known_absence() {
-  grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+404|status[[:space:]]+code[[:space:]]+404)' "$1"
+  grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+404|status[[:space:]]+code[[:space:]]+404|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$1"
 }
 
 inventory_log="$evidence_dir/list-before-stop.log"
