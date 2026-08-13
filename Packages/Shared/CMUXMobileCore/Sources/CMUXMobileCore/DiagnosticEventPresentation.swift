@@ -304,7 +304,8 @@ public struct DiagnosticEventPresentation: Sendable {
                  .transportCloseReason, .transportPathEvent,
                  .transportDialPlanBuilt, .transportPrivateAddressJoin,
                  .transportLANDiscovery, .transportDialLegSucceeded,
-                 .transportDialLegFailed:
+                 .transportDialLegFailed, .discoveryStarted,
+                 .discoverySucceeded, .discoveryFailed:
                 key = "peer"
             default:
                 key = "surface"
@@ -625,6 +626,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "outcome", value: browserFocusOutcomeName(raw))
         case .transportDialPlanBuilt:
             return Field(key: "private_fallback_paths", value: String(raw))
+        case .discoverySucceeded:
+            return Field(key: "bindings", value: String(raw))
         case .transportPrivateAddressJoin:
             return Field(key: "configured_addresses", value: String(raw))
         case .transportLANDiscovery:
@@ -668,6 +671,10 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private func decodeC(_ raw: Int, event: DiagnosticEvent) -> Field {
         switch event.code {
+        case .transportDialPlanBuilt:
+            return Field(key: "public_relay_urls", value: String(raw))
+        case .discoverySucceeded:
+            return Field(key: "relay_fleet", value: String(raw))
         case .transportDialStarted, .transportDialConnected, .transportDialFailed:
             return Field(key: "attempt", value: String(raw))
         case .transportDialSessionLinked:

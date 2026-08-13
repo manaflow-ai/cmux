@@ -26,5 +26,10 @@ Check an export with:
 Use --json for a machine-readable artifact. A passing run has at least one
 usable RPC connection, no duplicate active sessions per peer, and an observed
 background gap of at least eight minutes. The output also reports usable
-latency, cancellation reasons, recovery outcomes, direct-dial stages, path
-changes, and liveness resubscriptions.
+latency, cancellation reasons, recovery outcomes, discovery duration and
+shape, relay-policy outcomes, direct-dial phase duration, route-plan counts,
+path changes, and liveness resubscriptions. For a `no_route` failure,
+`route_policy.assessment` distinguishes an empty plan, a plan with no public
+relay URL, a plan that did contain a public relay, and an older build that did
+not emit plan diagnostics. A public relay being present proves policy assembly
+succeeded; it does not prove that the current network can reach the relay.

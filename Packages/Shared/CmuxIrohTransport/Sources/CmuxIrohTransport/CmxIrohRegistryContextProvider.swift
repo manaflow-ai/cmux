@@ -59,6 +59,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        diagnostics: DiagnosticLog? = nil,
         verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
@@ -76,7 +77,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
-        diagnostics = nil
+        self.diagnostics = diagnostics
         self.verifier = verifier
         self.now = now
         verifiedDiscoverySnapshot = verifiedDiscovery.map {
@@ -96,6 +97,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        diagnostics: DiagnosticLog? = nil,
         verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
@@ -112,7 +114,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
-        diagnostics = nil
+        self.diagnostics = diagnostics
         self.verifier = verifier
         self.now = now
         verifiedDiscoverySnapshot = verifiedDiscovery.map {
@@ -184,7 +186,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             discovery = verified
         } else {
             do {
-                discovery = try await sharedDiscover()
+                discovery = try await sharedDiscover(
+                    surface: DiagnosticCorrelation().handle(for: targetIdentity.endpointID)
+                )
                 usedFreshDiscovery = true
             } catch {
                 guard Self.isConnectivity(error),
@@ -227,7 +231,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         let freshClock = now()
         let freshDiscovery: CmxIrohDiscoveryResponse
         do {
-            freshDiscovery = try await sharedDiscover()
+            freshDiscovery = try await sharedDiscover(
+                surface: DiagnosticCorrelation().handle(for: targetIdentity.endpointID)
+            )
         } catch {
             // Broker cooldown or connectivity failure: keep the buildable
             // context (its LAN fallback may still connect) instead of
@@ -392,15 +398,55 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     /// task means a burst of dials consumes one quota unit instead of queuing
     /// one request per dial. A gate cooldown propagates unchanged so callers
     /// wait out the directive instead of spinning.
-    private func sharedDiscover() async throws -> CmxIrohDiscoveryResponse {
+    private func sharedDiscover(
+        surface: UInt32? = nil
+    ) async throws -> CmxIrohDiscoveryResponse {
         if let sharedDiscoveryTask {
             return try await sharedDiscoveryTask.value
         }
         let broker = broker
-        let task = Task { try await broker.discover() }
+        let cached = authoritativeDiscovery
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        diagnostics?.record(DiagnosticEvent(
+            .discoveryStarted,
+            surface: surface,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
+        let task = Task {
+            try await CmxAuthoritativeDiscoveryResolver(broker: broker).resolve(
+                cached: cached
+            )
+        }
         sharedDiscoveryTask = task
         defer { sharedDiscoveryTask = nil }
-        return try await task.value
+        do {
+            let response = try await task.value
+            authoritativeDiscovery = response
+            diagnostics?.record(DiagnosticEvent(
+                .discoverySucceeded,
+                surface: surface,
+                ms: elapsedMilliseconds(since: startedAt),
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: response.bindings.count,
+                c: response.relayFleet.count
+            ))
+            return response
+        } catch {
+            diagnostics?.record(DiagnosticEvent(
+                .discoveryFailed,
+                surface: surface,
+                ms: elapsedMilliseconds(since: startedAt),
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: DiagnosticFailureKind.classify(error).rawValue
+            ))
+            throw error
+        }
+    }
+
+    private func elapsedMilliseconds(since start: UInt64) -> UInt32 {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let elapsed = now >= start ? now - start : 0
+        return UInt32(clamping: elapsed / 1_000_000)
     }
 
     /// Records dial-failure evidence from the session pool. An empty plan or
@@ -495,8 +541,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
              .connectionRefused,
              .connectionClosed,
              .noRoute,
-             .transportIdleTimedOut,
-             .routeGated:
+             .transportIdleTimedOut:
             return true
         case .none, .offline, .permissionDenied, .dnsFailed,
              .secureChannelFailed, .unsupportedRoute, .credentialUnavailable,
@@ -506,7 +551,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
              .admissionLeaseExpired, .admissionRevalidationFailed,
              .sendQueueOverflow, .payloadTooLarge, .resourceLimitReached,
              .attachmentCountLimitReached, .attachmentAggregateSizeLimitReached,
-             .localStateUnavailable, .unknown:
+             .localStateUnavailable, .routeGated, .unknown:
             return false
     }
     }

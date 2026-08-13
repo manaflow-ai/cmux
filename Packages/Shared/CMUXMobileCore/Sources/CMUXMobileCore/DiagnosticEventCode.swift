@@ -151,12 +151,16 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case routeUnavailable = 42
     /// A bounded retry was scheduled. `ms` is the delay before retry.
     case retryScheduled = 43
-    /// Same-account or local-route discovery started.
+    /// Same-account or local-route discovery started. `a` is
+    /// ``DiagnosticTransportKind``.
     case discoveryStarted = 44
-    /// Discovery produced at least one authenticated candidate.
+    /// Discovery produced an authoritative snapshot. `a` is
+    /// ``DiagnosticTransportKind``, `b` is its binding count, `c` is its
+    /// managed relay-fleet count, and `ms` is the fetch duration.
     case discoverySucceeded = 45
-    /// Discovery failed to produce an authenticated candidate. `b`, when
-    /// present, is ``DiagnosticFailureKind``.
+    /// Discovery failed to produce an authoritative snapshot. `a` is
+    /// ``DiagnosticTransportKind``, `b`, when present, is
+    /// ``DiagnosticFailureKind``, and `ms` is the fetch duration.
     case discoveryFailed = 46
     /// The host admitted the authenticated client to an RPC session.
     case admissionSucceeded = 47
@@ -263,8 +267,9 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     // MARK: Iroh bootstrap diagnostics
 
     /// One direct dial plan was assembled before any connect attempt. `a` is
-    /// the public path hint count and `b` is the private fallback path hint
-    /// count. A plan with both counts zero proves no dial packet was sent.
+    /// the public path hint count, `b` is the private fallback path hint
+    /// count, and `c` is the public relay-URL hint count. A plan with both
+    /// counts zero proves no dial packet was sent.
     case transportDialPlanBuilt = 71
     /// Configured private addresses were joined with the target Mac's
     /// broker-registered UDP port for one dial. `a` is the join state
