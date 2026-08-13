@@ -1,3 +1,4 @@
+import AppKit
 import CmuxRemoteSession
 import Foundation
 import Testing
