@@ -9,7 +9,7 @@ extension TerminalController {
     /// ``SocketControlServer`` invokes this callback after closing/unlinking its
     /// listener and before releasing the lock. That lock-owned seam prevents a
     /// replacement listener from publishing a marker between validation and removal.
-    private func cleanupStoppedSocketState(_ socketPath: String) {
+    func cleanupStoppedSocketState(_ socketPath: String) {
         guard !transport.pathAcceptsConnections(socketPath) else {
             return
         }
