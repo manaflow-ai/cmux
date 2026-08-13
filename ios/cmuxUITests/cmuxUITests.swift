@@ -28,7 +28,15 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testStackAuthEntryUsesStableIdentifiers() throws {
-        let app = launchApp(mockData: false, clearAuth: true)
+        let app = launchApp(
+            mockData: false,
+            clearAuth: true,
+            launchArguments: [
+                "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+                "complete",
+            ]
+        )
+        defer { app.terminate() }
 
         XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["signin.google"].exists)
@@ -39,6 +47,11 @@ final class cmuxUITests: XCTestCase {
         let emailCodeButton = app.buttons["signin.emailCode"]
         XCTAssertTrue(emailCodeButton.exists)
         XCTAssertFalse(emailCodeButton.isEnabled)
+
+        XCTAssertFalse(
+            app.buttons["signin.usePassword"].exists,
+            "Email-code sign-in must not introduce a password requirement."
+        )
 
         try typeText("dogfood@example.com", into: emailField, in: app)
         XCTAssertTrue(emailCodeButton.isEnabled)
