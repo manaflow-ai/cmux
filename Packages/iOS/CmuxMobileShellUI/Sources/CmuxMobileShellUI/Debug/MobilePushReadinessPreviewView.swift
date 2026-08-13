@@ -10,32 +10,6 @@ import SwiftUI
 /// network/OS seams are fixtures, so accessibility, localization, optimistic
 /// mutation, rollback, and every rendered repair action remain production code.
 struct MobilePushReadinessPreviewView: View {
-    @MainActor
-    private final class PhoneMutationGate {
-        private var waiter: CheckedContinuation<Void, Never>?
-
-        func wait() async {
-            await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
-                    if Task.isCancelled {
-                        continuation.resume()
-                    } else {
-                        waiter = continuation
-                    }
-                }
-            } onCancel: {
-                Task { @MainActor [weak self] in
-                    self?.release()
-                }
-            }
-        }
-
-        func release() {
-            waiter?.resume()
-            waiter = nil
-        }
-    }
-
     private let fixture: Fixture
     private let rejectsMacMutations: Bool
     private let delaysPhoneMutation: Bool
@@ -44,7 +18,7 @@ struct MobilePushReadinessPreviewView: View {
     @State private var authorization: MobilePushAuthorization
     @State private var registration: PushRegistrationSnapshot
     @State private var macStatus: MobileHostPhonePushStatus?
-    @State private var phoneMutationGate = PhoneMutationGate()
+    @State private var phoneMutationGate = MobilePushReadinessPhoneMutationGate()
 
     init(state: String, environment: [String: String] = ProcessInfo.processInfo.environment) {
         let fixture = Fixture(rawValue: state) ?? .healthy
