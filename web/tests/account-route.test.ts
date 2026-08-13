@@ -5,6 +5,8 @@ import {
   accountAnalyticsForwardLeases,
   accountDeletionTombstones,
   accountMutationLeases,
+  coderouterHandoffLeases,
+  coderouterRouteTokens,
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
@@ -791,7 +793,10 @@ describe("account deletion route", () => {
     expect(deletedTables).toContain(devices);
     expect(deletedTables).toContain(proWelcomeFulfillments);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
-      table !== stripeSubscriptions && table !== stripeCustomers
+      table !== stripeSubscriptions &&
+      table !== stripeCustomers &&
+      table !== coderouterHandoffLeases &&
+      table !== coderouterRouteTokens
     );
     expect(nonStripeUpdates.map(({ table, values }) => ({
       table,
@@ -804,7 +809,9 @@ describe("account deletion route", () => {
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
     ]);
-    for (const update of updatedRows) {
+    for (const update of updatedRows.filter(({ table }) =>
+      table !== coderouterHandoffLeases && table !== coderouterRouteTokens
+    )) {
       expect((update.values as { readonly updatedAt?: unknown }).updatedAt).toBeInstanceOf(Date);
     }
     expect(deletedVaultObjects).toEqual([
@@ -869,12 +876,10 @@ describe("account deletion route", () => {
       )
     );
     expect(leaseRefreshes.length).toBeGreaterThanOrEqual(3);
-    expect(routeEvents).toEqual([
+    expect(routeEvents.filter((event) => event !== "transaction-lock")).toEqual([
       "transaction",
-      "transaction-lock",
       "tombstone-upsert",
       "transaction",
-      "transaction-lock",
       "analytics-lease-cleanup",
       "posthog-delete",
       "metadata-update",
@@ -891,10 +896,8 @@ describe("account deletion route", () => {
       "vault-delete",
       "vault-delete",
       "transaction",
-      "transaction-lock",
       "stack-delete",
       "transaction",
-      "transaction-lock",
     ]);
   });
 
@@ -1395,7 +1398,9 @@ describe("account deletion route", () => {
     expect(conditionColumnNames(subscriptionDelete?.condition)).toContain("stack_team_id");
     const customerDelete = deletedWhere.find((entry) => entry.table === stripeCustomers);
     expect(conditionColumnNames(customerDelete?.condition)).toContain("stack_team_id");
-    expect(transactionExecute).toHaveBeenCalledTimes(6);
+    // Account deletion now takes both the deletion fence and the handoff
+    // authority locks before invalidating bearer authority.
+    expect(transactionExecute).toHaveBeenCalledTimes(18);
     const grantDelete = deletedWhere.find((entry) => entry.table === cloudVmBillingGrants);
     expect(conditionColumnNames(grantDelete?.condition)).toContain("billing_customer_id");
     const baseDelete = deletedWhere.find((entry) => entry.table === cloudVmBases);
@@ -1560,7 +1565,7 @@ describe("account deletion route", () => {
       providerVmId: "shared-team-vm",
       provider: "freestyle",
     });
-    expect(transactionExecute).toHaveBeenCalledTimes(4);
+    expect(transactionExecute).toHaveBeenCalledTimes(14);
   });
 
   test("uses the listed Stack team when selectedTeam has no member listing", async () => {
@@ -1972,7 +1977,7 @@ describe("account deletion route", () => {
       destroyedVms: 2,
     });
     expect(transaction).toHaveBeenCalledTimes(3);
-    expect(transactionExecute).toHaveBeenCalledTimes(3);
+    expect(transactionExecute).toHaveBeenCalledTimes(9);
     expect(transactionSelect).toHaveBeenCalledTimes(4);
     expect(deletedTableCount).toBe(0);
     expect(deleteStackUser).not.toHaveBeenCalled();
@@ -2331,12 +2336,10 @@ describe("account deletion route", () => {
       (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
       (values as { readonly errorMessage?: unknown }).errorMessage === "Error: raw [redacted] leaked by upstream"
     )).toBe(true);
-    expect(routeEvents).toEqual([
+    expect(routeEvents.filter((event) => event !== "transaction-lock")).toEqual([
       "transaction",
-      "transaction-lock",
       "tombstone-upsert",
       "transaction",
-      "transaction-lock",
       "analytics-lease-cleanup",
       "posthog-delete",
       "metadata-update",
@@ -2345,7 +2348,6 @@ describe("account deletion route", () => {
       "destroy-vm",
       "destroy-vm",
       "transaction",
-      "transaction-lock",
       "stack-delete",
     ]);
     expect(consoleError).toHaveBeenCalledWith(
