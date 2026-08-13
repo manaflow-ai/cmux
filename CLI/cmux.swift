@@ -14,15 +14,30 @@ import Security
 #endif
 
 struct CLIError: Error, CustomStringConvertible {
+    enum SocketFailureKind: Equatable {
+        case pathMissing
+        case pathInspectionFailed
+        case pathTypeConflict
+        case pathOwnershipConflict
+        case startupTimeout
+    }
+
     let message: String
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
+    let socketFailureKind: SocketFailureKind?
 
-    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
+    init(
+        message: String,
+        exitCode: Int32 = 1,
+        v2Code: String? = nil,
+        socketFailureKind: SocketFailureKind? = nil
+    ) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
+        self.socketFailureKind = socketFailureKind
     }
 
     var description: String { message }
@@ -1780,11 +1795,11 @@ final class SocketClient {
     }
 
     private struct SocketConnectError: Error, CustomStringConvertible {
-        let path: String
+        let targetDescription: String
         let errnoValue: Int32
 
         var description: String {
-            "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
+            "Failed to connect to \(targetDescription) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
         }
     }
 
@@ -2130,13 +2145,25 @@ final class SocketClient {
         // Verify socket is owned by the current user to prevent fake-socket attacks.
         var st = stat()
         guard stat(path, &st) == 0 else {
-            throw CLIError(message: "Socket not found at \(path)")
+            let failureKind: CLIError.SocketFailureKind = errno == ENOENT
+                ? .pathMissing
+                : .pathInspectionFailed
+            throw CLIError(
+                message: "Socket not found at \(path)",
+                socketFailureKind: failureKind
+            )
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-            throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
+            throw CLIError(
+                message: "Path exists at \(path) but is not a Unix socket",
+                socketFailureKind: .pathTypeConflict
+            )
         }
         guard st.st_uid == getuid() else {
-            throw CLIError(message: "Socket at \(path) is not owned by the current user — refusing to connect")
+            throw CLIError(
+                message: "Socket at \(path) is not owned by the current user — refusing to connect",
+                socketFailureKind: .pathOwnershipConflict
+            )
         }
 
         socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -2185,15 +2212,18 @@ final class SocketClient {
 
         Darwin.close(socketFD)
         socketFD = -1
-        throw SocketConnectError(path: path, errnoValue: connectErrno)
+        throw SocketConnectError(
+            targetDescription: "socket at \(path)",
+            errnoValue: connectErrno
+        )
     }
 
-    private static func shouldRetryConnect(_ error: Error) -> Bool {
+    static func shouldRetryConnect(_ error: Error) -> Bool {
         guard let error = error as? SocketConnectError else {
             return false
         }
         switch error.errnoValue {
-        case ECONNREFUSED, EAGAIN, EWOULDBLOCK:
+        case ECONNREFUSED, ENOENT, EAGAIN, EWOULDBLOCK:
             return true
         default:
             return false
@@ -2312,8 +2342,9 @@ final class SocketClient {
         }
         if connectErrno != 0 {
             close()
-            throw CLIError(
-                message: "Failed to connect to relay at \(endpoint.host):\(endpoint.port) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
+            throw SocketConnectError(
+                targetDescription: "relay at \(endpoint.host):\(endpoint.port)",
+                errnoValue: connectErrno
             )
         }
 
@@ -2672,61 +2703,6 @@ final class SocketClient {
         }
     }
 
-    static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
-        let client = SocketClient(path: path)
-        if (try? client.connect()) != nil {
-            if client.relayEndpoint != nil {
-                client.close()
-            }
-            return client
-        }
-
-        guard let watchDirectory = existingWatchDirectory(forPath: path) else {
-            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
-        }
-        let watchFD = open(watchDirectory, O_EVTONLY)
-        guard watchFD >= 0 else {
-            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
-        }
-
-        let queue = DispatchQueue(label: "com.cmux.cli.socket-watch.\(UUID().uuidString)")
-        let semaphore = DispatchSemaphore(value: 0)
-        var connected = false
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: watchFD,
-            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
-            queue: queue
-        )
-
-        func attemptConnect() {
-            guard !connected else { return }
-            if (try? client.connect()) != nil {
-                connected = true
-                semaphore.signal()
-            }
-        }
-
-        source.setEventHandler {
-            attemptConnect()
-        }
-        source.setCancelHandler {
-            Darwin.close(watchFD)
-        }
-        source.resume()
-        queue.async {
-            attemptConnect()
-        }
-
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            source.cancel()
-            client.close()
-            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
-        }
-
-        source.cancel()
-        return client
-    }
-
     static func waitForFilesystemPath(_ path: String, timeout: TimeInterval) throws {
         if FileManager.default.fileExists(atPath: path) {
             return
@@ -3068,6 +3044,10 @@ struct CMUXCLI {
     private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.5
     private static let sshPTYTerminalConnectedRetryDelaySeconds: TimeInterval = 0.1
     private static let sshPTYTerminalConnectedMaximumRetryDelaySeconds: TimeInterval = 2
+    /// Restored terminals start the app and then race its listener bind. Keep
+    /// the implicit restore connection alive long enough for that lifecycle,
+    /// while explicit socket paths retain their immediate failure semantics.
+    private static let restoreSocketStartupTimeoutSeconds: TimeInterval = 45
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
@@ -3598,7 +3578,7 @@ struct CMUXCLI {
             socketPath: socketPath,
             processEnv: processEnv
         )
-        let resolvedSocketPath = CLISocketPathResolver.resolve(
+        var resolvedSocketPath = CLISocketPathResolver.resolve(
             requestedPath: socketPath,
             source: socketPathSource,
             environment: processEnv,
@@ -3824,7 +3804,7 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
-        let client = SocketClient(path: resolvedSocketPath)
+        var client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
                 "socket.path.autodiscovered",
@@ -3848,16 +3828,49 @@ struct CMUXCLI {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             if command == "restore", explicitSocketPath == nil {
-                throw loggedRestoreError(
-                    stage: "socket.startup",
-                    detail: String(reflecting: error),
-                    message: String(
-                        localized: "cli.restore.error.socketNotReady",
-                        defaultValue: "restore: cmux is still opening. Retry the visible restore command in a moment."
-                    )
+                cliDebugLog("socket.connect.wait.entered path=\(resolvedSocketPath)")
+                cliTelemetry.breadcrumb(
+                    "socket.connect.wait",
+                    data: [
+                        "command": command,
+                        "path": resolvedSocketPath,
+                        "timeoutSeconds": Self.restoreSocketStartupTimeoutSeconds,
+                    ]
                 )
+                do {
+                    client = try SocketClient.waitForConnectableSocket(
+                        resolvePath: {
+                            CLISocketPathResolver.resolve(
+                                requestedPath: socketPath,
+                                source: socketPathSource,
+                                environment: processEnv,
+                                bundleIdentifier: cliBundleIdentifier
+                            )
+                        },
+                        timeout: Self.restoreSocketStartupTimeoutSeconds
+                    )
+                    resolvedSocketPath = client.socketPath
+                    cliTelemetry.breadcrumb(
+                        "socket.connect.wait.success",
+                        data: ["path": client.socketPath]
+                    )
+                } catch {
+                    cliTelemetry.captureError(stage: "socket_startup_wait", error: error)
+                    guard SocketClient.isSocketStartupTimeout(error) else {
+                        throw error
+                    }
+                    throw loggedRestoreError(
+                        stage: "socket.startup",
+                        detail: String(reflecting: error),
+                        message: String(
+                            localized: "cli.restore.error.socketNotReady",
+                            defaultValue: "restore: cmux is still opening. Retry the visible restore command in a moment."
+                        )
+                    )
+                }
+            } else {
+                throw error
             }
-            throw error
         }
         defer { client.close() }
 

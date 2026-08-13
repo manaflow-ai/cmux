@@ -3565,13 +3565,14 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
-    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathExists() {
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathIsLive() {
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
             bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false,
             currentUserID: 501,
-            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) }
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
+            stableDefaultSocketCanBeReclaimed: { _ in false }
         )
 
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
@@ -3586,13 +3587,15 @@ final class SocketControlSettingsTests: XCTestCase {
             probeStableDefaultPathEntry: { socketPath in
                 XCTAssertEqual(socketPath, "/private/tmp/cmux.sock")
                 return .socket(ownerUserID: 501)
-            }
+            },
+            stableDefaultSocketCanBeReclaimed: { _ in false }
         )
 
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
-    func testInitialStableLaunchDoesNotProbeSameUserStableSocketLiveness() {
+    func testInitialStableLaunchUsesTransportReclaimabilityForSameUserSocket() {
+        var didProbe = false
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
             bundleIdentifier: "com.cmuxterm.app",
@@ -3600,15 +3603,16 @@ final class SocketControlSettingsTests: XCTestCase {
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
             stableDefaultSocketCanBeReclaimed: { _ in
-                XCTFail("Existing startup sockets should fall back without liveness probing on the main thread")
-                return true
+                didProbe = true
+                return false
             }
         )
 
+        XCTAssertTrue(didProbe)
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
-    func testInitialStableLaunchDoesNotProbeSameUserStableSocketReclaimability() {
+    func testInitialStableLaunchKeepsStablePathWhenTransportReclaimsSameUserSocket() {
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
             bundleIdentifier: "com.cmuxterm.app",
@@ -3616,12 +3620,12 @@ final class SocketControlSettingsTests: XCTestCase {
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
             stableDefaultSocketCanBeReclaimed: { socketPath in
-                XCTFail("Existing startup sockets should fall back without reclaimability probing: \(socketPath)")
-                return false
+                XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
+                return true
             }
         )
 
-        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+        XCTAssertEqual(path, SocketControlSettings.stableDefaultSocketPath)
     }
 
     func testInitialStableLaunchKeepsUserScopedPreferredPathWithoutProbing() {

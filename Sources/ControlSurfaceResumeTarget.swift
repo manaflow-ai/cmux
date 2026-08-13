@@ -280,6 +280,7 @@ extension TerminalController {
         // conversation. Reuse the session-restore identity gate so the record
         // returned to the CLI always agrees with the binding that generated its
         // typed `cmux restore <kind> <checkpoint>` selector.
+        let restoredAgent = target.restorableAgent
         let compatibleAgent: (
             snapshot: SessionRestorableAgentSnapshot,
             source: String,
@@ -287,7 +288,7 @@ extension TerminalController {
         )?
         if binding == nil || binding?.isAgentHookBinding == true {
             if let restoredAgent = Workspace.restorableAgentForSessionRestore(
-                target.restorableAgent,
+                restoredAgent,
                 resumeBinding: binding
             ) {
                 compatibleAgent = (
@@ -346,14 +347,27 @@ extension TerminalController {
         let mode: AgentRestoreRequestMode = binding.isAgentHookBinding
             ? .resumeAgent
             : .direct
+        // Once a newer hook binding supersedes a restored agent snapshot, none
+        // of the rejected snapshot's identity-scoped restore data may leak into
+        // the record. Rebuild the typed argv from the authoritative binding so
+        // `cmux restore` keeps its shell-free path even during that handoff.
+        let workingDirectory = binding.cwd ?? binding.launchCommand?.workingDirectory
+        let preparedArguments: [String]?
+        if restoredAgent != nil {
+            preparedArguments = preparedResumeArguments(
+                binding: binding,
+                normalizedKind: normalizedKind,
+                workingDirectory: workingDirectory
+            )
+        } else {
+            preparedArguments = nil
+        }
         return ControlSurfaceRestoreRecord(
             modeRawValue: mode.rawValue,
             kind: normalizedKind,
             checkpointID: binding.checkpointId,
             source: binding.source,
-            workingDirectory: target.restoredResumeWorkingDirectory
-                ?? binding.cwd
-                ?? binding.launchCommand?.workingDirectory,
+            workingDirectory: workingDirectory,
             environment: binding.environment ?? [:],
             launchCommand: binding.launchCommand.map {
                 controlAgentLaunchCommand(
@@ -361,10 +375,46 @@ extension TerminalController {
                     replaySafeEnvironmentFor: normalizedKind
                 )
             },
-            preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,
-            preparedArgumentsWorkingDirectory: nil,
+            preparedArguments: mode == .direct
+                ? binding.launchCommand?.arguments
+                : preparedArguments,
+            preparedArgumentsWorkingDirectory: preparedArguments == nil
+                ? nil
+                : workingDirectory,
             permissionMode: binding.permissionMode,
             legacyCommand: compatibilityBinding?.inlineStartupInput
+        )
+    }
+
+    private func preparedResumeArguments(
+        binding: SurfaceResumeBindingSnapshot,
+        normalizedKind: String,
+        workingDirectory: String?
+    ) -> [String]? {
+        guard binding.isAgentHookBinding,
+              let checkpointID = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !checkpointID.isEmpty else {
+            return nil
+        }
+        // A rejected session snapshot cannot authorize its persisted custom-agent
+        // template. Registry-owned kinds also fall back to the current binding's
+        // compatibility command; only native, non-overridable kinds have enough
+        // information here to rebuild shell-free argv safely.
+        guard let kind = RestorableAgentKind(rawValue: normalizedKind),
+              RestorableAgentKind.allCases.contains(kind),
+              kind.restoreMode == .resumeSession else {
+            return nil
+        }
+        return SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: checkpointID,
+            workingDirectory: workingDirectory,
+            launchCommand: binding.launchCommand,
+            permissionMode: binding.permissionMode
+        ).preparedResumeArguments(
+            launchCommand: binding.launchCommand,
+            workingDirectory: workingDirectory,
+            observedPermissionMode: binding.permissionMode
         )
     }
 
