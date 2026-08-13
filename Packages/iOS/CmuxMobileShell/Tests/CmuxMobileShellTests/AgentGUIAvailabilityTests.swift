@@ -3,6 +3,18 @@ import Testing
 @testable import CmuxMobileShell
 
 @Suite struct AgentGUIAvailabilityTests {
+    @Test func userInterfaceStaysUnavailableForAnActiveAgentSession() {
+        let availability = AgentGUIAvailability.deriveForUserInterface(
+            sessions: [
+                Self.session(id: "active", surfaceID: "terminal-1", phase: .working),
+            ],
+            selectedTerminalID: "terminal-1"
+        )
+
+        #expect(AgentGUIAvailability.isUserInterfaceExposed == false)
+        #expect(availability == nil)
+    }
+
     @Test func matchesSelectedTerminalSurface() throws {
         let availability = try #require(AgentGUIAvailability.derive(
             sessions: [

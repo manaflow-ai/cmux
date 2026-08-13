@@ -32,7 +32,7 @@ extension WorkspaceDetailView {
     #if os(iOS)
     var agentGUIAvailability: AgentGUIAvailability? {
         guard let engine = store.agentSyncEngine else { return nil }
-        return AgentGUIAvailability.derive(
+        return AgentGUIAvailability.deriveForUserInterface(
             sessions: engine.directory.sessions,
             selectedTerminalID: selectedTerminalID
         )
