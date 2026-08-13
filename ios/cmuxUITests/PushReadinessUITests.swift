@@ -116,7 +116,7 @@ final class PushReadinessUITests: XCTestCase {
     }
 
     @MainActor
-    func testPhonePushToggleTurnsOffWhileMutationIsPending() {
+    func testPhonePushToggleTurnsOffImmediately() {
         let app = launchPreview(
             "healthy",
             extraEnvironment: ["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY": "1"]
@@ -133,14 +133,16 @@ final class PushReadinessUITests: XCTestCase {
             phone,
             "0",
             timeout: 1,
-            message: "The toggle must reflect the requested opt-out before async cleanup finishes"
+            message: "The toggle must reflect the requested opt-out immediately"
         )
-        waitForDisabled(phone)
+        XCTAssertEqual(phone.value as? String, "0")
         let completeMutation = app.buttons["MobilePushReadinessCompletePhoneMutation"]
         XCTAssertTrue(completeMutation.waitForExistence(timeout: 2))
         completeMutation.tap()
-        waitForEnabled(phone)
-        XCTAssertEqual(phone.value as? String, "0")
+        let status = app.descendants(matching: .any)[
+            "MobileSettingsPushReadinessStatus"
+        ]
+        waitForLabel(status, containing: "Blocked, Off on This iPhone")
     }
 
     @MainActor
@@ -246,22 +248,6 @@ final class PushReadinessUITests: XCTestCase {
             XCTWaiter.wait(for: [expectation], timeout: timeout),
             .completed,
             "Expected '\(element.identifier)' to become enabled"
-        )
-    }
-
-    @MainActor
-    private func waitForDisabled(
-        _ element: XCUIElement,
-        timeout: TimeInterval = 4
-    ) {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "enabled == false"),
-            object: element
-        )
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [expectation], timeout: timeout),
-            .completed,
-            "Expected '\(element.identifier)' to become disabled"
         )
     }
 

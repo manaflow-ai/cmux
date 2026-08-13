@@ -41,12 +41,6 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
-    /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
-    /// update after the async enable/disable. The coordinator exposes
-    /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
-    /// directly in `body` would not re-render when it flips.
-    @State private var notificationsEnabled = false
-    @State private var notificationsToggleUpdating = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
 #endif
@@ -62,6 +56,9 @@ struct MobileSettingsView: View {
     #endif
 
     var body: some View {
+        // Establish observation in this view as the binding getter is invoked
+        // by the child toggle rather than directly in this body.
+        let _ = pushCoordinator.isEnabled
         @Bindable var displaySettings = displaySettings
         return NavigationStack {
             Form {
@@ -389,13 +386,11 @@ struct MobileSettingsView: View {
                             macStatus: store?.phonePushMacStatus,
                             macAccountMismatch: store?.connectionRequiresReauth == true
                         ),
-                        phoneEnabled: $notificationsEnabled,
+                        phoneEnabled: phonePushEnabledBinding,
                         macStatus: store?.phonePushMacStatus,
                         supportsMacSettings: store?.supportsPhonePushSettings == true,
                         supportsMacTest: store?.supportsPhonePushTest == true,
                         canConnectMac: startPairingScanner != nil,
-                        onPhoneEnabledChange: updatePhonePushEnabled,
-                        onPhoneEnabledReconcile: reconcilePhonePushEnabled,
                         onRepair: repairPhonePush,
                         onMacMutation: updateMacPhonePush,
                         onSendTest: sendPhonePushTest
@@ -426,10 +421,8 @@ struct MobileSettingsView: View {
                     }
 #else
                     MobilePushToggle(
-                        isEnabled: $notificationsEnabled,
-                        isUpdating: $notificationsToggleUpdating,
-                        onChange: updatePhonePushEnabled,
-                        onReconcile: reconcilePhonePushEnabled
+                        isEnabled: phonePushEnabledBinding,
+                        isUpdating: false
                     )
 #endif
                 }
@@ -478,11 +471,7 @@ struct MobileSettingsView: View {
                 }
             }
             .task {
-                notificationsEnabled = pushCoordinator.isEnabled
                 await pushCoordinator.refreshReadiness()
-            }
-            .onChange(of: pushCoordinator.isEnabled) { _, enabled in
-                notificationsEnabled = enabled
             }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
@@ -616,21 +605,24 @@ struct MobileSettingsView: View {
             .notificationPreferenceChanged,
             count: enabled ? 1 : 0
         )
-        if enabled {
-            _ = await pushCoordinator.enable()
-            // A denied OS authorization still accepts the user's app-level
-            // intent. Keep the toggle on so readiness can surface the Settings
-            // recovery action instead of rolling the preference back.
-            return pushCoordinator.isEnabled
-        }
-        await pushCoordinator.disable()
-        return !pushCoordinator.isEnabled
+        pushCoordinator.setEnabledIntent(enabled)
+        // The coordinator owns the intent synchronously. Backend registration
+        // continues independently so a repair action cannot inherit a view's
+        // lifecycle or wait for network cleanup.
+        return pushCoordinator.isEnabled == enabled
     }
 
-    @MainActor
-    private func reconcilePhonePushEnabled() async -> Bool? {
-        await pushCoordinator.refreshReadiness()
-        return pushCoordinator.isEnabled
+    private var phonePushEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { pushCoordinator.isEnabled },
+            set: { enabled in
+                diagnosticLog?.recordAppEvent(
+                    .notificationPreferenceChanged,
+                    count: enabled ? 1 : 0
+                )
+                pushCoordinator.setEnabledIntent(enabled)
+            }
+        )
     }
 
     @MainActor

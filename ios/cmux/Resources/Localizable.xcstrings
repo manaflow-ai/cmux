@@ -1548,40 +1548,6 @@
         }
       }
     },
-    "mobile.notifications.phoneMutationFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't update Push Alerts. Check your connection and try again."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プッシュ通知を更新できませんでした。接続を確認して、もう一度お試しください。"
-          }
-        }
-      }
-    },
-    "mobile.notifications.phoneMutationRetry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Try Again"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        }
-      }
-    },
     "mobile.common.ok": {
       "extractionState": "manual",
       "localizations": {

@@ -526,6 +526,39 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
+    @Test func settingsOptOutIsVisibleBeforeCoordinatorBackendCleanupCompletes() async {
+        let gate = LifecycleSetEnabledGate()
+        let registration = LifecyclePushRegistration(
+            enabled: true,
+            setEnabledGate: gate
+        )
+        let suiteName = "push-coordinator-settings-optout-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            unregisterForRemoteNotifications: {}
+        )
+
+        coordinator.setEnabledIntent(false)
+        await gate.waitUntilStarted()
+
+        #expect(!coordinator.isEnabled)
+        #expect(coordinator.registrationSnapshot == .disabled)
+
+        await gate.release()
+        for _ in 0..<100 {
+            if await registration.snapshot == .disabled { break }
+            await Task.yield()
+        }
+        #expect(await registration.snapshot == .disabled)
+        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+    }
+
+    @MainActor
     @Test func foregroundAndReachabilityRecoveryShareOneExhaustedRegistrationRetry() async {
         let gate = LifecycleSyncGate()
         let registration = LifecyclePushRegistration(

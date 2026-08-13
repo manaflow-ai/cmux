@@ -113,6 +113,11 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var registrationSnapshotTask: Task<Void, Never>?
     @ObservationIgnored private var registrationRecoveryTask:
         Task<PushRegistrationSnapshot, Never>?
+    /// Settings owns the user intent, while the registration service owns the
+    /// network side effect. Keeping the drain task here means a settings view
+    /// can disappear without cancelling an opt-out that is already visible.
+    @ObservationIgnored private var pendingSettingsIntent: Bool?
+    @ObservationIgnored private var settingsMutationTask: Task<Void, Never>?
     @ObservationIgnored private var workspaceAuthorizationRequestInFlight = false
     @ObservationIgnored private var hasRequestedRemoteRegistration = false
 
@@ -188,8 +193,32 @@ public final class MobilePushCoordinator {
         self.unregisterForRemoteNotifications = unregisterForRemoteNotifications
     }
 
-    /// Whether the user has opted into phone notifications (synchronous mirror).
+    /// Whether the user has opted into phone notifications.
+    ///
+    /// This is an app-lifetime observable mirror, rather than a view-local
+    /// value. Settings can therefore render the requested value before the
+    /// backend cleanup finishes.
     public var isEnabled: Bool { enabledMirror }
+
+    /// Apply a Settings preference immediately and finish its registration work
+    /// from the app-lifetime coordinator. Repeated taps are coalesced to the
+    /// latest intent and are serialized with the registration actor, so a view
+    /// lifecycle cannot strand or reorder a mutation.
+    public func setEnabledIntent(_ enabled: Bool) {
+        guard enabled != enabledMirror || pendingSettingsIntent != nil else {
+            return
+        }
+        if enabled {
+            persistEnabledIntent()
+        } else {
+            prepareDisable()
+        }
+        pendingSettingsIntent = enabled
+        guard settingsMutationTask == nil else { return }
+        settingsMutationTask = Task { @MainActor [weak self] in
+            await self?.drainSettingsMutations()
+        }
+    }
 
     /// Point routing at the active store (called by the root view on appear).
     public func bind(store: CMUXMobileShellStore) {
@@ -329,18 +358,44 @@ public final class MobilePushCoordinator {
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
+        prepareDisable()
+        await finishDisable()
+    }
+
+    private func prepareDisable() {
         diagnosticLog?.recordAppEvent(.pushDisabled)
         enabledMirror = false
         registrationSnapshot = .disabled
         hasRequestedRemoteRegistration = false
         unregisterForRemoteNotifications()
+    }
+
+    private func finishDisable() async {
         // The production registration service owns this same persisted key
         // and checks its previous value to decide whether server cleanup is
         // required. Let it observe the prior `true` before mirroring the final
         // preference here; writing `false` first would skip token removal.
         await registration.setEnabled(false)
+        guard !enabledMirror else { return }
         defaults.set(false, forKey: Self.enabledKey)
         registrationSnapshot = await registration.snapshot
+    }
+
+    private func drainSettingsMutations() async {
+        while let requested = pendingSettingsIntent {
+            pendingSettingsIntent = nil
+            if requested {
+                // A newer opt-out can arrive while authorization or token
+                // recovery is suspended. The next loop iteration will perform
+                // the corresponding cleanup, and the coordinator's mirror
+                // remains authoritative throughout.
+                guard enabledMirror else { continue }
+                _ = await enable(trigger: "settings_toggle")
+            } else {
+                await finishDisable()
+            }
+        }
+        settingsMutationTask = nil
     }
 
     /// Hand a freshly-registered APNs token to the network layer.
@@ -443,6 +498,10 @@ public final class MobilePushCoordinator {
     }
 
     private func recoverRegistrationIfNeeded() async {
+        guard enabledMirror else {
+            registrationSnapshot = .disabled
+            return
+        }
         let current = await registration.snapshot
         registrationSnapshot = current
         guard current.isEnabled, current.hasDeviceToken,
@@ -542,7 +601,9 @@ public final class MobilePushCoordinator {
             let snapshots = await registration.snapshots()
             for await snapshot in snapshots {
                 guard !Task.isCancelled, let self else { return }
-                self.registrationSnapshot = snapshot
+                self.registrationSnapshot = self.enabledMirror
+                    ? snapshot
+                    : .disabled
             }
         }
     }
@@ -601,6 +662,12 @@ public final class MobilePushCoordinator {
             accessToken: accessToken,
             refreshToken: refreshToken
         )
+    }
+
+    deinit {
+        settingsMutationTask?.cancel()
+        registrationSnapshotTask?.cancel()
+        registrationRecoveryTask?.cancel()
     }
 
     /// Whether to show a banner while the app is foreground. Suppressed when the

@@ -24,8 +24,6 @@ struct MobilePushSettingsContent: View {
     let supportsMacSettings: Bool
     let supportsMacTest: Bool
     let canConnectMac: Bool
-    let onPhoneEnabledChange: @MainActor (Bool) async -> Bool
-    let onPhoneEnabledReconcile: @MainActor () async -> Bool?
     let onRepair: @MainActor (MobilePushReadiness.Repair) async -> Bool
     let onMacMutation: @MainActor (MobilePushMacMutation) async -> Bool
     let onSendTest: @MainActor () async -> MobilePhonePushTestStage
@@ -47,8 +45,6 @@ struct MobilePushSettingsContent: View {
         supportsMacSettings: Bool,
         supportsMacTest: Bool,
         canConnectMac: Bool,
-        onPhoneEnabledChange: @escaping @MainActor (Bool) async -> Bool,
-        onPhoneEnabledReconcile: @escaping @MainActor () async -> Bool?,
         onRepair: @escaping @MainActor (MobilePushReadiness.Repair) async -> Bool,
         onMacMutation: @escaping @MainActor (MobilePushMacMutation) async -> Bool,
         onSendTest: @escaping @MainActor () async -> MobilePhonePushTestStage
@@ -59,8 +55,6 @@ struct MobilePushSettingsContent: View {
         self.supportsMacSettings = supportsMacSettings
         self.supportsMacTest = supportsMacTest
         self.canConnectMac = canConnectMac
-        self.onPhoneEnabledChange = onPhoneEnabledChange
-        self.onPhoneEnabledReconcile = onPhoneEnabledReconcile
         self.onRepair = onRepair
         self.onMacMutation = onMacMutation
         self.onSendTest = onSendTest
@@ -79,10 +73,8 @@ struct MobilePushSettingsContent: View {
             statusRow
 
             MobilePushToggle(
-                isEnabled: $phoneEnabled,
-                isUpdating: $isMutatingPhone,
-                onChange: onPhoneEnabledChange,
-                onReconcile: onPhoneEnabledReconcile
+                isEnabled: phoneEnabledBinding,
+                isUpdating: isMutatingPhone
             )
 
             if let repair = readiness.repair,
@@ -255,6 +247,16 @@ struct MobilePushSettingsContent: View {
                 guard !isMutatingMac else { return }
                 macForwardingEnabled = requested
                 performMacMutation(.forwardingEnabled(requested))
+            }
+        )
+    }
+
+    private var phoneEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { phoneEnabled },
+            set: { requested in
+                guard !isMutatingPhone else { return }
+                phoneEnabled = requested
             }
         )
     }
