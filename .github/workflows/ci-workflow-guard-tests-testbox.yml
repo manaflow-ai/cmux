@@ -333,6 +333,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # Missing `/tmp/.testbox` means begin-testbox could not register the VM.
+      # No auth token or API URL exists, so neither this workflow nor the pinned
+      # action can report hydration_failed. Fail explicitly; the CLI's bounded
+      # readiness wait and receipt-aware cleanup remain the only safe recovery.
+      - name: Require Testbox registration state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -d /tmp/.testbox ]]; then
+            echo "::error::begin-testbox produced no registration state; hydration failure cannot be reported from this runner" >&2
+            exit 1
+          fi
+
       - name: Confirm Testbox registration and mark setup ready
         if: success()
         env:

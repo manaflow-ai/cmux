@@ -123,12 +123,15 @@ for line in text.splitlines():
     if len(fields) < 2:
         raise SystemExit(66)
     status = fields[1].lower()
-    matching_context = False
-    for index, field in enumerate(fields[2:], start=2):
-        if field == expected_workflow and fields[index + 1:index + 3] == [expected_job, expected_ref]:
-            matching_context = True
-            break
-    if not matching_context:
+    # Blacksmith CLI releases have emitted both ID/STATUS/REPO/WORKFLOW/CREATED
+    # and ID/STATUS/IP/WORKFLOW/JOB/REF/... schemas. Require the exact workflow
+    # in either schema; when job/ref columns exist, require those too.
+    try:
+        workflow_index = fields.index(expected_workflow, 2)
+    except ValueError:
+        raise SystemExit(66)
+    trailing = fields[workflow_index + 1:]
+    if expected_job in trailing and expected_ref not in trailing:
         raise SystemExit(66)
     print(status)
     raise SystemExit(0)
