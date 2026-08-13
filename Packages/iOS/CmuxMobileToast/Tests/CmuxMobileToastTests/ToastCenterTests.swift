@@ -69,6 +69,16 @@ struct ToastCenterTests {
         #expect(center.presented == nil)
     }
 
+    @Test func legacyEnabledPreferenceCannotReenableToasts() {
+        let defaults = UserDefaults(suiteName: "toast-tests-\(UUID().uuidString)")!
+        defaults.set(true, forKey: ToastCenter.enabledDefaultsKey)
+        let center = ToastCenter(defaults: defaults)
+
+        #expect(center.isEnabled == false)
+        center.present(.success("still disabled"))
+        #expect(center.presented == nil)
+    }
+
     /// Yields until `condition` holds, so a task spawned by the center can
     /// reach its clock.sleep suspension before the test advances the clock.
     private func yieldUntil(
