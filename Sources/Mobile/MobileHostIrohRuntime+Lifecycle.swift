@@ -428,12 +428,14 @@ extension MobileHostIrohRuntime {
     func synchronizeLANPublicationWithSettings() async {
         guard MobileHostService.isListeningEnabled else {
             await lanPublisher.stop()
+            await recordLANPublicationState(reason: 1)
             return
         }
         guard desiredActive,
               let runtime,
               let context = await runtime.lanAdvertisementContext() else {
             await lanPublisher.stop()
+            await recordLANPublicationState(reason: 2)
             return
         }
         await lanPublisher.activate(
@@ -441,6 +443,26 @@ extension MobileHostIrohRuntime {
             binding: context.binding,
             directAddresses: { await runtime.localDirectAddresses() }
         )
+        await recordLANPublicationState(reason: 0)
+    }
+
+    /// Records the publisher's resulting state so relay-free bootstrap
+    /// failures can distinguish a Mac that never advertised. `reason` is
+    /// 0 settings applied, 1 listener setting disabled, 2 runtime context
+    /// unavailable.
+    private func recordLANPublicationState(reason: Int) async {
+        let state: DiagnosticLANPublicationState =
+            switch await lanPublisher.snapshot() {
+            case .inactive: .inactive
+            case .active: .active
+            case .unavailable: .unavailable
+            case .policyDenied: .policyDenied
+            }
+        diagnosticLog.record(DiagnosticEvent(
+            .lanPublicationState,
+            a: state.rawValue,
+            b: reason
+        ))
     }
 
     /// Stops the endpoint and durably quarantines its binding before auth clears tokens.
