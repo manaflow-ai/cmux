@@ -1,4 +1,5 @@
 @testable import CmuxControlSocket
+import Darwin
 import Foundation
 import Testing
 
@@ -93,6 +94,41 @@ struct SocketStartupWaiterTests {
 
         #expect(connection == socketPath)
         #expect(attemptCount == 2)
+    }
+
+    @Test func coalescesUnrelatedDirectoryEventStorms() throws {
+        let socketPath = "/tmp/cmux-startup-wait-event-storm.sock"
+        var currentTime: TimeInterval = 0
+        var attemptTimes: [TimeInterval] = []
+        let waiter = SocketStartupWaiter(
+            initialRetryDelay: 0.01,
+            maximumRetryDelay: 0.08,
+            monotonicTime: { currentTime },
+            eventQueueFactory: { kqueue() },
+            vnodeEventWaiter: { _, remaining in
+                currentTime += min(0.001, remaining)
+                return true
+            },
+            retryDelayWaiter: { delay in
+                currentTime += delay
+            }
+        )
+
+        let connection: String = try waiter.wait(
+            timeout: 1,
+            resolvePath: { socketPath },
+            attemptConnection: { path, _ in
+                attemptTimes.append(currentTime)
+                return attemptTimes.count == 5 ? path : nil
+            }
+        )
+
+        #expect(connection == socketPath)
+        let expectedAttemptTimes: [TimeInterval] = [0, 0.01, 0.02, 0.04, 0.08]
+        #expect(attemptTimes.count == expectedAttemptTimes.count)
+        #expect(zip(attemptTimes, expectedAttemptTimes).allSatisfy {
+            abs($0 - $1) < 0.000_001
+        })
     }
 
     @Test func propagatesPermanentFailureWithoutRetrying() {

@@ -1233,7 +1233,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertTrue(preparedArguments.contains(restoredDirectory), "\(preparedArguments)")
         XCTAssertFalse(preparedArguments.contains(savedDirectory), "\(preparedArguments)")
 
-        let replacementSessionID = "replacement-cwd-session"
+        let replacementSessionID = "replacement-current-session"
         let replacementDirectory = "/tmp/replacement-project"
         let replacementLaunch = AgentLaunchCommandSnapshot(
             launcher: "cwd-agent",
@@ -1272,6 +1272,18 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNotEqual(
             replacementRecord["working_directory"] as? String,
             restoredDirectory
+        )
+        XCTAssertNil(replacementRecord["prepared_arguments"] as? [String])
+        let replacementLegacyCommand = try XCTUnwrap(
+            replacementRecord["legacy_command"] as? String
+        )
+        XCTAssertTrue(
+            replacementLegacyCommand.contains(replacementSessionID),
+            replacementLegacyCommand
+        )
+        XCTAssertFalse(
+            replacementLegacyCommand.contains(sessionID),
+            replacementLegacyCommand
         )
     }
 

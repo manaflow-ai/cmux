@@ -352,13 +352,15 @@ extension TerminalController {
         // the record. Rebuild the typed argv from the authoritative binding so
         // `cmux restore` keeps its shell-free path even during that handoff.
         let workingDirectory = binding.cwd ?? binding.launchCommand?.workingDirectory
-        let preparedArguments = restoredAgent.flatMap { rejectedAgent in
-            preparedResumeArguments(
+        let preparedArguments: [String]?
+        if restoredAgent != nil {
+            preparedArguments = preparedResumeArguments(
                 binding: binding,
                 normalizedKind: normalizedKind,
-                workingDirectory: workingDirectory,
-                registration: rejectedAgent.registration
+                workingDirectory: workingDirectory
             )
+        } else {
+            preparedArguments = nil
         }
         return ControlSurfaceRestoreRecord(
             modeRawValue: mode.rawValue,
@@ -387,20 +389,20 @@ extension TerminalController {
     private func preparedResumeArguments(
         binding: SurfaceResumeBindingSnapshot,
         normalizedKind: String,
-        workingDirectory: String?,
-        registration: CmuxVaultAgentRegistration?
+        workingDirectory: String?
     ) -> [String]? {
         guard binding.isAgentHookBinding,
               let checkpointID = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !checkpointID.isEmpty else {
             return nil
         }
-        let matchingRegistration = registration?.id == normalizedKind ? registration : nil
-        guard let kind = RestorableAgentKind(
-            persistedRawValue: normalizedKind,
-            registration: matchingRegistration
-        ),
-        kind.restoreMode == .resumeSession else {
+        // A rejected session snapshot cannot authorize its persisted custom-agent
+        // template. Registry-owned kinds also fall back to the current binding's
+        // compatibility command; only native, non-overridable kinds have enough
+        // information here to rebuild shell-free argv safely.
+        guard let kind = RestorableAgentKind(rawValue: normalizedKind),
+              RestorableAgentKind.allCases.contains(kind),
+              kind.restoreMode == .resumeSession else {
             return nil
         }
         return SessionRestorableAgentSnapshot(
@@ -408,7 +410,6 @@ extension TerminalController {
             sessionId: checkpointID,
             workingDirectory: workingDirectory,
             launchCommand: binding.launchCommand,
-            registration: matchingRegistration,
             permissionMode: binding.permissionMode
         ).preparedResumeArguments(
             launchCommand: binding.launchCommand,

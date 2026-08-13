@@ -21,6 +21,8 @@ public struct SocketStartupWaiter {
     private let maximumRetryDelay: TimeInterval
     private let monotonicTime: () -> TimeInterval
     private let eventQueueFactory: () -> Int32
+    private let vnodeEventWaiter: (_ queue: Int32, _ timeout: TimeInterval) -> Bool
+    private let retryDelayWaiter: (_ timeout: TimeInterval) -> Void
 
     /// Creates a startup waiter with bounded exponential retry delays.
     ///
@@ -42,7 +44,9 @@ public struct SocketStartupWaiter {
             initialRetryDelay: initialRetryDelay,
             maximumRetryDelay: maximumRetryDelay,
             monotonicTime: monotonicTime,
-            eventQueueFactory: { kqueue() }
+            eventQueueFactory: { kqueue() },
+            vnodeEventWaiter: nil,
+            retryDelayWaiter: nil
         )
     }
 
@@ -50,7 +54,9 @@ public struct SocketStartupWaiter {
         initialRetryDelay: TimeInterval,
         maximumRetryDelay: TimeInterval,
         monotonicTime: @escaping () -> TimeInterval,
-        eventQueueFactory: @escaping () -> Int32
+        eventQueueFactory: @escaping () -> Int32,
+        vnodeEventWaiter: ((_ queue: Int32, _ timeout: TimeInterval) -> Bool)? = nil,
+        retryDelayWaiter: ((_ timeout: TimeInterval) -> Void)? = nil
     ) {
         let finiteInitialDelay = initialRetryDelay.isFinite ? initialRetryDelay : 0.025
         let normalizedInitialDelay = max(finiteInitialDelay, 0.001)
@@ -59,6 +65,19 @@ public struct SocketStartupWaiter {
         self.maximumRetryDelay = max(finiteMaximumDelay, normalizedInitialDelay)
         self.monotonicTime = monotonicTime
         self.eventQueueFactory = eventQueueFactory
+        self.vnodeEventWaiter = vnodeEventWaiter ?? { queue, timeout in
+            SocketStartupWaiter.waitForVnodeEvent(
+                queue,
+                timeout: timeout,
+                monotonicTime: monotonicTime
+            )
+        }
+        self.retryDelayWaiter = retryDelayWaiter ?? { timeout in
+            SocketStartupWaiter.waitForRetryDelay(
+                timeout,
+                monotonicTime: monotonicTime
+            )
+        }
     }
 
     /// Waits until `attemptConnection` produces a connection or the deadline expires.
@@ -128,9 +147,18 @@ public struct SocketStartupWaiter {
                 watchedDirectoryPath = watchedDirectoryFD >= 0 ? directory : nil
             }
 
+            let retryTimeout = min(retryDelay, remaining)
+            // Vnode activity may accelerate a retry, but never by more than 2x
+            // once exponential backoff grows. This coalesces unrelated parent-
+            // directory churn instead of resolving and probing once per event.
+            let minimumEventDelay = min(
+                max(initialRetryDelay, retryDelay / 2),
+                retryTimeout
+            )
             waitForRetryOpportunity(
                 eventQueue,
-                timeout: min(retryDelay, remaining)
+                timeout: retryTimeout,
+                minimumEventDelay: minimumEventDelay
             )
             retryDelay = min(retryDelay * 2, maximumRetryDelay)
         }
@@ -170,29 +198,59 @@ public struct SocketStartupWaiter {
         return descriptor
     }
 
-    private func waitForRetryOpportunity(_ queue: Int32, timeout: TimeInterval) {
+    private func waitForRetryOpportunity(
+        _ queue: Int32,
+        timeout: TimeInterval,
+        minimumEventDelay: TimeInterval
+    ) {
         guard timeout > 0 else { return }
         guard queue >= 0 else {
-            waitForRetryDelay(timeout)
+            retryDelayWaiter(timeout)
             return
         }
+        let startedAt = monotonicTime()
+        let timeoutDeadline = startedAt + timeout
+        let normalizedMinimumEventDelay = min(max(minimumEventDelay, 0), timeout)
+        let earliestEventRetry = startedAt + normalizedMinimumEventDelay
+        // Once the minimum retry cadence has elapsed, there is no benefit in
+        // continuing to wait for an event: the bounded retry itself covers an
+        // unchanged inode beginning to listen.
+        let observedEvent = vnodeEventWaiter(queue, normalizedMinimumEventDelay)
+        let deadline = observedEvent ? earliestEventRetry : timeoutDeadline
+        let unsleptRemainder = deadline - monotonicTime()
+        if unsleptRemainder > 0 {
+            retryDelayWaiter(unsleptRemainder)
+        }
+    }
+
+    private static func waitForVnodeEvent(
+        _ queue: Int32,
+        timeout: TimeInterval,
+        monotonicTime: () -> TimeInterval
+    ) -> Bool {
         let deadline = monotonicTime() + timeout
         while true {
             let remaining = deadline - monotonicTime()
-            guard remaining > 0 else { return }
+            guard remaining > 0 else { return false }
             var timeoutSpec = timespec(
                 tv_sec: Int(remaining),
                 tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
             )
             var triggeredEvent = kevent()
             let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
-            if result >= 0 || errno != EINTR {
-                return
+            if result > 0 {
+                return true
+            }
+            if result == 0 || errno != EINTR {
+                return false
             }
         }
     }
 
-    private func waitForRetryDelay(_ timeout: TimeInterval) {
+    private static func waitForRetryDelay(
+        _ timeout: TimeInterval,
+        monotonicTime: () -> TimeInterval
+    ) {
         let deadline = monotonicTime() + timeout
         while true {
             let remaining = deadline - monotonicTime()
