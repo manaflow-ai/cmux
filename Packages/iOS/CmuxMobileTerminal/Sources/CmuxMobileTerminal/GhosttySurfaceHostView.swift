@@ -152,7 +152,14 @@ public final class GhosttySurfaceHostView: UIView {
         targetIsVisible: Bool,
         transition: MobileKeyboardTransition
     ) {
-        rebaseKeyboardPresentationFromLiveFrames()
+        // A fresh keyboard notification starts from the model tree. The live
+        // presentation layers are meaningful only when this host is already
+        // animating a prior keyboard leg. Rebasing on every notification can
+        // fold an unrelated settled presentation transform into the first leg,
+        // making the terminal begin several points away from its dock.
+        if keyboardTransitionActive {
+            rebaseKeyboardPresentationFromLiveFrames()
+        }
         layoutIfNeeded()
         keyboardTransitionGeneration &+= 1
         let generation = keyboardTransitionGeneration
