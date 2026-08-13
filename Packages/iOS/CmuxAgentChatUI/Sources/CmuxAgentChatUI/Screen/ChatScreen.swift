@@ -140,7 +140,10 @@ public struct ChatScreen: View {
                 .lineLimit(2)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(.red.opacity(0.92), in: .capsule)
+                .background(
+                    .red.opacity(0.92),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
                 .padding(.top, 4)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .accessibilityIdentifier("ChatErrorBanner")

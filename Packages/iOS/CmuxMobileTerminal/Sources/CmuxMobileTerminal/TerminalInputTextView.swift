@@ -279,12 +279,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// One comfortable inset applied to every button so the bar reads tappable and
     /// uniform. Each button hugs its label/icon plus this inset. The bar's vertical
     /// breathing room lives BELOW the strip (``dockedBottomPadding``), not as a
-    /// scroll-view margin that would shrink the capsule inside the strip, so the
-    /// glass capsule grows to fill the full strip height. The horizontal inset is
-    /// trimmed so the capsule hugs its glyph.
+    /// scroll-view margin that would shrink the controls inside the strip. The
+    /// horizontal inset is trimmed so each control hugs its glyph.
     private static let accessoryButtonContentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
     private static let accessoryButtonCornerRadius: CGFloat = 6
-    /// Button height. Equal to ``dockedNubSize`` so the capsule fills the strip
+    /// Button height. Equal to ``dockedNubSize`` so each control fills the strip
     /// vertically: the buttons are as tall as the section, with the breathing
     /// room living BELOW the strip (``dockedBottomPadding``) instead of inside it.
     private static let accessoryButtonHeight: CGFloat = dockedNubSize
@@ -319,8 +318,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// their intrinsic content width and only floor here so they hug their label
     /// plus the comfortable inset; single-glyph modifiers/icons (⌃ ⌥ ⌘, the arrow
     /// keys, paste) take this as a FIXED width so they stay uniform. The glyph keys
-    /// hug their icon tightly; the taller capsule supplies the tap area that a
-    /// wider button used to.
+    /// hug their icon tightly while retaining a comfortable tap target.
     private static let accessoryButtonMinWidth: CGFloat = 32
     private var accessoryButtonNormalBackground: UIColor { themeChromeColor.withAlphaComponent(0.14) }
     private var accessoryBackgroundLeadingConstraint: NSLayoutConstraint?
@@ -474,7 +472,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             scrollView.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
 
             // No vertical margin inside the scroll view: the stack fills the strip
-            // height so the glass capsules grow to the full section height. The
+            // height so the controls grow to the full section height. The
             // bar's breathing room lives BELOW the strip (`dockedBottomPadding`),
             // not as a margin that shrinks the buttons.
             stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
@@ -923,7 +921,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         if action.isModifier || action.symbolName != nil {
             // Single-glyph modifiers (⌃⌥⌘⇧) and icon buttons (zoom) get a fixed
             // width so they stay uniform — their glyph metrics differ, and a
-            // greater-than-or-equal min-width let some (e.g. the glass capsule)
+            // greater-than-or-equal min-width let some controls
             // grow wider than others. Variable-text buttons keep growing.
             button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         } else {
@@ -1007,11 +1005,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     /// Build (or rebuild) a button's configuration for `item` and its current
-    /// armed/sticky state. On iOS 26 the bar uses real Liquid Glass
-    /// (`.glass()` resting, `.prominentGlass()` armed/sticky); earlier OSes keep
-    /// the flat gray/blue fill the bar shipped with. Built-in modifier titles
-    /// follow `isMacRemote`; custom actions render their saved title/icon and
-    /// never arm.
+    /// armed/sticky state. Built-in modifier titles follow `isMacRemote`;
+    /// custom actions render their saved title/icon and never arm.
     private func applyAccessoryButtonStyle(
         _ button: UIButton,
         item: ResolvedToolbarItem,
@@ -1053,32 +1048,15 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
         if let actionButton = button as? AccessoryActionButton {
-            actionButton.stickyLockBorderColor = UIColor.systemBlue.terminalReadableForeground
-            // On iOS 26 the armed and sticky states share the same prominent-glass blue fill, so the double-tap *lock* is
-            // distinguished by a white capsule border drawn over the glass (see
-            // ``AccessoryActionButton/isStickyLocked``). On earlier OSes the
-            // flat style already renders the locked white stroke through the
-            // background configuration, so the layer border stays off to avoid
-            // a doubled stroke.
-            if #available(iOS 26.0, *) {
-                actionButton.isStickyLocked = sticky
-            } else {
-                actionButton.isStickyLocked = false
-            }
+            // The flat background configuration already carries the locked
+            // stroke, so the legacy layer border stays off.
+            actionButton.isStickyLocked = false
         }
     }
 
     private func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
         let activeBackground = UIColor.systemBlue
         let activeForeground = activeBackground.terminalReadableForeground
-        if #available(iOS 26.0, *) {
-            var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
-            config.baseForegroundColor = armed || sticky ? activeForeground : themeChromeColor
-            if armed || sticky {
-                config.baseBackgroundColor = activeBackground
-            }
-            return config
-        }
         var config = UIButton.Configuration.plain()
         var background = UIBackgroundConfiguration.clear()
         if sticky {

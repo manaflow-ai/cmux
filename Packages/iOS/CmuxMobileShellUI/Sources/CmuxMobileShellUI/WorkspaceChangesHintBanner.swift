@@ -48,7 +48,7 @@ struct WorkspaceChangesHintBanner: View {
             ))
         }
         .padding(12)
-        .background(.regularMaterial)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
         .overlay(alignment: .bottom) { Divider() }
         .accessibilityIdentifier("MobileChangesHint")
     }

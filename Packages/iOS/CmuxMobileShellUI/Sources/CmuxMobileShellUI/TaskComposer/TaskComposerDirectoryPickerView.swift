@@ -223,10 +223,13 @@ struct TaskComposerDirectoryPickerView: View {
                     }
                 }
             }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
             .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
             }
 
             if browseFailure == nil, nextOffset != nil {
@@ -395,10 +398,13 @@ struct TaskComposerDirectoryPickerView: View {
                     }
                 }
             }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
             .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
             }
         }
 
@@ -453,7 +459,7 @@ struct TaskComposerDirectoryPickerView: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 6)
-        .background(.ultraThinMaterial)
+        .background(Color(uiColor: .systemBackground))
         .accessibilityIdentifier("MobileTaskDirectoryBrowseUseCurrent")
     }
 
@@ -491,14 +497,14 @@ struct TaskComposerDirectoryPickerView: View {
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.secondary)
                     .padding(2)
-                    .background(.regularMaterial, in: Circle())
+                    .background(Color(uiColor: .secondarySystemBackground), in: Circle())
                     .offset(x: 3, y: 2)
             } else if entry.isHidden {
                 Image(systemName: "eye.slash.fill")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.secondary)
                     .padding(2)
-                    .background(.regularMaterial, in: Circle())
+                    .background(Color(uiColor: .secondarySystemBackground), in: Circle())
                     .offset(x: 3, y: 2)
             }
         }

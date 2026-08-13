@@ -24,7 +24,7 @@ struct TerminalArtifactChipView: View {
             .padding(.horizontal, 14)
             .frame(minHeight: 44)
             .modifier(TerminalArtifactChipSurfaceModifier())
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)

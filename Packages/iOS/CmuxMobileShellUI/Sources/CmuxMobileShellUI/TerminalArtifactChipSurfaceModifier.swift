@@ -1,22 +1,18 @@
 #if os(iOS)
 import SwiftUI
 
-/// Gives the terminal artifact chip native glass with a material fallback.
+/// Gives the terminal artifact chip a quiet native control surface.
 struct TerminalArtifactChipSurfaceModifier: ViewModifier {
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content
-                .glassEffect(.regular.interactive(), in: .capsule)
-        } else {
-            content
-                .background(.regularMaterial, in: Capsule())
-                .overlay {
-                    Capsule()
-                        .strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
-                }
-                .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-        }
+        content
+            .background(
+                Color(uiColor: .secondarySystemBackground),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+            }
     }
 }
 #endif

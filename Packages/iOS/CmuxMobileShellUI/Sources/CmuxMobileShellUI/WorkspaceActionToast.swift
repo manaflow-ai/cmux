@@ -29,10 +29,13 @@ struct WorkspaceActionToast: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(.regularMaterial, in: Capsule())
+        .background(
+            Color(uiColor: .secondarySystemBackground),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
         .overlay {
-            Capsule()
-                .strokeBorder(.white.opacity(0.24), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
         }
         .task(id: content.id) {
             // Intended bounded auto-dismiss, driven by an injected clock so tests

@@ -97,8 +97,8 @@ extension Toast.Style {
 }
 
 /// One visible toast: wraps the card with interactive drag-to-dismiss
-/// (free toward the resting edge, rubber-banded away from it), the coalescing
-/// bump pulse, and the interaction hold that pauses auto-dismiss mid-touch.
+/// (free toward the resting edge, rubber-banded away from it) and the
+/// interaction hold that pauses auto-dismiss mid-touch.
 private struct ToastPresentationView: View {
     let presented: ToastCenter.Presented
     let center: ToastCenter
@@ -106,7 +106,6 @@ private struct ToastPresentationView: View {
 
     @State private var dragOffset: CGFloat = 0
     @State private var isDragging = false
-    @State private var hasAppeared = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var toast: Toast { presented.toast }
@@ -117,16 +116,8 @@ private struct ToastPresentationView: View {
     var body: some View {
         ToastCardView(
             toast: toast,
-            iconBounceTrigger: (hasAppeared ? 1 : 0) + presented.bumpCount,
             dismiss: { center.dismiss(toast.id) }
         )
-        .phaseAnimator([false, true], trigger: presented.bumpCount) { view, pulsed in
-            view.scaleEffect(!reduceMotion && pulsed ? 1.04 : 1, anchor: anchor)
-        } animation: { pulsed in
-            pulsed
-                ? .spring(response: 0.18, dampingFraction: 0.5)
-                : .spring(response: 0.3, dampingFraction: 0.7)
-        }
         .scaleEffect(dragScale, anchor: anchor)
         .opacity(dragOpacity)
         .offset(y: dragOffset)
@@ -139,7 +130,6 @@ private struct ToastPresentationView: View {
         } action: { frame in
             chrome.interactiveRegion = frame
         }
-        .onAppear { hasAppeared = true }
         .onDisappear {
             // A departing toast must not wipe the region its successor just
             // published; only the last card out turns off capture.

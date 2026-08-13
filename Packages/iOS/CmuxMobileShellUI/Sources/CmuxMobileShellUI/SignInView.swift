@@ -44,7 +44,7 @@ struct SignInView: View {
         if usesStandaloneChrome {
             NavigationStack {
                 ZStack {
-                    GameOfLifeHeader()
+                    PlatformPalette.systemBackground
                         .ignoresSafeArea()
 
                     keyboardDismissSurface
@@ -77,17 +77,7 @@ struct SignInView: View {
 
     @ViewBuilder
     private var signInEntrySwitcher: some View {
-        #if os(iOS)
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                signInEntryContent
-            }
-        } else {
-            signInEntryContent
-        }
-        #else
         signInEntryContent
-        #endif
     }
 
     @ViewBuilder
@@ -117,7 +107,7 @@ struct SignInView: View {
                 DividerLabel(text: L10n.string("mobile.signIn.emailDivider", defaultValue: "or continue with email"))
 
                 VStack(spacing: 12) {
-                    GlassInputPill(height: 50, alignment: .leading) {
+                    MobileAuthField(height: 50, alignment: .leading) {
                         TextField(L10n.string("mobile.signIn.emailPlaceholder", defaultValue: "Email address"), text: $email)
                             .textFieldStyle(.plain)
                             .mobileEmailTextInput()
@@ -136,7 +126,7 @@ struct SignInView: View {
                         Text(L10n.string("mobile.signIn.emailCode", defaultValue: "Email me a code"))
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
-                            .contentShape(.capsule)
+                            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthInProgress)
                     .mobileGlassProminentButton()
@@ -196,7 +186,7 @@ struct SignInView: View {
                     Text(L10n.string("mobile.signIn.verificationContinue", defaultValue: "I verified my email"))
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
-                        .contentShape(.capsule)
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .mobileButtonLoading(authManager.isLoading, tint: .primary)
                 }
                 .disabled(isAuthInProgress)
@@ -247,7 +237,7 @@ struct SignInView: View {
                         .truncationMode(.middle)
                 }
 
-                GlassInputPill(height: 60, alignment: .center) {
+                MobileAuthField(height: 60, alignment: .center) {
                     TextField(L10n.string("mobile.signIn.codePlaceholder", defaultValue: "ABC123"), text: $code)
                         .textFieldStyle(.plain)
                         .mobileOneTimeCodeInput()
@@ -288,7 +278,7 @@ struct SignInView: View {
                     Text(L10n.string("mobile.signIn.verifyCode", defaultValue: "Verify code"))
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
-                        .contentShape(.capsule)
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .mobileButtonLoading(authManager.isLoading, tint: .primary)
                 }
                 .disabled(code.count != 6 || isAuthInProgress)
@@ -337,7 +327,7 @@ struct SignInView: View {
         } label: {
             provider.label(isLoading: signingInProviders.contains(provider))
                 .frame(maxWidth: .infinity)
-                .contentShape(.capsule)
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .disabled(isAuthInProgress)
         .mobileGlassButton()

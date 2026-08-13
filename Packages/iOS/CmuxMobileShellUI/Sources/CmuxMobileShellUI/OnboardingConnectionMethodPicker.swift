@@ -77,7 +77,7 @@ struct OnboardingConnectionMethodPicker: View {
             .padding(.horizontal, density.pickerHorizontalPadding)
             .padding(.vertical, density.pickerVerticalPadding)
             .background(
-                .regularMaterial,
+                Color(uiColor: .secondarySystemBackground),
                 in: RoundedRectangle(cornerRadius: density.pickerCornerRadius, style: .continuous)
             )
             .overlay {

@@ -7,7 +7,7 @@ struct OnboardingSceneCopy: View {
     let alignment: TextAlignment
 
     var body: some View {
-        VStack(alignment: alignment == .leading ? .leading : .center, spacing: 12) {
+        VStack(alignment: alignment == .leading ? .leading : .center, spacing: 8) {
             OnboardingBalancedText(
                 title,
                 role: .title,
@@ -18,7 +18,7 @@ struct OnboardingSceneCopy: View {
                 message,
                 role: .body,
                 alignment: alignment,
-                maximumNumberOfLines: 2
+                maximumNumberOfLines: 3
             )
         }
         .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .center)

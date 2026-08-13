@@ -4,11 +4,11 @@ import SwiftUI
 import UIKit
 #endif
 
-/// The shared machine color palette: a deterministic gradient per owning Mac so a
-/// computer and all of its workspaces read with the same color across the
+/// The shared machine color palette: a deterministic solid tint per owning Mac
+/// so a computer and all of its workspaces read with the same color across the
 /// workspace list and the Computers screen. The slot is derived in the model
-/// (``MachineAvatarPalette``); this maps it to concrete SwiftUI colors. Keep the
-/// entries visually distinct so adjacent Macs read apart.
+/// (``MachineAvatarPalette``); this maps it to concrete SwiftUI colors. Solid
+/// swatches keep identity useful without turning every row into decoration.
 ///
 struct MachineAvatarColors {
     static let palettes: [[Color]] = [
@@ -22,47 +22,44 @@ struct MachineAvatarColors {
         [Color.brown, Color.orange],
     ]
 
-    /// The gradient for a DISTINCT machine color index (from
+    /// The tint for a DISTINCT machine color index (from
     /// ``MobileWorkspaceAggregation/machineColorIndex``), wrapping at the palette
     /// size. This is the preferred path in the aggregated list: distinct Macs get
     /// distinct colors instead of occasionally colliding on a shared hash slot.
-    static func gradient(index: Int) -> LinearGradient {
+    static func color(index: Int) -> Color {
         let slot = ((index % palettes.count) + palettes.count) % palettes.count
-        return LinearGradient(colors: palettes[slot], startPoint: .topLeading, endPoint: .bottomTrailing)
+        return palettes[slot][0]
     }
 
-    /// Fallback gradient keyed to a hash of `machineID` (or `fallbackID` when the
+    /// Fallback tint keyed to a hash of `machineID` (or `fallbackID` when the
     /// machine is unknown). Used only where no assigned color index is available
-    /// (a non-aggregated preview); the hash can collide, so prefer ``gradient(index:)``.
-    static func gradient(machineID: String?, fallbackID: String) -> LinearGradient {
+    /// (a non-aggregated preview); the hash can collide, so prefer ``color(index:)``.
+    static func color(machineID: String?, fallbackID: String) -> Color {
         let slot = MachineAvatarPalette(slotCount: palettes.count)
             .slot(machineID: machineID, fallbackID: fallbackID)
-        return LinearGradient(colors: palettes[slot], startPoint: .topLeading, endPoint: .bottomTrailing)
+        return palettes[slot][0]
     }
 
-    /// Resolve a Mac's avatar gradient honoring its user override first:
+    /// Resolve a Mac's avatar tint honoring its user override first:
     /// `"palette:<n>"` picks a built-in swatch, `"#RRGGBB"` a custom solid color;
     /// otherwise fall back to the assigned color index, then the id hash.
-    static func gradient(
+    static func color(
         customColor: String?,
         fallbackIndex: Int?,
         machineID: String?,
         fallbackID: String
-    ) -> LinearGradient {
+    ) -> Color {
         if let customColor, !customColor.isEmpty {
             if customColor.hasPrefix("palette:"),
                let n = Int(customColor.dropFirst("palette:".count)) {
-                return gradient(index: n)
+                return color(index: n)
             }
             if let color = Color(hexString: customColor) {
-                return LinearGradient(
-                    colors: [color, color.opacity(0.72)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
+                return color
             }
         }
-        if let fallbackIndex { return gradient(index: fallbackIndex) }
-        return gradient(machineID: machineID, fallbackID: fallbackID)
+        if let fallbackIndex { return color(index: fallbackIndex) }
+        return color(machineID: machineID, fallbackID: fallbackID)
     }
 }
 

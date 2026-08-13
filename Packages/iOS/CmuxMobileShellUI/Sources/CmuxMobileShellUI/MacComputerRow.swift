@@ -76,7 +76,7 @@ struct MacComputerRow: View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(avatarGradient)
+                    .fill(avatarColor)
                     .frame(width: 40, height: 40)
                 switch MacAvatarIcon.resolve(custom: computer.customIcon, defaultSymbol: platformSymbol) {
                 case .symbol(let name):
@@ -162,8 +162,8 @@ struct MacComputerRow: View {
         }
     }
 
-    private var avatarGradient: LinearGradient {
-        MachineAvatarColors.gradient(
+    private var avatarColor: Color {
+        MachineAvatarColors.color(
             customColor: computer.customColor,
             fallbackIndex: computer.colorIndex,
             machineID: computer.deviceId,

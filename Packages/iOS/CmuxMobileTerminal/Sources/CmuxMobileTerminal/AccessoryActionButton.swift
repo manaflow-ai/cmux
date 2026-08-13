@@ -16,15 +16,9 @@ final class AccessoryActionButton: UIButton {
     /// Whether this modifier is double-tap *sticky-locked* (vs. single-tap armed).
     ///
     /// A sticky-locked modifier stays applied to every keystroke until the user
-    /// taps it off, whereas an armed modifier is consumed by the next key. On
-    /// iOS 26 both states share the same prominent-glass blue fill, so the lock
-    /// needs its own visual cue: a white capsule border drawn on the button's
-    /// layer, *over* the glass, mirroring the 2pt white stroke the pre-26 flat
-    /// style already used for the locked state. The border is drawn at the layer
-    /// level (not via `UIButton.Configuration.background.strokeColor`) so it
-    /// composites on top of Liquid Glass regardless of how the glass material
-    /// renders its own background, and adds zero intrinsic width so it does not
-    /// fight the bar's min-width sizing.
+    /// taps it off, whereas an armed modifier is consumed by the next key. The
+    /// property is retained for the toolbar state machine; the current flat
+    /// configuration draws its locked stroke directly.
     var isStickyLocked = false {
         didSet {
             guard oldValue != isStickyLocked else { return }
@@ -37,7 +31,7 @@ final class AccessoryActionButton: UIButton {
         didSet { updateStickyLockBorder() }
     }
 
-    /// Width of the sticky-lock capsule border, matching the pre-26 flat stroke.
+    /// Width of the legacy sticky-lock border.
     private static let stickyLockBorderWidth: CGFloat = 2
 
     /// Creates a button bound to a resolved toolbar item.
@@ -54,13 +48,11 @@ final class AccessoryActionButton: UIButton {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Keep the lock border a true capsule that hugs the glass pill as the
-        // button's bounds settle (height is fixed, but the corner radius is
-        // derived here so the border tracks any future sizing change).
+        // Keep the legacy lock border aligned as the button's bounds settle.
         updateStickyLockBorder()
     }
 
-    /// Sync the layer-level white capsule border to ``isStickyLocked``.
+    /// Sync the legacy layer border to ``isStickyLocked``.
     ///
     /// Always clears the border when not locked, so a button that transitions
     /// locked → armed → resting never keeps a stale border.

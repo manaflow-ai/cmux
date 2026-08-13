@@ -71,16 +71,16 @@ struct TaskComposerTemplateOption: View {
             .frame(width: resolvedCardWidth, height: resolvedCardHeight)
             .background(
                 isSelected ? Color.accentColor.opacity(0.13) : Color.primary.opacity(0.038),
-                in: Capsule()
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
             )
             .overlay {
-                Capsule()
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(
                         isSelected ? Color.accentColor.opacity(0.62) : Color.primary.opacity(0.065),
                         lineWidth: isSelected ? 1.25 : 1
                     )
             }
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)

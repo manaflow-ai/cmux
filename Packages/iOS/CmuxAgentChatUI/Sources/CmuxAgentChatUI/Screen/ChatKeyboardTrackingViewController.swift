@@ -417,13 +417,8 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     }
 
     private func configureComposerBackground() {
-        if #available(iOS 26.0, *) {
-            composerBackgroundView.effect = nil
-            composerBackgroundView.backgroundColor = .clear
-        } else {
-            composerBackgroundView.effect = UIBlurEffect(style: .systemThinMaterial)
-            composerBackgroundView.backgroundColor = .clear
-        }
+        composerBackgroundView.effect = nil
+        composerBackgroundView.backgroundColor = .systemBackground
     }
 
     private func updateTranscriptViewportInsets(

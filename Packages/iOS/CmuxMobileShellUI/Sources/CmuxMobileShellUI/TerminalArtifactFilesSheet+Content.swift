@@ -273,8 +273,14 @@ extension TerminalArtifactFilesSheet {
                 .font(.footnote.weight(.semibold))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(.regularMaterial, in: Capsule())
-                .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+                .background(
+                    Color(uiColor: .secondarySystemBackground),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -593,7 +599,7 @@ extension TerminalArtifactFilesSheet {
                                     galleryFilter == filter
                                         ? Color.accentColor
                                         : Color(uiColor: .secondarySystemBackground),
-                                    in: Capsule()
+                                    in: RoundedRectangle(cornerRadius: 9, style: .continuous)
                                 )
                         }
                         .buttonStyle(.plain)

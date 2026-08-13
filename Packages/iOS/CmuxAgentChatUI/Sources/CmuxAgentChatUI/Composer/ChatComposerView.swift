@@ -114,13 +114,7 @@ public struct ChatComposerView: View {
     #if os(iOS)
     @ViewBuilder
     private var composerSurface: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                composerStack
-            }
-        } else {
-            composerStack
-        }
+        composerStack
     }
     #endif
 
@@ -445,7 +439,6 @@ public struct ChatComposerView: View {
             isActive: listening,
             foregroundStyle: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(Color.secondary.opacity(0.8)),
             size: controlHeight,
-            pulsesWhenActive: true,
             isDisabled: !dictation.isAvailable,
             accessibilityIdentifier: "ChatComposerMic",
             accessibilityLabel: listening

@@ -40,9 +40,15 @@ struct ChatArtifactHighlightingStatusPill: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .frame(maxWidth: isExpanded ? 360 : nil, alignment: .leading)
-            .background(Color.secondary.opacity(0.12), in: Capsule())
-            .clipShape(Capsule())
-            .contentShape(Capsule())
+            .background(
+                Color.secondary.opacity(0.12),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(.separator.opacity(0.45), lineWidth: 0.5)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
     }

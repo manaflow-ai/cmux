@@ -35,16 +35,12 @@ public struct ChatThoughtRowView: View {
     }
 
     private var collapsedContent: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "brain")
-                .font(.caption)
-                .accessibilityHidden(true)
+        HStack(spacing: 6) {
             Text(
                 String(localized: "chat.thought.title", defaultValue: "Thought", bundle: .module)
             )
-            .font(.caption)
-            .italic()
-            Image(systemName: "doc.text.magnifyingglass")
+            .font(.footnote.weight(.medium))
+            Image(systemName: "chevron.right")
                 .font(.caption2)
                 .accessibilityHidden(true)
         }

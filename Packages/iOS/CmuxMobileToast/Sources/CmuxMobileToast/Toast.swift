@@ -35,7 +35,7 @@ public struct Toast: Identifiable, Equatable, Sendable {
         case never
     }
 
-    /// A single optional action rendered as a trailing capsule button.
+    /// A single optional action rendered as a trailing compact button.
     /// Activating it runs `handler` and dismisses the toast.
     public struct Action: Sendable {
         public let label: String
@@ -52,8 +52,7 @@ public struct Toast: Identifiable, Equatable, Sendable {
     public let title: String?
     public let message: String
     /// SF Symbol name overriding the style's default icon. `nil` uses the
-    /// style default (`info` has none, so plain info toasts read as a quiet
-    /// text capsule).
+    /// style default (`info` has none, so plain info toasts stay text-first).
     public let systemImage: String?
     public let placement: Placement
     public let autoDismiss: AutoDismiss
@@ -123,7 +122,7 @@ public struct Toast: Identifiable, Equatable, Sendable {
 
 public extension Toast {
     /// A neutral, ambient notice ("Copied", "Agent finished"). No icon by
-    /// default, so plain info toasts read as a quiet text capsule.
+    /// default, so plain info toasts stay text-first.
     static func info(
         _ message: String,
         title: String? = nil,
@@ -194,10 +193,9 @@ public extension Toast {
 }
 
 public extension Toast {
-    /// The standard clipboard confirmation: a quiet capsule with a shorter
-    /// dwell than a regular notice. Every copy in the app shares one
-    /// coalescing key, so rapid copies pulse a single capsule instead of
-    /// queueing a parade.
+    /// The standard clipboard confirmation with a short dwell. Every copy in
+    /// the app shares one coalescing key, so rapid copies refresh one notice
+    /// instead of queueing duplicates.
     ///
     /// - Parameter message: Overrides the default "Copied" label (e.g.
     ///   "Path copied") while keeping the shared look and coalescing.

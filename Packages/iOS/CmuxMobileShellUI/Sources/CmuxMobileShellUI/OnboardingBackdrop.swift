@@ -3,11 +3,7 @@ import SwiftUI
 
 struct OnboardingBackdrop: View {
     var body: some View {
-        ZStack {
-            PlatformPalette.systemBackground
-
-            GameOfLifeHeader()
-        }
+        PlatformPalette.systemBackground
         .ignoresSafeArea()
         .accessibilityHidden(true)
     }

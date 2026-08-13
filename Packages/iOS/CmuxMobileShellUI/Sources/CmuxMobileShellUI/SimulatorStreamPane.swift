@@ -263,7 +263,14 @@ struct SimulatorStreamPane: View {
         .font(.caption.weight(.semibold))
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule())
+        .background(
+            Color(uiColor: .secondarySystemBackground),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+        }
         .foregroundStyle(.primary)
         .accessibilityIdentifier("SimulatorStreamOwnershipPill")
     }
@@ -349,7 +356,14 @@ struct SimulatorStreamPane: View {
             .font(.footnote)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(.quaternary.opacity(0.5), in: Capsule())
+            .background(
+                Color(uiColor: .secondarySystemBackground),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+            }
             .onSubmit { submitText() }
             .disabled(!state.isOwnedByCurrentConnection || !state.supportsKeyboard)
             .accessibilityIdentifier("SimulatorStreamTextField")
@@ -407,7 +421,7 @@ struct SimulatorStreamPane: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .mobileGlassPill()
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
     }

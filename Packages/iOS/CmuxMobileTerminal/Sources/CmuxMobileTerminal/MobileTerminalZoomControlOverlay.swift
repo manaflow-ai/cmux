@@ -46,8 +46,8 @@ final class MobileTerminalZoomControlOverlay: UIView {
 
         titleLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
         titleLabel.textAlignment = .center
-        // The readout sits in its own small glass chip (matching the buttons) so
-        // it stays clearly legible over any terminal content.
+        // The readout sits in its own small opaque chip so it stays clearly
+        // legible over any terminal content.
         titleChip.layer.cornerRadius = 9
         titleChip.layer.cornerCurve = .continuous
         titleChip.clipsToBounds = true
@@ -127,7 +127,10 @@ final class MobileTerminalZoomControlOverlay: UIView {
         let foreground = background.terminalReadableForeground
         let isLight = background.terminalPrefersDarkForeground
         titleLabel.textColor = foreground
-        titleChip.effect = UIBlurEffect(style: isLight ? .systemThinMaterialLight : .systemThinMaterialDark)
+        titleChip.effect = nil
+        titleChip.backgroundColor = background.withAlphaComponent(0.92)
+        titleChip.layer.borderColor = foreground.withAlphaComponent(0.18).cgColor
+        titleChip.layer.borderWidth = 1
         for button in actionButtons {
             var config = button.configuration
             config?.baseForegroundColor = foreground
@@ -152,7 +155,7 @@ final class MobileTerminalZoomControlOverlay: UIView {
             return style
         }
         #endif
-        return .glass
+        return .solid
     }
 
     private static func makeButton(title: String, systemImage: String, style: ButtonStyle) -> UIButton {

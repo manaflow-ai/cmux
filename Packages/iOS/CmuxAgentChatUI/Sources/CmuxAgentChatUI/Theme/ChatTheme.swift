@@ -10,7 +10,8 @@ public struct ChatTheme: Sendable, Equatable {
     /// button.
     public var accent: Color
 
-    /// Fill for incoming (agent) prose bubbles.
+    /// Legacy fill token retained for host theme compatibility. Agent prose is
+    /// rendered directly on the transcript background by default.
     public var incomingBubbleFill: Color
 
     /// Foreground for monospace content on ``terminalCardFill``. Terminal
@@ -63,8 +64,8 @@ public struct ChatTheme: Sendable, Equatable {
             light: Color(white: 0.78),
             dark: Color(white: 0.28)
         ),
-        bubbleCornerRadius: CGFloat = 18,
-        bubbleGroupedCornerRadius: CGFloat = 6,
+        bubbleCornerRadius: CGFloat = 14,
+        bubbleGroupedCornerRadius: CGFloat = 4,
         horizontalMargin: CGFloat = 12,
         groupSpacing: CGFloat = 12,
         intraGroupSpacing: CGFloat = 5,

@@ -773,7 +773,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // The field is pinned edge-to-edge in the band, so the band frame (not an
             // intrinsic size) drives the hosting view's height; the measured ideal
             // height flows separately through `sizeThatFits`. Clear background so the
-            // terminal/glass shows through.
+            // terminal surface shows through.
             controller.view.backgroundColor = .clear
             // Keyboard geometry is owned explicitly by the surface's frame math;
             // opting out here prevents the hosted field from avoiding it a second time.

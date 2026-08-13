@@ -3,12 +3,12 @@ public import SwiftUI
 /// Two-line toolbar title text with stable row slots.
 ///
 /// Some glyphs, especially emoji, draw outside the font's nominal line box. In a
-/// compact Liquid Glass toolbar control that can make adjacent title/subtitle
-/// rows visually touch without changing the measured control height. Clipping
-/// each row to its own slot keeps the toolbar height native and prevents tall
-/// glyphs from bleeding into the neighboring row.
+/// compact toolbar control that can make adjacent title/subtitle rows visually
+/// touch without changing the measured control height. Clipping each row to its
+/// own slot keeps the toolbar height native and prevents tall glyphs from
+/// bleeding into the neighboring row.
 public struct MobileCompactToolbarTitleStack: View {
-    /// Additional horizontal breathing room inside the compact glass title pill.
+    /// Additional horizontal breathing room inside the compact title control.
     public static let horizontalContentPadding: CGFloat = 3
 
     private let title: String

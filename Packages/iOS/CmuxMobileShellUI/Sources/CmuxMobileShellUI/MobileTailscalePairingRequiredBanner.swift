@@ -47,7 +47,7 @@ struct MobileTailscalePairingRequiredBanner: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
         .overlay(alignment: .bottom) { Divider() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileTailscalePairingRequiredBanner")

@@ -1,23 +1,18 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// The toast's visual card: content-hugging Liquid Glass (material fallback),
-/// a capsule for plain messages and a continuous rounded rect for
-/// title+message pairs. Pure looks; lifetime and gestures live in the host.
+/// The toast's visual card: a quiet, content-hugging system surface. Pure
+/// looks; lifetime and gestures live in the host.
 struct ToastCardView: View {
     let toast: Toast
-    /// Bumped on appear and on every coalescing re-present; bounces the icon.
-    let iconBounceTrigger: Int
     let dismiss: () -> Void
-
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var isCompact: Bool { toast.title == nil }
 
     private var shape: AnyShape {
         isCompact
-            ? AnyShape(Capsule())
-            : AnyShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            ? AnyShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            : AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     var body: some View {
@@ -33,7 +28,11 @@ struct ToastCardView: View {
         .padding(.leading, toast.resolvedSystemImage != nil ? 9 : 16)
         .padding(.trailing, toast.action != nil ? 9 : 16)
         .padding(.vertical, isCompact ? 9 : 11)
-        .background { chrome }
+        .background {
+            shape
+                .fill(backgroundColor)
+                .overlay(shape.stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+        }
         .contentShape(shape)
         .onTapGesture { dismiss() }
         .accessibilityElement(children: .combine)
@@ -44,46 +43,7 @@ struct ToastCardView: View {
         .accessibilityIdentifier("MobileToast")
     }
 
-    @ViewBuilder
-    private var chrome: some View {
-        if reduceTransparency {
-            shape
-                .fill(solidBackgroundColor)
-                .overlay(shape.stroke(Color.primary.opacity(0.12), lineWidth: 1))
-                .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
-        } else {
-            glassOrMaterial
-        }
-    }
-
-    @ViewBuilder
-    private var glassOrMaterial: some View {
-        #if os(iOS)
-        if #available(iOS 26.0, *) {
-            // Bare Liquid Glass is nearly transparent over busy content (a
-            // terminal screen made toast text illegible), so the material
-            // plate guarantees diffusion and the glass rides on top purely
-            // for its rim and specular response.
-            shape
-                .fill(.regularMaterial)
-                .overlay(Color.clear.glassEffect(.regular, in: shape))
-                .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
-        } else {
-            materialFallback
-        }
-        #else
-        materialFallback
-        #endif
-    }
-
-    private var materialFallback: some View {
-        shape
-            .fill(.regularMaterial)
-            .overlay(shape.stroke(Color.primary.opacity(0.08), lineWidth: 1))
-            .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
-    }
-
-    private var solidBackgroundColor: Color {
+    private var backgroundColor: Color {
         #if os(iOS)
         Color(uiColor: .secondarySystemBackground)
         #else
@@ -96,7 +56,6 @@ struct ToastCardView: View {
             .font(.system(size: 12, weight: .bold))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(toast.style.tint)
-            .symbolEffect(.bounce, options: .nonRepeating, value: iconBounceTrigger)
             .frame(width: 26, height: 26)
             .background(Circle().fill(toast.style.tint.opacity(0.15)))
             .accessibilityHidden(true)
@@ -126,7 +85,7 @@ struct ToastCardView: View {
         }
         .font(.footnote.weight(.semibold))
         .buttonStyle(.bordered)
-        .buttonBorderShape(.capsule)
+        .buttonBorderShape(.roundedRectangle(radius: 8))
         .controlSize(.small)
         .tint(toast.style.actionTint)
         .accessibilityIdentifier("MobileToastActionButton")

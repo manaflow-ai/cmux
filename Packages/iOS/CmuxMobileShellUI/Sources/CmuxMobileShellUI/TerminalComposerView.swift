@@ -13,8 +13,7 @@ import UniformTypeIdentifiers
 ///
 /// A growing multi-line text field with the send button INSIDE its rounded
 /// container (trailing edge, riding the last line as the field grows — exactly
-/// iMessage's circular up-arrow), rendered with Liquid Glass (iOS 26+, with a
-/// thin-material fallback). Send delivers the text as a bracketed paste followed
+/// iMessage's circular up-arrow). Send delivers the text as a bracketed paste followed
 /// by a single Return (via `terminal.paste`), so a multi-line message lands as
 /// one submission instead of fragmenting on every interior newline.
 ///
@@ -280,19 +279,14 @@ struct TerminalComposerView: View {
         store.diagnosticLog?.record(DiagnosticEvent(code, a: a))
     }
 
-    /// On iOS 26 the glass controls float in a `GlassEffectContainer` over the
-    /// terminal (no opaque bar — that would be glass-on-glass). Earlier OSes get
-    /// a `.bar` material backing behind the material controls.
-    @ViewBuilder
+    /// Keep the composer in a quiet, opaque band so text and controls remain
+    /// legible over terminal output.
     private var composerSurface: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                composerBar
+        composerBar
+            .background(Color(uiColor: .systemBackground))
+            .overlay(alignment: .top) {
+                Divider()
             }
-        } else {
-            composerBar
-                .background(.bar)
-        }
     }
 
     private var composerBar: some View {
@@ -333,7 +327,7 @@ struct TerminalComposerView: View {
 
                 micButton
 
-                // The field and its send button share ONE rounded glass container,
+                // The field and its send button share one rounded container,
                 // rendered through the same support component as GUI chat. `.bottom`
                 // alignment pins the button to the field's last line as it grows.
                 MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
@@ -502,7 +496,6 @@ struct TerminalComposerView: View {
                 ? AnyShapeStyle(Color.red)
                 : AnyShapeStyle(store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)),
             size: controlHeight,
-            pulsesWhenActive: true,
             isDisabled: !dictation.isAvailable,
             accessibilityIdentifier: "MobileComposerMic",
             accessibilityLabel: listening

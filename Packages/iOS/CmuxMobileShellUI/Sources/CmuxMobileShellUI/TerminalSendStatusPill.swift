@@ -22,7 +22,14 @@ struct TerminalSendStatusPill: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(
+                Color(uiColor: .secondarySystemBackground),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+            }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("MobileTerminalSendStatus")
         }

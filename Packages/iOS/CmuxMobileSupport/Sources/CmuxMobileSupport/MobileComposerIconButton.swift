@@ -1,6 +1,6 @@
 public import SwiftUI
 
-/// Shared circular glass icon button for mobile composer controls.
+/// Shared circular icon button for mobile composer controls.
 public struct MobileComposerIconButton: View {
     private let systemImage: String
     private let activeSystemImage: String?
