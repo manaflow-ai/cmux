@@ -257,6 +257,36 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// durable Release log cannot capture terminal contents, credentials,
     /// account identifiers, file paths, URLs, workspace titles, or error text.
     case appFeatureAction = 65
+
+    // Raw values 66-70 are reserved for app-wide diagnostic expansion.
+
+    // MARK: Iroh bootstrap diagnostics
+
+    /// One direct dial plan was assembled before any connect attempt. `a` is
+    /// the public path hint count and `b` is the private fallback path hint
+    /// count. A plan with both counts zero proves no dial packet was sent.
+    case transportDialPlanBuilt = 71
+    /// Configured private addresses were joined with the target Mac's
+    /// broker-registered UDP port for one dial. `a` is the join state
+    /// (``DiagnosticPrivateAddressJoinState``), `b` is the configured
+    /// address count, and `c` is the resulting dialable hint count.
+    case transportPrivateAddressJoin = 72
+    /// Account-private LAN discovery resolved for one dial. `a` is the
+    /// outcome (``DiagnosticLANDiscoveryOutcome``) and `b` is the resolved
+    /// hint count.
+    case transportLANDiscovery = 73
+    /// One direct dial leg connected. `a` is the leg
+    /// (``DiagnosticDirectDialLeg``).
+    case transportDialLegSucceeded = 74
+    /// One direct dial leg failed before a connection existed. `a` is the
+    /// leg (``DiagnosticDirectDialLeg``) and `b` is the classified
+    /// ``DiagnosticFailureKind``.
+    case transportDialLegFailed = 75
+    /// The Mac's account-private LAN advertisement changed publication
+    /// state. `a` is the state (``DiagnosticLANPublicationState``) and `b`
+    /// is the synchronization reason (0 applied, 1 listener setting
+    /// disabled, 2 runtime context unavailable).
+    case lanPublicationState = 76
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

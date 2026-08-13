@@ -1829,7 +1829,7 @@ public final class MobileIrohRuntimeComposition:
                     custom: custom
                 )
             },
-            lanFallback: { target, bindings, rendezvous in
+            lanFallback: { [diagnosticLog] target, bindings, rendezvous in
                 guard let lanPeerDiscovery else { return [] }
                 switch await lanPeerDiscovery.discover(
                     rendezvous: rendezvous,
@@ -1843,12 +1843,32 @@ public final class MobileIrohRuntimeComposition:
                         for hint in peer.pathHints where !hints.contains(hint) {
                             hints.append(hint)
                             if hints.count == CmxIrohLANTXTRecord.maximumAddressCount {
-                                return hints
+                                break
                             }
                         }
+                        if hints.count == CmxIrohLANTXTRecord.maximumAddressCount {
+                            break
+                        }
                     }
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .transportLANDiscovery,
+                        a: DiagnosticLANDiscoveryOutcome.found.rawValue,
+                        b: hints.count
+                    ))
                     return hints
-                case .notFound, .policyDenied:
+                case .notFound:
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .transportLANDiscovery,
+                        a: DiagnosticLANDiscoveryOutcome.notFound.rawValue,
+                        b: 0
+                    ))
+                    return []
+                case .policyDenied:
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .transportLANDiscovery,
+                        a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
+                        b: 0
+                    ))
                     return []
                 }
             },

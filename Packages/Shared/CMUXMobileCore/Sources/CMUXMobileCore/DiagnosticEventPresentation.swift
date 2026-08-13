@@ -326,7 +326,8 @@ public struct DiagnosticEventPresentation: Sendable {
         .pairFail, .transportDialFailed, .recoveryFailed, .endpointFailed,
         .relayPolicyRefreshFailed, .sessionClosed, .routeUnavailable,
         .discoveryFailed, .admissionFailed, .hostAuthenticationFailed,
-        .rpcFailed, .transportCloseAttribution, .appFeatureAction,
+        .rpcFailed, .transportCloseAttribution, .transportDialLegFailed,
+        .appFeatureAction,
     ]
 
     /// Event codes whose `a` slot carries a ``DiagnosticTransportKind``.
@@ -451,6 +452,18 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.browserEditableFocus", defaultValue: "Browser editable focus")
         case .browserPanelCreateResolved:
             localized("diagnostics.event.browserPanelCreateResolved", defaultValue: "Browser panel create resolved")
+        case .transportDialPlanBuilt:
+            localized("diagnostics.event.transportDialPlanBuilt", defaultValue: "Direct dial plan assembled")
+        case .transportPrivateAddressJoin:
+            localized("diagnostics.event.transportPrivateAddressJoin", defaultValue: "Private addresses joined broker port")
+        case .transportLANDiscovery:
+            localized("diagnostics.event.transportLANDiscovery", defaultValue: "LAN discovery resolved")
+        case .transportDialLegSucceeded:
+            localized("diagnostics.event.transportDialLegSucceeded", defaultValue: "Direct dial leg connected")
+        case .transportDialLegFailed:
+            localized("diagnostics.event.transportDialLegFailed", defaultValue: "Direct dial leg failed")
+        case .lanPublicationState:
+            localized("diagnostics.event.lanPublicationState", defaultValue: "LAN advertisement state changed")
         case .simulatorStreamLifecycle:
             localized("diagnostics.event.simulatorStreamLifecycle", defaultValue: "Simulator stream state changed")
         case .simulatorFrameLifecycle:
@@ -505,6 +518,16 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "editable_focused", value: booleanName(raw))
         case .browserPanelCreateResolved:
             return Field(key: "created", value: booleanName(raw))
+        case .transportDialPlanBuilt:
+            return Field(key: "public_paths", value: String(raw))
+        case .transportPrivateAddressJoin:
+            return Field(key: "join", value: privateAddressJoinName(raw))
+        case .transportLANDiscovery:
+            return Field(key: "outcome", value: lanDiscoveryOutcomeName(raw))
+        case .transportDialLegSucceeded, .transportDialLegFailed:
+            return Field(key: "leg", value: dialLegName(raw))
+        case .lanPublicationState:
+            return Field(key: "state", value: lanPublicationStateName(raw))
         case .simulatorStreamLifecycle:
             return Field(key: "state", value: simulatorStreamLifecycleName(raw))
         case .simulatorFrameLifecycle:
@@ -545,6 +568,14 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "count", value: String(raw))
         case .browserEditableFocus:
             return Field(key: "outcome", value: browserFocusOutcomeName(raw))
+        case .transportDialPlanBuilt:
+            return Field(key: "private_fallback_paths", value: String(raw))
+        case .transportPrivateAddressJoin:
+            return Field(key: "configured_addresses", value: String(raw))
+        case .transportLANDiscovery:
+            return Field(key: "hints", value: String(raw))
+        case .lanPublicationState:
+            return Field(key: "reason", value: lanPublicationReasonName(raw))
         case .simulatorStreamLifecycle:
             return Field(key: "owner", value: simulatorOwnershipName(raw))
         case .simulatorFrameLifecycle:
@@ -756,6 +787,97 @@ public struct DiagnosticEventPresentation: Sendable {
             )
         }
         return displayName(value)
+    }
+
+    private func dialLegName(_ raw: Int) -> String {
+        switch raw {
+        case DiagnosticDirectDialLeg.publicPaths.rawValue:
+            localized("diagnostics.dialLeg.public", defaultValue: "Public paths")
+        case DiagnosticDirectDialLeg.privateFallback.rawValue:
+            localized("diagnostics.dialLeg.privateFallback", defaultValue: "Private fallback")
+        default:
+            localized("diagnostics.unknown.dialLeg", defaultValue: "Unknown leg (\(raw))")
+        }
+    }
+
+    private func privateAddressJoinName(_ raw: Int) -> String {
+        switch raw {
+        case DiagnosticPrivateAddressJoinState.notConfigured.rawValue:
+            localized("diagnostics.privateJoin.notConfigured", defaultValue: "None configured")
+        case DiagnosticPrivateAddressJoinState.joined.rawValue:
+            localized("diagnostics.privateJoin.joined", defaultValue: "Joined broker port")
+        case DiagnosticPrivateAddressJoinState.brokerPortsStale.rawValue:
+            localized(
+                "diagnostics.privateJoin.stalePorts",
+                defaultValue: "Broker ports missing or stale"
+            )
+        default:
+            localized("diagnostics.unknown.privateJoin", defaultValue: "Unknown join state (\(raw))")
+        }
+    }
+
+    private func lanDiscoveryOutcomeName(_ raw: Int) -> String {
+        switch raw {
+        case DiagnosticLANDiscoveryOutcome.noAuthority.rawValue:
+            localized("diagnostics.lanDiscovery.noAuthority", defaultValue: "No broker LAN authority")
+        case DiagnosticLANDiscoveryOutcome.found.rawValue:
+            localized("diagnostics.lanDiscovery.found", defaultValue: "Advertisement found")
+        case DiagnosticLANDiscoveryOutcome.notFound.rawValue:
+            localized("diagnostics.lanDiscovery.notFound", defaultValue: "Advertisement not found")
+        case DiagnosticLANDiscoveryOutcome.policyDenied.rawValue:
+            localized(
+                "diagnostics.lanDiscovery.policyDenied",
+                defaultValue: "Local Network permission denied"
+            )
+        default:
+            localized(
+                "diagnostics.unknown.lanDiscovery",
+                defaultValue: "Unknown discovery outcome (\(raw))"
+            )
+        }
+    }
+
+    private func lanPublicationStateName(_ raw: Int) -> String {
+        switch raw {
+        case DiagnosticLANPublicationState.inactive.rawValue:
+            localized("diagnostics.lanPublication.inactive", defaultValue: "Stopped")
+        case DiagnosticLANPublicationState.active.rawValue:
+            localized("diagnostics.lanPublication.active", defaultValue: "Advertising")
+        case DiagnosticLANPublicationState.unavailable.rawValue:
+            localized("diagnostics.lanPublication.unavailable", defaultValue: "Registration failing")
+        case DiagnosticLANPublicationState.policyDenied.rawValue:
+            localized(
+                "diagnostics.lanPublication.policyDenied",
+                defaultValue: "Local Network permission denied"
+            )
+        default:
+            localized(
+                "diagnostics.unknown.lanPublication",
+                defaultValue: "Unknown publication state (\(raw))"
+            )
+        }
+    }
+
+    private func lanPublicationReasonName(_ raw: Int) -> String {
+        switch raw {
+        case 0:
+            localized("diagnostics.lanPublicationReason.applied", defaultValue: "Settings applied")
+        case 1:
+            localized(
+                "diagnostics.lanPublicationReason.listenerDisabled",
+                defaultValue: "Listener setting disabled"
+            )
+        case 2:
+            localized(
+                "diagnostics.lanPublicationReason.noContext",
+                defaultValue: "Runtime context unavailable"
+            )
+        default:
+            localized(
+                "diagnostics.unknown.lanPublicationReason",
+                defaultValue: "Unknown reason (\(raw))"
+            )
+        }
     }
 
     private func sessionPurposeName(_ raw: Int) -> String {
@@ -1245,6 +1367,12 @@ public struct DiagnosticEventPresentation: Sendable {
         case "outcome": localized("diagnostics.field.outcome", defaultValue: "Outcome")
         case "editable_focused": localized("diagnostics.field.editableFocused", defaultValue: "Editable focused")
         case "created": localized("diagnostics.field.created", defaultValue: "Created")
+        case "public_paths": localized("diagnostics.field.publicPaths", defaultValue: "Public paths")
+        case "private_fallback_paths": localized("diagnostics.field.privateFallbackPaths", defaultValue: "Private fallback paths")
+        case "join": localized("diagnostics.field.join", defaultValue: "Join")
+        case "configured_addresses": localized("diagnostics.field.configuredAddresses", defaultValue: "Configured addresses")
+        case "hints": localized("diagnostics.field.hints", defaultValue: "Hints")
+        case "leg": localized("diagnostics.field.leg", defaultValue: "Leg")
         case "panel": localized("diagnostics.field.panel", defaultValue: "Panel")
         case "x": localized("diagnostics.field.x", defaultValue: "X")
         case "y": localized("diagnostics.field.y", defaultValue: "Y")

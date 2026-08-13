@@ -429,6 +429,7 @@ public extension DiagnosticEventCode {
              .streamEnded,
              .error,
              .transportDialFailed,
+             .transportDialLegFailed,
              .recoveryFailed,
              .endpointFailed,
              .relayPolicyRefreshFailed,
@@ -446,6 +447,7 @@ public extension DiagnosticEventCode {
     var carriesDiagnosticFailureKind: Bool {
         switch self {
         case .transportDialFailed,
+             .transportDialLegFailed,
              .recoveryFailed,
              .endpointFailed,
              .relayPolicyRefreshFailed,
@@ -473,6 +475,7 @@ public extension DiagnosticEventCode {
         case .pairFail,
              .error,
              .transportDialFailed,
+             .transportDialLegFailed,
              .recoveryFailed,
              .endpointFailed,
              .relayPolicyRefreshFailed,
