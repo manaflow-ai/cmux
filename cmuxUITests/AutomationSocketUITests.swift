@@ -155,9 +155,9 @@ final class AutomationSocketUITests: XCTestCase {
         app.launchArguments += [
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
-            "-NSAppSleepDisabled", "YES",
+            "-NSAppSleepDisabled", "YES"
         ]
-        app.launch()
+        launchAllowingHeadlessBackground(app)
         defer {
             _ = socketResult(
                 method: "caffeine.set",
@@ -179,18 +179,7 @@ final class AutomationSocketUITests: XCTestCase {
             false
         )
 
-        let applicationMenu = app.menuBars.menuBarItems.element(boundBy: 0)
-        XCTAssertTrue(
-            applicationMenu.waitForExistence(timeout: 5.0),
-            "Expected the application menu"
-        )
-        applicationMenu.click()
-        let keepAwakeItem = app.menuItems["Keep Mac Awake"]
-        XCTAssertTrue(
-            keepAwakeItem.waitForExistence(timeout: 3.0),
-            "Expected the localized Keep Mac Awake menu item"
-        )
-        keepAwakeItem.click()
+        clickKeepMacAwakeMenu(in: app)
 
         let enabled = waitForJSON(timeout: 5.0) {
             guard self.socketResult(
@@ -300,23 +289,7 @@ final class AutomationSocketUITests: XCTestCase {
         ]
         defer { app.terminate() }
 
-        let activationOptions = XCTExpectedFailure.Options()
-        activationOptions.isStrict = false
-        activationOptions.issueMatcher = { issue in
-            let diagnostics = [
-                issue.compactDescription,
-                issue.detailedDescription,
-                issue.associatedError?.localizedDescription,
-            ]
-                .compactMap { $0 }
-                .joined(separator: "\n")
-            return (issue.type == .system || issue.type == .assertionFailure) &&
-                diagnostics.contains("Failed to activate application") &&
-                diagnostics.contains("Running Background")
-        }
-        XCTExpectFailure("App activation may fail on headless CI runners", options: activationOptions) {
-            app.launch()
-        }
+        launchAllowingHeadlessBackground(app)
         XCTAssertTrue(
             ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for the window screenshot test. state=\(app.state.rawValue)"
@@ -643,6 +616,41 @@ final class AutomationSocketUITests: XCTestCase {
             return app.wait(for: .runningForeground, timeout: 6.0)
         }
         return false
+    }
+
+    private func launchAllowingHeadlessBackground(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        options.issueMatcher = { issue in
+            let diagnostics = [
+                issue.compactDescription,
+                issue.detailedDescription,
+                issue.associatedError?.localizedDescription
+            ]
+                .compactMap { $0 }
+                .joined(separator: "\n")
+            return (issue.type == .system || issue.type == .assertionFailure) &&
+                diagnostics.contains("Failed to activate application") &&
+                diagnostics.contains("Running Background")
+        }
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+    }
+
+    private func clickKeepMacAwakeMenu(in app: XCUIApplication) {
+        let applicationMenu = app.menuBars.menuBarItems.element(boundBy: 0)
+        XCTAssertTrue(
+            applicationMenu.waitForExistence(timeout: 5.0),
+            "Expected the application menu"
+        )
+        applicationMenu.click()
+        let keepAwakeItem = app.menuItems["Keep Mac Awake"]
+        XCTAssertTrue(
+            keepAwakeItem.waitForExistence(timeout: 3.0),
+            "Expected the localized Keep Mac Awake menu item"
+        )
+        keepAwakeItem.click()
     }
 
     private func ensureRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
