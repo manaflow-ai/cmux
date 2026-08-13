@@ -72,7 +72,7 @@ struct MobilePushReadinessPreviewView: View {
     @MainActor
     private func setPhoneEnabled(_ enabled: Bool) async -> Bool {
         if delaysPhoneMutation {
-            try? await Task.sleep(for: .milliseconds(500))
+            try? await Task.sleep(for: .seconds(2))
         }
         phoneEnabled = enabled
         registration = enabled
