@@ -103,6 +103,10 @@ set -euo pipefail
 git submodule update --init ghostty
 cd "$(git rev-parse --show-toplevel)"
 SOURCE_REF="$(git symbolic-ref --short HEAD)"
+[[ "$SOURCE_REF" == "main" ]] || {
+  echo "the token-bearing Testbox lane only accepts reviewed main; use a PR workflow for feature branches" >&2
+  exit 1
+}
 if [[ ! "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || "$SOURCE_REF" == *..* || "$SOURCE_REF" == */ || "$SOURCE_REF" == *//* ]]; then
   echo "HEAD must name a supported pushed branch ref" >&2
   exit 1

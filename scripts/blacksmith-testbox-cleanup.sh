@@ -68,58 +68,55 @@ import sys
 print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["source_ref"])
 PY
 )"
+inventory_log="$evidence_dir/list-before-stop.log"
+set +e
+blacksmith testbox list --all >"$inventory_log" 2>&1
+inventory_status=$?
+set -e
+if (( inventory_status != 0 )); then
+  echo "failed to capture the Testbox inventory before cleanup; refusing stop" >&2
+  exit "$inventory_status"
+fi
+
+# `status --id` is the ownership source of truth. Its row has the stable
+# columns ID STATUS IP WORKFLOW JOB REF, so compare only this exact ID with the
+# warmup receipt. Never infer ownership from another row in --all output.
 pre_status_log="$evidence_dir/status-before-stop.log"
 set +e
-blacksmith testbox list --all >"$pre_status_log" 2>&1
+blacksmith testbox status --id "$testbox_id" >"$pre_status_log" 2>&1
 pre_status=$?
 set -e
+skip_stop=0
 if (( pre_status == 0 )); then
   pre_row="$(awk -v id="$testbox_id" '$1 == id { print; exit }' "$pre_status_log")"
   if [[ -z "$pre_row" ]]; then
-    # --all can omit a terminal box. A missing row is safe only when the
-    # single-box status endpoint independently reports a known terminal state.
-    pre_lookup_log="$evidence_dir/status-before-stop-id.log"
-    set +e
-    blacksmith testbox status --id "$testbox_id" >"$pre_lookup_log" 2>&1
-    pre_lookup_status=$?
-    set -e
-    if (( pre_lookup_status == 0 )); then
-      pre_lookup_row="$(awk -v id="$testbox_id" '$1 == id { print; exit }' "$pre_lookup_log")"
-      if [[ -z "$pre_lookup_row" ]]; then
-        echo "single-box status omitted the owned Testbox; refusing cleanup" >&2
-        exit 66
-      fi
-      pre_lookup_status_value="$(awk '{print tolower($2)}' <<<"$pre_lookup_row")"
-      case "$pre_lookup_status_value" in
-        completed|stopped|cancelled|failed|terminated|hydration_failed)
-          ;;
-        ready|running|hydrating|in_progress|queued)
-          echo "owned Testbox is active but absent from inventory; refusing cleanup" >&2
-          exit 66
-          ;;
-        *)
-          echo "could not establish the owned Testbox terminal state; refusing cleanup" >&2
-          exit 66
-          ;;
-      esac
-    elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_lookup_log"; then
-      echo "could not establish ownership before cleanup; refusing cleanup" >&2
-      exit "$pre_lookup_status"
-    fi
-  else
-    # `list --all` currently exposes ID, STATUS, IP, WORKFLOW, JOB, REF, ...;
-    # derive the ownership fields relative to the stable ID/status columns and
-    # verify them against the receipt before issuing a destructive stop.
-    pre_workflow="$(awk '{print $5}' <<<"$pre_row")"
-    pre_job="$(awk '{print $6}' <<<"$pre_row")"
-    pre_ref="$(awk '{print $7}' <<<"$pre_row")"
-    if [[ "$pre_workflow" != "$receipt_workflow" || "$pre_job" != "$receipt_job" || "$pre_ref" != "$receipt_ref" ]]; then
-      echo "owned Testbox context differs from the warmup receipt; refusing cleanup" >&2
-      exit 66
-    fi
+    echo "status did not contain the owned Testbox row; refusing cleanup" >&2
+    exit 66
   fi
-elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_status_log"; then
-  echo "failed to preview Testbox $testbox_id before cleanup; see $pre_status_log" >&2
+  pre_status_value="$(awk '{print tolower($2)}' <<<"$pre_row")"
+  pre_workflow="$(awk '{print $4}' <<<"$pre_row")"
+  pre_job="$(awk '{print $5}' <<<"$pre_row")"
+  pre_ref="$(awk '{print $6}' <<<"$pre_row")"
+  if [[ "$pre_workflow" != "$receipt_workflow" || "$pre_job" != "$receipt_job" || "$pre_ref" != "$receipt_ref" ]]; then
+    echo "owned Testbox context differs from the warmup receipt; refusing cleanup" >&2
+    exit 66
+  fi
+  case "$pre_status_value" in
+    completed|stopped|cancelled|failed|terminated|hydration_failed)
+      skip_stop=1
+      ;;
+    ready|running|hydrating|in_progress|queued)
+      ;;
+    *)
+      echo "unknown status for owned Testbox $testbox_id; refusing cleanup" >&2
+      exit 66
+      ;;
+  esac
+elif grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_status_log"; then
+  # An ID-specific terminal/not-found response proves there is nothing to stop.
+  skip_stop=1
+else
+  echo "failed to inspect owned Testbox $testbox_id before cleanup; refusing stop" >&2
   exit "$pre_status"
 fi
 
@@ -130,10 +127,15 @@ cleanup_status=0
 poll_deadline=$((SECONDS + 120))
 poll_attempt=0
 
-set +e
-blacksmith testbox stop --id "$testbox_id" >"$stop_log" 2>&1
-stop_status=$?
-set -e
+if (( skip_stop == 1 )); then
+  printf 'Testbox %s is already terminal or absent; no stop request needed\n' "$testbox_id" >"$stop_log"
+  stop_status=0
+else
+  set +e
+  blacksmith testbox stop --id "$testbox_id" >"$stop_log" 2>&1
+  stop_status=$?
+  set -e
+fi
 if (( stop_status != 0 )); then
   # A completed or already-absent Testbox can race the explicit stop call.
   # Tolerate only the documented terminal/not-found response, never an

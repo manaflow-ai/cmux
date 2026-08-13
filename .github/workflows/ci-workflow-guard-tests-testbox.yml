@@ -37,7 +37,10 @@ jobs:
       name: blacksmith-testbox-trusted
     permissions:
       contents: read
-    timeout-minutes: 45
+    # Hydration plus three sequential 20-minute bounded remote builds happen
+    # after setup. Keep the GitHub job alive long enough for all stages and
+    # cleanup; the Testbox itself still has its separate idle timeout.
+    timeout-minutes: 120
     steps:
       # begin-testbox must be the first step. GitHub environment approval and
       # its trusted-branch policy are evaluated before this step; do not weaken
