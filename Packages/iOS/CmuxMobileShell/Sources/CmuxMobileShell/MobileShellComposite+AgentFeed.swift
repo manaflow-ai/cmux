@@ -500,10 +500,10 @@ extension MobileShellComposite {
         agentFeedCacheClearTask = nil
         agentFeedCacheClearToken = nil
     }
-}
 
-private func agentFeedWorkstreamKey(_ item: MobileAgentFeedItem) -> String {
-    "\(item.macDeviceID)|\(item.macInstanceTag ?? "")|\(item.wire.workstreamID)"
+    private func agentFeedWorkstreamKey(_ item: MobileAgentFeedItem) -> String {
+        "\(item.macDeviceID)|\(item.macInstanceTag ?? "")|\(item.wire.workstreamID)"
+    }
 }
 
 private extension MobileWorkstreamFeedPayload {
