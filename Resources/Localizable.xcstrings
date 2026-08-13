@@ -113146,6 +113146,57 @@
         }
       }
     },
+    "featureFlags.mobileTaskComposer.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSの新規タスク作成を有効にします。タスクモデル検出、ディレクトリ選択、添付ファイルのステージングを含みます。"
+          }
+        }
+      }
+    },
+    "featureFlags.mobileTaskComposer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile Task Composer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイルタスク作成"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.error.capabilityDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Composer is disabled on this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacではタスク作成が無効です"
+          }
+        }
+      }
+    },
     "featureFlags.override.none": {
       "extractionState": "manual",
       "localizations": {

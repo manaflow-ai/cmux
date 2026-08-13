@@ -570,7 +570,7 @@ struct WorkspaceShellView: View {
     }
 
     private var taskComposerAction: (() -> Void)? {
-        guard displaySettings.taskComposerEnabled else { return nil }
+        guard store.supportsTaskComposer else { return nil }
         return openTaskComposer
     }
 
