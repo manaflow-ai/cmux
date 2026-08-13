@@ -1000,9 +1000,23 @@ public actor ExternalHoverWorkService {
     /// Surface replacement/teardown: closes `lifetimeID` (a monotonic
     /// tombstone, never reopened — a NEW lifetime for the same surfaceID
     /// gets its own fresh entry, never this one) and drops its cache. A
-    /// request for this lifetime already in the
-    /// actor's queue becomes a no-op via `isCurrent`'s
-    /// `closedLifetimes` check.
+    /// request for this lifetime already in the actor's queue becomes a no-op
+    /// via `isCurrent`'s `closedLifetimes` check.
+    ///
+    /// The tombstones intentionally remain for the process lifetime.
+    /// `RuntimeSurfaceLifetimeID` is a 24-byte value; allowing for `Set`
+    /// storage overhead, budget about 48 bytes per entry, so even 10,000
+    /// closed lifetimes retain only about 0.5 MB. Do not reclaim entries in
+    /// the final drain or evict them at a size limit: either can reopen the
+    /// same stale-request hole from round 1 Blocking 5.
+    /// `ExternalHoverMailbox.teardown()` clears `pending` but does not seal
+    /// the mailbox, so a queued request can subsequently reach
+    /// `callSetterAndRecordPending` and recreate `pending` after a tombstone
+    /// is removed. Safe reclamation is deferred in full to issue #9872,
+    /// whose seven review items are the exit criteria:
+    /// https://github.com/manaflow-ai/cmux/issues/9872
+    /// Review context:
+    /// https://github.com/manaflow-ai/cmux/pull/9868#discussion_r3751442728
     @discardableResult
     public nonisolated func invalidateSurface(_ lifetimeID: RuntimeSurfaceLifetimeID) -> Task<Void, Never> {
         let task = Task { await self.closeLifetime(lifetimeID) }
