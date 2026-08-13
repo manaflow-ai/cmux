@@ -42,6 +42,7 @@ pushed branch ref and carry the full source SHA as an assertion:
 
 ```bash
 set -euo pipefail
+git submodule update --init ghostty
 cd "$(git rev-parse --show-toplevel)"
 SOURCE_REF="$(git symbolic-ref --short HEAD)"
 SOURCE_SHA="$(git rev-parse HEAD)"
@@ -49,7 +50,9 @@ GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
 [[ -n "$SOURCE_REF" ]]
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
 [[ "$GHOSTTY_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ "$(git -C ghostty rev-parse HEAD)" == "$GHOSTTY_SHA" ]]
 [[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ]]
+[[ -z "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]]
 remote_sha="$(git ls-remote --exit-code origin "refs/heads/$SOURCE_REF" | awk 'NR == 1 { print $1 }')"
 [[ "$remote_sha" == "$SOURCE_SHA" ]] || {
   echo "push the exact clean branch head before warming Testbox" >&2
@@ -87,6 +90,26 @@ JOB=cmux-tui-rust
 OUT="$PWD/.cmux-scratch/blacksmith-testbox-$SOURCE_SHA"
 TBX=""
 mkdir -p "$OUT/raw"
+cleanup() {
+  local result=$? cleanup_status
+  trap - EXIT
+  if [[ -n "$TBX" ]]; then
+    set +e
+    scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT"
+    cleanup_status=$?
+    set -e
+  else
+    set +e
+    blacksmith testbox list --all >"$OUT/list-after-stop.log" 2>&1
+    cleanup_status=$?
+    set -e
+  fi
+  if (( result == 0 && cleanup_status != 0 )); then
+    result="$cleanup_status"
+  fi
+  exit "$result"
+}
+trap cleanup EXIT
 blacksmith auth whoami
 blacksmith --version | tee "$OUT/blacksmith-version.txt"
 blacksmith runners catalog > "$OUT/runner-catalog.json"
@@ -142,7 +165,7 @@ run_stage() {
   local run_status download_status=0
   set +e
   blacksmith testbox run --id "$TBX" --debug \
-    "CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX CMUX_TESTBOX_SOURCE_REF=$SOURCE_REF ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA" \
+    "CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA" \
     2>&1 | tee "$OUT/$stage.run.log"
   run_status=${PIPESTATUS[0]}
   set -e

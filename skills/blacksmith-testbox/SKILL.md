@@ -82,10 +82,12 @@ found`). Do not pass a commit SHA to `blacksmith testbox warmup --ref`, and do
 not document raw SHA refs as supported. Warm up a pushed branch ref, then carry
 the full SHA separately and assert it remotely.
 
-Run this preflight from the clean worktree root:
+Initialize the public Ghostty submodule once, then run this preflight from the
+clean worktree root:
 
 ```bash
 set -euo pipefail
+git submodule update --init ghostty
 cd "$(git rev-parse --show-toplevel)"
 SOURCE_REF="$(git symbolic-ref --short HEAD)"
 [[ -n "$SOURCE_REF" ]] || { echo "HEAD is detached" >&2; exit 1; }
@@ -93,7 +95,9 @@ SOURCE_SHA="$(git rev-parse HEAD)"
 GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
 [[ "$GHOSTTY_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ "$(git -C ghostty rev-parse HEAD)" == "$GHOSTTY_SHA" ]]
 [[ -z "$(git status --porcelain=v1 --untracked-files=normal)" ]]
+[[ -z "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]]
 remote_sha="$(git ls-remote --exit-code origin "refs/heads/$SOURCE_REF" | awk 'NR == 1 { print $1 }')"
 [[ "$remote_sha" == "$SOURCE_SHA" ]] || {
   echo "the pushed branch is not the exact local HEAD" >&2
@@ -158,7 +162,7 @@ run_stage() {
   local run_status download_status=0
   set +e
   blacksmith testbox run --id "$TBX" --debug \
-    "CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX CMUX_TESTBOX_SOURCE_REF=$SOURCE_REF ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA" \
+    "CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA" \
     2>&1 | tee "$OUT/$stage.run.log"
   run_status=${PIPESTATUS[0]}
   set -e
