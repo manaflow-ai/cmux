@@ -2137,6 +2137,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */; };
 		5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */; };
 		5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */; };
+		A10052000000000000000002 /* SocketClient+StartupWait.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10052000000000000000001 /* SocketClient+StartupWait.swift */; };
 		A7984AD10000000000000001 /* SocketConfigurationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */; };
 		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
 		F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
@@ -4898,6 +4899,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketACLReloadRegressionTests.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiter.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiterMainThreadTests.swift; sourceTree = "<group>"; };
+		A10052000000000000000001 /* SocketClient+StartupWait.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketClient+StartupWait.swift"; sourceTree = "<group>"; };
 		A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketConfigurationLifecycleTests.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
@@ -7614,6 +7616,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A76110010000000000000002 /* AgentHookNotificationPolicy.swift */,
 				FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
+				A10052000000000000000001 /* SocketClient+StartupWait.swift */,
 				A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */,
@@ -10828,6 +10831,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
+				A10052000000000000000002 /* SocketClient+StartupWait.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
 				B816E948EC5E42AF967648AC /* SSHPTYAttachReconnectInputFilter.swift in Sources */,
 				E60610200000000000000002 /* SSHPTYAttachReconnectInputFilterControl.swift in Sources */,

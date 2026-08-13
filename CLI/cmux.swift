@@ -2215,12 +2215,12 @@ final class SocketClient {
         throw SocketConnectError(path: path, errnoValue: connectErrno)
     }
 
-    private static func shouldRetryConnect(_ error: Error) -> Bool {
+    static func shouldRetryConnect(_ error: Error) -> Bool {
         guard let error = error as? SocketConnectError else {
             return false
         }
         switch error.errnoValue {
-        case ECONNREFUSED, EAGAIN, EWOULDBLOCK:
+        case ECONNREFUSED, ENOENT, EAGAIN, EWOULDBLOCK:
             return true
         default:
             return false
@@ -2696,130 +2696,6 @@ final class SocketClient {
                 "cli.socket.error.socketRead",
                 defaultValue: "Socket read error"
             ))
-        }
-    }
-
-    static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
-        try waitForConnectableSocket(resolvePath: { path }, timeout: timeout)
-    }
-
-    /// Waits for a socket selected by `resolvePath` to become connectable.
-    ///
-    /// The resolver is evaluated before every probe so a startup fallback path
-    /// can become authoritative while the preferred path is still stale. A
-    /// kqueue watches the selected path's parent directory and supplies the
-    /// readiness signal; bounded timeouts provide backoff when a listener keeps
-    /// the same inode and no directory event is emitted.
-    static func waitForConnectableSocket(
-        resolvePath: () -> String,
-        timeout: TimeInterval
-    ) throws -> SocketClient {
-        let normalizedTimeout = timeout.isFinite ? max(timeout, 0) : 0
-        let deadline = Date.now.addingTimeInterval(normalizedTimeout)
-        let eventQueue = kqueue()
-        guard eventQueue >= 0 else {
-            throw startupSocketTimeout(path: resolvePath())
-        }
-        defer { Darwin.close(eventQueue) }
-
-        var watchedDirectoryFD: Int32 = -1
-        var watchedDirectoryPath: String?
-        defer {
-            if watchedDirectoryFD >= 0 {
-                Darwin.close(watchedDirectoryFD)
-            }
-        }
-
-        var retryDelay: TimeInterval = 0.025
-        var lastPath = resolvePath()
-        while true {
-            let currentPath = resolvePath()
-            lastPath = currentPath
-            let client = SocketClient(path: currentPath)
-            do {
-                try client.connectWithoutRetry()
-                if client.relayEndpoint != nil {
-                    client.close()
-                }
-                return client
-            } catch {
-                client.close()
-                guard shouldRetrySocketStartup(error) else {
-                    throw error
-                }
-            }
-
-            let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else {
-                throw startupSocketTimeout(path: lastPath)
-            }
-
-            if let directory = existingWatchDirectory(forPath: currentPath),
-               directory != watchedDirectoryPath {
-                if watchedDirectoryFD >= 0 {
-                    Darwin.close(watchedDirectoryFD)
-                    watchedDirectoryFD = -1
-                }
-                watchedDirectoryFD = registerSocketDirectory(directory, queue: eventQueue) ?? -1
-                watchedDirectoryPath = watchedDirectoryFD >= 0 ? directory : nil
-            }
-
-            waitForSocketDirectoryEvent(
-                eventQueue,
-                timeout: min(retryDelay, remaining)
-            )
-            retryDelay = min(retryDelay * 2, 0.5)
-        }
-    }
-
-    private static func shouldRetrySocketStartup(_ error: Error) -> Bool {
-        if shouldRetryConnect(error) {
-            return true
-        }
-        return (error as? CLIError)?.socketFailureKind == .pathMissing
-    }
-
-    static func isSocketStartupTimeout(_ error: Error) -> Bool {
-        (error as? CLIError)?.socketFailureKind == .startupTimeout
-    }
-
-    private static func startupSocketTimeout(path: String) -> CLIError {
-        CLIError(
-            message: "cmux app did not start in time (socket not found at \(path))",
-            socketFailureKind: .startupTimeout
-        )
-    }
-
-    private static func registerSocketDirectory(_ path: String, queue: Int32) -> Int32? {
-        let descriptor = open(path, O_EVTONLY)
-        guard descriptor >= 0 else { return nil }
-        var event = kevent(
-            ident: UInt(descriptor),
-            filter: Int16(EVFILT_VNODE),
-            flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
-            fflags: UInt32(NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB | NOTE_EXTEND | NOTE_LINK),
-            data: 0,
-            udata: nil
-        )
-        guard kevent(queue, &event, 1, nil, 0, nil) == 0 else {
-            Darwin.close(descriptor)
-            return nil
-        }
-        return descriptor
-    }
-
-    private static func waitForSocketDirectoryEvent(_ queue: Int32, timeout: TimeInterval) {
-        guard timeout > 0 else { return }
-        var timeoutSpec = timespec(
-            tv_sec: Int(timeout),
-            tv_nsec: Int((timeout - floor(timeout)) * 1_000_000_000)
-        )
-        while true {
-            var triggeredEvent = kevent()
-            let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
-            if result >= 0 || errno != EINTR {
-                return
-            }
         }
     }
 
