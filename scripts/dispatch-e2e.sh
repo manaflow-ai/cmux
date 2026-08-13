@@ -240,6 +240,12 @@ validate_item() {
 
   if [ -n "$method" ]; then
     local method_bare="${method%()}"
+    # XCTest only discovers parameterless instance methods named test*; any
+    # other func would make the hosted -only-testing filter run zero tests.
+    if [[ "$method_bare" != test* ]]; then
+      echo "error: '$method_bare' is not an XCTest test method (must start with 'test'); the hosted filter would run zero tests" >&2
+      exit 2
+    fi
     local -a scope_files=()
     local file
     while IFS= read -r file; do
@@ -249,8 +255,9 @@ validate_item() {
     scoped="$(class_scoped_lines "$cls" "${scope_files[@]}")"
     local found=0
     # grep must read the full stream (no -q): under pipefail, -q's early exit
-    # SIGPIPEs printf and fails the pipeline even on a match.
-    if printf '%s\n' "$scoped" | grep -E "func[[:space:]]+${method_bare}\b" >/dev/null; then
+    # SIGPIPEs printf and fails the pipeline even on a match. Empty parens
+    # required: XCTest skips test methods that take parameters.
+    if printf '%s\n' "$scoped" | grep -E "func[[:space:]]+${method_bare}[[:space:]]*\(\)" >/dev/null; then
       found=1
     fi
     if [ "$found" -eq 0 ]; then
