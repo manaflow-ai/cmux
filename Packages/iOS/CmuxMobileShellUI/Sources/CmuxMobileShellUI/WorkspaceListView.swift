@@ -61,6 +61,9 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
+    /// Whether the root setup-prompt coordinator currently presents its banner.
+    var showsTailscalePairingBanner = false
+    var dismissTailscalePairingBanner: () -> Void = {}
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
     var showAddDevice: (() -> Void)?
@@ -507,7 +510,8 @@ struct WorkspaceListView: View {
                 if connectionChrome == .tailscalePairingRequired,
                    let showPairingScanner {
                     MobileTailscalePairingRequiredBanner(
-                        scanPairingCode: showPairingScanner
+                        scanPairingCode: showPairingScanner,
+                        dismiss: dismissTailscalePairingBanner
                     )
                 }
             }
@@ -531,7 +535,8 @@ struct WorkspaceListView: View {
                 if let showPairingScanner {
                     Section {
                         MobileTailscalePairingRequiredBanner(
-                            scanPairingCode: showPairingScanner
+                            scanPairingCode: showPairingScanner,
+                            dismiss: dismissTailscalePairingBanner
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
@@ -911,7 +916,7 @@ struct WorkspaceListView: View {
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             connectionStatus: connectionStatus,
-            tailscalePairingRequired: store?.tailscalePairingRequired ?? false,
+            tailscalePairingRequired: showsTailscalePairingBanner,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         )

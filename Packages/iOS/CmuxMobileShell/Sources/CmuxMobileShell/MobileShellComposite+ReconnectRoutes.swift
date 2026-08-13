@@ -9,6 +9,17 @@ private let reconnectRouteLog = Logger(
     category: "MobileReconnectRoutes"
 )
 
+/// Readiness of the selected Tailscale connection method.
+///
+/// Keeping the load phase explicit prevents presentation code from treating a
+/// not-yet-loaded authorization as either confirmed or missing.
+public enum MobileTailscaleSetupStatus: Equatable, Sendable {
+    case notSelected
+    case loadingAuthorization
+    case pairingRequired
+    case authorized
+}
+
 /// Canonical identity for one locally authorized legacy Tailscale endpoint.
 private nonisolated struct MobileTailscaleAuthorizationEndpoint:
     Hashable, Sendable
@@ -178,11 +189,23 @@ extension MobileShellComposite {
         return hasStoredUsableTailscaleAuthorization
     }
 
+    /// Readiness of the selected Tailscale method and its local endpoint grant.
+    public var tailscaleSetupStatus: MobileTailscaleSetupStatus {
+        guard connectionMethodStore?.method == .tailscale else {
+            return .notSelected
+        }
+        if hasUsableTailscaleAuthorization {
+            return .authorized
+        }
+        if pairedMacLoadState == .notLoaded, hasKnownPairedMac {
+            return .loadingAuthorization
+        }
+        return .pairingRequired
+    }
+
     /// Whether the selected Tailscale method still needs its one-time pairing grant.
     public var tailscalePairingRequired: Bool {
-        connectionMethodStore?.method == .tailscale
-            && (pairedMacLoadState != .notLoaded || !hasKnownPairedMac)
-            && !hasUsableTailscaleAuthorization
+        tailscaleSetupStatus == .pairingRequired
     }
 
     /// The strict Tailscale policy for one paired Mac: only exact grant routes
