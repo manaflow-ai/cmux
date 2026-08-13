@@ -1,0 +1,319 @@
+import Foundation
+import SQLite3
+import Testing
+@testable import CMUXAgentLaunch
+
+/// Durable Codex binding fixtures.  Nothing in this suite reads the developer's
+/// real ~/.codex directory: every rollout and state database is under Fixture.root.
+@Suite(.serialized)
+struct CodexResumeBindingVerificationTests {
+    @Test func ephemeralIdentifierWithoutRolloutIsMissing() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let result = CodexSessionResumeVerifier().verify(
+            sessionId: "019ff9a1-cbe1-7231-9478-0c55a8c44560",
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        )
+
+        #expect(result == .missing)
+    }
+
+    @Test func unreadableThreadIndexIsUnavailable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-binding-unavailable-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("not-a-sqlite-database".utf8).write(
+            to: codexHome.appendingPathComponent("state_5.sqlite"),
+            options: .atomic
+        )
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: "019ff9a8-cbe1-7231-9478-0c55a8c44560",
+                transcriptPath: nil,
+                codexHome: codexHome.path
+            ) == .unavailable
+        )
+    }
+
+    @Test func persistedExecRolloutIsDurableButLowerProvenance() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019ff9b0-cbe1-7231-9478-0c55a8c44560"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionId,
+            source: "exec",
+            originator: "codex_exec"
+        )
+        try fixture.insertThread(sessionId: sessionId, rolloutPath: rollout.path)
+
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) else {
+            Issue.record("the persisted exec rollout must be observed before provenance rejects ownership")
+            return
+        }
+        #expect(evidence.provenance == .exec)
+        #expect(evidence.sessionId == sessionId)
+    }
+
+    @Test func legitimateTUIRolloutIsHighProvenance() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019ff9c0-d827-7831-960d-fd9bdf7d54e2"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionId,
+            source: "cli",
+            originator: "codex-tui"
+        )
+        try fixture.insertThread(sessionId: sessionId, rolloutPath: rollout.path)
+
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionId,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        ) else {
+            Issue.record("a real TUI rollout must be accepted")
+            return
+        }
+        #expect(evidence.provenance == .tui)
+        #expect(evidence.sessionId == sessionId)
+    }
+
+    @Test func threadIndexSourcePreventsLegacyExecFromOwningBinding() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019ff9c8-d827-7831-960d-fd9bdf7d54e2"
+        let rollout = try fixture.writeRollout(sessionId: sessionId)
+        try fixture.insertThread(
+            sessionId: sessionId,
+            rolloutPath: rollout.path,
+            source: "exec",
+            threadSource: "user"
+        )
+
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionId,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        ) else {
+            Issue.record("the indexed legacy rollout should remain durable evidence")
+            return
+        }
+        #expect(evidence.provenance == .exec)
+    }
+
+    @Test func nestedReviewMarkerIsLowerProvenanceEvenWhenSourceIsNested() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019ff9d0-cbe1-7231-9478-0c55a8c44560"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionId,
+            nestedSource: ["review": ["parent_thread_id": "parent"]]
+        )
+        try fixture.insertThread(sessionId: sessionId, rolloutPath: rollout.path)
+
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionId,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) else {
+            Issue.record("the nested rollout should be classified, not treated as absent")
+            return
+        }
+        #expect(evidence.provenance == .exec)
+    }
+
+    @Test func transcriptWithoutExactSessionMetadataIsMissing() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionId = "019ff9e0-cbe1-7231-9478-0c55a8c44560"
+        let transcript = fixture.codexHome.appendingPathComponent("legacy-transcript.jsonl")
+        let unrelatedEvent: [String: Any] = [
+            "type": "event_msg",
+            "payload": ["type": "task_started"],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: unrelatedEvent, options: [.sortedKeys])
+        try data.write(to: transcript, options: .atomic)
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: sessionId,
+                transcriptPath: transcript.path,
+                codexHome: fixture.codexHome.path
+            ) == .missing
+        )
+    }
+
+    @Test func provenanceReplacementPolicyRejectsChildrenAndDowngrades() {
+        #expect(!AgentResumeEvidenceProvenance.exec.canReplace(nil))
+        #expect(!AgentResumeEvidenceProvenance.subagent.canReplace(nil))
+        #expect(AgentResumeEvidenceProvenance.unknown.canReplace(nil))
+        #expect(!AgentResumeEvidenceProvenance.unknown.canReplace(.tui))
+        #expect(AgentResumeEvidenceProvenance.tui.canReplace(.unknown))
+        #expect(AgentResumeEvidenceProvenance.tui.canReplace(.tui))
+    }
+
+    @Test func hermesExistenceContractRemainsUnchanged() throws {
+        let fixture = try HermesFixture()
+        defer { fixture.remove() }
+
+        #expect(
+            HermesAgentIndex.sessionExistence(
+                sessionID: fixture.sessionID,
+                stateDBPath: fixture.databaseURL.path
+            ) == .exists
+        )
+        #expect(
+            HermesAgentIndex.sessionExistence(
+                sessionID: "missing-hermes-session",
+                stateDBPath: fixture.databaseURL.path
+            ) == .missing
+        )
+    }
+
+    private final class Fixture {
+        let root: URL
+        let codexHome: URL
+        private let database: OpaquePointer
+
+        init() throws {
+            root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-codex-binding-verifier-\(UUID().uuidString)", isDirectory: true)
+            codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+            try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+
+            var opened: OpaquePointer?
+            let databasePath = codexHome.appendingPathComponent("state_5.sqlite").path
+            guard sqlite3_open(databasePath, &opened) == SQLITE_OK, let opened else {
+                throw FixtureError.database
+            }
+            database = opened
+            guard sqlite3_exec(
+                database,
+                "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, source TEXT, thread_source TEXT)",
+                nil,
+                nil,
+                nil
+            ) == SQLITE_OK else {
+                throw FixtureError.database
+            }
+        }
+
+        deinit { sqlite3_close(database) }
+
+        func remove() { try? FileManager.default.removeItem(at: root) }
+
+        func writeRollout(
+            sessionId: String,
+            source: String? = nil,
+            originator: String? = nil,
+            nestedSource: [String: Any]? = nil
+        ) throws -> URL {
+            let directory = codexHome.appendingPathComponent("sessions/2026/08/12", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            var payload: [String: Any] = ["id": sessionId, "cwd": root.path]
+            if let source { payload["source"] = source }
+            if let originator { payload["originator"] = originator }
+            if let nestedSource { payload["source"] = nestedSource }
+            let line: [String: Any] = ["type": "session_meta", "payload": payload]
+            let data = try JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])
+            let url = directory.appendingPathComponent("rollout-\(sessionId).jsonl")
+            try data.write(to: url, options: .atomic)
+            return url
+        }
+
+        func insertThread(
+            sessionId: String,
+            rolloutPath: String,
+            source: String? = nil,
+            threadSource: String? = nil
+        ) throws {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(
+                database,
+                "INSERT INTO threads (id, rollout_path, source, thread_source) VALUES (?, ?, ?, ?)",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK, let statement else {
+                throw FixtureError.database
+            }
+            defer { sqlite3_finalize(statement) }
+            let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+            sqlite3_bind_text(statement, 1, sessionId, -1, transient)
+            sqlite3_bind_text(statement, 2, rolloutPath, -1, transient)
+            if let source {
+                sqlite3_bind_text(statement, 3, source, -1, transient)
+            } else {
+                sqlite3_bind_null(statement, 3)
+            }
+            if let threadSource {
+                sqlite3_bind_text(statement, 4, threadSource, -1, transient)
+            } else {
+                sqlite3_bind_null(statement, 4)
+            }
+            guard sqlite3_step(statement) == SQLITE_DONE else { throw FixtureError.database }
+        }
+    }
+
+    private final class HermesFixture {
+        let root: URL
+        let databaseURL: URL
+        let sessionID = "hermes-tui-session"
+        private let database: OpaquePointer
+
+        init() throws {
+            root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-hermes-binding-verifier-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            databaseURL = root.appendingPathComponent("state.db")
+            var opened: OpaquePointer?
+            guard sqlite3_open(databaseURL.path, &opened) == SQLITE_OK, let opened else {
+                throw FixtureError.database
+            }
+            database = opened
+            let schema = """
+                CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    title TEXT,
+                    model TEXT,
+                    started_at REAL,
+                    ended_at REAL,
+                    cwd TEXT
+                );
+                CREATE TABLE messages (
+                    id INTEGER PRIMARY KEY,
+                    session_id TEXT,
+                    timestamp REAL,
+                    role TEXT,
+                    content TEXT,
+                    tool_name TEXT
+                );
+                INSERT INTO sessions (id, source, title, started_at, cwd)
+                    VALUES ('hermes-tui-session', 'tui', 'fixture', 1, '/tmp');
+                """
+            guard sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK else {
+                throw FixtureError.database
+            }
+        }
+
+        deinit { sqlite3_close(database) }
+
+        func remove() { try? FileManager.default.removeItem(at: root) }
+    }
+
+    private enum FixtureError: Error { case database }
+}
