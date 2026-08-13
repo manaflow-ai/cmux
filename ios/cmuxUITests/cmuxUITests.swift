@@ -4330,17 +4330,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
         tap(modelPill, in: app)
         tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
-        let modelXBeforeScroll = modelPill.frame.midX
-
-        scroller.swipeLeft(velocity: .slow)
-
-        XCTAssertLessThan(
-            modelPill.frame.midX,
-            modelXBeforeScroll,
-            "The constrained pill region must remain horizontally scrollable"
-        )
         XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
         XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
+        XCTAssertGreaterThanOrEqual(modelPill.frame.minX, scroller.frame.minX)
+        XCTAssertLessThanOrEqual(
+            modelPill.frame.maxX,
+            scroller.frame.maxX,
+            "A long selected model must compress inside the pill viewport"
+        )
+        XCTAssertLessThanOrEqual(
+            modelPill.frame.maxX,
+            submit.frame.minX,
+            "The selected model must never extend beneath Submit"
+        )
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "task-composer-hard-scroll-edges"
@@ -4653,15 +4655,9 @@ final class cmuxUITests: XCTestCase {
             "The pill viewport must end before the fixed submit control"
         )
 
-        let modelXBeforeScroll = model.frame.midX
-        scroller.swipeLeft(velocity: .slow)
-        XCTAssertLessThan(
-            model.frame.midX,
-            modelXBeforeScroll,
-            "Overflowing pills must remain horizontally scrollable at Accessibility XXXL"
-        )
         XCTAssertGreaterThanOrEqual(model.frame.midX, scroller.frame.minX)
-        XCTAssertLessThanOrEqual(model.frame.midX, scroller.frame.maxX)
+        XCTAssertLessThanOrEqual(model.frame.maxX, scroller.frame.maxX)
+        XCTAssertLessThanOrEqual(model.frame.maxX, create.frame.minX)
         XCTAssertTrue(model.isHittable)
 
         let navigationBar = app.navigationBars.firstMatch
