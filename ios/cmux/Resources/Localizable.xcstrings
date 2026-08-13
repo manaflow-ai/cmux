@@ -1531,6 +1531,23 @@
         }
       }
     },
+    "mobile.debug.push.completeMutation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete Push Mutation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ変更を完了"
+          }
+        }
+      }
+    },
     "mobile.common.ok": {
       "extractionState": "manual",
       "localizations": {

@@ -136,6 +136,9 @@ final class PushReadinessUITests: XCTestCase {
             message: "The toggle must reflect the requested opt-out before async cleanup finishes"
         )
         waitForDisabled(phone)
+        let completeMutation = app.buttons["MobilePushReadinessCompletePhoneMutation"]
+        XCTAssertTrue(completeMutation.waitForExistence(timeout: 2))
+        completeMutation.tap()
         waitForEnabled(phone)
         XCTAssertEqual(phone.value as? String, "0")
     }
