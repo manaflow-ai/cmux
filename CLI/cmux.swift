@@ -3408,8 +3408,8 @@ struct CMUXCLI {
             .compactMap({ resolveExecutableInPath($0) })
             .first else {
             throw CLIError(
-                message: String(
-                    localized: "cli.coderouter.error.notFound",
+                message: CMUXDiffViewerLocalization.string(
+                    "cli.coderouter.error.notFound",
                     defaultValue: "Required CLI not found. Install the command and retry."
                 ),
                 exitCode: 127
@@ -3451,8 +3451,8 @@ struct CMUXCLI {
                 + "errno=\(executionError) error=\(errorText)"
         )
         throw CLIError(
-            message: String(
-                localized: "cli.coderouter.error.launchFailed",
+            message: CMUXDiffViewerLocalization.string(
+                "cli.coderouter.error.launchFailed",
                 defaultValue: "Could not start the required CLI. Check the installation and try again."
             ),
             exitCode: 127
@@ -36789,7 +36789,7 @@ export default CMUXSessionRestore;
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
-          \(String(localized: "cli.coderouter.aliases", defaultValue: "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)"))
+          \(CMUXDiffViewerLocalization.string("cli.coderouter.aliases", defaultValue: "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)"))
           vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
