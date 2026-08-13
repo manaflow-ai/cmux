@@ -1,0 +1,56 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { HarnessModelPicker } from "../src/components/StatusRow";
+import type { Provider, SessionOption } from "../src/session";
+
+Object.defineProperty(globalThis, "document", {
+  configurable: true,
+  value: { documentElement: {} },
+});
+Object.defineProperty(globalThis, "getComputedStyle", {
+  configurable: true,
+  value: () => ({ getPropertyValue: () => "" }),
+});
+
+const provider: Provider = { id: "codex", label: "Codex", installed: true };
+
+function renderPicker(running: boolean, options: SessionOption[], loading: boolean): string {
+  return renderToStaticMarkup(React.createElement(HarnessModelPicker, {
+    provider: provider.id,
+    providers: [provider],
+    options,
+    allProviderOptions: options.length ? { [provider.id]: options } : {},
+    loadingProviderIds: loading ? new Set([provider.id]) : new Set<string>(),
+    open: false,
+    onOpenChange: () => {},
+    onSelect: () => {},
+    running,
+  }));
+}
+
+for (const [surface, running] of [["task composer", false], ["running provider control", true]] as const) {
+  const markup = renderPicker(running, [], true);
+  if (!markup.includes('role="status"') || !markup.includes('aria-label="Loading models"')) {
+    throw new Error(`${surface}: expected an accessible model-loading indicator, got ${markup}`);
+  }
+  if (!markup.includes("pinwheel-spinner")) {
+    throw new Error(`${surface}: expected the model-loading spinner, got ${markup}`);
+  }
+}
+
+const loadedOptions: SessionOption[] = [{
+  id: "model",
+  label: "Model",
+  kind: "select",
+  value: "gpt-5.6-sol",
+  choices: [{ value: "gpt-5.6-sol", label: "GPT-5.6 Sol" }],
+}];
+const loadedMarkup = renderPicker(false, loadedOptions, false);
+if (loadedMarkup.includes('aria-label="Loading models"') || loadedMarkup.includes("pinwheel-spinner")) {
+  throw new Error(`loaded picker should remove its loading indicator, got ${loadedMarkup}`);
+}
+if (!loadedMarkup.includes("GPT-5.6 Sol")) {
+  throw new Error(`loaded picker should show the selected model, got ${loadedMarkup}`);
+}
+
+console.log("model picker loading indicator: OK");
