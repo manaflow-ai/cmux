@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import Testing
 
@@ -17,7 +18,12 @@ struct SidebarLeadingEdgeAnchorTests {
 
         let capture = SidebarLeadingEdgeFrameCapture()
         let layout = SidebarLayoutModel(width: 240)
-        let root = SidebarLeadingEdgeProbe(layout: layout, capture: capture)
+        let probeState = SidebarLeadingEdgeProbeState()
+        let root = SidebarLeadingEdgeProbe(
+            layout: layout,
+            probeState: probeState,
+            capture: capture
+        )
         let host = NSHostingView(rootView: root)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
@@ -33,36 +39,71 @@ struct SidebarLeadingEdgeAnchorTests {
         window.contentView = host
 
         for width in [CGFloat(240), 320, 180, 240] {
+            probeState.generation &+= 1
+            let generation = probeState.generation
             layout.width = width
             host.frame = NSRect(x: 0, y: 0, width: width, height: 120)
-            host.layoutSubtreeIfNeeded()
-            window.contentView?.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
-            host.layoutSubtreeIfNeeded()
+            let deadline = Date(timeIntervalSinceNow: 0.5)
+            while !capture.hasMeasurement(for: generation, width: width), Date() < deadline {
+                host.layoutSubtreeIfNeeded()
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            }
 
-            let frames = capture.frames
+            guard let frames = capture.measurement(for: generation, width: width) else {
+                Issue.record("Sidebar probe did not report current geometry at width \(width).")
+                continue
+            }
             guard let short = frames[SidebarLeadingEdgeProbe.shortRowID],
                   let wide = frames[SidebarLeadingEdgeProbe.wideRowID] else {
                 Issue.record("Sidebar probe did not report both row frames at width \(width).")
                 continue
             }
 
-            #expect(short.minX >= -0.5, "Short row moved off the leading edge at width \(width): \(short).")
-            #expect(wide.minX >= -0.5, "Wide row moved off the leading edge at width \(width): \(wide).")
+            #expect(abs(short.minX) < 0.5, "Short row moved off x=0 at width \(width): \(short).")
+            #expect(abs(wide.minX) < 0.5, "Wide row moved off x=0 at width \(width): \(wide).")
             #expect(abs(short.minX - wide.minX) < 0.5, "Rows no longer share one leading anchor: \(frames).")
         }
     }
 }
 
+@MainActor
+private final class SidebarLeadingEdgeProbeState: ObservableObject {
+    @Published var generation = 0
+}
+
+private struct SidebarLeadingEdgeMeasurement: Equatable {
+    let frame: CGRect
+    let generation: Int
+    let containerWidth: CGFloat
+}
+
 private final class SidebarLeadingEdgeFrameCapture {
-    var frames: [String: CGRect] = [:]
+    var measurements: [String: SidebarLeadingEdgeMeasurement] = [:]
+
+    func hasMeasurement(for generation: Int, width: CGFloat) -> Bool {
+        measurement(for: generation, width: width) != nil
+    }
+
+    func measurement(for generation: Int, width: CGFloat) -> [String: CGRect]? {
+        let matching = measurements.filter {
+            $0.value.generation == generation && abs($0.value.containerWidth - width) < 0.5
+        }
+        guard matching.count == 2 else { return nil }
+        return matching.reduce(into: [String: CGRect]()) { result, entry in
+            result[entry.key] = entry.value.frame
+        }
+    }
 }
 
 private struct SidebarLeadingEdgeFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [String: CGRect] = [:]
+    static let defaultValue: [String: SidebarLeadingEdgeMeasurement] = [:]
 
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+    static func reduce(
+        value: inout [String: SidebarLeadingEdgeMeasurement],
+        nextValue: () -> [String: SidebarLeadingEdgeMeasurement]
+    ) {
         value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
@@ -72,6 +113,7 @@ private struct SidebarLeadingEdgeProbe: View {
     static let wideRowID = "wide"
 
     let layout: SidebarLayoutModel
+    @ObservedObject var probeState: SidebarLeadingEdgeProbeState
     let capture: SidebarLeadingEdgeFrameCapture
 
     var body: some View {
@@ -86,7 +128,7 @@ private struct SidebarLeadingEdgeProbe: View {
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .coordinateSpace(name: "sidebar-leading-edge-probe")
         .onPreferenceChange(SidebarLeadingEdgeFramePreferenceKey.self) {
-            capture.frames = $0
+            capture.measurements = $0
         }
     }
 
@@ -97,7 +139,11 @@ private struct SidebarLeadingEdgeProbe: View {
                 GeometryReader { proxy in
                     Color.clear.preference(
                         key: SidebarLeadingEdgeFramePreferenceKey.self,
-                        value: [id: proxy.frame(in: .named("sidebar-leading-edge-probe"))]
+                        value: [id: SidebarLeadingEdgeMeasurement(
+                            frame: proxy.frame(in: .named("sidebar-leading-edge-probe")),
+                            generation: probeState.generation,
+                            containerWidth: layout.width
+                        )]
                     )
                 }
             }
