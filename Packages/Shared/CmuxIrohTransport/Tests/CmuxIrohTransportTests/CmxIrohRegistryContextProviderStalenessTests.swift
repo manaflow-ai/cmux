@@ -11,6 +11,39 @@ import Testing
 @Suite
 struct CmxIrohRegistryContextProviderStalenessTests {
     @Test
+    func freshDiscoveryRecordsLifecycleAndRedactedCounts() async throws {
+        let fixture = try RegistryFixture()
+        let relay = try managedRelayHint(fixture)
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [relay]),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let diagnostics = DiagnosticLog(capacity: 8, role: .mobileClient)
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            verifiedDiscovery: nil,
+            diagnostics: diagnostics
+        )
+
+        _ = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(await waitForDiagnosticProcessedCount(diagnostics, atLeast: 2))
+        let events = await diagnostics.snapshot().events
+        #expect(events.map(\.code) == [
+            .discoveryStarted,
+            .discoverySucceeded,
+        ])
+        #expect(events[1].a == DiagnosticTransportKind.iroh.rawValue)
+        #expect(events[1].b == 2)
+        #expect(events[1].c == 1)
+        #expect(events[1].ms != nil)
+    }
+
+    @Test
     func dialFailureOnEmptyPlanForcesOneFreshDiscoveryAndRebuiltPlan() async throws {
         let fixture = try RegistryFixture()
         let relay = try managedRelayHint(fixture)
@@ -99,6 +132,33 @@ struct CmxIrohRegistryContextProviderStalenessTests {
         // The verified snapshot was reused: no broker fetch happened.
         #expect(await broker.discoveryRequestCount() == 0)
         #expect(context.dialPlan.publicPaths == [relay])
+    }
+
+    @Test
+    func gatedDialFailureDoesNotInvalidateDiscoveryReuse() async throws {
+        let fixture = try RegistryFixture()
+        let relay = try managedRelayHint(fixture)
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [relay]),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            verifiedDiscovery: try fixture.discovery(targetHints: [relay])
+        )
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try nonEmptyPlan(fixture, hints: [relay]),
+            failure: .routeGated
+        )
+
+        _ = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(await broker.discoveryRequestCount() == 0)
     }
 
     @Test
@@ -331,7 +391,8 @@ struct CmxIrohRegistryContextProviderStalenessTests {
     private func makeProvider(
         fixture: RegistryFixture,
         broker: ConfigurableRegistryBroker,
-        verifiedDiscovery: CmxIrohDiscoveryResponse?
+        verifiedDiscovery: CmxIrohDiscoveryResponse?,
+        diagnostics: DiagnosticLog? = nil
     ) async throws -> CmxIrohRegistryContextProvider {
         CmxIrohRegistryContextProvider(
             supervisor: try await fixture.activeSupervisor(),
@@ -344,6 +405,7 @@ struct CmxIrohRegistryContextProviderStalenessTests {
                     activeNetworkProfiles: []
                 )
             },
+            diagnostics: diagnostics,
             verifiedDiscovery: verifiedDiscovery,
             now: { fixture.now }
         )

@@ -36,12 +36,13 @@ import Testing
 
     @Test func describesDirectDialBootstrapTrace() {
         let plan = englishPresentation.describe(
-            DiagnosticEvent(code: .transportDialPlanBuilt, tNanos: 1, a: 0, b: 0)
+            DiagnosticEvent(code: .transportDialPlanBuilt, tNanos: 1, a: 0, b: 0, c: 1)
         )
         #expect(plan.name == "Direct dial plan assembled")
         #expect(plan.fields == [
             .init(key: "public_paths", value: "0"),
             .init(key: "private_fallback_paths", value: "0"),
+            .init(key: "public_relays", value: "1"),
         ])
 
         let join = englishPresentation.describe(DiagnosticEvent(
@@ -79,6 +80,41 @@ import Testing
         #expect(legFailed.name == "Direct dial leg failed")
         #expect(legFailed.fields.contains(
             .init(key: "leg", value: "Private fallback")
+        ))
+
+        let discovery = englishPresentation.describe(DiagnosticEvent(
+            code: .discoverySucceeded,
+            tNanos: 1,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: 2,
+            c: 1
+        ))
+        #expect(discovery.fields == [
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "bindings", value: "2"),
+            .init(key: "relays", value: "1"),
+        ])
+
+        let discoveryDuration = englishPresentation.describe(DiagnosticEvent(
+            code: .discoveryFailed,
+            tNanos: 1,
+            ms: 1_250,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.noRoute.rawValue
+        ))
+        #expect(discoveryDuration.fields.contains(
+            .init(key: "discovery_duration", value: "1.250 seconds")
+        ))
+
+        let legDuration = englishPresentation.describe(DiagnosticEvent(
+            code: .transportDialLegFailed,
+            tNanos: 1,
+            ms: 5_000,
+            a: DiagnosticDirectDialLeg.publicPaths.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue
+        ))
+        #expect(legDuration.fields.contains(
+            .init(key: "phase_duration", value: "5 seconds")
         ))
 
         let publication = englishPresentation.describe(DiagnosticEvent(
@@ -199,6 +235,7 @@ import Testing
             .hostAuthenticated: "Host authenticated",
             .rpcReady: "RPC session ready",
             .recoveryStarted: "Connection recovery started",
+            .recoveryCoalesced: "Connection recovery coalesced",
             .recoverySucceeded: "Connection recovery succeeded",
             .recoveryFailed: "Connection recovery failed",
             .endpointStarting: "Iroh endpoint starting",
@@ -256,11 +293,37 @@ import Testing
             code: .recoveryStarted,
             tNanos: 1,
             a: DiagnosticTransportKind.iroh.rawValue,
-            b: 1
+            b: 1,
+            c: 4
         ))
         #expect(recovery.fields == [
             .init(key: "transport", value: "Iroh"),
             .init(key: "trigger", value: "Network changed"),
+            .init(key: "recovery_attempt", value: "4"),
+        ])
+
+        let methodChange = englishPresentation.describe(DiagnosticEvent(
+            code: .recoveryStarted,
+            tNanos: 1,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: 10
+        ))
+        #expect(methodChange.fields == [
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "trigger", value: "Connection method changed"),
+        ])
+
+        let coalesced = englishPresentation.describe(DiagnosticEvent(
+            code: .recoveryCoalesced,
+            tNanos: 1,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: 3,
+            c: 12
+        ))
+        #expect(coalesced.fields == [
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "trigger", value: "Presence notification"),
+            .init(key: "reconnect_generation", value: "12"),
         ])
 
         let endpoint = englishPresentation.describe(DiagnosticEvent(

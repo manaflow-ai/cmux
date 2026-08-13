@@ -533,6 +533,49 @@ struct CmxConnectivityEngineTests {
         try await Self.waitUntil { await finished.value() }
     }
 
+    @Test
+    func contextResolutionFailureRecordsRedactedRouteUnavailableEvent() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let peerIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let endpoint = TestIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try Self.endpointConfiguration()
+        )
+        let diagnostics = DiagnosticLog(capacity: 8, role: .mobileClient)
+        let engine = CmxConnectivityEngine(
+            supervisor: supervisor,
+            contextProvider: RouteUnavailableContextProvider(),
+            diagnosticLog: diagnostics
+        )
+        try await engine.start()
+        defer { Task { await engine.stop() } }
+
+        let request = CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: "iroh-v2",
+                kind: .iroh,
+                endpoint: .peer(identity: peerIdentity, pathHints: [])
+            ),
+            expectedPeerDeviceID: Self.peerDeviceID,
+            authorizationMode: .transportAdmission
+        )
+        await #expect(throws: CmxIrohRegistryContextError.dialPlanUnavailable) {
+            _ = try await engine.acquireControl(for: request, ownerID: UUID())
+        }
+
+        #expect(await waitForDiagnosticProcessedCount(diagnostics, atLeast: 1))
+        let events = await diagnostics.snapshot().events
+        #expect(events.map(\.code) == [.routeUnavailable])
+        #expect(events[0].a == DiagnosticTransportKind.iroh.rawValue)
+        #expect(events[0].b == DiagnosticFailureKind.noRoute.rawValue)
+        await engine.stop()
+    }
+
     private static let peerEndpointID = String(repeating: "f", count: 64)
     private static let peerDeviceID = "123e4567-e89b-42d3-a456-426614174999"
 
@@ -878,5 +921,13 @@ private struct FailingConnectivityContextProvider: CmxIrohClientContextProvider 
     ) async throws -> CmxIrohClientContext {
         _ = request
         throw CmxConnectivityEngineError.inactive
+    }
+}
+
+private struct RouteUnavailableContextProvider: CmxIrohClientContextProvider {
+    func context(
+        for _: CmxByteTransportRequest
+    ) async throws -> CmxIrohClientContext {
+        throw CmxIrohRegistryContextError.dialPlanUnavailable
     }
 }

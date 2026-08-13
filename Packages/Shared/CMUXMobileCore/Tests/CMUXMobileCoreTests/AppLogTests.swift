@@ -177,6 +177,7 @@ import Testing
         #expect(DiagnosticEventCode.transportDialLegSucceeded.appLogDomain == .network)
         #expect(DiagnosticEventCode.transportDialLegFailed.appLogDomain == .network)
         #expect(DiagnosticEventCode.lanPublicationState.appLogDomain == .network)
+        #expect(DiagnosticEventCode.recoveryCoalesced.appLogDomain == .network)
         #expect(DiagnosticEventCode.sessionClosed.appLogDomain == .network)
         #expect(DiagnosticEventCode.discoveryFailed.appLogDomain == .network)
         #expect(DiagnosticEventCode.relayPolicyRefreshFailed.appLogDomain == .network)

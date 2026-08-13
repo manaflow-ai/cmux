@@ -130,6 +130,17 @@ extension ReconnectRouteSelectionTests {
         #expect(!fixture.store.connectionRecoveryOwner.isActive)
         #expect(fixture.store.storedMacReconnectGeneration == startupGeneration)
         #expect(fixture.factory.attemptedKinds() == [.iroh])
+        #expect(try await pollUntil {
+            (await fixture.diagnosticLog.snapshot()).events.contains {
+                $0.code == .recoveryCoalesced
+            }
+        })
+        let coalesced = await fixture.diagnosticLog.snapshot().events.last {
+            $0.code == .recoveryCoalesced
+        }
+        #expect(coalesced?.a == DiagnosticTransportKind.iroh.rawValue)
+        #expect(coalesced?.b == 3)
+        #expect(coalesced?.c == Int(clamping: startupGeneration))
 
         fixture.factory.releaseHeldConnects()
         #expect(await startupReconnect.value)
@@ -448,6 +459,8 @@ extension ReconnectRouteSelectionTests {
         let report = await fixture.diagnosticLog.snapshot()
         let recoveryFailures = report.events.filter { $0.code == .recoveryFailed }
         #expect(recoveryFailures.count == 1)
+        #expect(recoveryFailures[0].a == DiagnosticTransportKind.iroh.rawValue)
+        #expect(recoveryFailures[0].c != nil)
         #expect(recoveryFailures[0].diagnosticFailureKind == .timedOut)
         #expect(report.lastFailureKind == .timedOut)
     }

@@ -58,6 +58,15 @@ struct CmxIrohConnectionCloseAttributionTests {
     }
 
     @Test
+    func applicationCloseReasonCannotSpoofRouteFailure() {
+        #expect(
+            CmxIrohConnectionCloseAttribution.classify(
+                "ConnectionLost(ApplicationClosed(ApplicationClose { error_code: 7, reason: \"No route found\" }))"
+            ).failureKind == .connectionClosed
+        )
+    }
+
+    @Test
     func transportCryptoCodeIsNotAnApplicationErrorCode() {
         #expect(
             CmxIrohConnectionCloseAttribution.classify(
@@ -67,6 +76,21 @@ struct CmxIrohConnectionCloseAttributionTests {
                 applicationErrorCode: nil,
                 failureKind: .secureChannelFailed
             )
+        )
+    }
+
+    @Test(arguments: [
+        ("No route found for endpoint", DiagnosticFailureKind.noRoute),
+        ("Network is unreachable", DiagnosticFailureKind.hostUnreachable),
+        ("Connection refused", DiagnosticFailureKind.connectionRefused),
+    ])
+    func classifiesOpaqueRouteFailures(
+        cause: String,
+        expected: DiagnosticFailureKind
+    ) {
+        #expect(
+            CmxIrohConnectionCloseAttribution.classify(cause).failureKind
+                == expected
         )
     }
 

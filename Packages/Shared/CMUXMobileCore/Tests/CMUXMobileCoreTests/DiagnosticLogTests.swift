@@ -310,6 +310,13 @@ import os
         #expect(DiagnosticEventCode.simulatorInputLifecycle.rawValue == 62)
         #expect(DiagnosticEventCode.simulatorCoordinateMapped.rawValue == 63)
         #expect(DiagnosticEventCode.simulatorOwnershipChanged.rawValue == 64)
+        #expect(DiagnosticEventCode.transportDialPlanBuilt.rawValue == 71)
+        #expect(DiagnosticEventCode.transportPrivateAddressJoin.rawValue == 72)
+        #expect(DiagnosticEventCode.transportLANDiscovery.rawValue == 73)
+        #expect(DiagnosticEventCode.transportDialLegSucceeded.rawValue == 74)
+        #expect(DiagnosticEventCode.transportDialLegFailed.rawValue == 75)
+        #expect(DiagnosticEventCode.lanPublicationState.rawValue == 76)
+        #expect(DiagnosticEventCode.recoveryCoalesced.rawValue == 77)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
     }
 
