@@ -284,7 +284,7 @@ public struct DiagnosticEventPresentation: Sendable {
         .pairFail,
         .transportDialStarted, .transportDialConnected, .transportDialFailed,
         .hostAuthenticated, .rpcReady,
-        .recoveryStarted, .recoverySucceeded, .recoveryFailed,
+        .recoveryStarted, .recoveryCoalesced, .recoverySucceeded, .recoveryFailed,
         .endpointStarting, .endpointActive, .endpointStopped, .endpointFailed,
         .sessionClosed, .routeUnavailable, .retryScheduled,
         .discoveryStarted, .discoverySucceeded, .discoveryFailed,
@@ -343,6 +343,8 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.rpcReady", defaultValue: "RPC session ready")
         case .recoveryStarted:
             localized("diagnostics.event.recoveryStarted", defaultValue: "Connection recovery started")
+        case .recoveryCoalesced:
+            localized("diagnostics.event.recoveryCoalesced", defaultValue: "Connection recovery coalesced")
         case .recoverySucceeded:
             localized("diagnostics.event.recoverySucceeded", defaultValue: "Connection recovery succeeded")
         case .recoveryFailed:
@@ -495,7 +497,7 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "failure", value: failureName(raw))
         }
         switch code {
-        case .recoveryStarted:
+        case .recoveryStarted, .recoveryCoalesced:
             return Field(key: "trigger", value: recoveryTriggerName(raw))
         case .transportSessionLifecycle:
             return Field(key: "purpose", value: sessionPurposeName(raw))
@@ -519,6 +521,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "configured_addresses", value: String(raw))
         case .transportLANDiscovery:
             return Field(key: "hints", value: String(raw))
+        case .discoverySucceeded:
+            return Field(key: "bindings", value: String(raw))
         case .lanPublicationState:
             return Field(key: "reason", value: lanPublicationReasonName(raw))
         case .simulatorStreamLifecycle:
@@ -547,6 +551,10 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "silent_for", value: duration(raw))
         case .retryScheduled:
             return Field(key: "retry_delay", value: duration(raw))
+        case .discoverySucceeded, .discoveryFailed:
+            return Field(key: "discovery_duration", value: duration(raw))
+        case .transportDialLegSucceeded, .transportDialLegFailed:
+            return Field(key: "phase_duration", value: duration(raw))
         case .transportCloseAttribution:
             return Field(key: "application_error_code", value: String(raw))
         case .composerActiveTransition, .composerKeyboardToggleWhilePresented:
@@ -560,9 +568,13 @@ public struct DiagnosticEventPresentation: Sendable {
         switch event.code {
         case .transportDialStarted, .transportDialConnected, .transportDialFailed:
             return Field(key: "attempt", value: String(raw))
+        case .recoveryStarted, .recoverySucceeded, .recoveryFailed:
+            return Field(key: "recovery_attempt", value: String(raw))
         case .sessionClosed, .transportSessionLifecycle,
              .transportCloseAttribution, .transportPathEvent:
             return Field(key: "session", value: String(raw))
+        case .recoveryCoalesced:
+            return Field(key: "reconnect_generation", value: String(raw))
         case .composerActiveTransition:
             return Field(key: "terminal_input_focused", value: booleanName(raw))
         case .browserStreamLifecycle, .browserInputReplayed,
@@ -579,6 +591,10 @@ public struct DiagnosticEventPresentation: Sendable {
             )
         case .simulatorCoordinateMapped:
             return Field(key: "mapping", value: simulatorCoordinateStateName(raw))
+        case .discoverySucceeded:
+            return Field(key: "relays", value: String(raw))
+        case .transportDialPlanBuilt:
+            return Field(key: "public_relays", value: String(raw))
         default:
             return Field(key: "detail_3", value: String(raw))
         }
@@ -710,6 +726,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case 7: localized("diagnostics.recoveryTrigger.subscriptionFailed", defaultValue: "Subscription failed to start")
         case 8: localized("diagnostics.recoveryTrigger.writeTimedOut", defaultValue: "Transport write timed out")
         case 9: localized("diagnostics.recoveryTrigger.retryDelayExpired", defaultValue: "Automatic retry delay expired")
+        case 10: localized("diagnostics.recoveryTrigger.connectionMethodChanged", defaultValue: "Connection method changed")
         default:
             localized(
                 "diagnostics.unknown.recoveryTrigger",
@@ -1200,6 +1217,18 @@ public struct DiagnosticEventPresentation: Sendable {
         case "active_sessions": localized("diagnostics.field.activeSessions", defaultValue: "Active sessions")
         case "count": localized("diagnostics.field.count", defaultValue: "Count")
         case "outcome": localized("diagnostics.field.outcome", defaultValue: "Outcome")
+        case "public_paths": localized("diagnostics.field.publicPaths", defaultValue: "Public paths")
+        case "private_fallback_paths": localized("diagnostics.field.privateFallbackPaths", defaultValue: "Private fallback paths")
+        case "public_relays": localized("diagnostics.field.publicRelays", defaultValue: "Public relays")
+        case "configured_addresses": localized("diagnostics.field.configuredAddresses", defaultValue: "Configured addresses")
+        case "bindings": localized("diagnostics.field.bindings", defaultValue: "Bindings")
+        case "relays": localized("diagnostics.field.relays", defaultValue: "Relays")
+        case "hints": localized("diagnostics.field.hints", defaultValue: "Hints")
+        case "join": localized("diagnostics.field.join", defaultValue: "Join")
+        case "phase_duration": localized("diagnostics.field.phaseDuration", defaultValue: "Phase duration")
+        case "discovery_duration": localized("diagnostics.field.discoveryDuration", defaultValue: "Discovery duration")
+        case "recovery_attempt": localized("diagnostics.field.recoveryAttempt", defaultValue: "Recovery attempt")
+        case "reconnect_generation": localized("diagnostics.field.reconnectGeneration", defaultValue: "Reconnect generation")
         case "editable_focused": localized("diagnostics.field.editableFocused", defaultValue: "Editable focused")
         case "created": localized("diagnostics.field.created", defaultValue: "Created")
         case "panel": localized("diagnostics.field.panel", defaultValue: "Panel")

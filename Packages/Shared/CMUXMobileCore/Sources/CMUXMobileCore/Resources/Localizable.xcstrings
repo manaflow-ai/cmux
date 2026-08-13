@@ -803,6 +803,23 @@
         }
       }
     },
+    "diagnostics.event.recoveryCoalesced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection recovery coalesced"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続の復旧を統合しました"
+          }
+        }
+      }
+    },
     "diagnostics.event.recoverySucceeded": {
       "extractionState": "manual",
       "localizations": {
@@ -3011,6 +3028,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "トランスポートへの書き込みがタイムアウトしました"
+          }
+        }
+      }
+    },
+    "diagnostics.recoveryTrigger.connectionMethodChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection method changed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続方法が変更されました"
           }
         }
       }
@@ -5427,6 +5461,90 @@
             "value": "マッピング"
           }
         }
+      }
+    },
+    "diagnostics.field.publicPaths": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Public paths" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "公開経路" } }
+      }
+    },
+    "diagnostics.field.privateFallbackPaths": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Private fallback paths" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プライベートフォールバック経路" } }
+      }
+    },
+    "diagnostics.field.publicRelays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Public relays" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "公開リレー" } }
+      }
+    },
+    "diagnostics.field.configuredAddresses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Configured addresses" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "設定済みアドレス" } }
+      }
+    },
+    "diagnostics.field.bindings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Bindings" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バインディング" } }
+      }
+    },
+    "diagnostics.field.relays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Relays" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リレー" } }
+      }
+    },
+    "diagnostics.field.hints": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hints" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ヒント" } }
+      }
+    },
+    "diagnostics.field.join": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Join" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "結合" } }
+      }
+    },
+    "diagnostics.field.phaseDuration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Phase duration" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フェーズ所要時間" } }
+      }
+    },
+    "diagnostics.field.discoveryDuration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Discovery duration" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検出所要時間" } }
+      }
+    },
+    "diagnostics.field.recoveryAttempt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Recovery attempt" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "復旧試行" } }
+      }
+    },
+    "diagnostics.field.reconnectGeneration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnect generation" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再接続世代" } }
       }
     }
   },

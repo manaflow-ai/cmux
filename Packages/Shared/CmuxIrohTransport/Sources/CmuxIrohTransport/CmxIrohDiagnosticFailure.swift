@@ -5,6 +5,34 @@ public import IrohLib
 // exporting `String(describing: error)`, which may contain endpoint identities,
 // relay URLs, credentials, or private network addresses.
 
+/// Recognizes operating-system route failures that Iroh currently exposes only
+/// through an opaque display string. Keep this list narrow: a peer-controlled
+/// close reason must not be allowed to turn an established-session close into a
+/// local route diagnosis.
+enum CmxIrohRouteFailureClassifier {
+    static func classify(_ message: String) -> DiagnosticFailureKind? {
+        let normalized = message.lowercased()
+        if normalized.contains("connection refused")
+            || normalized.contains("econnrefused") {
+            return .connectionRefused
+        }
+        if normalized.contains("network is unreachable")
+            || normalized.contains("no route to host")
+            || normalized.contains("host unreachable")
+            || normalized.contains("enetunreach")
+            || normalized.contains("ehostunreach") {
+            return .hostUnreachable
+        }
+        if normalized.contains("no route")
+            || normalized.contains("no usable route")
+            || normalized.contains("no usable path")
+            || normalized.contains("no route candidates") {
+            return .noRoute
+        }
+        return nil
+    }
+}
+
 extension IrohError: @retroactive DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         Self.diagnosticFailureKind(message: message())
@@ -49,6 +77,13 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
             || message.contains("Resolve failed, IPv4:")
             || message.contains("Failed to resolve") {
             return .dnsFailed
+        }
+        // Route words are meaningful only on an opaque pre-connection error.
+        // Structured close markers above describe an already admitted session;
+        // a peer-controlled application reason must never be exported as a
+        // local no-route diagnosis.
+        if let routeFailure = CmxIrohRouteFailureClassifier.classify(message) {
+            return routeFailure
         }
         // Connection-level operations (`accept_bi`, `open_bi`, `accept_uni`,
         // `open_uni`) surface `iroh::endpoint::ConnectionError` Debug-formatted
@@ -176,6 +211,8 @@ extension CmxIrohClientSessionError: DiagnosticFailureProviding {
             .identityMismatch
         case .admissionDenied:
             .admissionDenied
+        case .dialTimedOut:
+            .timedOut
         case .alreadyClosed, .notConnected, .unexpectedEndOfStream:
             .connectionClosed
         case .invalidAdmissionFrame, .invalidMaximumByteCount,

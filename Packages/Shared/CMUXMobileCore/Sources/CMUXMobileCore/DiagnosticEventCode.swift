@@ -115,11 +115,14 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// The authenticated RPC session completed its readiness handshake.
     case rpcReady = 29
     /// Connection recovery started after a previously usable session degraded.
+    /// `c` is the process-local recovery attempt correlation number.
     case recoveryStarted = 30
-    /// Connection recovery restored a usable session.
+    /// Connection recovery restored a usable session. `c` is the process-local
+    /// recovery attempt correlation number.
     case recoverySucceeded = 31
     /// Connection recovery exhausted its current attempt. `b`, when present,
-    /// is ``DiagnosticFailureKind``.
+    /// is ``DiagnosticFailureKind`` and `c` is the process-local recovery
+    /// attempt correlation number.
     case recoveryFailed = 32
     /// The local Iroh endpoint started initialization.
     case endpointStarting = 33
@@ -153,10 +156,12 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case retryScheduled = 43
     /// Same-account or local-route discovery started.
     case discoveryStarted = 44
-    /// Discovery produced at least one authenticated candidate.
+    /// Discovery produced an authenticated snapshot. `b` is the binding count,
+    /// `c` is the managed relay count, and `ms` is the resolution duration.
     case discoverySucceeded = 45
     /// Discovery failed to produce an authenticated candidate. `b`, when
-    /// present, is ``DiagnosticFailureKind``.
+    /// present, is ``DiagnosticFailureKind`` and `ms` is the resolution
+    /// duration.
     case discoveryFailed = 46
     /// The host admitted the authenticated client to an RPC session.
     case admissionSucceeded = 47
@@ -243,9 +248,9 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case simulatorOwnershipChanged = 64
 
     /// One direct dial plan was assembled before any connect attempt. `a` is
-    /// the public path hint count and `b` is the private fallback path hint
-    /// count. A plan with both counts zero proves no dial packet was sent
-    /// for the attempt.
+    /// the public path hint count, `b` is the private fallback path hint
+    /// count, and `c` is the managed public relay hint count. A plan with
+    /// both path counts zero proves no dial packet was sent for the attempt.
     case transportDialPlanBuilt = 71
     /// Configured private addresses were joined with the target Mac's
     /// broker-registered UDP port for one dial. `a` is the join state
@@ -257,17 +262,21 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// hint count.
     case transportLANDiscovery = 73
     /// One direct dial leg connected. `a` is the leg
-    /// (``DiagnosticDirectDialLeg``).
+    /// (``DiagnosticDirectDialLeg``), and `ms` is the phase duration.
     case transportDialLegSucceeded = 74
     /// One direct dial leg failed before a connection existed. `a` is the
-    /// leg (``DiagnosticDirectDialLeg``) and `b` is the classified
-    /// ``DiagnosticFailureKind``.
+    /// leg (``DiagnosticDirectDialLeg``), `b` is the classified
+    /// ``DiagnosticFailureKind``, and `ms` is the phase duration.
     case transportDialLegFailed = 75
     /// The Mac's account-private LAN advertisement changed publication
     /// state. `a` is the state (``DiagnosticLANPublicationState``) and `b`
     /// is the synchronization reason (0 applied, 1 listener setting
     /// disabled, 2 runtime context unavailable).
     case lanPublicationState = 76
+    /// An automatic recovery trigger joined an already-owned stored-Mac
+    /// reconnect. `a` is ``DiagnosticTransportKind``, `b` is the recovery
+    /// trigger code, and `c` is the local stored-Mac reconnect generation.
+    case recoveryCoalesced = 77
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

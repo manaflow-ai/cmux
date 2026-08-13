@@ -25,6 +25,13 @@ enum StoredMacReconnectOutcome: Equatable, Sendable {
 
 @MainActor
 extension MobileShellComposite {
+    /// Keeps recovery breadcrumbs tied to the last coarse transport even after
+    /// teardown clears the active route. No route or endpoint data is retained.
+    private var recoveryDiagnosticTransport: DiagnosticTransportKind {
+        activeRoute.map { DiagnosticTransportKind($0.kind) }
+            ?? lastAttemptedDiagnosticTransport
+    }
+
     func startObservingNetworkPathChanges() {
         guard !networkPathObservationStarted else { return }
         networkPathObservationStarted = true
@@ -100,6 +107,12 @@ extension MobileShellComposite {
                     "connection.recovery coalesced trigger=\(trigger.description) "
                         + "storedMacGeneration=\(storedMacReconnectGeneration)"
                 )
+                diagnosticLog?.record(DiagnosticEvent(
+                    .recoveryCoalesced,
+                    a: recoveryDiagnosticTransport.rawValue,
+                    b: trigger.diagnosticCode,
+                    c: Int(clamping: storedMacReconnectGeneration)
+                ))
                 return
             }
         }
@@ -246,9 +259,9 @@ extension MobileShellComposite {
         guard let attempt else { return }
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryStarted,
-            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue,
-            b: trigger.diagnosticCode
+            a: recoveryDiagnosticTransport.rawValue,
+            b: trigger.diagnosticCode,
+            c: attempt.diagnosticID
         ))
         applyConnectionRecoveryOwnerState()
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
@@ -367,7 +380,7 @@ extension MobileShellComposite {
         _ attempt: MobileConnectionRecoveryOwner.Attempt
     ) -> Bool {
         guard connectionRecoveryOwner.complete(attempt) else { return false }
-        recordConnectionRecoverySucceeded()
+        recordConnectionRecoverySucceeded(attempt: attempt)
         return true
     }
 
@@ -411,7 +424,7 @@ extension MobileShellComposite {
         failure: DiagnosticFailureKind
     ) -> Bool {
         guard connectionRecoveryOwner.fail(attempt) else { return false }
-        recordConnectionRecoveryFailed(failure)
+        recordConnectionRecoveryFailed(failure, attempt: attempt)
         return true
     }
 
@@ -419,25 +432,32 @@ extension MobileShellComposite {
     func failConnectionRecoveryReplacement(
         failure: DiagnosticFailureKind
     ) -> Bool {
-        guard connectionRecoveryOwner.failReplacement() != nil else { return false }
-        recordConnectionRecoveryFailed(failure)
+        guard let attempt = connectionRecoveryOwner.failReplacement() else { return false }
+        recordConnectionRecoveryFailed(failure, attempt: attempt)
         return true
     }
 
-    private func recordConnectionRecoverySucceeded() {
+    private func recordConnectionRecoverySucceeded(
+        attempt: MobileConnectionRecoveryOwner.Attempt? = nil
+    ) {
         diagnosticLog?.record(DiagnosticEvent(
             .recoverySucceeded,
-            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue
+            a: recoveryDiagnosticTransport.rawValue,
+            c: attempt?.diagnosticID
+                ?? connectionRecoveryOwner.activeAttempt?.diagnosticID
         ))
     }
 
-    private func recordConnectionRecoveryFailed(_ failure: DiagnosticFailureKind) {
+    private func recordConnectionRecoveryFailed(
+        _ failure: DiagnosticFailureKind,
+        attempt: MobileConnectionRecoveryOwner.Attempt? = nil
+    ) {
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryFailed,
-            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue,
-            b: failure.rawValue
+            a: recoveryDiagnosticTransport.rawValue,
+            b: failure.rawValue,
+            c: attempt?.diagnosticID
+                ?? connectionRecoveryOwner.activeAttempt?.diagnosticID
         ))
     }
 
@@ -450,8 +470,9 @@ extension MobileShellComposite {
                 connectionGeneration: connectionGeneration,
                 listenerID: listenerID
             )
+        let attempt = connectionRecoveryOwner.activeAttempt
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
-            recordConnectionRecoverySucceeded()
+            recordConnectionRecoverySucceeded(attempt: attempt)
             applyConnectionRecoveryOwnerState()
         }
     }

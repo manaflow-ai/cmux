@@ -59,6 +59,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        diagnostics: DiagnosticLog? = nil,
         verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
@@ -76,7 +77,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
-        diagnostics = nil
+        self.diagnostics = diagnostics
         self.verifier = verifier
         self.now = now
         verifiedDiscoverySnapshot = verifiedDiscovery.map {
@@ -96,6 +97,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        diagnostics: DiagnosticLog? = nil,
         verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
@@ -112,7 +114,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
-        diagnostics = nil
+        self.diagnostics = diagnostics
         self.verifier = verifier
         self.now = now
         verifiedDiscoverySnapshot = verifiedDiscovery.map {
@@ -397,10 +399,45 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             return try await sharedDiscoveryTask.value
         }
         let broker = broker
-        let task = Task { try await broker.discover() }
+        let cached = authoritativeDiscovery
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        diagnostics?.record(DiagnosticEvent(
+            .discoveryStarted,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
+        let task = Task {
+            try await CmxAuthoritativeDiscoveryResolver(broker: broker).resolve(
+                cached: cached
+            )
+        }
         sharedDiscoveryTask = task
         defer { sharedDiscoveryTask = nil }
-        return try await task.value
+        do {
+            let response = try await task.value
+            authoritativeDiscovery = response
+            diagnostics?.record(DiagnosticEvent(
+                .discoverySucceeded,
+                ms: elapsedMilliseconds(since: startedAt),
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: response.bindings.count,
+                c: response.relayFleet.count
+            ))
+            return response
+        } catch {
+            diagnostics?.record(DiagnosticEvent(
+                .discoveryFailed,
+                ms: elapsedMilliseconds(since: startedAt),
+                a: DiagnosticTransportKind.iroh.rawValue,
+                b: DiagnosticFailureKind.classify(error).rawValue
+            ))
+            throw error
+        }
+    }
+
+    private func elapsedMilliseconds(since start: UInt64) -> UInt32 {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let elapsed = now >= start ? now - start : 0
+        return UInt32(clamping: elapsed / 1_000_000)
     }
 
     /// Records dial-failure evidence from the session pool. An empty plan or
@@ -495,8 +532,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
              .connectionRefused,
              .connectionClosed,
              .noRoute,
-             .transportIdleTimedOut,
-             .routeGated:
+             .transportIdleTimedOut:
             return true
         case .none, .offline, .permissionDenied, .dnsFailed,
              .secureChannelFailed, .unsupportedRoute, .credentialUnavailable,
@@ -504,9 +540,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
              .admissionDenied, .authorizationFailed, .accountMismatch,
              .protocolViolation, .superseded, .cancelled,
              .admissionLeaseExpired, .admissionRevalidationFailed,
-             .sendQueueOverflow, .unknown:
+             .sendQueueOverflow, .routeGated, .unknown:
             return false
-    }
+        }
     }
 
     private func context(

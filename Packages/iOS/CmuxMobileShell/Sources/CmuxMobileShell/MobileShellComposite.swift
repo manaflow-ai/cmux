@@ -267,6 +267,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             restartTerminalLanesForMountedSurfaces()
         }
     }
+    /// Last coarse transport attempted by the foreground connect loop. The
+    /// active route is cleared before recovery settles, so recovery diagnostics
+    /// use this value to retain the transport label without retaining a route,
+    /// address, or endpoint identity.
+    var lastAttemptedDiagnosticTransport: DiagnosticTransportKind = .unknown
     /// Authenticated Mac app-instance identity for the foreground connection.
     /// `nil` only for a fresh/legacy host that has not reported one.
     var activeMacInstanceTag: String?
@@ -1585,6 +1590,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingVersionWarning = nil
         self.activeTicket = nil
         self.activeRoute = nil
+        self.lastAttemptedDiagnosticTransport = .unknown
         self.activeMacInstanceTag = nil
         self.selectedWorkspaceID = workspaces.first?.id
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
@@ -1813,6 +1819,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
+        lastAttemptedDiagnosticTransport = .unknown
         // Drop the cached paired Macs so the next signed-in user never sees the
         // previous user's hosts in the switcher.
         storedPairedMacs = []
@@ -8264,6 +8271,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         routeLoop: for route in supportedRoutes {
             candidateRoute = route
+            lastAttemptedDiagnosticTransport = DiagnosticTransportKind(route.kind)
             if previousFocusedConnection == nil {
                 activeRoute = route
             }
@@ -8702,8 +8710,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // burn a second signature-cooldown gate for the same underlying error.
         diagnosticLog?.record(DiagnosticEvent(
             .pairFail,
-            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue,
+            a: lastAttemptedDiagnosticTransport.rawValue,
             b: Self.diagnosticFailureKind(for: lastError).rawValue
         ))
         throw lastError ?? MobileShellConnectionError.connectionClosed

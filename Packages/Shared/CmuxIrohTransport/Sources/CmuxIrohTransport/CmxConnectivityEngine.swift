@@ -524,7 +524,19 @@ public actor CmxConnectivityEngine {
             peerID: peerID,
             buildSession: { request in
                 let endpoint = try await supervisor.activeEndpoint()
-                let context = try await contextProvider.context(for: request)
+                let context: CmxIrohClientContext
+                do {
+                    context = try await contextProvider.context(for: request)
+                } catch {
+                    if !(Task.isCancelled || error is CancellationError) {
+                        diagnosticLog?.record(DiagnosticEvent(
+                            .routeUnavailable,
+                            a: DiagnosticTransportKind.iroh.rawValue,
+                            b: DiagnosticFailureKind.classify(error).rawValue
+                        ))
+                    }
+                    throw error
+                }
                 let session = try CmxIrohClientSession(
                     endpoint: endpoint,
                     targetIdentity: peerID.identity,

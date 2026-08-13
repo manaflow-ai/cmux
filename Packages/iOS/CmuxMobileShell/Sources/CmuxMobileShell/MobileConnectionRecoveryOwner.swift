@@ -12,6 +12,10 @@ final class MobileConnectionRecoveryOwner {
         let id: UUID
         let trigger: String
         let sourceConnectionGeneration: UUID
+        /// Process-local correlation number carried by recovery diagnostics.
+        /// It has no identity or route meaning and is only used to join the
+        /// start, outcome, and transport events for one recovery owner turn.
+        let diagnosticID: Int
     }
 
     enum Phase: Equatable {
@@ -24,6 +28,7 @@ final class MobileConnectionRecoveryOwner {
 
     private(set) var phase: Phase = .idle
     private(set) var task: Task<Void, Never>?
+    private var nextDiagnosticID = 0
 
     var activeAttempt: Attempt? {
         switch phase {
@@ -66,8 +71,7 @@ final class MobileConnectionRecoveryOwner {
         guard !isActive else { return nil }
         task?.cancel()
         task = nil
-        let attempt = Attempt(
-            id: UUID(),
+        let attempt = makeAttempt(
             trigger: trigger,
             sourceConnectionGeneration: sourceConnectionGeneration
         )
@@ -84,8 +88,7 @@ final class MobileConnectionRecoveryOwner {
         guard case .probing = phase else { return nil }
         task?.cancel()
         task = nil
-        let attempt = Attempt(
-            id: UUID(),
+        let attempt = makeAttempt(
             trigger: trigger,
             sourceConnectionGeneration: sourceConnectionGeneration
         )
@@ -188,5 +191,18 @@ final class MobileConnectionRecoveryOwner {
         task?.cancel()
         task = nil
         phase = .idle
+    }
+
+    private func makeAttempt(
+        trigger: String,
+        sourceConnectionGeneration: UUID
+    ) -> Attempt {
+        nextDiagnosticID = nextDiagnosticID == Int.max ? 1 : nextDiagnosticID + 1
+        return Attempt(
+            id: UUID(),
+            trigger: trigger,
+            sourceConnectionGeneration: sourceConnectionGeneration,
+            diagnosticID: nextDiagnosticID
+        )
     }
 }

@@ -352,7 +352,8 @@ public extension DiagnosticEventCode {
              .transportCloseAttribution, .transportPathEvent,
              .transportDialPlanBuilt, .transportPrivateAddressJoin,
              .transportLANDiscovery, .transportDialLegSucceeded,
-             .transportDialLegFailed, .lanPublicationState:
+             .transportDialLegFailed, .lanPublicationState,
+             .recoveryCoalesced:
             return .network
         case .appLifecycleChanged, .reachabilityChanged:
             return .both
