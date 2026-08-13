@@ -16,6 +16,7 @@ import UIKit
 /// (drafts, attachments).
 public struct ChatScreen: View {
     @Environment(ToastCenter.self) private var toasts
+    @Environment(\.chatArtifactLoader) private var artifactLoader
     @State private var store: ChatConversationStore
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
@@ -102,6 +103,7 @@ public struct ChatScreen: View {
                 ChatArtifactViewerDestination(path: selectedArtifact.path) {
                     self.selectedArtifact = nil
                 }
+                .environment(\.chatArtifactLoader, artifactLoader)
             }
         }
         .task {

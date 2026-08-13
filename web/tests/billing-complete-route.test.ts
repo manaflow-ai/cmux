@@ -6,7 +6,10 @@ import { makeBillingCompleteHandler } from "../app/api/billing/complete/route";
 let stripeConfigured = true;
 let retrievedSession: Record<string, unknown>;
 const retrieveSession = mock(async () => retrievedSession);
-let recordCheckoutCompletionResult: unknown = { stackUserId: "user-1", subscriptionId: "sub_1" };
+let recordCheckoutCompletionResult: unknown = {
+  stackUserId: "user-1",
+  subscriptionId: "sub_1",
+};
 const recordCheckoutCompletion = mock(async () => recordCheckoutCompletionResult);
 
 const GET = makeBillingCompleteHandler({
@@ -35,7 +38,10 @@ describe("billing complete route", () => {
     };
     retrieveSession.mockClear();
     recordCheckoutCompletion.mockClear();
-    recordCheckoutCompletionResult = { stackUserId: "user-1", subscriptionId: "sub_1" };
+    recordCheckoutCompletionResult = {
+      stackUserId: "user-1",
+      subscriptionId: "sub_1",
+    };
   });
 
   test("records paid sessions and redirects to success with the validated scheme", async () => {

@@ -604,7 +604,7 @@ struct CMUXMobileRootView: View {
                 },
                 setUpTailscale: {
                     handleRootPresentation(.setUpTailscale(
-                        status: store.tailscaleSetupStatus
+                        status: store.tailscaleSetupStatusWhenSelected
                     ))
                 },
                 showsLayoutProbe: showsAutoConnectMigrationLayoutProbe

@@ -189,11 +189,8 @@ extension MobileShellComposite {
         return hasStoredUsableTailscaleAuthorization
     }
 
-    /// Readiness of the selected Tailscale method and its local endpoint grant.
-    public var tailscaleSetupStatus: MobileTailscaleSetupStatus {
-        guard connectionMethodStore?.method == .tailscale else {
-            return .notSelected
-        }
+    /// Readiness if the user selects Tailscale, before that preference is saved.
+    public var tailscaleSetupStatusWhenSelected: MobileTailscaleSetupStatus {
         if hasUsableTailscaleAuthorization {
             return .authorized
         }
@@ -201,6 +198,14 @@ extension MobileShellComposite {
             return .loadingAuthorization
         }
         return .pairingRequired
+    }
+
+    /// Readiness of the currently selected Tailscale connection method.
+    public var tailscaleSetupStatus: MobileTailscaleSetupStatus {
+        guard connectionMethodStore?.method == .tailscale else {
+            return .notSelected
+        }
+        return tailscaleSetupStatusWhenSelected
     }
 
     /// Whether the selected Tailscale method still needs its one-time pairing grant.

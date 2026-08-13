@@ -697,6 +697,32 @@ import Testing
         #expect(store.tailscalePairingRequired)
     }
 
+    @Test func projectedTailscaleSetupStatusEvaluatesBeforeMethodSelection() {
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-projected-method-\(UUID().uuidString)"
+        )!
+        let pairingDefaults = UserDefaults(
+            suiteName: "tailscale-projected-pairing-\(UUID().uuidString)"
+        )!
+        pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            ),
+            pairingHintDefaults: pairingDefaults
+        )
+
+        #expect(store.tailscaleSetupStatus == .notSelected)
+        #expect(
+            store.tailscaleSetupStatusWhenSelected == .loadingAuthorization
+        )
+        store.pairedMacLoadState = .failed
+        #expect(
+            store.tailscaleSetupStatusWhenSelected == .pairingRequired
+        )
+    }
+
     @Test func changingToUnavailableTailscaleDropsLiveIrohWithoutFallback() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

@@ -310,6 +310,20 @@
         }
       }
     },
+    "terminal.artifact.gallery.load_failed.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The file list couldn’t be loaded. Try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ファイル一覧を読み込めませんでした。もう一度お試しください。" } }
+      }
+    },
+    "terminal.artifact.gallery.load_failed.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn’t load files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ファイルを読み込めません" } }
+      }
+    },
     "terminal.artifact.gallery.loading" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -456,6 +470,20 @@
             "value" : "このセッションにはファイルがありません"
           }
         }
+      }
+    },
+    "terminal.artifact.gallery.session_missing.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The chat session for these files is no longer available." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "これらのファイルのチャットセッションは利用できなくなりました。" } }
+      }
+    },
+    "terminal.artifact.gallery.session_missing.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Session not found" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションが見つかりません" } }
       }
     },
     "terminal.artifact.gallery.showing_first" : {

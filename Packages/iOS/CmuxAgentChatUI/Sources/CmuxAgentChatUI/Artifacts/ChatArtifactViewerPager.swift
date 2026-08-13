@@ -70,20 +70,12 @@ struct ChatArtifactViewerPager: View {
             #if os(iOS)
             .chatArtifactFileActionPresentation(fileActionPresentationBinding)
             .alert(
-                String(
-                    localized: "chat.artifact.action_failed.title",
-                    defaultValue: "Couldn't complete action",
-                    bundle: .module
-                ),
+                fileActionFailurePresentation.title,
                 isPresented: fileActionErrorBinding
             ) {
                 Button(String(localized: "chat.artifact.ok", defaultValue: "OK", bundle: .module)) {}
             } message: {
-                Text(String(
-                    localized: "chat.artifact.action_failed.message",
-                    defaultValue: "Check the connection to your Mac and try again.",
-                    bundle: .module
-                ))
+                Text(fileActionFailurePresentation.message)
             }
             #endif
             .onChange(of: initialPath) { _, newPath in
@@ -260,6 +252,13 @@ struct ChatArtifactViewerPager: View {
                     && model.toolbarSnapshot.fileActionState.showsError
             },
             set: { model.setShowsFileActionError($0, for: path) }
+        )
+    }
+
+    private var fileActionFailurePresentation: ChatArtifactFailurePresentation {
+        ChatArtifactFailurePresentation(
+            error: model.toolbarSnapshot.fileActionState.failure ?? .loadFailed,
+            scope: scope
         )
     }
 

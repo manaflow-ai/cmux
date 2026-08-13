@@ -1399,12 +1399,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         if !armed { consumeModifier(.shift) }
     }
 
-    #if DEBUG
     /// Maps a `UIResponder` to its compact ``InputResponderIdentity`` for the
     /// composer-dock diagnostics. Used to encode *which* view owns first
     /// responder into the integer ``DiagnosticEvent`` payload. The `.other` case
     /// is paired with the responder's class name in the companion `anchormux`
-    /// string log for a human-readable readback.
+    /// string log for a human-readable readback. This mapping is also used by
+    /// the release-safe structured diagnostic events.
     static func responderIdentity(of responder: UIResponder?) -> InputResponderIdentity {
         switch responder {
         case nil: return .none
@@ -1416,6 +1416,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
+    #if DEBUG
     /// The responder's concrete class name for the human-readable `anchormux`
     /// readback (the integer ``InputResponderIdentity`` collapses every
     /// unexpected class to `.other`; this preserves the exact type for the copied
