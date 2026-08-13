@@ -1488,6 +1488,60 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testIOSCanToggleMacKeepAwakeFromSettings() async throws {
+        let server = try MobileSyncMockHostServer(advertisesCaffeineControl: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: app)
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        tap(settings, in: app)
+
+        let toggle = app.switches["MobileSettingsKeepMacAwakeToggle"]
+        for _ in 0..<8 where !toggle.exists || !toggle.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(toggle.waitForExistence(timeout: 4))
+        XCTAssertTrue(toggle.isHittable)
+        XCTAssertEqual(toggle.value as? String, "0")
+        let didRequestInitialStatus = await server.waitForRequest(method: "caffeine.status")
+        XCTAssertTrue(didRequestInitialStatus)
+
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let enabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "1"),
+            object: toggle
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 4), .completed)
+        let didEnableCaffeine = await server.waitForRequest(method: "caffeine.set")
+        XCTAssertTrue(didEnableCaffeine)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "ios-keep-mac-awake-enabled"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let disabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "0"),
+            object: toggle
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [disabled], timeout: 4), .completed)
+        let didDisableCaffeine = await server.waitForRequest(
+            method: "caffeine.set",
+            minimumCount: 2
+        )
+        XCTAssertTrue(didDisableCaffeine)
+    }
+
+    @MainActor
     func testDeleteComputersVerifierPasses() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_DELETE_COMPUTERS_VERIFIER": "1",
@@ -10769,6 +10823,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let holdsTerminalPasteResponse: Bool
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
+    private let advertisesCaffeineControl: Bool
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let holdsTaskModelResponse: Bool
     private let macInstanceTag: String
@@ -10793,6 +10848,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     // later requests pass through after the release point.
     private var heldTaskModelResponses: [() -> Void] = []
     private var taskModelResponsesWereReleased = false
+    private var caffeineEnabled = false
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -10851,6 +10907,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         holdsTerminalPasteResponse: Bool = false,
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
+        advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
@@ -10862,6 +10919,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
+        self.advertisesCaffeineControl = advertisesCaffeineControl
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
         self.macInstanceTag = macInstanceTag
@@ -11347,6 +11405,11 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.host.status":
             result = mobileHostStatusResult()
+        case "caffeine.status":
+            result = ["enabled": caffeineEnabled]
+        case "caffeine.set":
+            caffeineEnabled = params["enabled"] as? Bool ?? false
+            result = ["enabled": caffeineEnabled]
         case "mobile.task.models.list":
             let provider = params["provider"] as? String ?? ""
             let models = taskModelsByProvider[provider, default: []].map { model in
@@ -11395,6 +11458,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ]
         if advertisesTaskAttachments {
             capabilities.append("task.attachments.v1")
+        }
+        if advertisesCaffeineControl {
+            capabilities.append("caffeine.control.v1")
         }
         if !taskModelsByProvider.isEmpty {
             capabilities.append("task.models.v1")
