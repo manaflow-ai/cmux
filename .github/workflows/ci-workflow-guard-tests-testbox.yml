@@ -20,9 +20,10 @@ on:
 permissions: {}
 
 concurrency:
-  # A Testbox is a mutable shared workspace. Queue every request that names the
-  # same box/source instead of allowing two syncs or stage commands to race.
-  group: cmux-tui-testbox-${{ inputs.testbox_id }}-${{ inputs.source_sha || github.sha }}
+  # A Testbox is a mutable shared workspace. Serialize every request for the
+  # same ID, even when callers name different source SHAs. Source identity is
+  # validated and recorded separately, so it must never widen this lock.
+  group: cmux-tui-testbox-${{ inputs.testbox_id }}
   cancel-in-progress: false
 
 jobs:
@@ -111,11 +112,12 @@ jobs:
             exit 1
           }
           source_tree_sha="$(git rev-parse 'HEAD^{tree}')"
-          ghostty_gitlink_sha="$(git rev-parse 'HEAD:ghostty')"
-          [[ "$ghostty_gitlink_sha" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "::error::HEAD:ghostty is not a gitlink SHA" >&2
+          ghostty_entry="$(git ls-tree HEAD ghostty)"
+          [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
+            echo "::error::HEAD:ghostty is not a gitlink" >&2
             exit 1
           }
+          ghostty_gitlink_sha="$(git rev-parse 'HEAD:ghostty')"
           printf 'source_sha=%s\nsource_tree_sha=%s\nghostty_gitlink_sha=%s\n' \
             "$actual_sha" "$source_tree_sha" "$ghostty_gitlink_sha"
 
@@ -126,6 +128,11 @@ jobs:
           git submodule update --init --depth 1 ghostty
           [[ "$(git -C ghostty rev-parse --show-toplevel)" == "$GITHUB_WORKSPACE/ghostty" ]] || {
             echo "::error::ghostty did not initialize as its own submodule checkout" >&2
+            exit 1
+          }
+          ghostty_entry="$(git ls-tree HEAD ghostty)"
+          [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
+            echo "::error::HEAD:ghostty is not a gitlink" >&2
             exit 1
           }
           expected_ghostty_sha="$(git rev-parse HEAD:ghostty)"
@@ -198,6 +205,8 @@ jobs:
         run: |
           set -euo pipefail
           source_tree_sha="$(git rev-parse 'HEAD^{tree}')"
+          ghostty_entry="$(git ls-tree HEAD ghostty)"
+          [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || exit 1
           ghostty_gitlink_sha="$(git rev-parse 'HEAD:ghostty')"
           ghostty_head_sha="$(git -C ghostty rev-parse HEAD)"
           [[ "$SOURCE_SHA" == "$(git rev-parse HEAD)" ]] || exit 1

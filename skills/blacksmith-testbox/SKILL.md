@@ -74,6 +74,9 @@ Use the repository or organization-approved, pinned Blacksmith CLI artifact or
 package-manager version. Record its version in the evidence. Do not install a
 mutable remote script with `curl ... | sh`; if the approved pinned artifact is
 not available, stop and ask the tooling owner rather than weakening this lane.
+The repository does not currently pin a checksum-verified CLI artifact, so CLI
+provenance is a trusted-lane operational limitation: do not silently upgrade or
+substitute a version, and retain `blacksmith --version` with each evidence set.
 
 ## Exact source contract
 
@@ -90,8 +93,16 @@ set -euo pipefail
 git submodule update --init ghostty
 cd "$(git rev-parse --show-toplevel)"
 SOURCE_REF="$(git symbolic-ref --short HEAD)"
-[[ -n "$SOURCE_REF" ]] || { echo "HEAD is detached" >&2; exit 1; }
+if [[ ! "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || "$SOURCE_REF" == *..* || "$SOURCE_REF" == */ || "$SOURCE_REF" == *//* ]]; then
+  echo "HEAD must name a supported pushed branch ref" >&2
+  exit 1
+fi
 SOURCE_SHA="$(git rev-parse HEAD)"
+ghostty_entry="$(git ls-tree HEAD ghostty)"
+[[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
+  echo "HEAD:ghostty is not a gitlink" >&2
+  exit 1
+}
 GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
 [[ "$GHOSTTY_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -132,22 +143,31 @@ blacksmith testbox warmup "$WORKFLOW" \
 ```
 
 Save the returned `tbx_...` ID. One ID belongs to one worktree and one trust
-context. The workflow concurrency group keys the Testbox ID and source, and
-each remote stage holds `testbox-benchmark/.stage.lock` through its build and
-artifact writes. Do not issue concurrent `run` commands against one ID.
+context. The workflow concurrency group keys every setup request by Testbox
+ID, including requests for different source SHAs. Source identity is validated
+separately, and each remote stage holds `testbox-benchmark/.stage.lock` through
+its build and artifact writes. Blacksmith's CLI exposes no pre-rsync lease, so
+that remote lock cannot serialize the CLI's initial sync. One Testbox ID must
+therefore have one owning worktree/operator; do not issue concurrent `run` or
+download commands from independent clients. This is an explicit trusted-lane
+limitation, not a claim of multi-client Testbox isolation.
 
 Wait for setup and capture the exact run identity:
 
 ```bash
 blacksmith testbox status --id "$TBX" --wait --wait-timeout 15m
-blacksmith testbox run --id "$TBX" --debug \
-  "set -euo pipefail; test -s /tmp/.testbox/auth_token; grep -Eq '(^|[[:space:]])metadata_port=[^[:space:]]+' /proc/cmdline; test \"\$(git rev-parse HEAD)\" = \"$SOURCE_SHA\"; test \"\$(git rev-parse HEAD:ghostty)\" = \"$GHOSTTY_SHA\"; test \"\$(git -C ghostty rev-parse HEAD)\" = \"$GHOSTTY_SHA\"; test -z \"\$(git status --porcelain=v1 --untracked-files=normal)\"; test -z \"\$(git -C ghostty status --porcelain=v1 --untracked-files=normal)\"; rustup show active-toolchain; rustc --version; cargo --version; \"$CMUX_ZIG\" version"
 ```
 
-The setup workflow also uploads `setup-identity.json`. It contains the
-workflow run, source ref/SHA/tree, Ghostty gitlink and checkout SHA, runner
-label/architecture/CPU identity, and pinned Rust/Zig/toolchain-file metadata.
-Never print or download `/tmp/.testbox/auth_token`.
+The setup job's `setup-identity.json` artifact and each stage helper's
+pre-build JSON record are the identity transcripts. The helper verifies the
+Testbox VM marker, claimed Testbox ID, source commit/tree, Ghostty
+gitlink/checkout, and clean status before it invokes Cargo, then repeats those
+checks after the build. Keep the setup artifact URL or download it into `$OUT`;
+it records runner/toolchain/Ghostty identity independently of the stage helper.
+The setup JSON contains the workflow run, source ref/SHA/tree, Ghostty gitlink
+and checkout SHA, runner label/architecture/CPU identity, and pinned
+Rust/Zig/toolchain-file metadata. Never print or download
+`/tmp/.testbox/auth_token`.
 
 ## Remote benchmark stages
 
@@ -157,25 +177,32 @@ the helper does not trust the remote checkout or a caller-supplied expected SHA
 without comparing it to Git metadata:
 
 ```bash
+# Run this orchestration block in Bash, not an interactive zsh session.
 run_stage() {
   local stage="$1"
   local run_status download_status=0
   set +e
+  printf -v remote_command \
+    'CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=%q %q %q %q %q' \
+    "$TBX" ./scripts/blacksmith-cmux-tui-testbox-stage.sh \
+    "$stage" "$SOURCE_SHA" "$GHOSTTY_SHA"
   blacksmith testbox run --id "$TBX" --debug \
-    "CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA" \
-    2>&1 | tee "$OUT/$stage.run.log"
-  run_status=${PIPESTATUS[0]}
+    "$remote_command" >"$OUT/$stage.run.log" 2>&1
+  run_status=$?
   set -e
+  cat "$OUT/$stage.run.log"
 
   # Download immediately. Blacksmith's next rsync may delete or replace remote
   # files, so a one-time download after all stages is insufficient.
+  : >"$OUT/$stage.download.log"
   for suffix in json time log; do
     if ! blacksmith testbox download --id "$TBX" \
       "testbox-benchmark/$stage.$suffix" "$OUT/raw/$stage.$suffix" \
-      2>&1 | tee -a "$OUT/$stage.download.log"; then
+      >>"$OUT/$stage.download.log" 2>&1; then
       download_status=1
     fi
   done
+  cat "$OUT/$stage.download.log"
   if (( run_status != 0 )); then
     return "$run_status"
   fi
@@ -266,8 +293,12 @@ specific Testbox ID is terminal or absent from the active inventory; and
 accepts only the known race where stop returns a 409 saying the box is already
 stopped or completed. Other stop, status, or list failures remain failures.
 Put it in an `EXIT` trap that preserves the benchmark's original exit status
-unless cleanup itself fails. If warmup never returned an ID, still run
-`blacksmith testbox list --all` and retain its exit status and output.
+unless cleanup itself fails. The detailed benchmark captures a pre-warmup
+inventory and uses `scripts/blacksmith-testbox-recover-warmup.sh` when warmup
+fails before printing an ID. That recovery path stops a box only when the
+before/after inventory has exactly one new match for the workflow, job, and
+branch; ambiguous or missing matches are reported without stopping an
+unrelated box.
 
 ## Timing interpretation
 

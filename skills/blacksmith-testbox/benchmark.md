@@ -21,7 +21,11 @@ setup-only GitHub job on the remote Linux runner.
 A repository administrator must configure the protected environment with
 required reviewers and no secrets before this plan is usable. The lane must
 never run untrusted PR or fork code. `begin-testbox` exposes its auth token to
-commands in the Testbox, so `contents: read` is not a trust boundary.
+commands in the Testbox, so `contents: read` is not a trust boundary. The
+repository does not currently pin a checksum-verified Blacksmith CLI artifact;
+that is a trusted-lane operational limitation. Use only the organization-
+approved CLI, record `blacksmith --version`, and stop rather than silently
+substituting a version.
 
 The warmup job only checks out the exact dispatch SHA, initializes `ghostty`,
 installs Linux headers/tools, installs the pinned Zig and Rust toolchains,
@@ -45,7 +49,17 @@ set -euo pipefail
 git submodule update --init ghostty
 cd "$(git rev-parse --show-toplevel)"
 SOURCE_REF="$(git symbolic-ref --short HEAD)"
+if [[ ! "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || "$SOURCE_REF" == *..* || "$SOURCE_REF" == */ || "$SOURCE_REF" == *//* ]]; then
+  echo "HEAD must name a supported pushed branch ref" >&2
+  exit 1
+fi
 SOURCE_SHA="$(git rev-parse HEAD)"
+SOURCE_TREE_SHA="$(git rev-parse 'HEAD^{tree}')"
+ghostty_entry="$(git ls-tree HEAD ghostty)"
+[[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
+  echo "HEAD:ghostty is not a gitlink" >&2
+  exit 1
+}
 GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
 [[ -n "$SOURCE_REF" ]]
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -59,26 +73,43 @@ remote_sha="$(git ls-remote --exit-code origin "refs/heads/$SOURCE_REF" | awk 'N
   exit 1
 }
 mkdir -p ".cmux-scratch/blacksmith-testbox-$SOURCE_SHA/raw"
-python3 - "$SOURCE_REF" "$SOURCE_SHA" "$GHOSTTY_SHA" > ".cmux-scratch/blacksmith-testbox-$SOURCE_SHA/source.json" <<'PY'
+python3 - "$SOURCE_REF" "$SOURCE_SHA" "$SOURCE_TREE_SHA" "$GHOSTTY_SHA" > ".cmux-scratch/blacksmith-testbox-$SOURCE_SHA/source.json" <<'PY'
 import json
-import subprocess
 import sys
 
-ref, sha, ghostty = sys.argv[1:]
-record = {
+ref, sha, tree, ghostty = sys.argv[1:]
+print(json.dumps({
     "source_ref": ref,
     "source_sha": sha,
-    "source_tree_sha": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
+    "source_tree_sha": tree,
     "ghostty_gitlink_sha": ghostty,
-}
-print(json.dumps(record, indent=2, sort_keys=True))
+}, indent=2, sort_keys=True))
 PY
+
+assert_source_unchanged() {
+  local current_ref current_sha current_tree current_ghostty remote_sha ghostty_entry
+  current_ref="$(git symbolic-ref --short HEAD)"
+  current_sha="$(git rev-parse HEAD)"
+  current_tree="$(git rev-parse 'HEAD^{tree}')"
+  ghostty_entry="$(git ls-tree HEAD ghostty)"
+  current_ghostty="$(git rev-parse HEAD:ghostty)"
+  remote_sha="$(git ls-remote --exit-code origin "refs/heads/$SOURCE_REF" | awk 'NR == 1 { print $1 }')"
+  if [[ "$current_ref" != "$SOURCE_REF" || "$current_sha" != "$SOURCE_SHA" ||
+        "$current_tree" != "$SOURCE_TREE_SHA" || "$current_ghostty" != "$GHOSTTY_SHA" ||
+        ! "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ||
+        "$remote_sha" != "$SOURCE_SHA" ||
+        -n "$(git status --porcelain=v1 --untracked-files=normal)" ||
+        -n "$(git -C ghostty status --porcelain=v1 --untracked-files=normal)" ]]; then
+    echo "source branch, tree, Ghostty gitlink, remote head, or clean status changed" >&2
+    return 1
+  fi
+}
+assert_source_unchanged
 ```
 
-Before every stage, rerun the clean-branch check and recompute the expected
-values. If the branch moved, the worktree became dirty, or the Ghostty pointer
-changed, stop the box and start a new evidence directory. Do not silently
-substitute the new SHA.
+`assert_source_unchanged` runs before every stage below. If the branch moved,
+the worktree became dirty, or the Ghostty pointer changed, stop the box and
+start a new evidence directory. Do not silently substitute the new SHA.
 
 ## Warmup and setup identity
 
@@ -89,9 +120,12 @@ WORKFLOW=.github/workflows/ci-workflow-guard-tests-testbox.yml
 JOB=cmux-tui-rust
 OUT="$PWD/.cmux-scratch/blacksmith-testbox-$SOURCE_SHA"
 TBX=""
+before_list_status=125
 mkdir -p "$OUT/raw"
 cleanup() {
-  local result=$? cleanup_status
+  local result=$?
+  local cleanup_status=0
+  local after_list_status=125
   trap - EXIT
   if [[ -n "$TBX" ]]; then
     set +e
@@ -99,10 +133,23 @@ cleanup() {
     cleanup_status=$?
     set -e
   else
+    # If warmup failed before printing its ID, stop only a uniquely correlated
+    # new box. Never stop an arbitrary active box from a shared organization.
     set +e
-    blacksmith testbox list --all >"$OUT/list-after-stop.log" 2>&1
-    cleanup_status=$?
+    blacksmith testbox list --all >"$OUT/list-after-warmup-failure.log" 2>&1
+    after_list_status=$?
     set -e
+    if (( before_list_status == 0 && after_list_status == 0 )); then
+      set +e
+      scripts/blacksmith-testbox-recover-warmup.sh \
+        "$OUT/list-before-warmup.log" "$OUT/list-after-warmup-failure.log" \
+        "$WORKFLOW" "$JOB" "$SOURCE_REF" "$OUT"
+      cleanup_status=$?
+      set -e
+    else
+      cleanup_status=1
+      echo "could not reconcile a failed warmup because inventory capture failed" >&2
+    fi
   fi
   if (( result == 0 && cleanup_status != 0 )); then
     result="$cleanup_status"
@@ -111,13 +158,28 @@ cleanup() {
 }
 trap cleanup EXIT
 blacksmith auth whoami
-blacksmith --version | tee "$OUT/blacksmith-version.txt"
-blacksmith runners catalog > "$OUT/runner-catalog.json"
+blacksmith --version >"$OUT/blacksmith-version.txt"
+cat "$OUT/blacksmith-version.txt"
+blacksmith runners catalog >"$OUT/runner-catalog.json"
+set +e
+blacksmith testbox list --all >"$OUT/list-before-warmup.log" 2>&1
+before_list_status=$?
+set -e
+cat "$OUT/list-before-warmup.log"
+if (( before_list_status != 0 )); then
+  echo "refusing to warm a Testbox without a baseline inventory" >&2
+  exit "$before_list_status"
+fi
+set +e
 blacksmith testbox warmup "$WORKFLOW" \
   --ref "$SOURCE_REF" \
   --job "$JOB" \
   --idle-timeout 30 \
-  2>&1 | tee "$OUT/warmup.log"
+  >"$OUT/warmup.log" 2>&1
+warmup_status=$?
+set -e
+cat "$OUT/warmup.log"
+set +e
 TBX="$(python3 - "$OUT/warmup.log" <<'PY'
 import re
 import sys
@@ -129,9 +191,24 @@ if not ids:
 print(ids[-1])
 PY
 )"
+parse_status=$?
+set -e
+if (( warmup_status != 0 )); then
+  exit "$warmup_status"
+fi
+if (( parse_status != 0 )); then
+  exit "$parse_status"
+fi
 printf 'Testbox ID: %s\n' "$TBX" | tee "$OUT/testbox-id.txt"
+set +e
 blacksmith testbox status --id "$TBX" --wait --wait-timeout 15m \
-  2>&1 | tee "$OUT/status-ready.log"
+  >"$OUT/status-ready.log" 2>&1
+status_ready=$?
+set -e
+cat "$OUT/status-ready.log"
+if (( status_ready != 0 )); then
+  exit "$status_ready"
+fi
 ```
 
 The workflow validates that the dispatch ref is a pushed branch, that
@@ -139,18 +216,20 @@ The workflow validates that the dispatch ref is a pushed branch, that
 a direct GitHub dispatch supplies the optional `source_sha` input, it must equal
 `github.sha`. The Blacksmith CLI path relies on the same full SHA passed to the
 remote helper because the CLI only supplies `testbox_id` to workflow inputs.
+The workflow concurrency group serializes setup requests by Testbox ID, even
+when source SHAs differ. The remote `flock` begins after Blacksmith's rsync, so
+it protects stage/build/artifact writes only. Blacksmith exposes no pre-rsync
+lease; one Testbox ID must have one owning worktree/operator, and independent
+clients must not issue concurrent `run` or download commands. This is an
+explicit trusted-lane limitation.
 
-Capture a harmless remote identity transcript before builds:
-
-```bash
-blacksmith testbox run --id "$TBX" --debug \
-  "set -euo pipefail; test -s /tmp/.testbox/auth_token; grep -Eq '(^|[[:space:]])metadata_port=[^[:space:]]+' /proc/cmdline; test \"\$(git rev-parse HEAD)\" = \"$SOURCE_SHA\"; test \"\$(git rev-parse HEAD:ghostty)\" = \"$GHOSTTY_SHA\"; test \"\$(git -C ghostty rev-parse HEAD)\" = \"$GHOSTTY_SHA\"; test -z \"\$(git status --porcelain=v1 --untracked-files=normal)\"; test -z \"\$(git -C ghostty status --porcelain=v1 --untracked-files=normal)\"; rustup show active-toolchain; rustc --version; cargo --version; \"$CMUX_ZIG\" version" \
-  2>&1 | tee "$OUT/identity.run.log"
-```
-
-The setup job's `setup-identity.json` is uploaded as a GitHub artifact. Keep
-its artifact URL or download it into `$OUT`; it records runner/toolchain/
-Ghostty identity independently of the stage helper.
+Do not issue a separate interpolated identity command. The setup job's
+`setup-identity.json` artifact and each stage helper's pre-build JSON record are
+the identity transcripts. The helper verifies the Testbox VM marker, claimed
+Testbox ID, source commit/tree, Ghostty gitlink/checkout, and clean status before
+it invokes Cargo, then repeats those checks after the build. Keep the setup
+artifact URL or download it into `$OUT`; it records runner/toolchain/Ghostty
+identity independently of the stage helper.
 
 ## Three remote build timings
 
@@ -160,25 +239,32 @@ before the stage, holds a remote `flock` through all writes, restores the
 controlled changed file, and verifies clean identity again.
 
 ```bash
+# Run this orchestration block in Bash, not an interactive zsh session.
 run_stage() {
   local stage="$1"
   local run_status download_status=0
   set +e
+  printf -v remote_command \
+    'CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=%q %q %q %q %q' \
+    "$TBX" ./scripts/blacksmith-cmux-tui-testbox-stage.sh \
+    "$stage" "$SOURCE_SHA" "$GHOSTTY_SHA"
   blacksmith testbox run --id "$TBX" --debug \
-    "CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA" \
-    2>&1 | tee "$OUT/$stage.run.log"
-  run_status=${PIPESTATUS[0]}
+    "$remote_command" >"$OUT/$stage.run.log" 2>&1
+  run_status=$?
   set -e
+  cat "$OUT/$stage.run.log"
 
   # rsync --delete can remove remote output before the next run. Download each
   # stage immediately, before starting another stage.
+  : >"$OUT/$stage.download.log"
   for suffix in json time log; do
     if ! blacksmith testbox download --id "$TBX" \
       "testbox-benchmark/$stage.$suffix" "$OUT/raw/$stage.$suffix" \
-      2>&1 | tee -a "$OUT/$stage.download.log"; then
+      >>"$OUT/$stage.download.log" 2>&1; then
       download_status=1
     fi
   done
+  cat "$OUT/$stage.download.log"
   if (( run_status != 0 )); then
     return "$run_status"
   fi
@@ -187,11 +273,18 @@ run_stage() {
 
 benchmark_status=0
 for stage in first-clean incremental-noop changed-file; do
+  if ! assert_source_unchanged; then
+    benchmark_status=1
+    break
+  fi
   if ! run_stage "$stage"; then
     benchmark_status=1
     break
   fi
 done
+if (( benchmark_status != 0 )); then
+  exit "$benchmark_status"
+fi
 ```
 
 `first-clean` is target-clean but dependency-warm. `incremental-noop` repeats
@@ -250,12 +343,16 @@ scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT"
 ```
 
 A shell `EXIT` trap should call that helper while preserving the benchmark
-status. If warmup did not return a Testbox ID, still run
-`blacksmith testbox list --all` and save its output. Keep warmup/status/identity
-transcripts, every stage run and download transcript, raw JSON/time/log files,
-runner catalog, setup identity artifact, cleanup logs, and the final source
-manifest in the separate `.cmux-scratch/` directory. Never store credentials,
-private keys, or `/tmp/.testbox/auth_token`.
+status. The benchmark captures a pre-warmup inventory. If warmup fails before
+printing an ID, `scripts/blacksmith-testbox-recover-warmup.sh` compares the
+before/after inventories and invokes cleanup only for exactly one new box
+matching this workflow, job, and branch. Ambiguous or missing matches are
+reported without stopping an unrelated box. Keep both inventories and their
+command statuses. Keep warmup/status/identity transcripts, every stage run and
+download transcript, raw JSON/time/log files, runner catalog, setup identity
+artifact, cleanup logs, and the final source manifest in the separate
+`.cmux-scratch/` directory. Never store credentials, private keys, or
+`/tmp/.testbox/auth_token`.
 
 Record these fields alongside `timings.json`:
 

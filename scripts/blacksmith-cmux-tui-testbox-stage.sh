@@ -67,6 +67,11 @@ if [[ "$(git -C ghostty rev-parse --show-toplevel 2>/dev/null || true)" != "$gho
   echo "ghostty is not an initialized submodule checkout" >&2
   exit 65
 fi
+ghostty_entry="$(git ls-tree HEAD ghostty)"
+if [[ ! "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]]; then
+  echo "HEAD:ghostty is not a gitlink" >&2
+  exit 65
+fi
 expected_tree_sha="$(git rev-parse "${expected_source_sha}^{tree}")"
 
 benchmark_dir="$repo_root/testbox-benchmark"
@@ -290,11 +295,12 @@ if (( post_identity_status == 0 )); then
   fi
 fi
 
-final_status="$build_status"
-if (( final_status == 0 && restore_status != 0 )); then
+if (( restore_status != 0 )); then
   final_status="$restore_status"
-elif (( final_status == 0 && post_identity_status != 0 )); then
+elif (( post_identity_status != 0 )); then
   final_status="$post_identity_status"
+else
+  final_status="$build_status"
 fi
 
 python3 - "$stage" "$start_epoch" "$end_epoch" "$build_status" "$final_status" "$time_path" "$pre_identity_path" "$post_identity_path" "$changed_file" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" "$runner_label" "$rust_toolchain" "$rustc_version" "$cargo_version" "$zig_bin" "$zig_version" "$rust_toolchain_file_sha256" "$cargo_lock_sha256" "$ghostty_zon_sha256" >"$json_path" <<'PY'
