@@ -117,10 +117,14 @@ import json, os, subprocess, sys, tempfile
 
 want = os.environ["WANT_ID"].strip().lower()
 with tempfile.NamedTemporaryFile() as output:
-    result = subprocess.run(
-        ["xcrun", "devicectl", "list", "devices", "--json-output", output.name],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    try:
+        result = subprocess.run(
+            ["xcrun", "devicectl", "list", "devices", "--json-output", output.name],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        print("no"); raise SystemExit(0)
     if result.returncode != 0:
         print("no"); raise SystemExit(0)
     output.seek(0)
