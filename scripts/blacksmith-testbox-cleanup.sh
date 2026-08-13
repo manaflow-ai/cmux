@@ -42,6 +42,50 @@ for field in ("workflow", "job", "source_ref", "source_sha", "source_tree_sha", 
     if not receipt.get(field):
         raise SystemExit(f"warmup ownership receipt is missing {field}")
 PY
+receipt_workflow="$(python3 - "$receipt_path" <<'PY'
+import json
+import pathlib
+import sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["workflow"])
+PY
+)"
+receipt_job="$(python3 - "$receipt_path" <<'PY'
+import json
+import pathlib
+import sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["job"])
+PY
+)"
+receipt_ref="$(python3 - "$receipt_path" <<'PY'
+import json
+import pathlib
+import sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["source_ref"])
+PY
+)"
+pre_status_log="$evidence_dir/status-before-stop.log"
+set +e
+blacksmith testbox status --id "$testbox_id" >"$pre_status_log" 2>&1
+pre_status=$?
+set -e
+if (( pre_status == 0 )); then
+  pre_row="$(awk -v id="$testbox_id" '$1 == id { print; exit }' "$pre_status_log")"
+  if [[ -z "$pre_row" ]]; then
+    echo "status did not contain the owned Testbox row; refusing cleanup" >&2
+    exit 66
+  fi
+  pre_workflow="$(awk '{print $4}' <<<"$pre_row")"
+  pre_job="$(awk '{print $5}' <<<"$pre_row")"
+  pre_ref="$(awk '{print $6}' <<<"$pre_row")"
+  if [[ "$pre_workflow" != "$receipt_workflow" || "$pre_job" != "$receipt_job" || "$pre_ref" != "$receipt_ref" ]]; then
+    echo "owned Testbox context differs from the warmup receipt; refusing cleanup" >&2
+    exit 66
+  fi
+elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_status_log"; then
+  echo "failed to preview Testbox $testbox_id before cleanup; see $pre_status_log" >&2
+  exit "$pre_status"
+fi
+
 stop_log="$evidence_dir/stop.log"
 status_log="$evidence_dir/status-after-stop.log"
 list_log="$evidence_dir/list-after-stop.log"

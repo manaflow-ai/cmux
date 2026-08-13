@@ -388,8 +388,9 @@ PY
 ## Cleanup and evidence
 
 Download all raw files and `timings.json` before cleanup. Then call the
-fail-safe helper, which preserves an already-completed 409 but fails on other
-stop/status/list errors and verifies this exact Testbox ID is no longer active:
+fail-safe helper, which previews the exact receipt context, preserves an
+already-completed 409, fails on other stop/status/list errors, and verifies this
+exact Testbox ID is no longer active:
 
 ```bash
 cleanup_token="${cleanup_token:-}"
