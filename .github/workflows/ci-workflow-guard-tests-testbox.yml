@@ -332,11 +332,12 @@ jobs:
           # begin-testbox deliberately continues after phone-home errors. Make
           # registration an explicit fail-closed prerequisite before publishing
           # the marker consumed by the remote benchmark helper.
-          curl -fsS --connect-timeout 2 --max-time 10 \
+          response="$(curl -fsS --connect-timeout 2 --max-time 10 \
             -X POST "$api_url/api/testbox/phone-home" \
             -H 'Content-Type: application/json' \
             -H "Authorization: Bearer $auth_token" \
-            --data "$payload" >/dev/null
+            --data "$payload")"
+          [[ -n "$response" ]]
           marker="$state/cmux-tui-rust-setup-identity.json"
           install -m 600 testbox-benchmark/setup-identity.json "$marker"
           test -s "$marker"
