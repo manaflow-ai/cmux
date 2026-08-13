@@ -36,6 +36,8 @@ final class MobileStartupConnectionCoordinator {
     }
 
     private var owner: Owner = .unclaimed
+    private var injectedAttachTask: Task<Void, Never>?
+    private var injectedAttachTaskAttempt: Attempt?
 
     var shouldFallBackFromInjectedAttach: Bool {
         owner == .injectedAttachFailed
@@ -82,6 +84,50 @@ final class MobileStartupConnectionCoordinator {
         )
     }
 
+    /// Starts the one-shot launch attach under the app-lifetime coordinator.
+    /// Repeated root mounts consume the same route without replacing a healthy
+    /// in-flight transport connection.
+    @discardableResult
+    func startInjectedAttach(
+        attachURL: String,
+        prepare: @escaping @MainActor @Sendable () async -> Void,
+        connect: @escaping @MainActor @Sendable (
+            String
+        ) async -> MobilePairingURLConnectionResult,
+        onCompletion: @escaping @MainActor @Sendable (
+            InjectedAttachCompletion
+        ) -> Void
+    ) -> Bool {
+        if shouldFallBackFromInjectedAttach {
+            return false
+        }
+        if injectedAttachTask != nil {
+            return true
+        }
+        guard let attempt = claimInjectedAttach() else {
+            return true
+        }
+        injectedAttachTaskAttempt = attempt
+        injectedAttachTask = Task { @MainActor [weak self] in
+            await prepare()
+            guard let self, !Task.isCancelled else { return }
+            let completion = await self.connectInjectedAttach(
+                attempt,
+                attachURL: attachURL,
+                connect: connect
+            )
+            guard !Task.isCancelled,
+                  self.injectedAttachTaskAttempt == attempt else {
+                return
+            }
+            self.injectedAttachTask = nil
+            self.injectedAttachTaskAttempt = nil
+            guard let completion else { return }
+            onCompletion(completion)
+        }
+        return true
+    }
+
     /// Completes an explicit launch attach.
     ///
     /// - Returns: Whether startup should fall back to the saved Mac.
@@ -112,6 +158,11 @@ final class MobileStartupConnectionCoordinator {
         retryLaunchRoute: Bool = false
     ) -> Bool {
         guard owner == .injectedAttach(attempt) else { return false }
+        if injectedAttachTaskAttempt == attempt {
+            injectedAttachTask?.cancel()
+            injectedAttachTask = nil
+            injectedAttachTaskAttempt = nil
+        }
         if retryLaunchRoute {
             owner = .unclaimed
             return false
@@ -135,6 +186,9 @@ final class MobileStartupConnectionCoordinator {
     }
 
     func reset() {
+        injectedAttachTask?.cancel()
+        injectedAttachTask = nil
+        injectedAttachTaskAttempt = nil
         owner = .unclaimed
     }
 }

@@ -53,8 +53,6 @@ struct CMUXMobileRootView: View {
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
     #endif
-    @State private var injectedAttachTask: Task<Void, Never>?
-    @State private var injectedAttachTaskAttempt: MobileStartupConnectionCoordinator.Attempt?
     @State private var authRevalidationTask: Task<Void, Never>?
     @State private var openURLTask: Task<Void, Never>?
     @State private var openURLTaskToken: UUID?
@@ -295,7 +293,6 @@ struct CMUXMobileRootView: View {
             tailscaleSetupPrompt.apply(.shellStatusChanged(status))
         }
         .onDisappear {
-            cancelInjectedAttachTask(retryLaunchRoute: true)
             authRevalidationTask?.cancel()
             authRevalidationTask = nil
             cancelOpenURLTask(failure: .cancelled)
@@ -399,7 +396,6 @@ struct CMUXMobileRootView: View {
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
             if !isAuthenticated {
-                cancelInjectedAttachTask()
                 startupConnectionCoordinator.reset()
             } else if !consumePendingURLIfReady() {
                 reconnectStoredMacIfNeeded()
@@ -1240,7 +1236,6 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
-        cancelInjectedAttachTask()
         diagnosticLog?.recordAppEvent(.authSignOutStarted)
         Task {
             // Local shell teardown first so the whole UI lands signed out
@@ -1284,58 +1279,25 @@ struct CMUXMobileRootView: View {
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
-        if startupConnectionCoordinator.shouldFallBackFromInjectedAttach {
-            return false
-        }
-        guard let startupAttempt = startupConnectionCoordinator.claimInjectedAttach() else {
-            return true
-        }
-        injectedAttachTaskAttempt = startupAttempt
-        injectedAttachTask = Task { @MainActor in
-            let completion = await dogfoodAttachPreparation.run {
-                await startupConnectionCoordinator.connectInjectedAttach(
-                    startupAttempt,
-                    attachURL: attachURL
-                ) { rawURL in
-                    await store.connectPairingURLResult(rawURL)
+        return startupConnectionCoordinator.startInjectedAttach(
+            attachURL: attachURL,
+            prepare: {
+                await dogfoodAttachPreparation.waitUntilReady()
+            },
+            connect: { rawURL in
+                await store.connectPairingURLResult(rawURL)
+            },
+            onCompletion: { completion in
+                if completion.result == .needsUserApproval {
+                    showAttachVersionApproval()
+                }
+                if completion.shouldReconnectStoredMac {
+                    reconnectStoredMacIfNeeded()
                 }
             }
-            guard !Task.isCancelled,
-                  injectedAttachTaskAttempt == startupAttempt,
-                  let completion else {
-                return
-            }
-            if completion.result == .needsUserApproval {
-                showAttachVersionApproval()
-            }
-            clearInjectedAttachTask(ifCurrent: startupAttempt)
-            if completion.shouldReconnectStoredMac {
-                reconnectStoredMacIfNeeded()
-            }
-        }
-        return true
+        )
         #else
         return false
         #endif
-    }
-
-    private func cancelInjectedAttachTask(retryLaunchRoute: Bool = false) {
-        guard let attempt = injectedAttachTaskAttempt else { return }
-        let task = injectedAttachTask
-        injectedAttachTask = nil
-        injectedAttachTaskAttempt = nil
-        _ = startupConnectionCoordinator.cancelInjectedAttach(
-            attempt,
-            retryLaunchRoute: retryLaunchRoute
-        )
-        task?.cancel()
-    }
-
-    private func clearInjectedAttachTask(
-        ifCurrent attempt: MobileStartupConnectionCoordinator.Attempt
-    ) {
-        guard injectedAttachTaskAttempt == attempt else { return }
-        injectedAttachTask = nil
-        injectedAttachTaskAttempt = nil
     }
 }
