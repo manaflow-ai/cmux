@@ -2167,7 +2167,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// update can reveal the pre-scroll viewport for one frame while the
     /// display-link batch is still waiting behind the frozen presentation.
     @discardableResult
-    func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
+    public func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
         var drained = false
         while let flushed = flushPendingScrollIfNeeded() {
             guard flushed.appliedLocally else { return drained }
