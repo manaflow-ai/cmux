@@ -280,6 +280,7 @@ extension TerminalController {
         // conversation. Reuse the session-restore identity gate so the record
         // returned to the CLI always agrees with the binding that generated its
         // typed `cmux restore <kind> <checkpoint>` selector.
+        let restoredAgent = target.restorableAgent
         let compatibleAgent: (
             snapshot: SessionRestorableAgentSnapshot,
             source: String,
@@ -287,7 +288,7 @@ extension TerminalController {
         )?
         if binding == nil || binding?.isAgentHookBinding == true {
             if let restoredAgent = Workspace.restorableAgentForSessionRestore(
-                target.restorableAgent,
+                restoredAgent,
                 resumeBinding: binding
             ) {
                 compatibleAgent = (
@@ -351,12 +352,14 @@ extension TerminalController {
         // the record. Rebuild the typed argv from the authoritative binding so
         // `cmux restore` keeps its shell-free path even during that handoff.
         let workingDirectory = binding.cwd ?? binding.launchCommand?.workingDirectory
-        let preparedArguments = preparedResumeArguments(
-            binding: binding,
-            normalizedKind: normalizedKind,
-            workingDirectory: workingDirectory,
-            registration: target.restorableAgent?.registration
-        )
+        let preparedArguments = restoredAgent.flatMap { rejectedAgent in
+            preparedResumeArguments(
+                binding: binding,
+                normalizedKind: normalizedKind,
+                workingDirectory: workingDirectory,
+                registration: rejectedAgent.registration
+            )
+        }
         return ControlSurfaceRestoreRecord(
             modeRawValue: mode.rawValue,
             kind: normalizedKind,

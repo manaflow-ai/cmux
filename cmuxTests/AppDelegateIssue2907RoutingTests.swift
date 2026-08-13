@@ -942,6 +942,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(restoreRecord["kind"] as? String, "hermes-agent")
         XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, checkpointID)
         XCTAssertNil(restoreRecord["launch_command"] as? [String: Any])
+        // A binding-only record keeps the compatibility-shell path. Typed argv
+        // is rebuilt only when a newer binding supersedes a stale snapshot.
         XCTAssertNil(restoreRecord["prepared_arguments"] as? [String])
         let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
         XCTAssertTrue(
