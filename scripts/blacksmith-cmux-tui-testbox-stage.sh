@@ -355,9 +355,11 @@ verify_identity "$pre_identity_path"
 
 runner_label="blacksmith-32vcpu-ubuntu-2404"
 zig_bin="${CMUX_ZIG:-$(command -v zig)}"
+pushd cmux-tui >/dev/null
 rust_toolchain="$(rustup show active-toolchain)"
 rustc_version="$(rustc --version)"
 cargo_version="$(cargo --version)"
+popd >/dev/null
 zig_version="$("$zig_bin" version)"
 [[ "$rust_toolchain" == "$setup_rust_toolchain" && "$rustc_version" == "$setup_rustc" && "$cargo_version" == "$setup_cargo" && "$zig_version" == "$setup_zig" ]] || {
   echo "active Rust/Cargo/Zig toolchain differs from the setup identity marker" >&2

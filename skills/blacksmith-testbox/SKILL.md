@@ -36,12 +36,15 @@ workflow intentionally grants no other GitHub permissions or workflow secrets.
 Before using the lane, a repository administrator must create the
 `blacksmith-testbox-trusted` GitHub environment, configure required reviewers
 (or an equivalent manual approval rule), disable administrator bypass, and leave
-the environment secret set empty. GitHub evaluates that approval before the
+the environment secret set empty. Treat this as a required repository control,
+not a setting this workflow can create: if the environment is deleted, renamed,
+or unconfigured, disable the workflow before any dispatch. GitHub evaluates that approval before the
 job's first step, including `begin-testbox`. The workflow additionally rejects every ref except reviewed `main` before
 `begin-testbox`. It cannot verify the environment's reviewer configuration
 inside the token-bearing job without exposing the same token, so a missing or
 drifting environment remains an operational stop condition, not a recoverable
-workflow state. If the environment does not exist or has no
+workflow state. Repository policy must prevent dispatch or merge of this lane
+until that control is restored. If the environment does not exist or has no
 required reviewer, stop: the lane is not production-safe. Never dispatch it
 for an untrusted PR, fork, branch containing unreviewed workflow/helper changes,
 or source supplied by an external contributor. When trust changes, stop the old box and warm a
