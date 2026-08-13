@@ -5,6 +5,7 @@ import {
   scrubSentryEvent,
   shouldSendCoderouterSentryEvent,
 } from "../services/sentry";
+import { isSensitiveObservabilityKey } from "../services/observability/report";
 
 describe("coderouter Sentry privacy", () => {
   test("isolates the shared cmux deployment to coderouter events", () => {
@@ -93,5 +94,13 @@ describe("coderouter Sentry privacy", () => {
     expect(event.message).not.toContain("crh_");
     expect(event.message).not.toContain("eyJabcdefghijk");
     expect(event.extra?.handoff_lease).toBe("[Filtered]");
+  });
+
+  test("scrubs normalized identity keys, including acronym forms", () => {
+    expect(isSensitiveObservabilityKey("teamId")).toBe(true);
+    expect(isSensitiveObservabilityKey("team_id")).toBe(true);
+    expect(isSensitiveObservabilityKey("sessionId")).toBe(true);
+    expect(isSensitiveObservabilityKey("APIKey")).toBe(true);
+    expect(isSensitiveObservabilityKey("releaseVersion")).toBe(false);
   });
 });

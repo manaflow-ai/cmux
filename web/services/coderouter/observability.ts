@@ -1,4 +1,7 @@
-import { reportError } from "../observability/report";
+import {
+  isSensitiveObservabilityKey,
+  reportError,
+} from "../observability/report";
 
 type CodeRouterFailure =
   | "credential_decrypt"
@@ -12,8 +15,6 @@ type CodeRouterFailure =
   | "configuration"
   | "upstream_transport";
 
-const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|handoff|header|key|lease|prompt|response|secret|session|team.?id|token/i;
-
 export function addCoderouterBreadcrumb(
   category: string,
   message: string,
@@ -21,7 +22,7 @@ export function addCoderouterBreadcrumb(
   level: "debug" | "info" | "warning" | "error" = "info",
 ): void {
   const safeData = Object.fromEntries(
-    Object.entries(data).filter(([key]) => !SENSITIVE_CONTEXT_KEY.test(key)),
+    Object.entries(data).filter(([key]) => !isSensitiveObservabilityKey(key)),
   );
   void import("@sentry/nextjs")
     .then((Sentry) => {
@@ -47,16 +48,19 @@ export function reportCoderouterFailure(
   context: Readonly<Record<string, string | number | boolean>> = {},
 ): void {
   const errorType = error instanceof Error ? error.name : typeof error;
+  const safeContext = Object.fromEntries(
+    Object.entries(context).filter(([key]) => !isSensitiveObservabilityKey(key)),
+  );
   addCoderouterBreadcrumb(
     "error",
     `coderouter.${failure}`,
-    { failure, errorType, ...context },
+    { failure, errorType, ...safeContext },
     "error",
   );
   reportError(new Error(`coderouter.${failure}`), {
     service: "coderouter",
     failure,
     errorType,
-    ...context,
+    ...safeContext,
   });
 }

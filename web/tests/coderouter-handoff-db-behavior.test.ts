@@ -285,7 +285,7 @@ describe("CodeRouter handoff lease database behavior", () => {
       const issued = await issueCoderouterHandoffLease(
         teamId,
         userId,
-        new Date(Date.now() - CODEROUTER_HANDOFF_LEASE_TTL_MS - 1_000),
+        new Date(Date.now() - CODEROUTER_HANDOFF_LEASE_TTL_MS - 60 * 60_000),
       );
       expect(
         await exchangeCoderouterHandoffLease(

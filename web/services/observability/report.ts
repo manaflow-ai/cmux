@@ -1,5 +1,5 @@
 const SENSITIVE_KEY_TOKEN =
-  /(?:^|_)(?:account|authorization|body|completion|content|cookie|credential|dsn|email|handoff|header|key|lease|output|password|prompt|provider|request|response|secret|token|webhook)(?:_|$)/;
+  /(?:^|_)(?:account|authorization|body|completion|content|cookie|credential|dsn|email|handoff|header|key|lease|output|password|prompt|provider|request|response|secret|session|team|team_id|session_id|webhook)(?:_|$)/;
 
 export function reportError(error: unknown, context: Record<string, unknown>): void {
   const safeContext = scrubContext(context);
@@ -51,7 +51,7 @@ function scrubErrorForLog(error: unknown): string {
 }
 
 function scrubValue(key: string, value: unknown): unknown {
-  if (isSensitiveKey(key)) return "[redacted]";
+  if (isSensitiveObservabilityKey(key)) return "[redacted]";
   if (Array.isArray(value)) return value.map((entry) => scrubValue(key, entry));
   if (!value || typeof value !== "object") return value;
   const scrubbed: Record<string, unknown> = {};
@@ -61,7 +61,7 @@ function scrubValue(key: string, value: unknown): unknown {
   return scrubbed;
 }
 
-function isSensitiveKey(key: string): boolean {
+export function isSensitiveObservabilityKey(key: string): boolean {
   const normalized = key
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
