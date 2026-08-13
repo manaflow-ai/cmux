@@ -97,7 +97,7 @@ extension GhosttySurfaceView {
         let hasPendingViewport = localViewportState.inFlight != nil
             || localViewportState.pendingRow != nil
         let shouldAdoptBoundary = !nativePixelScrollHasRequestedViewport
-            || (wasAtBottom && !hasPendingViewport)
+            || (wasAtBottom && !hasPendingViewport && !nativePixelScrollInteractionActive)
         let cellHeight = renderedCellSizeInPoints.height
         let authoritativeOffsetY = CGFloat(boundary.viewportOffsetRows) * cellHeight
         if shouldAdoptBoundary {
@@ -184,6 +184,17 @@ extension GhosttySurfaceView {
 
     private var currentNativePixelScrollOffsetY: CGFloat {
         scrollMechanicsView.contentOffset.y
+    }
+
+    /// UIKit owns the visible viewport for the whole gesture, including its
+    /// deceleration tail. Live output may update row geometry during this
+    /// window, but it must not replace the user's position with a boundary
+    /// callback from Ghostty. Otherwise the boundary path becomes a second
+    /// viewport writer while the native pixel presentation is still moving.
+    private var nativePixelScrollInteractionActive: Bool {
+        scrollMechanicsView.isTracking
+            || scrollMechanicsView.isDragging
+            || scrollMechanicsView.isDecelerating
     }
 }
 #endif
