@@ -22,7 +22,7 @@ struct MobileRootPresentationStateTests {
 
         let scanner = PairingPresentation.scanner(entry: .autoConnectMigration)
         #expect(
-            state.apply(.setUpTailscale(hasUsableAuthorization: false))
+            state.apply(.setUpTailscale(status: .pairingRequired))
                 == .setUpTailscale(requiresPairing: true)
         )
         #expect(state.presentation == .pairing(scanner))
@@ -34,7 +34,18 @@ struct MobileRootPresentationStateTests {
         state.apply(.presentAutoConnectMigrationIfIdle)
 
         #expect(
-            state.apply(.setUpTailscale(hasUsableAuthorization: true))
+            state.apply(.setUpTailscale(status: .authorized))
+                == .setUpTailscale(requiresPairing: false)
+        )
+        #expect(state.isIdle)
+    }
+
+    @Test func introductionWaitsForLoadingTailscaleAuthorizationBeforePairing() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentAutoConnectMigrationIfIdle)
+
+        #expect(
+            state.apply(.setUpTailscale(status: .loadingAuthorization))
                 == .setUpTailscale(requiresPairing: false)
         )
         #expect(state.isIdle)

@@ -596,7 +596,7 @@ struct CMUXMobileRootView: View {
                 },
                 setUpTailscale: {
                     handleRootPresentation(.setUpTailscale(
-                        hasUsableAuthorization: store.hasUsableTailscaleAuthorization
+                        status: store.tailscaleSetupStatus
                     ))
                 },
                 showsLayoutProbe: showsAutoConnectMigrationLayoutProbe
