@@ -3,6 +3,24 @@ import Foundation
 enum CodexTeamsApprovalBridge {
     private typealias CodexPermissionCapabilities = (supportsOnce: Bool, supportsAlways: Bool, supportsAll: Bool)
 
+    struct ApprovalFeedPayload {
+        let toolName: String
+        let toolInput: [String: Any]
+        let context: [String: Any]
+        let cwd: String?
+    }
+
+    static func isApprovalMethod(_ method: String) -> Bool {
+        switch method {
+        case "item/commandExecution/requestApproval",
+             "item/fileChange/requestApproval",
+             "item/permissions/requestApproval":
+            return true
+        default:
+            return false
+        }
+    }
+
     static func feedEvent(
         method: String,
         requestId: Any,
@@ -10,9 +28,37 @@ enum CodexTeamsApprovalBridge {
         workspaceId: String,
         relatedItem: [String: Any]? = nil
     ) -> [String: Any] {
+        let payload = approvalFeedPayload(
+            method: method,
+            requestId: requestId,
+            params: params,
+            relatedItem: relatedItem
+        )
         let threadId = stringValue(in: params, keys: ["threadId", "thread_id"])
             ?? stringValue(in: params, keys: ["threadID", "thread_id"])
             ?? "unknown"
+        let itemId = stringValue(in: params, keys: ["approvalId", "approval_id", "itemId", "item_id"])
+            ?? requestIdString(requestId)
+        var event: [String: Any] = [
+            "session_id": "codex-\(threadId)",
+            "hook_event_name": "PermissionRequest",
+            "_source": "codex",
+            "workspace_id": workspaceId,
+            "tool_name": payload.toolName,
+            "tool_input": payload.toolInput,
+            "context": payload.context,
+            "_opencode_request_id": "codex-app-server-\(itemId)"
+        ]
+        if let cwd = payload.cwd { event["cwd"] = cwd }
+        return event
+    }
+
+    static func approvalFeedPayload(
+        method: String,
+        requestId: Any,
+        params: [String: Any],
+        relatedItem: [String: Any]? = nil
+    ) -> ApprovalFeedPayload {
         let turnId = stringValue(in: params, keys: ["turnId", "turn_id"])
         let itemId = stringValue(in: params, keys: ["approvalId", "approval_id", "itemId", "item_id"])
             ?? requestIdString(requestId)
@@ -73,18 +119,12 @@ enum CodexTeamsApprovalBridge {
             context["toolSummary"] = command
         }
 
-        var event: [String: Any] = [
-            "session_id": "codex-\(threadId)",
-            "hook_event_name": "PermissionRequest",
-            "_source": "codex",
-            "workspace_id": workspaceId,
-            "tool_name": toolName,
-            "tool_input": toolInput,
-            "context": context,
-            "_opencode_request_id": "codex-app-server-\(itemId)"
-        ]
-        if let cwd { event["cwd"] = cwd }
-        return event
+        return ApprovalFeedPayload(
+            toolName: toolName,
+            toolInput: toolInput,
+            context: context,
+            cwd: cwd
+        )
     }
 
     static func permissionMode(fromFeedPushResponse response: [String: Any]) -> String? {

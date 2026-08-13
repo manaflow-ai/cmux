@@ -468,6 +468,7 @@ final class CodexAppServerSession {
         guard let id = object["id"] else { return }
         if method == "item/tool/requestUserInput"
             || method == "mcpServer/elicitation/request"
+            || (userInputHandler != nil && CodexTeamsApprovalBridge.isApprovalMethod(method))
         {
             handleUserInputRequest(object, method: method, id: id)
             return

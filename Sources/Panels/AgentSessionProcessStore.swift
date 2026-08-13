@@ -267,6 +267,7 @@ final class AgentSessionProcessStore {
         }
         let isMCPToolApproval = request.method == "mcpServer/elicitation/request"
             && Self.isMCPToolApproval(params)
+        let isCodexApproval = CodexTeamsApprovalBridge.isApprovalMethod(request.method)
         if request.method == "mcpServer/elicitation/request",
            !isMCPToolApproval,
            !Self.mcpElicitationIsSupported(params) {
@@ -287,9 +288,21 @@ final class AgentSessionProcessStore {
             }
             return Self.mcpResolution(action: "cancel", content: nil)
         }
-        let payload = isMCPToolApproval
-            ? Self.mcpApprovalFeedPayload(params)
-            : Self.codexFeedPayload(method: request.method, params: params)
+        let approvalPayload = isCodexApproval
+            ? CodexTeamsApprovalBridge.approvalFeedPayload(
+                method: request.method,
+                requestId: request.rpcID,
+                params: params
+            )
+            : nil
+        let payload: [String: Any]
+        if let approvalPayload {
+            payload = approvalPayload.toolInput
+        } else if isMCPToolApproval {
+            payload = Self.mcpApprovalFeedPayload(params)
+        } else {
+            payload = Self.codexFeedPayload(method: request.method, params: params)
+        }
         guard JSONSerialization.isValidJSONObject(payload),
               let payloadData = try? JSONSerialization.data(withJSONObject: payload, options: []),
               let payloadJSON = String(data: payloadData, encoding: .utf8) else {
@@ -305,16 +318,22 @@ final class AgentSessionProcessStore {
         let requestID = "codex-\(sessionId)-\(request.rpcID)"
         let event = WorkstreamEvent(
             sessionId: workstreamID,
-            hookEventName: isMCPToolApproval ? .permissionRequest : .notification,
-            rawHookEventName: isMCPToolApproval ? nil : request.method,
+            hookEventName: isMCPToolApproval || isCodexApproval ? .permissionRequest : .notification,
+            rawHookEventName: isMCPToolApproval || isCodexApproval ? nil : request.method,
             source: "codex",
             workspaceId: workspaceID,
             surfaceId: surfaceID,
-            cwd: nil,
-            toolName: isMCPToolApproval
-                ? Self.mcpApprovalDisplayName(params)
-                : request.method,
+            cwd: approvalPayload?.cwd,
+            toolName: approvalPayload?.toolName
+                ?? (isMCPToolApproval ? Self.mcpApprovalDisplayName(params) : request.method),
             toolInputJSON: payloadJSON,
+            context: approvalPayload.map {
+                WorkstreamContext(
+                    assistantPreamble: $0.context["assistantPreamble"] as? String,
+                    toolSummary: $0.context["toolSummary"] as? String,
+                    permissionMode: $0.context["permissionMode"] as? String
+                )
+            },
             requestId: requestID,
             ppid: processIdentifier > 0 ? Int(processIdentifier) : nil
         )
@@ -519,6 +538,30 @@ final class AgentSessionProcessStore {
         method: String,
         params: [String: Any]
     ) -> CodexAppServerUserInputResolution {
+        if CodexTeamsApprovalBridge.isApprovalMethod(method) {
+            let mode: WorkstreamPermissionMode
+            switch outcome.result {
+            case .resolved(_, .permission(let resolvedMode)):
+                mode = resolvedMode
+            case .resolved, .timedOut, .notFound, .unavailable, .acknowledged:
+                mode = .deny
+            }
+            guard let response = CodexTeamsApprovalBridge.appServerApprovalResponse(
+                method: method,
+                params: params,
+                mode: mode.rawValue
+            ) else {
+                return .error(
+                    code: -32601,
+                    message: String(
+                        localized: "agentSession.codex.error.unsupportedServerRequest",
+                        defaultValue: "Request from Codex app-server is not supported: %@"
+                    ).replacingOccurrences(of: "%@", with: method)
+                )
+            }
+            return jsonResolution(response)
+        }
+
         let isMCP = method == "mcpServer/elicitation/request"
         switch outcome.result {
         case .resolved(_, let decision):

@@ -251,6 +251,96 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testCodexAppServerApprovalResolutionsFollowFeedPermissionModes() throws {
+        func resultObject(
+            _ result: FeedCoordinator.IngestBlockingResult,
+            method: String,
+            params: [String: Any]
+        ) throws -> [String: Any] {
+            let resolution = AgentSessionProcessStore.codexResolution(
+                .init(result: result, authoritativeEvent: nil),
+                method: method,
+                params: params
+            )
+            guard case .result(let json) = resolution else {
+                Issue.record("expected a Codex approval result")
+                return [:]
+            }
+            return try #require(
+                JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+            )
+        }
+
+        let commandParams: [String: Any] = [
+            "availableDecisions": [
+                "accept",
+                "acceptForSession",
+                ["acceptWithExecpolicyAmendment": [String: Any]()],
+                "decline",
+            ],
+            "proposedExecpolicyAmendment": [["kind": "prefix", "value": "npm test"]],
+        ]
+        let commandOnce = try resultObject(
+            .resolved(itemId: nil, decision: .permission(.once)),
+            method: "item/commandExecution/requestApproval",
+            params: commandParams
+        )
+        expectEqual(commandOnce["decision"] as? String, "accept")
+
+        let commandAlways = try resultObject(
+            .resolved(itemId: nil, decision: .permission(.always)),
+            method: "item/commandExecution/requestApproval",
+            params: commandParams
+        )
+        expectEqual(commandAlways["decision"] as? String, "acceptForSession")
+
+        let commandAll = try resultObject(
+            .resolved(itemId: nil, decision: .permission(.all)),
+            method: "item/commandExecution/requestApproval",
+            params: commandParams
+        )
+        let commandAllDecision = try #require(commandAll["decision"] as? [String: Any])
+        #expect(commandAllDecision["acceptWithExecpolicyAmendment"] != nil)
+
+        let deniedFile = try resultObject(
+            .resolved(itemId: nil, decision: .permission(.deny)),
+            method: "item/fileChange/requestApproval",
+            params: [:]
+        )
+        expectEqual(deniedFile["decision"] as? String, "decline")
+
+        let requestedPermissions: [String: Any] = [
+            "network": ["enabled": true],
+        ]
+        for (mode, scope) in [
+            (WorkstreamPermissionMode.once, "turn"),
+            (.always, "session"),
+        ] {
+            let permissionResult = try resultObject(
+                .resolved(itemId: nil, decision: .permission(mode)),
+                method: "item/permissions/requestApproval",
+                params: ["permissions": requestedPermissions]
+            )
+            expectEqual(permissionResult["scope"] as? String, scope)
+            let permissions = try #require(permissionResult["permissions"] as? [String: Any])
+            let network = try #require(permissions["network"] as? [String: Any])
+            expectEqual(network["enabled"] as? Bool, true)
+        }
+
+        for result in [
+            FeedCoordinator.IngestBlockingResult.timedOut(itemId: nil),
+            .resolved(itemId: nil, decision: .question(selections: [])),
+        ] {
+            let failedClosed = try resultObject(
+                result,
+                method: "item/commandExecution/requestApproval",
+                params: commandParams
+            )
+            expectEqual(failedClosed["decision"] as? String, "decline")
+        }
+    }
+
+    @Test
     func testCodexMcpFormResolutionPreservesSchemaTypesAndEnumValues() throws {
         let params: [String: Any] = [
             "requestedSchema": [
@@ -1267,6 +1357,40 @@ struct CodexAppServerSessionTests {
         let answers = try #require(response["answers"] as? [String: Any])
         let mode = try #require(answers["mode"] as? [String: Any])
         expectEqual(mode["answers"] as? [String], ["Fast"])
+    }
+
+    @Test
+    func testAppServerApprovalRequestsUseTheFeedResolutionHandler() async throws {
+        var sentLines: [String] = []
+        var receivedRequest: CodexAppServerUserInputRequest?
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in },
+            userInputHandler: { request in
+                receivedRequest = request
+                return .result(json: #"{"decision":"accept"}"#)
+            }
+        )
+
+        session.consumeStdout(
+            #"{"id":"approval-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1","command":"swift test","availableDecisions":["accept","decline"]}}"#
+                + "\n"
+        )
+        for _ in 0..<3 { await Task.yield() }
+
+        let request = try #require(receivedRequest)
+        expectEqual(request.rpcID, "approval-1")
+        expectEqual(request.method, "item/commandExecution/requestApproval")
+        let params = try #require(
+            JSONSerialization.jsonObject(with: Data(request.paramsJSON.utf8)) as? [String: Any]
+        )
+        expectEqual(params["command"] as? String, "swift test")
+        let response = try #require(sentLines.first.flatMap(jsonLine(_:)))
+        expectEqual(response["id"] as? String, "approval-1")
+        expectEqual((response["result"] as? [String: Any])?["decision"] as? String, "accept")
     }
 
     @Test
