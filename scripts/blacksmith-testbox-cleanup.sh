@@ -70,21 +70,33 @@ PY
 )"
 pre_status_log="$evidence_dir/status-before-stop.log"
 set +e
-blacksmith testbox status --id "$testbox_id" >"$pre_status_log" 2>&1
+blacksmith testbox list --all >"$pre_status_log" 2>&1
 pre_status=$?
 set -e
 if (( pre_status == 0 )); then
   pre_row="$(awk -v id="$testbox_id" '$1 == id { print; exit }' "$pre_status_log")"
   if [[ -z "$pre_row" ]]; then
-    echo "status did not contain the owned Testbox row; refusing cleanup" >&2
-    exit 66
-  fi
-  pre_workflow="$(awk '{print $4}' <<<"$pre_row")"
-  pre_job="$(awk '{print $5}' <<<"$pre_row")"
-  pre_ref="$(awk '{print $6}' <<<"$pre_row")"
-  if [[ "$pre_workflow" != "$receipt_workflow" || "$pre_job" != "$receipt_job" || "$pre_ref" != "$receipt_ref" ]]; then
-    echo "owned Testbox context differs from the warmup receipt; refusing cleanup" >&2
-    exit 66
+    # --all can omit a terminal box. A missing row is safe only when the
+    # single-box status endpoint independently reports a known terminal state.
+    set +e
+    blacksmith testbox status --id "$testbox_id" >>"$pre_status_log" 2>&1
+    pre_lookup_status=$?
+    set -e
+    if (( pre_lookup_status == 0 )) && ! grep -Eiq '(completed|stopped|cancelled|failed|terminated|hydration_failed)' "$pre_status_log"; then
+      echo "inventory omitted an active or unknown Testbox; refusing cleanup" >&2
+      exit 66
+    elif (( pre_lookup_status != 0 )) && ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_status_log"; then
+      echo "could not establish ownership before cleanup; refusing cleanup" >&2
+      exit "$pre_lookup_status"
+    fi
+  else
+    pre_workflow="$(awk '{print $4}' <<<"$pre_row")"
+    pre_job="$(awk '{print $5}' <<<"$pre_row")"
+    pre_ref="$(awk '{print $6}' <<<"$pre_row")"
+    if [[ "$pre_workflow" != "$receipt_workflow" || "$pre_job" != "$receipt_job" || "$pre_ref" != "$receipt_ref" ]]; then
+      echo "owned Testbox context differs from the warmup receipt; refusing cleanup" >&2
+      exit 66
+    fi
   fi
 elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_status_log"; then
   echo "failed to preview Testbox $testbox_id before cleanup; see $pre_status_log" >&2

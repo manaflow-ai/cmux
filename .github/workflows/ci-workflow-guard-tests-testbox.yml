@@ -16,7 +16,8 @@ on:
 # The Blacksmith CLI supplies testbox_id and dispatches the selected pushed
 # branch. It does not expose arbitrary workflow inputs, so source_sha is an
 # optional manual-dispatch assertion; the benchmark's remote guard is required
-# for the CLI path below.
+# for the CLI path below. The protected environment is configured out of band;
+# this workflow is intentionally unusable unless that repository policy exists.
 permissions: {}
 
 concurrency:
@@ -38,8 +39,11 @@ jobs:
       contents: read
     timeout-minutes: 45
     steps:
-      # begin-testbox must be the first step. It attaches the VM requested by
-      # `blacksmith testbox warmup` and leaves it alive after this setup job.
+      # begin-testbox must be the first step. GitHub environment approval and
+      # its trusted-branch policy are evaluated before this step; do not weaken
+      # those external controls or move this action into branch-controlled code.
+      # It attaches the VM requested by `blacksmith testbox warmup` and leaves
+      # it alive after this setup job.
       - name: Begin Testbox
         uses: useblacksmith/begin-testbox@233448af4bfdc6fca509a7f0974411ac6d8a8043 # v2
         with:

@@ -35,12 +35,15 @@ workflow intentionally grants no other GitHub permissions or workflow secrets.
 
 Before using the lane, a repository administrator must create the
 `blacksmith-testbox-trusted` GitHub environment, configure required reviewers
-(or an equivalent manual approval rule), and leave the environment secret set
-empty. GitHub evaluates that approval before the job's first step, including
-`begin-testbox`. If the environment does not exist or has no required reviewer,
-stop: the lane is not production-safe. Never dispatch it for an untrusted PR,
-fork, branch containing unreviewed workflow/helper changes, or source supplied
-by an external contributor. When trust changes, stop the old box and warm a
+(or an equivalent manual approval rule), disable administrator bypass, and leave
+the environment secret set empty. GitHub evaluates that approval before the
+job's first step, including `begin-testbox`. The workflow cannot verify this
+out-of-band policy after `begin-testbox` without exposing the same token, so a
+missing or drifting environment is an operational stop condition, not a
+recoverable workflow state. If the environment does not exist or has no
+required reviewer, stop: the lane is not production-safe. Never dispatch it
+for an untrusted PR, fork, branch containing unreviewed workflow/helper changes,
+or source supplied by an external contributor. When trust changes, stop the old box and warm a
 fresh one.
 
 The helper retains the `CMUX_TESTBOX_REMOTE=1` guard for accidental local
@@ -314,9 +317,10 @@ inventory, accepts the known terminal states `completed`, `stopped`, `cancelled`
 `failed`, `terminated`, and `hydration_failed`, plus a 409 saying the box is
 already stopped or completed, and polls for up to two minutes while cancellation
 propagates. Other stop, status, or list failures remain failures.
-Put it in an `EXIT` trap that preserves the benchmark's original exit status
-unless cleanup itself fails. The detailed benchmark writes a receipt and
-confirmation token for the exact ID returned by warmup; cleanup refuses an ID
+Put it in an `EXIT` trap only after an independent operator exports
+`CONFIRM_TESTBOX_STOP=STOP`; otherwise preserve the benchmark's original exit
+status and leave the box for manual cleanup. The detailed benchmark writes a
+receipt and ownership token for the exact ID returned by warmup; cleanup refuses an ID
 or token that is not bound to that receipt. If warmup fails before returning an
 ID, retain before/after inventory but do not automatically stop a box, because
 an inventory diff cannot prove ownership across concurrent operators. Reconcile

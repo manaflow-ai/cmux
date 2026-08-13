@@ -163,7 +163,7 @@ cleanup() {
       echo "warmup returned no owned Testbox receipt; no automatic stop was attempted" >&2
     fi
   fi
-  if (( result == 0 && cleanup_status != 0 )); then
+  if (( result == 0 && cleanup_status != 0 && "${CONFIRM_TESTBOX_STOP:-}" == "STOP" )); then
     result="$cleanup_status"
   fi
   exit "$result"
