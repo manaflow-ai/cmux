@@ -808,12 +808,13 @@ struct MobileSettingsView: View {
 /// one transport.
 private struct MobileSettingsDiagnosticsSection: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
+    @State private var appLogURLs: [URL] = []
+    @State private var networkLogURLs: [URL] = []
 
     var body: some View {
         Section {
-            let appURLs = AppLog.appLogFileURLs
-            if !appURLs.isEmpty {
-                ShareLink(items: appURLs) {
+            if !appLogURLs.isEmpty {
+                ShareLink(items: appLogURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareAppLog",
@@ -827,9 +828,8 @@ private struct MobileSettingsDiagnosticsSection: View {
                     diagnosticLog?.recordAppEvent(.appDiagnosticsShared)
                 })
             }
-            let networkURLs = AppLog.networkLogFileURLs
-            if !networkURLs.isEmpty {
-                ShareLink(items: networkURLs) {
+            if !networkLogURLs.isEmpty {
+                ShareLink(items: networkLogURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareNetworkLog",
@@ -850,6 +850,13 @@ private struct MobileSettingsDiagnosticsSection: View {
                 "mobile.settings.diagnostics.footer",
                 defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
             ))
+        }
+        .task {
+            let urls = await Task.detached(priority: .utility) {
+                (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
+            }.value
+            appLogURLs = urls.0
+            networkLogURLs = urls.1
         }
     }
 }

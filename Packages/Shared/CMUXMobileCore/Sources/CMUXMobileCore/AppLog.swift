@@ -113,6 +113,18 @@ public actor AppLog {
         return "\(stem)\(archiveMarker)"
     }
 
+    private static func archiveStamp(for url: URL, prefix: String) -> Int64? {
+        let remainder = url.lastPathComponent.dropFirst(prefix.count)
+        let stamp = remainder.prefix(13)
+        guard stamp.count == 13,
+              stamp.allSatisfy({ $0.isNumber }),
+              remainder.dropFirst(stamp.count).first == "-"
+        else {
+            return nil
+        }
+        return Int64(stamp)
+    }
+
     private static func archiveURLs(for fileURL: URL) -> [URL] {
         let fileManager = FileManager.default
         let directory = fileURL.deletingLastPathComponent()
@@ -131,6 +143,18 @@ public actor AppLog {
                     && fileManager.fileExists(atPath: candidate.path)
             }
             .sorted { lhs, rhs in
+                let leftStamp = archiveStamp(for: lhs, prefix: prefix)
+                let rightStamp = archiveStamp(for: rhs, prefix: prefix)
+                switch (leftStamp, rightStamp) {
+                case let (left?, right?):
+                    if left != right { return left > right }
+                case (_?, nil):
+                    return true
+                case (nil, _?):
+                    return false
+                case (nil, nil):
+                    break
+                }
                 let leftDate = (try? lhs.resourceValues(
                     forKeys: [.contentModificationDateKey]
                 ).contentModificationDate) ?? .distantPast
