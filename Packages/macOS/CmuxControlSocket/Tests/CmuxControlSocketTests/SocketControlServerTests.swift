@@ -18,6 +18,7 @@ private final class ServerEventRecorder: Sendable {
         var failures: [FailureEvent] = []
         var started: [(path: String, generation: UInt64)] = []
         var recordedPaths: [String] = []
+        var cleanedPaths: [(path: String, lockWasHeld: Bool)] = []
         var pathMissing: [(path: String, generation: UInt64)] = []
         var rearms: [(generation: UInt64, errnoCode: Int32, consecutiveFailures: Int, delayMs: Int)] = []
     }
@@ -28,6 +29,7 @@ private final class ServerEventRecorder: Sendable {
     var failures: [FailureEvent] { state.withLock { $0.failures } }
     var started: [(path: String, generation: UInt64)] { state.withLock { $0.started } }
     var recordedPaths: [String] { state.withLock { $0.recordedPaths } }
+    var cleanedPaths: [(path: String, lockWasHeld: Bool)] { state.withLock { $0.cleanedPaths } }
     var pathMissing: [(path: String, generation: UInt64)] { state.withLock { $0.pathMissing } }
     var rearms: [(generation: UInt64, errnoCode: Int32, consecutiveFailures: Int, delayMs: Int)] {
         state.withLock { $0.rearms }
@@ -48,6 +50,20 @@ private final class ServerEventRecorder: Sendable {
             },
             recordLastSocketPath: { path in
                 self.state.withLock { $0.recordedPaths.append(path) }
+            },
+            cleanupDiscoveryState: { path in
+                let transport = SocketTransport()
+                let lockWasHeld: Bool
+                switch transport.acquireSocketPathLock(for: path) {
+                case .acquired(let fd, _):
+                    transport.releaseSocketPathLock(fd)
+                    lockWasHeld = false
+                case .failed(let failure):
+                    lockWasHeld = failure.stage == "lock" && failure.errnoCode == EWOULDBLOCK
+                }
+                self.state.withLock {
+                    $0.cleanedPaths.append((path: path, lockWasHeld: lockWasHeld))
+                }
             },
             pathMissingDetected: { path, generation in
                 self.state.withLock { $0.pathMissing.append((path: path, generation: generation)) }
@@ -263,6 +279,9 @@ struct SocketControlServerLifecycleTests {
 
         #expect(!server.isRunning)
         #expect(!FileManager.default.fileExists(atPath: harness.socketPath))
+        #expect(!FileManager.default.fileExists(atPath: harness.socketPath + ".lock"))
+        #expect(harness.recorder.cleanedPaths.map(\.path) == [harness.socketPath])
+        #expect(harness.recorder.cleanedPaths.map(\.lockWasHeld) == [true])
         #expect(server.currentSocketPathForRemoteRestore() == nil)
         #expect(server.activeSocketPath(preferredPath: "/tmp/pref.sock") == "/tmp/pref.sock")
         let health = server.listenerHealth(expectedSocketPath: harness.socketPath)

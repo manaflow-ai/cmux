@@ -3,10 +3,8 @@ import Testing
 
 @Suite
 struct CmxIrohAdmittedConnectionSupervisorTests {
-    @Test(arguments: ["control", "lanes", "together", "caller"])
-    func firstExitClosesTheConnectionAndStopsLanesExactlyOnce(
-        trigger: String
-    ) async {
+    @Test
+    func applicationLaneExitCannotCloseAUsableControlConnection() async {
         let control = AsyncStream<Void>.makeStream()
         let lanes = AsyncStream<Void>.makeStream()
         let started = AsyncStream<Void>.makeStream()
@@ -51,17 +49,13 @@ struct CmxIrohAdmittedConnectionSupervisorTests {
 
         #expect(await startedIterator.next() != nil)
         #expect(await startedIterator.next() != nil)
-        switch trigger {
-        case "control":
-            control.continuation.finish()
-        case "lanes":
-            lanes.continuation.finish()
-        case "together":
-            control.continuation.finish()
-            lanes.continuation.finish()
-        default:
-            runTask.cancel()
+        lanes.continuation.finish()
+        while await childExitRecorder.observedEvents() != ["lanes"] {
+            await Task.yield()
         }
+        #expect(await cleanupRecorder.observedEvents().isEmpty)
+
+        control.continuation.finish()
         let exit = await runTask.value
 
         // One actor instance owns one admitted connection lifetime. A repeated
@@ -76,21 +70,66 @@ struct CmxIrohAdmittedConnectionSupervisorTests {
             Set(await childExitRecorder.observedEvents())
                 == Set(["control", "lanes"])
         )
-        if trigger == "control" {
-            #expect(
-                exit == CmxIrohAdmittedConnectionExit(
-                    lifecycle: .controlReadFailed,
-                    failure: .transportIdleTimedOut
-                )
+        #expect(
+            exit == CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .transportIdleTimedOut
             )
-        } else if trigger == "lanes" {
-            #expect(
-                exit == CmxIrohAdmittedConnectionExit(
-                    lifecycle: .applicationLaneFailed,
-                    failure: .connectionClosed
-                )
-            )
-        }
+        )
         #expect(repeatedExit == exit)
+    }
+
+    @Test
+    func callerCancellationStillClosesOwnedWorkExactlyOnce() async {
+        let control = AsyncStream<Void>.makeStream()
+        let lanes = AsyncStream<Void>.makeStream()
+        let started = AsyncStream<Void>.makeStream()
+        var startedIterator = started.stream.makeAsyncIterator()
+        let cleanupRecorder = TestIrohEventRecorder()
+        let supervisor = CmxIrohAdmittedConnectionSupervisor(
+            runControl: {
+                started.continuation.yield()
+                for await _ in control.stream {}
+                return CmxIrohAdmittedConnectionExit(
+                    lifecycle: .explicitlyInvalidated,
+                    failure: .cancelled
+                )
+            },
+            runApplicationLanes: {
+                started.continuation.yield()
+                for await _ in lanes.stream {}
+                return CmxIrohAdmittedConnectionExit(
+                    lifecycle: .explicitlyInvalidated,
+                    failure: .cancelled
+                )
+            },
+            closeConnection: {
+                await cleanupRecorder.record("connection.close")
+            },
+            stopApplicationLanes: {
+                await cleanupRecorder.record("lanes.stop")
+            }
+        )
+        let runTask = Task { await supervisor.run() }
+        defer {
+            control.continuation.finish()
+            lanes.continuation.finish()
+            started.continuation.finish()
+        }
+
+        #expect(await startedIterator.next() != nil)
+        #expect(await startedIterator.next() != nil)
+        runTask.cancel()
+        _ = await runTask.value
+
+        #expect(
+            await cleanupRecorder.observedEvents()
+                == ["connection.close", "lanes.stop"]
+        )
+        _ = await supervisor.run()
+        #expect(
+            await cleanupRecorder.observedEvents()
+                == ["connection.close", "lanes.stop"]
+        )
     }
 }

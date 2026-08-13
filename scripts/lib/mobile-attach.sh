@@ -383,16 +383,19 @@ print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 # 0 if the Mac is ready to mint a usable target-specific ticket, 1 otherwise.
 # Never force-kills a running app by default.
 cmux_attach_ensure_mac() {
-  local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" sock app slug mint_attempts _i
+  local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" force_relaunch="${4:-0}"
+  local sock app slug mint_attempts _i
   sock="$(cmux_attach_socket_path "$tag")"
   app="$(cmux_attach_mac_app_path "$tag")"
   slug="$(cmux_attach__slug "$tag")"
   cmux_attach_enable_pairing_host "$tag" || true
 
   if [[ -S "$sock" ]]; then
-    # Quick probe (2 attempts ~1s): if pairing already mints, done.
-    if [[ -n "$repo_root" ]] && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" 2)" ]]; then
-      return 0
+    if [[ "$force_relaunch" != "1" ]]; then
+      # Quick probe (2 attempts ~1s): if pairing already mints, done.
+      if [[ -n "$repo_root" ]] && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" 2)" ]]; then
+        return 0
+      fi
     fi
     # A tagged app is running but its pairing listener is not ready (launched
     # before the startup-only default was set, prompt pending, or briefly

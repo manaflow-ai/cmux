@@ -238,6 +238,15 @@ if [[ "$SWIFT_FRONTEND_WORKAROUND" == "1" ]]; then
   )
 fi
 
+XCODEBUILD_PARALLEL_ARGS=()
+if [[ -n "${CMUX_XCODEBUILD_JOBS:-}" ]]; then
+  if [[ ! "$CMUX_XCODEBUILD_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: CMUX_XCODEBUILD_JOBS must be a positive integer" >&2
+    exit 1
+  fi
+  XCODEBUILD_PARALLEL_ARGS=(-jobs "$CMUX_XCODEBUILD_JOBS")
+fi
+
 # --prod-auth: point the build at the production auth channel for production
 # account, registry, and API testing (https://github.com/manaflow-ai/cmux/issues/7145).
 # The value lands in the CMUXAuthEnvironment Info.plist key (a tapped device
@@ -727,6 +736,7 @@ reload_simulator() {
   # slower runtime code. Keep Debug configuration so codesigning and
   # debug info still work, but force the compiler to optimize.
   xcodebuild \
+    ${XCODEBUILD_PARALLEL_ARGS[@]+"${XCODEBUILD_PARALLEL_ARGS[@]}"} \
     -workspace "$WORKSPACE" \
     -scheme "$SCHEME" \
     -configuration Debug \
@@ -921,6 +931,7 @@ reload_device() {
 
   build_args=(
     xcodebuild
+    ${XCODEBUILD_PARALLEL_ARGS[@]+"${XCODEBUILD_PARALLEL_ARGS[@]}"}
     -workspace "$WORKSPACE"
     -scheme "$SCHEME"
     -configuration Debug

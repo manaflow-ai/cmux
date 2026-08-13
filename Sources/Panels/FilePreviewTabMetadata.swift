@@ -1,7 +1,7 @@
 import Foundation
 
 /// The tab-facing state emitted by a file-preview panel.
-nonisolated struct FilePreviewTabMetadata: Equatable, Sendable {
+struct FilePreviewTabMetadata: Equatable, Sendable {
     /// The resolved tab title.
     let title: String
     /// The optional system-symbol name shown in the tab.

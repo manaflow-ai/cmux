@@ -284,7 +284,7 @@ async function mintAttachURL(target, payload, maxAttempts = 1) {
   }
 }
 
-async function ensureMacAfterRelaunch() {
+async function ensureMacAfterRelaunch({ forceRelaunch = false, readyAtCall = 2 } = {}) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-ready-test-"));
   const socketPath = path.join(tempRoot, "mobile.sock");
   const appPath = path.join(tempRoot, "cmux DEV ready.app");
@@ -313,13 +313,13 @@ async function ensureMacAfterRelaunch() {
           '  count="$(cat "$CMUX_TEST_CALL_COUNTER" 2>/dev/null || printf 0)"',
           '  count="$((count + 1))"',
           '  printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
-          '  if [[ "$count" -ge 2 ]]; then printf "cmux-ios-dev://attach?v=2&kind=iroh"; return 0; fi',
+          '  if [[ "$count" -ge "$CMUX_TEST_READY_AT_CALL" ]]; then printf "cmux-ios-dev://attach?v=2&kind=iroh"; return 0; fi',
           '  return 1',
           '}',
           'pkill() { printf "%s\\n" "$*" > "$CMUX_TEST_PKILL_ARGS"; return 0; }',
           'open() { return 0; }',
           'sleep() { return 0; }',
-          'cmux_attach_ensure_mac "ready" "$2" physical_device',
+          'cmux_attach_ensure_mac "ready" "$2" physical_device "$CMUX_TEST_FORCE_RELAUNCH"',
         ].join("\n"),
         "mobile-attach-test",
         validator,
@@ -332,7 +332,9 @@ async function ensureMacAfterRelaunch() {
           ...process.env,
           CMUX_TEST_APP: appPath,
           CMUX_TEST_CALL_COUNTER: callCounterPath,
+          CMUX_TEST_FORCE_RELAUNCH: forceRelaunch ? "1" : "0",
           CMUX_TEST_PKILL_ARGS: pkillArgsPath,
+          CMUX_TEST_READY_AT_CALL: String(readyAtCall),
           CMUX_TEST_SOCKET: socketPath,
         },
       },
@@ -768,6 +770,16 @@ test("ensure-mac self-heals an unarmed running exact-tag app", async () => {
   const result = await ensureMacAfterRelaunch();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.callCount, 2);
+  assert.match(
+    result.pkillArgs,
+    /^-f cmux DEV ready\.app\/Contents\/MacOS\/cmux DEV$/,
+  );
+});
+
+test("ensure-mac rotates an armed exact-tag app before using explicit credentials", async () => {
+  const result = await ensureMacAfterRelaunch({ forceRelaunch: true, readyAtCall: 1 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.callCount, 1);
   assert.match(
     result.pkillArgs,
     /^-f cmux DEV ready\.app\/Contents\/MacOS\/cmux DEV$/,

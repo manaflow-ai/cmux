@@ -21,6 +21,10 @@ mock.module("next/navigation", () => ({
   },
 }));
 
+mock.module("next/server", () => ({
+  connection: async () => {},
+}));
+
 mock.module("../app/lib/stack", () => ({
   stackServerApp: {},
 }));

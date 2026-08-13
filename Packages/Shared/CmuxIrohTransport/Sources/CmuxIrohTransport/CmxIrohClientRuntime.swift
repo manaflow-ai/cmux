@@ -670,6 +670,22 @@ public actor CmxIrohClientRuntime {
         await connectivityEngine.invalidatePeer(for: request)
     }
 
+    /// Invalidates reusable broker discovery state for one Mac device.
+    ///
+    /// Called when a presence route push proves the Mac's endpoint
+    /// re-registered: any snapshot captured before the push is corpse data,
+    /// so the next dial to that Mac fetches a fresh discovery snapshot
+    /// (single-flight, bounded by the broker backpressure gate) instead of
+    /// reusing it.
+    ///
+    /// - Parameter deviceID: The Mac's registry device id, or `nil` to
+    ///   invalidate discovery reuse for every peer.
+    public func invalidateDiscoverySnapshot(forMacDeviceID deviceID: String?) async {
+        await registryContextProvider?.invalidateVerifiedDiscovery(
+            forDeviceID: deviceID
+        )
+    }
+
     /// Stops network ownership while preserving account-scoped persistence.
     public func stop() async {
         guard lifecyclePhase == .starting || lifecyclePhase == .active else {

@@ -24,21 +24,29 @@ extension CMUXCLI {
             environment: processEnvironment
         )
         let source: CLISocketPathSource
-        if let envSocketPath {
-            source = CLISocketPathResolver.isImplicitDefaultPath(
-                envSocketPath,
-                bundleIdentifier: bundleIdentifier,
-                environment: processEnvironment
-            ) ? .implicitDefault : .environment
+        if envSocketPath != nil {
+            // Environment overrides are explicit pins. Never reinterpret a
+            // stable-looking value as permission to select another instance.
+            source = .environment
         } else {
             source = .implicitDefault
         }
-        return CLISocketPathResolver.resolve(
-            requestedPath: requestedSocketPath,
-            source: source,
+        let resolver = CLISocketPathResolver(
             environment: processEnvironment,
             bundleIdentifier: bundleIdentifier
         )
+        let resolution = resolver.resolve(
+            requestedPath: requestedSocketPath,
+            source: source
+        )
+        guard resolution.hasLiveSocket else {
+            throw CLIError(message: resolution.failureMessage)
+        }
+        if source == .implicitDefault,
+           let rerouteNotice = resolution.rerouteNotice {
+            cliWriteStderr(rerouteNotice + "\n")
+        }
+        return resolution.selectedPath ?? requestedSocketPath
     }
 
     func tmuxCompatLaunchContext(
