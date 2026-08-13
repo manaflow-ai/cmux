@@ -4050,8 +4050,7 @@ final class cmuxUITests: XCTestCase {
             port: hostPort,
             environment: [
                 "CMUX_AGENT_MODELS_URL": "http://127.0.0.1:\(catalogPort)/api/agent-models",
-            ],
-            launchArguments: ["-cmux.mobile.taskComposerEnabled", "YES"]
+            ]
         )
         defer { app.terminate() }
 
@@ -4123,11 +4122,7 @@ final class cmuxUITests: XCTestCase {
 
         // The injected attach ticket uses the production connection and
         // capability handshake while avoiding the independent Add Computer UI.
-        // Enable New Task explicitly because this focused test owns that entrypoint.
-        let hostApp = try launchConnectedApp(
-            port: port,
-            launchArguments: ["-cmux.mobile.taskComposerEnabled", "YES"]
-        )
+        let hostApp = try launchConnectedApp(port: port)
         let backButton = hostApp.buttons["MobileWorkspaceBackButton"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: hostApp)
@@ -7856,7 +7851,6 @@ final class cmuxUITests: XCTestCase {
             "root-pairing"
         let app = launchApp(mockData: true, environment: launchEnvironment, launchArguments: [
             "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
-            "-cmux.mobile.taskComposerEnabled", "YES",
         ])
 
         let hostField = app.textFields["MobileAddDeviceHostField"]

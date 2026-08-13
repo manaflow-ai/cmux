@@ -11,6 +11,12 @@ extension MobileHostService {
     nonisolated static let phonePushSettingsCapability = "phone_push.settings.v1"
     /// Authenticated request to enqueue a truthful, correlated test alert.
     nonisolated static let phonePushTestCapability = "phone_push.test.v1"
+    nonisolated static let taskCreateCapability = "workspace.task_create.v1"
+    nonisolated static let taskAttachmentCapability = "task.attachments.v1"
+    nonisolated static let taskModelsCapability = "task.models.v1"
+    nonisolated static let taskDirectoryBrowseCapability = "workspace.directory_browse.v1"
+    nonisolated static let taskDirectorySearchCapability = "workspace.directory_search.v1"
+    nonisolated static let taskDirectorySearchV2Capability = "workspace.directory_search.v2"
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
@@ -32,6 +38,9 @@ extension MobileHostService {
             ),
             includingSimulator: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.simulatorFlag
+            ),
+            includingTaskComposer: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.mobileTaskComposerFlag
             )
         )
     }
@@ -49,7 +58,8 @@ extension MobileHostService {
     /// or input call then fails.
     nonisolated static func mobileHostCapabilities(
         includingWorkspaceChanges: Bool,
-        includingSimulator: Bool = true
+        includingSimulator: Bool = true,
+        includingTaskComposer: Bool = true
     ) -> [String] {
         var capabilities = [
             MobileBrowserStreamCapability.identifier,
@@ -93,12 +103,12 @@ extension MobileHostService {
             // drag-and-drop and group-create affordances enabled after ticket
             // expiry only against hosts that advertise this.
             "workspace.mutations.account_auth.v1",
-            "workspace.task_create.v1",
-            "task.attachments.v1",
-            "task.models.v1",
-            "workspace.directory_browse.v1",
-            "workspace.directory_search.v1",
-            "workspace.directory_search.v2",
+            Self.taskCreateCapability,
+            Self.taskAttachmentCapability,
+            Self.taskModelsCapability,
+            Self.taskDirectoryBrowseCapability,
+            Self.taskDirectorySearchCapability,
+            Self.taskDirectorySearchV2Capability,
             "chat.artifact.v1",
             "chat.artifact.folders.v1",
             "chat.artifact.gallery.v1",
@@ -120,6 +130,17 @@ extension MobileHostService {
                 MobileSimulatorStreamCapability.current.keepaliveIdentifier,
             ]
             capabilities.removeAll { simulatorCapabilities.contains($0) }
+        }
+        if !includingTaskComposer {
+            let taskComposerCapabilities: Set<String> = [
+                Self.taskCreateCapability,
+                Self.taskAttachmentCapability,
+                Self.taskModelsCapability,
+                Self.taskDirectoryBrowseCapability,
+                Self.taskDirectorySearchCapability,
+                Self.taskDirectorySearchV2Capability,
+            ]
+            capabilities.removeAll { taskComposerCapabilities.contains($0) }
         }
         return applyingDebugCapabilitySuppressions(capabilities)
     }
