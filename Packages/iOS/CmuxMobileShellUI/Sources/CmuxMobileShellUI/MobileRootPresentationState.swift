@@ -1,3 +1,5 @@
+import CmuxMobileShell
+
 /// The single iOS modal owner and its root-sheet and child-sheet transitions.
 ///
 /// Root presentations share one SwiftUI sheet host. Child presentations claim
