@@ -92,6 +92,89 @@ struct MobileIrohReleaseGateRunnerTests {
         #expect(capturedReport?.failure == "readiness_unavailable")
     }
 
+    @Test(arguments: [
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: false,
+                isConnected: false,
+                usesIroh: false,
+                hasWorkspaceMutation: false,
+                hasTerminal: false
+            ),
+            "not_signed_in"
+        ),
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: true,
+                isConnected: false,
+                usesIroh: false,
+                hasWorkspaceMutation: false,
+                hasTerminal: false
+            ),
+            "not_connected"
+        ),
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: true,
+                isConnected: true,
+                usesIroh: false,
+                hasWorkspaceMutation: false,
+                hasTerminal: false
+            ),
+            "non_iroh_route"
+        ),
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: true,
+                isConnected: true,
+                usesIroh: true,
+                hasWorkspaceMutation: false,
+                hasTerminal: false
+            ),
+            "workspace_unavailable"
+        ),
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: true,
+                isConnected: true,
+                usesIroh: true,
+                hasWorkspaceMutation: true,
+                hasTerminal: false
+            ),
+            "terminal_unavailable"
+        ),
+    ])
+    func readinessTimeoutClassifiesLastObservedState(
+        readiness: MobileIrohReleaseGateRunner.Readiness,
+        expectedFailure: String
+    ) async throws {
+        let configuration = try temporaryConfiguration(mode: .automatic)
+        var capturedReport: MobileIrohReleaseGateRunner.Report?
+        let updates = AsyncStream<MobileIrohReleaseGateRunner.Readiness>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let runner = MobileIrohReleaseGateRunner(
+            configuration: configuration,
+            dependencies: .init(
+                readinessUpdates: { _ in updates.stream },
+                runProbe: { _, _ in Self.successfulProbe },
+                settingsUpdates: { Self.finishedSettingsUpdates() },
+                writeReport: { report, url in
+                    capturedReport = report
+                    try Self.write(report: report, to: url)
+                },
+                postReportReady: {},
+                timeout: .milliseconds(20)
+            )
+        )
+
+        updates.continuation.yield(readiness)
+        await runner.run(store: CMUXMobileShellStore.preview())
+        updates.continuation.finish()
+
+        #expect(capturedReport?.failure == expectedFailure)
+    }
+
     @Test
     func probeRequiresTwoReadyObservationsBeforeRunning() async throws {
         let configuration = try temporaryConfiguration(mode: .automatic)
