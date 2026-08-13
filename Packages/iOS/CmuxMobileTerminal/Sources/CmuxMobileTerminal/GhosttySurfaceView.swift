@@ -52,6 +52,7 @@ private struct KeyboardNotificationTransitionLifecycle {
         case animate(generation: UInt64)
         case settle(generation: UInt64)
         case converge(generation: UInt64)
+        case ignoreDuplicate(generation: UInt64)
         case ignoreStale(generation: UInt64)
 
         var generation: UInt64 {
@@ -59,6 +60,7 @@ private struct KeyboardNotificationTransitionLifecycle {
             case .animate(let generation),
                  .settle(let generation),
                  .converge(let generation),
+                 .ignoreDuplicate(let generation),
                  .ignoreStale(let generation):
                 generation
             }
@@ -69,6 +71,7 @@ private struct KeyboardNotificationTransitionLifecycle {
             case .animate: "animate"
             case .settle: "settle"
             case .converge: "converge"
+            case .ignoreDuplicate: "ignoreDuplicate"
             case .ignoreStale: "ignoreStale"
             }
         }
@@ -98,12 +101,17 @@ private struct KeyboardNotificationTransitionLifecycle {
 
     private static let retainedLegCount = 16
     private var generation: UInt64 = 0
-    private var latestLeg: Leg?
+    private var activeLeg: Leg?
     private var recentLegs: [Leg] = []
 
     mutating func reset() {
-        latestLeg = nil
+        activeLeg = nil
         recentLegs.removeAll(keepingCapacity: true)
+    }
+
+    mutating func animationCompleted(generation: UInt64) {
+        guard activeLeg?.generation == generation else { return }
+        activeLeg = nil
     }
 
     mutating func resolve(
@@ -113,6 +121,23 @@ private struct KeyboardNotificationTransitionLifecycle {
     ) -> Decision {
         switch phase {
         case .will:
+            if let activeLeg,
+               activeLeg.matches(beginFrame: beginFrame, endFrame: endFrame) {
+                return .ignoreDuplicate(generation: activeLeg.generation)
+            }
+
+            // A superseded leg can be redelivered after a reversal has already
+            // become active. Treat an exact historical pair as stale while an
+            // opposing leg owns presentation. Once the active leg settles, the
+            // same frame pair is valid again for a later user-initiated cycle.
+            if activeLeg != nil,
+               let staleLeg = recentLegs.last(where: {
+                   $0.generation != activeLeg?.generation
+                       && $0.matches(beginFrame: beginFrame, endFrame: endFrame)
+               }) {
+                return .ignoreStale(generation: staleLeg.generation)
+            }
+
             let leg = recordLeg(beginFrame: beginFrame, endFrame: endFrame)
             return .animate(generation: leg.generation)
 
@@ -120,18 +145,20 @@ private struct KeyboardNotificationTransitionLifecycle {
             if let matchingLeg = recentLegs.last(where: {
                 $0.matches(beginFrame: beginFrame, endFrame: endFrame)
             }) {
-                guard matchingLeg.generation == latestLeg?.generation else {
+                guard matchingLeg.generation == activeLeg?.generation else {
                     return .ignoreStale(generation: matchingLeg.generation)
                 }
+                activeLeg = nil
                 return .settle(generation: matchingLeg.generation)
             }
 
-            if let latestLeg, latestLeg.matches(endFrame: endFrame) {
-                return .settle(generation: latestLeg.generation)
+            if let activeLeg, activeLeg.matches(endFrame: endFrame) {
+                self.activeLeg = nil
+                return .settle(generation: activeLeg.generation)
             }
 
             if let staleLeg = recentLegs.last(where: {
-                $0.generation != latestLeg?.generation && $0.matches(endFrame: endFrame)
+                $0.generation != activeLeg?.generation && $0.matches(endFrame: endFrame)
             }) {
                 return .ignoreStale(generation: staleLeg.generation)
             }
@@ -142,9 +169,10 @@ private struct KeyboardNotificationTransitionLifecycle {
             // geometry: UIKit's paired `will` already supplied the current target,
             // so this is a stale completion from an older or foreign transition.
             guard recentLegs.isEmpty else {
-                return .ignoreStale(generation: latestLeg?.generation ?? generation)
+                return .ignoreStale(generation: activeLeg?.generation ?? generation)
             }
             let leg = recordLeg(beginFrame: beginFrame, endFrame: endFrame)
+            activeLeg = nil
             return .converge(generation: leg.generation)
         }
     }
@@ -156,7 +184,7 @@ private struct KeyboardNotificationTransitionLifecycle {
             endFrame: endFrame,
             generation: generation
         )
-        latestLeg = leg
+        activeLeg = leg
         recentLegs.append(leg)
         if recentLegs.count > Self.retainedLegCount {
             recentLegs.removeFirst(recentLegs.count - Self.retainedLegCount)
@@ -1216,7 +1244,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // its UIView animation. Reapplying `did` with zero duration would
                 // replace live presentation motion during successive toggles.
                 settleNotificationDrivenKeyboardTransition(transition)
-            case .ignoreStale, nil:
+            case .ignoreDuplicate, .ignoreStale, nil:
                 break
             }
         }
@@ -1262,6 +1290,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         } completion: { [weak self] _ in
             guard let self,
                   self.keyboardNotificationTransitionGeneration == generation else { return }
+            self.keyboardNotificationTransitionLifecycle.animationCompleted(generation: generation)
             self.bottomDockTransitionObserved = false
             self.layoutRenderedTerminalForCurrentViewport()
             self.layoutZoomOverlay()
