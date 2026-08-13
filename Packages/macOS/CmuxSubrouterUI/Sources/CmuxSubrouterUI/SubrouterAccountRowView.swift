@@ -89,10 +89,6 @@ public struct SubrouterAccountRowView: View {
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(Color.primary.opacity(isHovering ? 0.05 : 0))
-        )
         // Expired accounts stay listed (they are still sign-in and remove
         // targets) but recede so healthy accounts carry the panel.
         .opacity(isAuthExpired ? 0.55 : 1)
