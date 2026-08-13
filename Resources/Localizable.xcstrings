@@ -113146,6 +113146,40 @@
         }
       }
     },
+    "featureFlags.mobileTerminalFilesChip.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the Files chip over iOS terminals and runs its visible-path count scan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSのターミナル上にファイルチップを表示し、表示中のパス数をスキャンします。"
+          }
+        }
+      }
+    },
+    "featureFlags.mobileTerminalFilesChip.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile terminal Files chip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイルターミナルのファイルチップ"
+          }
+        }
+      }
+    },
     "featureFlags.mobileWorkspaceChanges.description": {
       "extractionState": "manual",
       "localizations": {

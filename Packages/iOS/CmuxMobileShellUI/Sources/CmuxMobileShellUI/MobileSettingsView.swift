@@ -237,14 +237,21 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
-                    Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
+                    Toggle(isOn: $displaySettings.taskComposerEnabled) {
                         Text(L10n.string(
-                            "mobile.settings.terminalFilesChip",
-                            defaultValue: "Terminal Files Chip"
+                            "mobile.settings.taskComposer",
+                            defaultValue: "New Task Composer"
                         ))
                     }
-                    .accessibilityIdentifier("MobileSettingsTerminalFilesChip")
+                    .accessibilityIdentifier("MobileSettingsTaskComposer")
 
+                    Toggle(isOn: $toasts.isEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.beta.toasts",
+                            defaultValue: "Toasts"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastsEnabled")
                 }
 
                 #if DEBUG

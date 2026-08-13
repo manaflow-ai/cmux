@@ -8263,19 +8263,19 @@
         }
       }
     },
-    "mobile.settings.terminalFilesChip": {
+    "mobile.settings.taskComposer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal Files Chip"
+            "value": "New Task Composer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルのファイルチップ"
+            "value": "新規タスク作成"
           }
         }
       }
