@@ -65,6 +65,10 @@ jobs:
       CMUX_SWIFT_FRONTEND_WORKAROUND: "1"
     strategy:
       fail-fast: false
+      # The three app-backed modes share one staging account. Serial execution
+      # prevents one mode's zero-touch registration from replacing another
+      # mode's active Mac route while its authenticated RPC probe is running.
+      max-parallel: 1
       matrix:
         mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
     runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'warp-macos-15-arm64-6x' }}
