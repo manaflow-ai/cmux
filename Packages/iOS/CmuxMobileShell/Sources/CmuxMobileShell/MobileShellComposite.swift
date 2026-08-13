@@ -10527,8 +10527,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requiresSubscriptionValidation =
             runtime?.supportsServerPushEvents == true
                 || terminalEventListenerID != nil
+        // Creating or refreshing the push subscription is a secondary
+        // readiness check. It must not demote an already-authenticated RPC
+        // session to `reconnecting` while the ACK is in flight. A transient
+        // subscription race otherwise blanks the workspace UI even though the
+        // live Iroh client can still serve requests.
         guard !requiresSubscriptionValidation
-                || subscriptionIsValidated else {
+                || subscriptionIsValidated
+                || macConnectionStatus == .connected else {
             macConnectionStatus = .reconnecting
             connectionRecoveryFailed = false
             return
