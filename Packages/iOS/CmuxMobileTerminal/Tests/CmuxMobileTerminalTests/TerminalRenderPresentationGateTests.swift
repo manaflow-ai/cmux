@@ -74,5 +74,26 @@ struct TerminalRenderPresentationGateTests {
         #expect(gate.inFlight == ordinary)
         #expect(gate.pending == nil)
     }
+
+    @Test("geometry replacement invalidates the old token")
+    func geometryReplacementStartsImmediately() {
+        var gate = TerminalRenderPresentationGate()
+        let old = TerminalRenderSubmission(
+            token: 40,
+            generation: 6,
+            kind: .localScroll
+        )
+        let replacement = TerminalRenderSubmission(
+            token: 41,
+            generation: 6,
+            kind: .localScroll
+        )
+
+        #expect(gate.enqueue(old) == .started(old))
+        #expect(gate.replaceInFlight(with: replacement) == .started(replacement))
+        #expect(gate.complete(token: old.token, generation: old.generation) == .ignored)
+        #expect(gate.inFlight == replacement)
+        #expect(gate.complete(token: replacement.token, generation: replacement.generation) == .idle)
+    }
 }
 #endif

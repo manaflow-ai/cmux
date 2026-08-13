@@ -647,6 +647,13 @@ import Testing
         surfaceID: surfaceID
     )
     #expect(postResponseDropAccepted == false)
+    // The replay response has been yielded but its render application has not
+    // acknowledged the stream token yet. Do not launch a second replay while
+    // that queue entry is still in flight; terminalOutputDidProcess owns the
+    // follow-up decision once the exact chunk is visible.
+    let replayCountWhileChunkIsInFlight = await router.count(of: "mobile.terminal.replay")
+    for _ in 0..<3 { await Task.yield() }
+    #expect(await router.count(of: "mobile.terminal.replay") == replayCountWhileChunkIsInFlight)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryReplayChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 3)
