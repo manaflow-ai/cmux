@@ -58,6 +58,15 @@ function socketProbeSource() {
   return source.slice(start, end + 2);
 }
 
+function markerDerivationSource() {
+  const source = fs.readFileSync(reloadScript, "utf8");
+  const start = source.indexOf("derive_socket_marker_names() {");
+  const end = source.indexOf("\n}\n\ncleanup_stale_tag_state", start);
+  assert.notEqual(start, -1, "reload.sh must derive marker names from the bundle variant");
+  assert.notEqual(end, -1, "reload.sh marker derivation must end before stale cleanup");
+  return source.slice(start, end + 2);
+}
+
 function writeExecutable(filePath, contents) {
   fs.writeFileSync(filePath, contents, { mode: 0o755 });
   fs.chmodSync(filePath, 0o755);
@@ -105,6 +114,24 @@ function runShim(shim, environment, args = ["ping"]) {
     env: environment,
   });
 }
+
+test("reload marker derivation maps a custom bundle ID to stable markers", () => {
+  const script = `
+sanitize_path() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
+}
+${markerDerivationSource()}
+derive_socket_marker_names "$1" "$2"
+printf '%s\\n%s\\n' "$CMUX_RELOAD_MARKER_NAME" "$CMUX_RELOAD_TMP_MARKER"
+`;
+  const result = spawnSync(
+    "bash",
+    ["-c", script, "reload-marker-variant-test", "com.example.cmux", "custom-tag"],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, "last-socket-path\n/tmp/cmux-last-socket-path\n");
+});
 
 test("reload pointer publication waits for the shared ownership lock", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-pointer-lock-"));

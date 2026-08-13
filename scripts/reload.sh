@@ -382,52 +382,78 @@ reload_cleanup_tag_state_with_lock() {
   ' "$socket_path" "$lock_path" "$slug" "$marker_path" "$legacy_marker_path" "$tmp_marker" "$pointer_path" "$publish_socket_path" "$publish_cli_path" >/dev/null 2>&1
 }
 
+derive_socket_marker_names() {
+  local bundle_id="${1:-}"
+  local tag_slug="${2:-}"
+  local variant_slug=""
+
+  # Keep this table in lockstep with SocketPathMarkerFiles.variant. In
+  # particular, an identifier that is not one of the known cmux flavors is
+  # stable (rather than an implicitly-tagged dev build), and an empty suffix
+  # uses the unscoped nightly/staging/dev marker name.
+  bundle_id="$(printf '%s' "$bundle_id" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  CMUX_RELOAD_MARKER_NAME="last-socket-path"
+  CMUX_RELOAD_TMP_MARKER="/tmp/cmux-last-socket-path"
+  case "$bundle_id" in
+    com.cmuxterm.app.nightly)
+      CMUX_RELOAD_MARKER_NAME="nightly-last-socket-path"
+      CMUX_RELOAD_TMP_MARKER="/tmp/cmux-nightly-last-socket-path"
+      ;;
+    com.cmuxterm.app.nightly.*)
+      variant_slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.nightly.}")"
+      if [[ -n "$variant_slug" ]]; then
+        CMUX_RELOAD_MARKER_NAME="nightly-${variant_slug}-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-nightly-${variant_slug}-last-socket-path"
+      else
+        CMUX_RELOAD_MARKER_NAME="nightly-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-nightly-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.staging)
+      CMUX_RELOAD_MARKER_NAME="staging-last-socket-path"
+      CMUX_RELOAD_TMP_MARKER="/tmp/cmux-staging-last-socket-path"
+      ;;
+    com.cmuxterm.app.staging.*)
+      variant_slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.staging.}")"
+      if [[ -n "$variant_slug" ]]; then
+        CMUX_RELOAD_MARKER_NAME="staging-${variant_slug}-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-staging-${variant_slug}-last-socket-path"
+      else
+        CMUX_RELOAD_MARKER_NAME="staging-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-staging-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.debug)
+      variant_slug="$(sanitize_path "$tag_slug")"
+      if [[ -n "$variant_slug" ]]; then
+        CMUX_RELOAD_MARKER_NAME="dev-${variant_slug}-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-dev-${variant_slug}-last-socket-path"
+      else
+        CMUX_RELOAD_MARKER_NAME="dev-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-dev-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.debug.*)
+      variant_slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.debug.}")"
+      if [[ -n "$variant_slug" ]]; then
+        CMUX_RELOAD_MARKER_NAME="dev-${variant_slug}-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-dev-${variant_slug}-last-socket-path"
+      else
+        CMUX_RELOAD_MARKER_NAME="dev-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-dev-last-socket-path"
+      fi
+      ;;
+  esac
+}
+
 cleanup_stale_tag_state() {
   local slug="$1"
   local socket_path="${2:-/tmp/cmux-debug-${slug}.sock}"
   local publish_socket_path="${3:-}"
   local publish_cli_path="${4:-}"
-  local marker_name="dev-${slug}-last-socket-path"
-  local tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
-  case "${BUNDLE_ID:-}" in
-    com.cmuxterm.app)
-      marker_name="last-socket-path"
-      tmp_marker="/tmp/cmux-last-socket-path"
-      ;;
-    com.cmuxterm.app.nightly)
-      marker_name="nightly-last-socket-path"
-      tmp_marker="/tmp/cmux-nightly-last-socket-path"
-      ;;
-    com.cmuxterm.app.nightly.*)
-      local nightly_slug="$(sanitize_path "${BUNDLE_ID#com.cmuxterm.app.nightly.}")"
-      if [[ -n "$nightly_slug" ]]; then
-        marker_name="nightly-${nightly_slug}-last-socket-path"
-        tmp_marker="/tmp/cmux-nightly-${nightly_slug}-last-socket-path"
-      fi
-      ;;
-    com.cmuxterm.app.staging)
-      marker_name="staging-last-socket-path"
-      tmp_marker="/tmp/cmux-staging-last-socket-path"
-      ;;
-    com.cmuxterm.app.staging.*)
-      local staging_slug="$(sanitize_path "${BUNDLE_ID#com.cmuxterm.app.staging.}")"
-      if [[ -n "$staging_slug" ]]; then
-        marker_name="staging-${staging_slug}-last-socket-path"
-        tmp_marker="/tmp/cmux-staging-${staging_slug}-last-socket-path"
-      fi
-      ;;
-    com.cmuxterm.app.debug)
-      marker_name="dev-${slug}-last-socket-path"
-      tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
-      ;;
-    com.cmuxterm.app.debug.*)
-      local debug_slug="$(sanitize_path "${BUNDLE_ID#com.cmuxterm.app.debug.}")"
-      if [[ -n "$debug_slug" ]]; then
-        marker_name="dev-${debug_slug}-last-socket-path"
-        tmp_marker="/tmp/cmux-dev-${debug_slug}-last-socket-path"
-      fi
-      ;;
-  esac
+  derive_socket_marker_names "${BUNDLE_ID:-}" "$slug"
+  local marker_name="$CMUX_RELOAD_MARKER_NAME"
+  local tmp_marker="$CMUX_RELOAD_TMP_MARKER"
   local marker_path="${LAST_SOCKET_PATH_DIR}/${marker_name}"
   local legacy_marker_path="${LEGACY_SOCKET_PATH_DIR}/${marker_name}"
 
