@@ -82,12 +82,12 @@ public struct RemoteBootstrapStagingCommandBuilder: Sendable {
 
     /// Remote command argv that executes the staged bootstrap.
     ///
-    /// Keep the launcher as one command string. OpenSSH concatenates remote
-    /// command arguments before handing them to the account's login shell;
-    /// one `exec /bin/sh` command prevents that shell from interpreting the
-    /// staged POSIX script.
+    /// Keep the explicit interpreter and its script as separate argv entries.
+    /// OpenSSH/Mosh quote and concatenate these entries into `/bin/sh -c
+    /// 'exec /bin/sh ...'`, so the account's login shell only parses the
+    /// interpreter invocation and never the staged POSIX script.
     public var remoteExecutionCommandArguments: [String] {
-        [remoteExecutionShellScript]
+        ["/bin/sh", "-c", remoteExecutionShellScript]
     }
 
     private var remoteInstallShellScript: String {

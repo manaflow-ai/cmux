@@ -307,12 +307,17 @@ extension SessionRemoteWorkspaceSnapshot {
         let sshInvocation = terminalArguments
             .map(Self.shellQuote)
             .joined(separator: " ")
-        let remoteCommandTemplate = [
+        let remoteCommandScript = [
             restoredSSHTerminalConnectedShellScript(
                 remoteRelayPort: remoteRelayPort
             ),
             staging.remoteExecutionShellScript,
         ].joined(separator: "\n")
+        // OpenSSH gives the command after the destination to the account's
+        // configured login shell. Keep fish/csh/nushell from parsing the
+        // POSIX lifecycle/relay script by making /bin/sh the command's
+        // outermost interpreter explicitly.
+        let remoteCommandTemplate = "/bin/sh -c \(Self.shellQuote(remoteCommandScript))"
         let script = [
             "cmux_restore_fail() { \(failureScript); }",
             "cmux_restore_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
