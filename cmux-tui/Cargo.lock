@@ -686,6 +686,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-startup-bootstrap"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+]
+
+[[package]]
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [
@@ -714,6 +722,7 @@ dependencies = [
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-startup-bootstrap",
  "cmux-tui-core",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
@@ -722,6 +731,7 @@ dependencies = [
  "ghostty-vt",
  "glob",
  "libc",
+ "memmap2",
  "parking_lot",
  "ratatui",
  "rusqlite",
@@ -2677,6 +2687,15 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "memmap2"
+version = "0.9.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "memmem"

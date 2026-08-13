@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 description = "cmux-tui: tmux-like terminal multiplexer TUI backed by libghostty-vt"
+autoexamples = false
 
 [lints]
 workspace = true
@@ -18,11 +19,27 @@ path = "src/main.rs"
 name = "cmux-tui-hook"
 path = "src/bin/cmux-tui-hook.rs"
 
+[[example]]
+name = "startup_benchmark"
+path = "examples/startup_benchmark.rs"
+test = true
+
+[[example]]
+name = "startup_benchmark_supervisor"
+path = "examples/startup_benchmark_supervisor.rs"
+test = true
+
+[[example]]
+name = "startup_benchmark_preflight"
+path = "examples/startup_benchmark_preflight.rs"
+test = true
+
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true
+cmux-startup-bootstrap.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 anyhow.workspace = true
@@ -52,9 +69,10 @@ url.workspace = true
 async-trait.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_NetworkManagement_WindowsFirewall", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Isolation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_Environment", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Performance", "Win32_System_Pipes", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_StationsAndDesktops", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 cmux-pty.workspace = true
 tempfile = "3"
 rusqlite.workspace = true
+memmap2 = "0.9"

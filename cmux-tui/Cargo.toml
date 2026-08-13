@@ -29,6 +29,7 @@ members = [
     "crates/cmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
+    "crates/cmux-startup-bootstrap",
     "crates/cmux-tui",
 ]
 default-members = [
@@ -74,6 +75,7 @@ cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-remote = { path = "crates/cmux-remote" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
+cmux-startup-bootstrap = { path = "crates/cmux-startup-bootstrap" }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
