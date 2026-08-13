@@ -6740,6 +6740,55 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
     }
 
+    /// A typed missing-session response from a live Mac must not be flattened
+    /// into a reachability diagnosis when an attachment opens from chat.
+    @MainActor
+    func testAgentChatMissingAttachmentSessionDoesNotClaimMacUnreachable() throws {
+        let app = launchAgentChatPreviewApp(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AGENT_CHAT_ARTIFACT_FAILURE": "session_not_found",
+        ])
+        let table = app.tables["ChatTranscriptTableView"]
+        _ = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
+        let attachment = app.buttons["ChatAttachmentButton"]
+        XCTAssertTrue(attachment.waitForExistence(timeout: 4))
+        XCTAssertEqual(attachment.label, "ci-failure.png")
+        guard scrollTranscript(table, toReveal: attachment, timeout: 10) else {
+            XCTFail("Missing attachment never became visible")
+            return
+        }
+
+        tap(attachment, in: app)
+
+        XCTAssertTrue(app.staticTexts["Session not found"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Mac unreachable"].exists)
+    }
+
+    /// A live Mac that cannot find the referenced path must identify the stale
+    /// file instead of blaming the connection used by the rest of the app.
+    @MainActor
+    func testAgentChatMissingAttachmentFileReportsFileNotFound() throws {
+        let app = launchAgentChatPreviewApp(environment: [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_AGENT_CHAT_ARTIFACT_FAILURE": "file_not_found",
+        ])
+        let table = app.tables["ChatTranscriptTableView"]
+        _ = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
+        let attachment = app.buttons["ChatAttachmentButton"]
+        XCTAssertTrue(attachment.waitForExistence(timeout: 4))
+        XCTAssertEqual(attachment.label, "ci-failure.png")
+        guard scrollTranscript(table, toReveal: attachment, timeout: 10) else {
+            XCTFail("Missing attachment never became visible")
+            return
+        }
+
+        tap(attachment, in: app)
+
+        XCTAssertTrue(app.staticTexts["File not found"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["The file is no longer available on your Mac."].exists)
+        XCTAssertFalse(app.staticTexts["Mac unreachable"].exists)
+    }
+
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
     /// composer must translate the actual transcript table frame upward with the
     /// composer while preserving the table's own bottom-visible content. The table
@@ -7902,10 +7951,14 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchAgentChatPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchAgentChatPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
             "CMUX_UITEST_AGENT_CHAT_PREVIEW": "1",
-        ])
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
         return app
     }
@@ -9384,6 +9437,46 @@ final class cmuxUITests: XCTestCase {
             return nil
         }
         return frame
+    }
+
+    @MainActor
+    private func scrollTranscript(
+        _ table: XCUIElement,
+        toReveal element: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.isHittable {
+                return true
+            }
+            let previousMetrics = transcriptMetrics(from: table)
+            let previousFrame = usableFrameNow(of: element)
+            table.swipeDown(velocity: .slow)
+            let progress = XCTNSPredicateExpectation(
+                predicate: NSPredicate { object, _ in
+                    guard let table = object as? XCUIElement else { return false }
+                    if element.isHittable {
+                        return true
+                    }
+                    if let previousMetrics,
+                       let currentMetrics = self.transcriptMetrics(from: table),
+                       abs(currentMetrics.offsetY - previousMetrics.offsetY) > 1 {
+                        return true
+                    }
+                    if let previousFrame,
+                       let currentFrame = self.usableFrameNow(of: element),
+                       abs(currentFrame.minY - previousFrame.minY) > 1 {
+                        return true
+                    }
+                    return false
+                },
+                object: table
+            )
+            let remaining = max(0, deadline.timeIntervalSinceNow)
+            _ = XCTWaiter.wait(for: [progress], timeout: min(1, remaining))
+        }
+        return element.isHittable
     }
 
     @MainActor

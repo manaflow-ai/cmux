@@ -481,7 +481,7 @@ public actor MobileChatEventSource: ChatEventSource {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw Self.artifactError(from: error)
+            throw MobileArtifactFailureClassifier().classify(error, method: method)
         }
     }
 
@@ -538,9 +538,9 @@ public actor MobileChatEventSource: ChatEventSource {
             } catch MobileArtifactLaneFetchError.failedAfterFirstByte {
                 // Once the lane exposed bytes, mixing in an RPC restart could
                 // splice two file versions into one preview.
-                throw ChatArtifactError.macUnreachable
+                throw ChatArtifactError.transferInterrupted
             } catch MobileArtifactLaneFetchError.invalidDescriptor {
-                throw ChatArtifactError.macUnreachable
+                throw ChatArtifactError.invalidResponse
             }
         }
         return try await fetchArtifactChunksOverRPC(
@@ -573,33 +573,4 @@ public actor MobileChatEventSource: ChatEventSource {
         }
     }
 
-    private nonisolated static func artifactError(from error: any Error) -> ChatArtifactError {
-        guard let connectionError = error as? MobileShellConnectionError else {
-            return .macUnreachable
-        }
-        switch connectionError {
-        case .invalidResponse, .connectionClosed, .requestTimedOut,
-             .transportWriteTimedOut, .connectAttemptGated,
-             .insecureManualRoute, .attachTicketExpired,
-             .authorizationFailed, .accountMismatch, .routeCleanupBlocked:
-            return .macUnreachable
-        case .rpcError(let code, _):
-            switch code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "invalid_params":
-                return .invalidParams
-            case "not_found":
-                return .sessionNotFound
-            case "forbidden":
-                return .forbidden
-            case "file_not_found":
-                return .fileNotFound
-            case "unsupported_media":
-                return .unsupportedMedia
-            case "unavailable":
-                return .unavailable
-            default:
-                return .macUnreachable
-            }
-        }
-    }
 }

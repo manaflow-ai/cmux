@@ -307,6 +307,11 @@ public struct ChatArtifactLoader: Sendable {
         size: Int64? = nil,
         onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
+        let validation = ChatArtifactStreamValidation(expectedSize: size)
+        let validatedReceive: @Sendable (ChatArtifactChunk) async throws -> Void = { chunk in
+            try await validation.receive(chunk)
+            try await onChunk(chunk)
+        }
         guard scope != .unsupported,
               let key = ChatArtifactContentCache.key(
             scopeKey: scope.cacheNamespace,
@@ -314,7 +319,8 @@ public struct ChatArtifactLoader: Sendable {
             modifiedAt: modifiedAt,
             size: size
         ), let size else {
-            try await streamHandler(path, onChunk)
+            try await streamHandler(path, validatedReceive)
+            try await validation.finish()
             return
         }
         let handler = streamHandler
@@ -324,8 +330,9 @@ public struct ChatArtifactLoader: Sendable {
             fetch: { receive in
                 try await handler(path, receive)
             },
-            receive: onChunk
+            receive: validatedReceive
         )
+        try await validation.finish()
         if wasCacheHit {
             recordDiagnostic(.artifactCacheHit, count: Int(clamping: size))
         }

@@ -1,6 +1,363 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "chat.artifact.failure.account_mismatch.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This device and the Mac are signed in to different cmux accounts." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このデバイスとMacは異なるcmuxアカウントにサインインしています。" } }
+      }
+    },
+    "chat.artifact.failure.account_mismatch.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Account mismatch" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アカウントが一致しません" } }
+      }
+    },
+    "chat.artifact.failure.authentication_expired.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnect to the Mac to refresh authentication, then try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macに再接続して認証を更新してから、もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.authentication_expired.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pairing expired" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングの有効期限が切れました" } }
+      }
+    },
+    "chat.artifact.failure.authorization.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This device isn't authorized to read files from the Mac. Pair it again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このデバイスにはMac上のファイルを読み取る権限がありません。もう一度ペアリングしてください。" } }
+      }
+    },
+    "chat.artifact.failure.authorization.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connection not authorized" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続が承認されていません" } }
+      }
+    },
+    "chat.artifact.failure.corrupt_media.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file type is supported, but its media data couldn't be decoded." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "対応しているファイル形式ですが、メディアデータをデコードできませんでした。" } }
+      }
+    },
+    "chat.artifact.failure.corrupt_media.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File is damaged" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルが破損しています" } }
+      }
+    },
+    "chat.artifact.failure.file_changed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file changed while it was loading. Try again to load the latest version." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "読み込み中にファイルが変更されました。最新の内容を読み込むには、もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.file_changed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File changed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルが変更されました" } }
+      }
+    },
+    "chat.artifact.failure.forbidden.workspace_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This file is no longer part of the workspace changes." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このファイルはワークスペースの変更に含まれなくなりました。" } }
+      }
+    },
+    "chat.artifact.failure.invalid_request.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file request was invalid. Update cmux on both devices." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルリクエストが無効です。両方のデバイスでcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.invalid_request.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid file request" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効なファイルリクエスト" } }
+      }
+    },
+    "chat.artifact.failure.invalid_response.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac sent inconsistent file data. Try again, then update cmux if it continues." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macから整合性のないファイルデータが送信されました。もう一度試し、続く場合はcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.invalid_response.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid file response" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効なファイル応答" } }
+      }
+    },
+    "chat.artifact.failure.local_storage.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file arrived, but cmux couldn't create or read its temporary file on this device. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルは届きましたが、このデバイスで一時ファイルを作成または読み取りできませんでした。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.local_storage.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Local storage unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルストレージを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.not_directory.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This path is a file, not a folder." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このパスはフォルダではなくファイルです。" } }
+      }
+    },
+    "chat.artifact.failure.not_directory.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not a folder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダではありません" } }
+      }
+    },
+    "chat.artifact.failure.not_regular_file.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This path is a folder or special filesystem item, so its bytes can't be previewed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このパスはフォルダまたは特殊なファイルシステム項目のため、内容をプレビューできません。" } }
+      }
+    },
+    "chat.artifact.failure.not_regular_file.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not a regular file" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通常のファイルではありません" } }
+      }
+    },
+    "chat.artifact.failure.not_repository.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The workspace folder is no longer a Git repository." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのフォルダはGitリポジトリではなくなりました。" } }
+      }
+    },
+    "chat.artifact.failure.not_repository.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Repository unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リポジトリを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.permission.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux found the file, but the Mac doesn't allow cmux to read it. Check the file's permissions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルは見つかりましたが、Macでcmuxに読み取りが許可されていません。ファイルのアクセス権を確認してください。" } }
+      }
+    },
+    "chat.artifact.failure.permission.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Permission denied" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクセス権がありません" } }
+      }
+    },
+    "chat.artifact.failure.preview_failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file was read, but cmux couldn't create its preview. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルは読み取れましたが、プレビューを作成できませんでした。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.preview_failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't create preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビューを作成できません" } }
+      }
+    },
+    "chat.artifact.failure.read_failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac found the file but couldn't read its metadata or contents. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでファイルは見つかりましたが、メタデータまたは内容を読み取れませんでした。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.read_failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't read file" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを読み取れません" } }
+      }
+    },
+    "chat.artifact.failure.reconnecting.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A connection attempt is already in progress. Try again in a moment." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続を試行中です。しばらくしてからもう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.reconnecting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting to Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macに再接続中" } }
+      }
+    },
+    "chat.artifact.failure.restart.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connection cleanup is stuck. Restart cmux on this device, reconnect, and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続のクリーンアップが停止しています。このデバイスでcmuxを再起動し、再接続してからもう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.restart.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restart required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再起動が必要です" } }
+      }
+    },
+    "chat.artifact.failure.secure_connection.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This route can't securely transfer Mac files. Reconnect using a paired secure route." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この経路ではMacのファイルを安全に転送できません。ペアリング済みの安全な経路で再接続してください。" } }
+      }
+    },
+    "chat.artifact.failure.secure_connection.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Secure connection required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "安全な接続が必要です" } }
+      }
+    },
+    "chat.artifact.failure.service_unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File transfer is temporarily unavailable on the Mac. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでファイル転送を一時的に利用できません。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.service_unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File service unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルサービスを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.session_unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The session exists, but its file history couldn't be read on the Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションは存在しますが、Macでファイル履歴を読み取れませんでした。" } }
+      }
+    },
+    "chat.artifact.failure.session_unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Session unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.storage_full.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Free some storage on this device, then try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このデバイスの空き容量を増やしてから、もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.storage_full.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iPhone storage full" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneのストレージがいっぱいです" } }
+      }
+    },
+    "chat.artifact.failure.terminal_missing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal that authorized this file is no longer available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このファイルを承認したターミナルは利用できなくなりました。" } }
+      }
+    },
+    "chat.artifact.failure.terminal_missing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルが見つかりません" } }
+      }
+    },
+    "chat.artifact.failure.timeout.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file request didn't complete in time. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルリクエストが時間内に完了しませんでした。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.timeout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request timed out" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエストがタイムアウトしました" } }
+      }
+    },
+    "chat.artifact.failure.transfer_interrupted.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file transfer stopped before all bytes arrived. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのデータが届く前にファイル転送が停止しました。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.transfer_interrupted.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Transfer interrupted" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "転送が中断されました" } }
+      }
+    },
+    "chat.artifact.failure.unsupported.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This Mac doesn't support file previews. Update cmux on the Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacはファイルプレビューに対応していません。Macのcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.unsupported.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File previews unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルプレビューを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.workspace_missing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The workspace for this file is no longer available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このファイルのワークスペースは利用できなくなりました。" } }
+      }
+    },
+    "chat.artifact.failure.workspace_missing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースが見つかりません" } }
+      }
+    },
     "chat.artifact.accessibility.large_text_truncated": {
       "extractionState": "manual",
       "localizations": {
@@ -494,6 +851,40 @@
         }
       }
     },
+    "chat.artifact.load_failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file couldn’t be loaded. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.load_failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t load file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めません"
+          }
+        }
+      }
+    },
     "chat.artifact.loading": {
       "extractionState": "manual",
       "localizations": {
@@ -541,6 +932,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macに接続できません"
+          }
+        }
+      }
+    },
+    "chat.artifact.session_missing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat session for this file is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルのチャットセッションは利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "chat.artifact.session_missing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションが見つかりません"
           }
         }
       }

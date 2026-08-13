@@ -66,19 +66,29 @@ struct ChatArtifactFolderView: View {
                     }
                 }
             }
-        case .failed:
+        case .failed(let error):
+            let failure = ChatArtifactFailurePresentation(error: error, scope: scope)
             VStack(spacing: 10) {
-                Text(String(localized: "chat.artifact.folder.load_failed", defaultValue: "Couldn't load this folder", bundle: .module))
+                Image(systemName: failure.systemImage)
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text(failure.title)
                     .font(.headline)
-                Button {
-                    Task { await load() }
-                } label: {
-                    Label(
-                        String(localized: "chat.artifact.retry", defaultValue: "Retry", bundle: .module),
-                        systemImage: "arrow.clockwise"
-                    )
+                Text(failure.message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                if failure.allowsRetry {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Label(
+                            String(localized: "chat.artifact.retry", defaultValue: "Retry", bundle: .module),
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
@@ -120,8 +130,11 @@ struct ChatArtifactFolderView: View {
             let listing = try await loader.list(path: path)
             guard !Task.isCancelled else { return }
             await MainActor.run { state = .listing(listing) }
+        } catch is CancellationError {
+            return
         } catch {
-            await MainActor.run { state = .failed }
+            let failure = (error as? ChatArtifactError) ?? .loadFailed
+            await MainActor.run { state = .failed(failure) }
         }
     }
 
@@ -147,7 +160,7 @@ struct ChatArtifactFolderView: View {
     private enum LoadState: Equatable {
         case loading
         case listing(ChatArtifactDirectoryListing)
-        case failed
+        case failed(ChatArtifactError)
     }
 }
 

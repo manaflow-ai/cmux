@@ -137075,6 +137075,13 @@
         }
       }
     },
+    "mobile.chat.artifact.error.corruptMedia": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file contains invalid or damaged media data." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルに無効または破損したメディアデータが含まれています。" } }
+      }
+    },
     "mobile.chat.artifact.error.fileNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -137160,6 +137167,23 @@
         }
       }
     },
+    "mobile.chat.artifact.error.invalidPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file path is invalid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルパスが無効です。"
+          }
+        }
+      }
+    },
     "mobile.chat.artifact.error.irohTransportUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -137177,6 +137201,41 @@
         }
       }
     },
+    "mobile.chat.artifact.error.notDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That path is not a folder." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "そのパスはフォルダではありません。" } }
+      }
+    },
+    "mobile.chat.artifact.error.notRegularFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That path is not a regular file." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "そのパスは通常のファイルではありません。" } }
+      }
+    },
+    "mobile.chat.artifact.error.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux does not have permission to read that file." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxにはそのファイルを読み取る権限がありません。" } }
+      }
+    },
+    "mobile.chat.artifact.error.previewFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac could not create a preview for that file." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでそのファイルのプレビューを作成できませんでした。" } }
+      }
+    },
+    "mobile.chat.artifact.error.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac found that file but could not read it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでファイルは見つかりましたが、読み取れませんでした。" } }
+      }
+    },
     "mobile.chat.artifact.error.sessionNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -137192,6 +137251,13 @@
             "value": "そのエージェントセッションは利用できなくなりました。"
           }
         }
+      }
+    },
+    "mobile.chat.artifact.error.sessionUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That session exists, but its file history could not be read." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "そのセッションは存在しますが、ファイル履歴を読み取れませんでした。" } }
       }
     },
     "mobile.chat.artifact.error.transferUnavailable": {
