@@ -48,6 +48,7 @@ struct WorkspaceDetailView: View {
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -56,7 +57,14 @@ struct WorkspaceDetailView: View {
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
-    @State private var isTextSheetPresented = false
+    @State private var isTextSheetPresented = {
+        #if DEBUG
+        AutoConnectMigrationUITestConfiguration.currentProcess?.initialModalHost
+            == .workspaceDetailTerminalText
+        #else
+        false
+        #endif
+    }()
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
@@ -88,6 +96,8 @@ struct WorkspaceDetailView: View {
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State var chatDrafts: [String: String] = [:]
+    /// Local presenter identity remains separate from the artifact popover payload.
+    @State var isTerminalArtifactFilesPresented = false
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -110,6 +120,43 @@ struct WorkspaceDetailView: View {
         simulatorStreamStore.activeState(in: workspace.rpcWorkspaceID.rawValue)
     }
     #if os(iOS)
+    /// Uses the root modal owner in the live app and local state in previews.
+    func resolvedPresentation(
+        for child: MobileRootPresentationState.ChildPresentation,
+        fallback: Binding<Bool>
+    ) -> MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(for: child, fallback: fallback)
+            ?? MobileChildSheetPresentation(isPresented: fallback)
+    }
+
+    private var feedbackPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.feedbackComposer),
+            fallback: $isFeedbackComposerPresented
+        )
+    }
+
+    private var textSheetPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.terminalText),
+            fallback: $isTextSheetPresented
+        )
+    }
+
+    var workspaceChangesPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.workspaceChanges),
+            fallback: $isWorkspaceChangesSheetPresented
+        )
+    }
+
+    private var customizationPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceDetail(.customization),
+            fallback: $isCustomizationPresented
+        )
+    }
+
     var terminalFilesChipEnabled: Bool {
         displaySettings.terminalFilesChipEnabled
     }
@@ -164,13 +211,25 @@ struct WorkspaceDetailView: View {
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
-            .sheet(isPresented: $isFeedbackComposerPresented) {
+            .sheet(
+                isPresented: feedbackPresentation.isPresented,
+                onDismiss: feedbackPresentation.didDismiss
+            ) {
                 feedbackComposer
             }
-            .sheet(isPresented: $isTextSheetPresented) {
+            .sheet(
+                isPresented: textSheetPresentation.isPresented,
+                onDismiss: {
+                    textSheetSurfaceID = nil
+                    textSheetPresentation.didDismiss()
+                }
+            ) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
-            .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
+            .sheet(
+                isPresented: workspaceChangesPresentation.isPresented,
+                onDismiss: workspaceChangesPresentation.didDismiss
+            ) {
                 WorkspaceChangesSheet(
                     store: store,
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
@@ -184,7 +243,10 @@ struct WorkspaceDetailView: View {
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
-            .sheet(isPresented: $isCustomizationPresented) {
+            .sheet(
+                isPresented: customizationPresentation.isPresented,
+                onDismiss: customizationPresentation.didDismiss
+            ) {
                 WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
                     await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
                         ?? .failure()
@@ -514,7 +576,10 @@ struct WorkspaceDetailView: View {
 
     func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
         guard let source = store.makeChatEventSource() else {
-            return .unsupported(cache: terminalArtifactThumbnailCache)
+            return .unsupported(
+                cache: terminalArtifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog
+            )
         }
         return ChatArtifactLoader(
             terminalWorkspaceID: workspaceID,
@@ -522,6 +587,7 @@ struct WorkspaceDetailView: View {
             supportsArtifacts: store.supportsTerminalArtifacts,
             supportsDirectoryBrowsing: store.supportsTerminalArtifactList,
             cache: terminalArtifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog,
             stat: { path in
                 try await source.terminalArtifactStat(
                     workspaceID: workspaceID,
@@ -572,12 +638,16 @@ struct WorkspaceDetailView: View {
         }
         guard store.supportsChatArtifacts,
               let source = store.makeChatEventSource() else {
-            return .unsupported(cache: terminalArtifactThumbnailCache)
+            return .unsupported(
+                cache: terminalArtifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog
+            )
         }
         return ChatArtifactLoader(
             source: source,
             sessionID: sessionID,
-            cache: terminalArtifactThumbnailCache
+            cache: terminalArtifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog
         )
     }
     #endif
@@ -671,21 +741,27 @@ struct WorkspaceDetailView: View {
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
-        textSheetSurfaceID = selectedTerminal?.id.rawValue
-        isTextSheetPresented = true
+        store.recordAppEvent(
+            .terminalTextViewOpened,
+            correlationID: selectedTerminal?.id.rawValue
+        )
+        textSheetPresentation.present {
+            textSheetSurfaceID = selectedTerminal?.id.rawValue
+        }
     }
 
     private func openFeedbackComposerFromMenu() {
-        feedbackText = ""
-        feedbackErrorMessage = nil
-        // A prior submission may still be in flight if the user dismissed the
-        // sheet mid-send (Cancel stays enabled); reset so the reopened composer
-        // does not render Send permanently disabled until that task times out.
-        isSubmittingFeedback = false
-        // Prefill the reply-to address with the signed-in email on the email
-        // path; the privileged agent path never reads it.
-        feedbackEmail = store.signedInUserEmail ?? ""
-        isFeedbackComposerPresented = true
+        feedbackPresentation.present {
+            feedbackText = ""
+            feedbackErrorMessage = nil
+            // A prior submission may still be in flight if the user dismissed the
+            // sheet mid-send (Cancel stays enabled); reset so the reopened composer
+            // does not render Send permanently disabled until that task times out.
+            isSubmittingFeedback = false
+            // Prefill the reply-to address with the signed-in email on the email
+            // path; the privileged agent path never reads it.
+            feedbackEmail = store.signedInUserEmail ?? ""
+        }
     }
 
     /// Whether the current submission will go straight to the agent (privileged
@@ -737,7 +813,7 @@ struct WorkspaceDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.string("mobile.feedback.cancel", defaultValue: "Cancel")) {
-                        isFeedbackComposerPresented = false
+                        feedbackPresentation.dismiss()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -800,7 +876,7 @@ struct WorkspaceDetailView: View {
             isSubmittingFeedback = false
             switch outcome {
             case .sentToAgent, .emailed:
-                isFeedbackComposerPresented = false
+                feedbackPresentation.dismiss()
                 if toasts.isEnabled {
                     // The toast supplies the success haptic; presenting after
                     // the composer dismisses keeps it the single confirmation.
@@ -855,8 +931,9 @@ struct WorkspaceDetailView: View {
     }
 
     private func presentCustomizationFromMenu() {
-        dismissTerminalKeyboardForChrome()
-        isCustomizationPresented = true
+        customizationPresentation.present {
+            dismissTerminalKeyboardForChrome()
+        }
     }
 
     /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes
@@ -910,7 +987,10 @@ struct WorkspaceDetailView: View {
     /// detail view flips to the browser because `activeBrowser` becomes
     /// non-nil; the picker shows a check next to "New Browser" while it is up.
     private func openLocalBrowserFallback() {
-        browserStore.openBrowser(for: workspace.id.rawValue)
+        let workspaceID = workspace.id.rawValue
+        store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
+        _ = browserStore.openBrowser(for: workspaceID)
+        store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
     }

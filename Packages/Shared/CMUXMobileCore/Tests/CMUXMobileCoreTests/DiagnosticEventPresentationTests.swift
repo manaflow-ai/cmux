@@ -16,6 +16,7 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.sessionClosed) == "sessionClosed")
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.retryScheduled) == "retryScheduled")
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.hostAuthenticationFailed) == "hostAuthenticationFailed")
+        #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.appFeatureAction) == "appFeatureAction")
     }
 
     @Test func pinsTaxonomyNames() {
@@ -26,12 +27,72 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticPathKind.relay) == "relay")
         #expect(DiagnosticEventPresentation().name(DiagnosticRuntimeRole.mobileClient) == "mobileClient")
         #expect(DiagnosticEventPresentation().name(DiagnosticAppLifecyclePhase.background) == "background")
+        #expect(DiagnosticEventPresentation().name(DiagnosticAppEventKind.authSignInStarted) == "authSignInStarted")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorFrameLifecycle.cachedSent) == "cachedSent")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorInputLifecycle.rejectedLocked) == "rejectedLocked")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorInputKind.hardwareButton) == "hardwareButton")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorHardwareButtonKind.appSwitcher) == "appSwitcher")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorOwnershipState.otherConnection) == "otherConnection")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorCoordinateState.outsideImage) == "outsideImage")
+    }
+
+    @Test func describesDirectDialBootstrapTrace() {
+        let plan = englishPresentation.describe(
+            DiagnosticEvent(code: .transportDialPlanBuilt, tNanos: 1, a: 0, b: 0)
+        )
+        #expect(plan.name == "Direct dial plan assembled")
+        #expect(plan.fields == [
+            .init(key: "public_paths", value: "0"),
+            .init(key: "private_fallback_paths", value: "0"),
+        ])
+
+        let join = englishPresentation.describe(DiagnosticEvent(
+            code: .transportPrivateAddressJoin,
+            tNanos: 1,
+            a: DiagnosticPrivateAddressJoinState.brokerPortsStale.rawValue,
+            b: 2,
+            c: 0
+        ))
+        #expect(join.name == "Private addresses joined broker port")
+        #expect(join.fields.contains(
+            .init(key: "join", value: "Broker ports missing or stale")
+        ))
+        #expect(join.fields.contains(
+            .init(key: "configured_addresses", value: "2")
+        ))
+
+        let lan = englishPresentation.describe(DiagnosticEvent(
+            code: .transportLANDiscovery,
+            tNanos: 1,
+            a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
+            b: 0
+        ))
+        #expect(lan.name == "LAN discovery resolved")
+        #expect(lan.fields.contains(
+            .init(key: "outcome", value: "Local Network permission denied")
+        ))
+
+        let legFailed = englishPresentation.describe(DiagnosticEvent(
+            code: .transportDialLegFailed,
+            tNanos: 1,
+            a: DiagnosticDirectDialLeg.privateFallback.rawValue,
+            b: DiagnosticFailureKind.noRoute.rawValue
+        ))
+        #expect(legFailed.name == "Direct dial leg failed")
+        #expect(legFailed.fields.contains(
+            .init(key: "leg", value: "Private fallback")
+        ))
+
+        let publication = englishPresentation.describe(DiagnosticEvent(
+            code: .lanPublicationState,
+            tNanos: 1,
+            a: DiagnosticLANPublicationState.policyDenied.rawValue,
+            b: 0
+        ))
+        #expect(publication.name == "LAN advertisement state changed")
+        #expect(publication.fields.contains(
+            .init(key: "state", value: "Local Network permission denied")
+        ))
     }
 
     @Test func describesDialFailure() {
@@ -113,6 +174,14 @@ import Testing
             .init(key: "transport", value: "Unknown transport (999)"),
             .init(key: "failure", value: "Unknown failure (998)"),
         ])
+
+        let appEvent = englishPresentation.describe(
+            DiagnosticEvent(code: .appFeatureAction, tNanos: 1, a: 999, b: 998)
+        )
+        #expect(appEvent.fields == [
+            .init(key: "operation", value: "Unknown app event (999)"),
+            .init(key: "failure", value: "Unknown failure (998)"),
+        ])
     }
 
     @Test func everyEventCodeHasAReadableTitle() {
@@ -169,11 +238,18 @@ import Testing
             .browserInputReplayed: "Browser input replayed",
             .browserEditableFocus: "Browser editable focus",
             .browserPanelCreateResolved: "Browser panel create resolved",
+            .transportDialPlanBuilt: "Direct dial plan assembled",
+            .transportPrivateAddressJoin: "Private addresses joined broker port",
+            .transportLANDiscovery: "LAN discovery resolved",
+            .transportDialLegSucceeded: "Direct dial leg connected",
+            .transportDialLegFailed: "Direct dial leg failed",
+            .lanPublicationState: "LAN advertisement state changed",
             .simulatorStreamLifecycle: "Simulator stream state changed",
             .simulatorFrameLifecycle: "Simulator frame pipeline changed",
             .simulatorInputLifecycle: "Simulator input state changed",
             .simulatorCoordinateMapped: "Simulator touch coordinate mapped",
             .simulatorOwnershipChanged: "Simulator control ownership changed",
+            .appFeatureAction: "App feature event",
         ]
 
         #expect(Set(expected.keys) == Set(DiagnosticEventCode.allCases))
@@ -371,10 +447,73 @@ import Testing
             .init(key: "previous_owner", value: "Current connection"),
         ])
 
+        let appFeature = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            surface: 23,
+            ms: 125,
+            a: DiagnosticAppEventKind.workspaceListRefreshFailed.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue,
+            c: 8
+        ))
+        #expect(appFeature.fields == [
+            .init(key: "surface", value: "23"),
+            .init(key: "operation", value: "workspaceListRefreshFailed"),
+            .init(key: "failure", value: "Timed out"),
+            .init(key: "duration", value: "125 ms"),
+            .init(key: "count", value: "8"),
+        ])
+
+        let toolbarMutation = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.customToolbarChanged.rawValue,
+            c: DiagnosticToolbarConfigurationAction.customActionUpdated.rawValue
+        ))
+        #expect(toolbarMutation.fields == [
+            .init(key: "operation", value: "customToolbarChanged"),
+            .init(key: "change", value: "customActionUpdated"),
+        ])
+        #expect(englishPresentation.summary(toolbarMutation).contains("Change: customActionUpdated"))
+
+        let unknownToolbarMutation = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.customToolbarChanged.rawValue,
+            c: 999
+        ))
+        #expect(unknownToolbarMutation.fields == [
+            .init(key: "operation", value: "customToolbarChanged"),
+            .init(key: "change", value: "Unknown value (999)"),
+        ])
+
+        let searchSelection = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.searchResultSelected.rawValue,
+            c: DiagnosticSearchScope.notifications.rawValue
+        ))
+        #expect(searchSelection.fields == [
+            .init(key: "operation", value: "searchResultSelected"),
+            .init(key: "scope", value: "notifications"),
+        ])
+
+        let toastDismissal = englishPresentation.describe(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.toastDismissed.rawValue,
+            c: DiagnosticToastDismissReason.automatic.rawValue
+        ))
+        #expect(toastDismissal.fields == [
+            .init(key: "operation", value: "toastDismissed"),
+            .init(key: "reason", value: "automatic"),
+        ])
+
         for described in [
             recovery, endpoint, session, composer, input, browserLifecycle,
             browserInput, browserFocus, browserCreate, simulatorStream,
             simulatorFrame, simulatorInput, simulatorCoordinate, simulatorOwnership,
+            appFeature, toolbarMutation, searchSelection, toastDismissal,
         ] {
             #expect(!described.fields.contains { ["a", "b", "c", "ms"].contains($0.key) })
         }

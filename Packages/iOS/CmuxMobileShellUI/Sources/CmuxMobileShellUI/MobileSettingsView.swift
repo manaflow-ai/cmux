@@ -26,12 +26,17 @@ struct MobileSettingsView: View {
         MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used for the live connection rows and the onboarding
     /// replay's connection state. `nil` in previews.
     var store: CMUXMobileShellStore?
+    /// An optional row that should be visible immediately on presentation.
+    var initialFocus: MobileSettingsFocus? = nil
+    /// Lets the root modal coordinator advance directly to queued content.
+    var dismissAction: (() -> Void)? = nil
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
 
     @Environment(\.dismiss) private var dismiss
@@ -60,6 +65,10 @@ struct MobileSettingsView: View {
         @Bindable var toasts = self.toasts
         return NavigationStack {
             Form {
+                if initialFocus == .connectionMethod {
+                    connectionMethodSettingsSection
+                }
+
                 MobileSettingsAccountSection(signOut: signOut)
 
                 // Stack team switcher. Only shown when the user belongs to more than
@@ -162,17 +171,17 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
-                if let connectionMethodStore {
-                    MobileConnectionMethodSection(
-                        store: connectionMethodStore,
-                        startPairingScanner: startPairingScanner
-                    )
+                if initialFocus != .connectionMethod {
+                    connectionMethodSettingsSection
                 }
 
                 if let irohSettingsController {
                     Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
                         NavigationLink {
-                            MobileIrohSettingsView(controller: irohSettingsController)
+                            MobileIrohSettingsView(
+                                controller: irohSettingsController,
+                                diagnosticLog: diagnosticLog
+                            )
                         } label: {
                             Label(
                                 L10n.string("mobile.settings.iroh", defaultValue: "Iroh and Relays"),
@@ -229,14 +238,6 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.betaFeatures", defaultValue: "Beta Features")) {
-                    Toggle(isOn: $displaySettings.taskComposerEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.taskComposer",
-                            defaultValue: "New Task Composer"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTaskComposer")
-
                     Toggle(isOn: $displaySettings.terminalFilesChipEnabled) {
                         Text(L10n.string(
                             "mobile.settings.terminalFilesChip",
@@ -285,7 +286,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsToastGallery")
                     Button {
                         ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
-                        dismiss()
+                        requestDismissal()
                     } label: {
                         Label(
                             L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
@@ -340,19 +341,6 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
-
-                    NavigationLink {
-                        TaskComposerModelPickerLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.modelPickerLab",
-                                defaultValue: "New Task Model Lab"
-                            ),
-                            systemImage: "cpu"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsModelPickerLab")
                 }
                 #endif
 
@@ -410,6 +398,7 @@ struct MobileSettingsView: View {
                         macStatus: store?.phonePushMacStatus,
                         supportsMacSettings: store?.supportsPhonePushSettings == true,
                         supportsMacTest: store?.supportsPhonePushTest == true,
+                        canConnectMac: startPairingScanner != nil,
                         onPhoneEnabledChange: updatePhonePushEnabled,
                         onRepair: repairPhonePush,
                         onMacMutation: updateMacPhonePush,
@@ -513,7 +502,7 @@ struct MobileSettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.settings.done", defaultValue: "Done")) {
-                        dismiss()
+                        requestDismissal()
                     }
                     .accessibilityIdentifier("MobileSettingsDone")
                 }
@@ -549,7 +538,7 @@ struct MobileSettingsView: View {
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
-                    onStartFallbackPairing: {
+                    onStartTailscalePairing: {
                         showingOnboarding = false
                         startPairingScanner?()
                     },
@@ -565,6 +554,48 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+        .onAppear {
+            diagnosticLog?.recordAppEvent(.settingsOpened)
+        }
+        .onDisappear {
+            diagnosticLog?.recordAppEvent(.settingsClosed)
+        }
+        .onChange(of: sendAnonymousTelemetry) { _, value in
+            recordBooleanSetting(.telemetrySharingChanged, value)
+            diagnosticLog?.recordAppEvent(
+                .crashReportingConsentChanged,
+                count: value ? 1 : 0
+            )
+        }
+    }
+
+    private func recordBooleanSetting(
+        _ kind: DiagnosticAppEventKind,
+        _ value: Bool
+    ) {
+        diagnosticLog?.recordAppEvent(kind, count: value ? 1 : 0)
+    }
+
+    /// Closes through the owning modal coordinator when one is provided.
+    private func requestDismissal() {
+        if let dismissAction {
+            dismissAction()
+        } else {
+            dismiss()
+        }
+    }
+
+    /// Reuses one Connection Method section at its focused or ordinary position.
+    @ViewBuilder
+    private var connectionMethodSettingsSection: some View {
+        if let connectionMethodStore {
+            MobileConnectionMethodSection(
+                store: connectionMethodStore,
+                hasUsableTailscaleAuthorization: store?.hasUsableTailscaleAuthorization ?? false,
+                startPairingScanner: startPairingScanner
+            )
+            .id(MobileSettingsFocus.connectionMethod)
+        }
     }
 
     private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
@@ -594,6 +625,10 @@ struct MobileSettingsView: View {
 
     @MainActor
     private func updatePhonePushEnabled(_ enabled: Bool) async -> Bool {
+        diagnosticLog?.recordAppEvent(
+            .notificationPreferenceChanged,
+            count: enabled ? 1 : 0
+        )
         if enabled {
             _ = await pushCoordinator.enable()
             // A denied OS authorization still accepts the user's app-level
@@ -660,7 +695,19 @@ struct MobileSettingsView: View {
 
     @MainActor
     private func sendPhonePushTest() async -> MobilePhonePushTestStage {
-        await store?.sendPhonePushTest() ?? .unavailable
+        diagnosticLog?.recordAppEvent(.phonePushTestStarted)
+        let stage = await store?.sendPhonePushTest() ?? .unavailable
+        if stage == .queuedOnMac {
+            diagnosticLog?.recordAppEvent(.phonePushTestSucceeded)
+        } else {
+            diagnosticLog?.recordAppEvent(
+                .phonePushTestFailed,
+                failure: stage == .authenticationUnavailable
+                    ? .authorizationFailed
+                    : .protocolViolation
+            )
+        }
+        return stage
     }
 
     private static var crashReportingEnabled: Bool {
@@ -752,11 +799,14 @@ struct MobileSettingsView: View {
 /// lifecycle), and the network log covers all connection diagnostics, not
 /// one transport.
 private struct MobileSettingsDiagnosticsSection: View {
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
+    @State private var appLogURLs: [URL] = []
+    @State private var networkLogURLs: [URL] = []
+
     var body: some View {
         Section {
-            if let url = AppLog.defaultAppLogFileURL,
-               FileManager.default.fileExists(atPath: url.path) {
-                ShareLink(item: url) {
+            if !appLogURLs.isEmpty {
+                ShareLink(items: appLogURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareAppLog",
@@ -766,10 +816,12 @@ private struct MobileSettingsDiagnosticsSection: View {
                     )
                 }
                 .accessibilityIdentifier("MobileSettingsShareAppLog")
+                .simultaneousGesture(TapGesture().onEnded {
+                    diagnosticLog?.recordAppEvent(.appDiagnosticsShared)
+                })
             }
-            if let url = AppLog.defaultNetworkLogFileURL,
-               FileManager.default.fileExists(atPath: url.path) {
-                ShareLink(item: url) {
+            if !networkLogURLs.isEmpty {
+                ShareLink(items: networkLogURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareNetworkLog",
@@ -779,6 +831,9 @@ private struct MobileSettingsDiagnosticsSection: View {
                     )
                 }
                 .accessibilityIdentifier("MobileSettingsShareNetworkLog")
+                .simultaneousGesture(TapGesture().onEnded {
+                    diagnosticLog?.recordAppEvent(.networkDiagnosticsShared)
+                })
             }
         } header: {
             Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
@@ -787,6 +842,13 @@ private struct MobileSettingsDiagnosticsSection: View {
                 "mobile.settings.diagnostics.footer",
                 defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
             ))
+        }
+        .task {
+            let urls = await Task.detached(priority: .utility) {
+                (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
+            }.value
+            appLogURLs = urls.0
+            networkLogURLs = urls.1
         }
     }
 }

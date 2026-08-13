@@ -44,9 +44,9 @@ export async function GET(request: Request): Promise<Response> {
   ].join(", ");
   captureCoderouterEvent({
     event: "coderouter_account_status_viewed",
-    userId: resolved.stackUserId,
     teamId: resolved.teamId,
     properties: {
+      source: "native_api",
       account_count: result.accounts.length,
       account_error_count: result.accounts.filter(
         (account) => "usageError" in account && Boolean(account.usageError),
@@ -99,6 +99,7 @@ export async function POST(request: Request): Promise<Response> {
       teamId: resolved.value.team.teamId,
       properties: {
         provider: credential.provider,
+        source: "native_api",
         already_exists: result.alreadyExists,
       },
     });

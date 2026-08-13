@@ -28,6 +28,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     var offlinePolicy: CmxIrohClientOfflinePolicyContext?
     let lanFallback: LANFallbackProvider?
     let customPrivateFallback: CustomPrivateFallbackProvider?
+    let diagnostics: DiagnosticLog?
     let verifier: CmxIrohGrantVerifier
     let now: @Sendable () -> Date
     var grantCache: [CmxIrohPeerIdentity: CmxIrohRegistryGrantCache] = [:]
@@ -64,6 +65,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
+        diagnostics = nil
         self.verifier = verifier
         self.now = now
         verifiedDiscoverySnapshot = verifiedDiscovery.map {
@@ -99,6 +101,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
+        diagnostics = nil
         self.verifier = verifier
         self.now = now
         verifiedDiscoverySnapshot = verifiedDiscovery.map {
@@ -118,6 +121,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
+        diagnostics: DiagnosticLog? = nil,
         verifiedDiscovery: CmxIrohDiscoveryResponse? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
@@ -131,6 +135,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.offlinePolicy = offlinePolicy
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
+        self.diagnostics = diagnostics
         self.verifier = verifier
         self.now = now
         verifiedDiscoverySnapshot = verifiedDiscovery.map {
@@ -399,12 +404,29 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         targetBinding: CmxIrohBrokerBinding,
         at clock: Date
     ) async -> [CmxIrohPathHint] {
-        guard let customPrivateFallback,
-              let directPorts = freshDirectPorts(
-                  targetBinding: targetBinding,
-                  at: clock
-              ) else { return [] }
+        guard let customPrivateFallback else { return [] }
         let configured = await customPrivateFallback(targetBinding.deviceID)
+        guard !configured.isEmpty else {
+            diagnostics?.record(DiagnosticEvent(
+                .transportPrivateAddressJoin,
+                a: DiagnosticPrivateAddressJoinState.notConfigured.rawValue,
+                b: 0,
+                c: 0
+            ))
+            return []
+        }
+        guard let directPorts = freshDirectPorts(
+            targetBinding: targetBinding,
+            at: clock
+        ) else {
+            diagnostics?.record(DiagnosticEvent(
+                .transportPrivateAddressJoin,
+                a: DiagnosticPrivateAddressJoinState.brokerPortsStale.rawValue,
+                b: configured.count,
+                c: 0
+            ))
+            return []
+        }
         var hints: [CmxIrohPathHint] = []
         for path in configured.prefix(CmxAttachEndpoint.maximumIrohPathHintCount) {
             let port: UInt16?
@@ -427,6 +449,12 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                   !hints.contains(hint) else { continue }
             hints.append(hint)
         }
+        diagnostics?.record(DiagnosticEvent(
+            .transportPrivateAddressJoin,
+            a: DiagnosticPrivateAddressJoinState.joined.rawValue,
+            b: configured.count,
+            c: hints.count
+        ))
         return hints
     }
 
@@ -466,11 +494,20 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         guard request.route.kind == .iroh,
               request.authorizationMode == .transportAdmission,
               let expectedDeviceID = request.expectedPeerDeviceID,
-              case let .peer(targetIdentity, _) = request.route.endpoint,
-              let authority = lanAuthorities[targetIdentity],
+              case let .peer(targetIdentity, _) = request.route.endpoint else {
+            return context
+        }
+        guard let authority = lanAuthorities[targetIdentity],
               authority.target.endpointID == targetIdentity,
               CmxIrohDeviceID(authority.target.deviceID)
                 == CmxIrohDeviceID(expectedDeviceID) else {
+            // Without a broker-issued LAN authority no browse can run, so the
+            // absent stage is recorded here instead of failing silently.
+            diagnostics?.record(DiagnosticEvent(
+                .transportLANDiscovery,
+                a: DiagnosticLANDiscoveryOutcome.noAuthority.rawValue,
+                b: 0
+            ))
             return context
         }
         let lanHints = await localFallbackHints(

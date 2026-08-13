@@ -107,8 +107,8 @@ extension TerminalArtifactFilesSheet {
                 )
                 .refreshable { await refreshInView() }
             }
-        case .failed:
-            failureView { await refreshInView() }
+        case .failed(let failure):
+            failureView(failure: failure) { await refreshInView() }
         }
     }
 
@@ -143,8 +143,8 @@ extension TerminalArtifactFilesSheet {
         switch state {
         case .idle, .loading:
             loadingView
-        case .failed:
-            failureView { await loadFirstSessionPage(query: nil) }
+        case .failed(let failure):
+            failureView(failure: failure) { await loadFirstSessionPage(query: nil) }
         case .loaded(let snapshot):
             let visibleSnapshotIsEmpty = displaySettings.showMissingFiles
                 ? snapshot.isEmpty
@@ -285,8 +285,8 @@ extension TerminalArtifactFilesSheet {
         switch state {
         case .idle, .loading:
             loadingView
-        case .failed:
-            failureView { await loadFirstSessionPage(query: query) }
+        case .failed(let failure):
+            failureView(failure: failure) { await loadFirstSessionPage(query: query) }
         case .loaded(let snapshot):
             let presentation = ChatArtifactGalleryPresentation(
                 snapshot: snapshot,
@@ -532,36 +532,37 @@ extension TerminalArtifactFilesSheet {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func failureView(retry: @escaping @MainActor () async -> Void) -> some View {
-        ContentUnavailableView {
+    private func failureView(
+        failure: TerminalArtifactGalleryFailure,
+        retry: @escaping @MainActor () async -> Void
+    ) -> some View {
+        let presentation = ChatArtifactFailurePresentation(
+            error: failure.error,
+            scope: scope == .session ? .chat : .terminal
+        )
+        return ContentUnavailableView {
             Label(
-                String(
-                    localized: "terminal.artifact.gallery.unreachable.title",
-                    defaultValue: "Mac unreachable",
-                    bundle: .module
-                ),
-                systemImage: "wifi.exclamationmark"
+                presentation.title,
+                systemImage: presentation.systemImage
             )
         } description: {
-            Text(String(
-                localized: "terminal.artifact.gallery.unreachable.message",
-                defaultValue: "Check the connection to your Mac and try again.",
-                bundle: .module
-            ))
+            Text(presentation.message)
         } actions: {
-            Button {
-                Task { await retry() }
-            } label: {
-                Label(
-                    String(
-                        localized: "terminal.artifact.gallery.retry",
-                        defaultValue: "Retry",
-                        bundle: .module
-                    ),
-                    systemImage: "arrow.clockwise"
-                )
+            if presentation.allowsRetry {
+                Button {
+                    Task { await retry() }
+                } label: {
+                    Label(
+                        String(
+                            localized: "terminal.artifact.gallery.retry",
+                            defaultValue: "Retry",
+                            bundle: .module
+                        ),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
         }
     }
 

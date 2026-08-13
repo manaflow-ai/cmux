@@ -31,15 +31,15 @@ boundary.
 
 The authenticated remote daemon has an independent protocol version.
 [`remote-daemon.md`](remote-daemon.md) and [`remote-rpc.md`](remote-rpc.md)
-define remote protocol 5; `mux-control` carries private control protocol 11
+define remote protocol 5; `mux-control` carries private control protocol 12
 inside that authenticated session.
 
-Protocol v11 is the current private mux implementation protocol. It remains
+Protocol v12 is the current private mux implementation protocol. It remains
 documented for cmux frontends and compatibility adapters:
 
 | File | Purpose |
 | --- | --- |
-| [`commands.md`](commands.md) | Raw protocol-v11 commands |
+| [`commands.md`](commands.md) | Raw protocol-v12 commands |
 | [`events.md`](events.md) | Raw events and attachment messages |
 | [`render.md`](render.md) | Styled render model used by private frontends |
 | [`transports.md`](transports.md) | Unix socket, WebSocket, and relay framing |
@@ -48,7 +48,7 @@ documented for cmux frontends and compatibility adapters:
 | [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
 | [`session-journal.md`](session-journal.md) | Canonical event storage, hooks, agent ownership, and restoration |
 
-Private protocol-v11 compatibility does not imply `cmux.protocol/2`
+Private protocol-v12 compatibility does not imply `cmux.protocol/2`
 compatibility. High-level SDK packages expose it only through a path named
 `raw`.
 
@@ -71,7 +71,7 @@ Clients must negotiate each domain independently.
 [`inventory.json`](inventory.json) records raw server commands, events, TUI
 actions, menu actions, feature families, and secondary protocol messages.
 [`inventory.schema.json`](inventory.schema.json) defines that index.
-[`sdk-schema.json`](sdk-schema.json) drives only raw protocol-v11 generation.
+[`sdk-schema.json`](sdk-schema.json) drives only raw protocol-v12 generation.
 
 Run the contract checks from the repository root:
 
@@ -94,6 +94,6 @@ is version 2. Removing an operation, changing field presence or type, changing
 selector behavior, or weakening ordering and idempotency semantics requires a
 new public protocol version.
 
-Private protocol v11 follows its own negotiation and capability rules. Public
+Private protocol v12 follows its own negotiation and capability rules. Public
 SDKs do not infer private capability support and private frontends do not infer
 the public resource version.

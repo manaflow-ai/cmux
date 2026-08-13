@@ -79,6 +79,16 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Forces the iOS 27 keyboard-dock compatibility path on an older simulator.
+    /// DEBUG-only so production selection remains tied exclusively to the OS version.
+    public static var forceIOS27KeyboardDockWorkaround: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
@@ -105,6 +115,21 @@ public struct UITestConfig {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW"] == "1"
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the full-app UI-test harness should treat the account-owned
+    /// revoke step of Forget Computer as successful. The remaining operation,
+    /// including durable paired-Mac deletion, store refresh, shell routing, and
+    /// modal presentation, continues through production code. DEBUG-only and
+    /// gated on mock data so dogfood builds can never skip a real revoke.
+    public static var successfulComputerForgetEnabled: Bool {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        return mockDataEnabled(from: environment)
+            && environment["CMUX_UITEST_SUCCESSFUL_COMPUTER_FORGET"] == "1"
         #else
         return false
         #endif

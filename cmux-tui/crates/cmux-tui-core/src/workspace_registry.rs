@@ -357,6 +357,15 @@ pub struct TerminalRegistryCommit {
     pub replayed: bool,
 }
 
+/// A replay cannot acquire a cross-domain side effect that was not part of
+/// its original transaction. Keep the receipt source explicit so the mux can
+/// reconcile only the revision owned by that receipt.
+pub(crate) enum TerminalResourceCloseCommit {
+    TerminalReplay(TerminalRegistryCommit),
+    ResourceReplay { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
+    Committed { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalBatchClose {
     pub revision: u64,
@@ -1297,7 +1306,7 @@ fn remove_reset_dir_children_from_handle(
             &child_display,
             &child_stat,
         )?;
-        ensure_reset_manifest_entry(
+        if let Err(error) = ensure_reset_manifest_entry(
             directory.as_raw_fd(),
             &staged_child.name,
             &child_relative,
@@ -1305,7 +1314,16 @@ fn remove_reset_dir_children_from_handle(
             &staged_child.stat,
             expected_entries,
             ignored_root_child,
-        )?;
+        ) {
+            return Err(restore_changed_reset_child(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &child_name,
+                &staged_child.display_path,
+                &child_display,
+                error,
+            ));
+        }
         if reset_stat_is_dir(&staged_child.stat) {
             let child_directory = open_reset_child_dir(
                 directory.as_raw_fd(),
@@ -1433,14 +1451,18 @@ fn stage_reset_child_for_deletion(
                     || reset_stat_inode(&stat) != reset_stat_inode(expected)
                     || reset_stat_kind(&stat) != reset_stat_kind(expected)
                 {
-                    let _ = reset_rename_child_exclusive(
+                    let error = anyhow::anyhow!(
+                        "reset path changed during reset: {}",
+                        display_path.display()
+                    );
+                    return Err(restore_changed_reset_child(
                         parent_fd,
                         &private_name,
                         name,
                         &private_display,
                         display_path,
-                    );
-                    anyhow::bail!("reset path changed during reset: {}", display_path.display());
+                        error,
+                    ));
                 }
                 return Ok(ResetStagedChild {
                     name: private_name,
@@ -1459,6 +1481,30 @@ fn stage_reset_child_for_deletion(
         }
     }
     anyhow::bail!("could not allocate private reset path for {}", display_path.display())
+}
+
+#[cfg(unix)]
+fn restore_changed_reset_child(
+    parent_fd: std::os::fd::RawFd,
+    private_name: &std::ffi::OsStr,
+    original_name: &std::ffi::OsStr,
+    private_display: &Path,
+    original_display: &Path,
+    verification_error: anyhow::Error,
+) -> anyhow::Error {
+    match reset_rename_child_exclusive(
+        parent_fd,
+        private_name,
+        original_name,
+        private_display,
+        original_display,
+    ) {
+        Ok(()) => verification_error,
+        Err(restore_error) => anyhow::anyhow!(
+            "{verification_error:#}; failed to restore changed reset path {}: {restore_error:#}",
+            original_display.display()
+        ),
+    }
 }
 
 #[cfg(unix)]
@@ -2928,119 +2974,137 @@ impl WorkspaceRegistry {
         terminal_id: &str,
         expected_incarnation: Option<&str>,
     ) -> anyhow::Result<TerminalRegistryCommit> {
-        validate_identifier("mutation id", &mutation.id)?;
-        validate_identifier("mutation origin", &mutation.origin)?;
-        validate_terminal_identity("terminal id", terminal_id)?;
-        if let Some(incarnation) = expected_incarnation {
-            validate_terminal_identity("terminal incarnation", incarnation)?;
-        }
-        let fingerprint_value = serde_json::json!({
-            "op": "close-terminal",
-            "terminal_id": terminal_id,
-            "incarnation": expected_incarnation,
-        });
-        let fingerprint = canonical_json(&fingerprint_value)?;
+        let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let tx = self.connection.transaction()?;
-        if let Some(replay) = terminal_replay(&tx, mutation, &fingerprint)? {
-            return Ok(replay);
-        }
-        if let Some(expected) = expected_generation
-            && expected != self.generation
-        {
-            anyhow::bail!(
-                "terminal generation conflict: expected {expected}, current {}",
-                self.generation
-            );
-        }
-        let current_revision = transaction_terminal_revision(&tx)?;
-        if let Some(expected) = expected_revision
-            && expected != current_revision
-        {
-            anyhow::bail!(
-                "terminal revision conflict: expected {expected}, current {current_revision}"
-            );
-        }
-        let Some(terminal) = read_terminal(&tx, terminal_id)? else {
-            anyhow::bail!("unknown terminal {terminal_id}; it may not have been adopted yet");
-        };
-        if let Some(expected) = expected_incarnation
-            && terminal.incarnation.as_deref() != Some(expected)
-        {
-            anyhow::bail!("terminal_incarnation_mismatch");
-        }
+        let commit = close_terminal_in_transaction(
+            &tx,
+            &self.generation,
+            mutation,
+            &fingerprint,
+            expected_generation,
+            expected_revision,
+            terminal_id,
+            expected_incarnation,
+        )?;
+        tx.commit()?;
+        Ok(commit)
+    }
 
-        if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+    pub(crate) fn replay_terminal_close(
+        &self,
+        mutation: &WorkspaceMutation,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+    ) -> anyhow::Result<Option<TerminalRegistryCommit>> {
+        let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
+        terminal_replay(&self.connection, mutation, &fingerprint)
+    }
+
+    /// Commit the legacy host close and its public resource tombstone in one
+    /// SQLite transaction. The mux installs the matching runtime projection
+    /// only after this method returns successfully.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn close_terminal_with_resource_patch(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        expected_generation: Option<&str>,
+        expected_terminal_revision: Option<u64>,
+        expected_resource_revision: u64,
+        terminal_id: &str,
+        expected_incarnation: Option<&str>,
+        patch: &ResourcePatch,
+        resource_result: &Value,
+        resource_deltas: &Value,
+    ) -> anyhow::Result<TerminalResourceCloseCommit> {
+        const OPERATION: &str = "terminal.close";
+
+        validate_identifier("resource operation", OPERATION)?;
+        resource_store::validate_resource_patch(patch)?;
+        let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
+        let resource_result_json = canonical_json(resource_result)?;
+        let tx = self.connection.transaction()?;
+        if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
+            tx.commit()?;
+            return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
+        }
+        if let Some(resource) =
+            resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?
+        {
+            let terminal =
+                read_terminal(&tx, terminal_id)?.context("terminal close state is unavailable")?;
+            anyhow::ensure!(
+                terminal.lifecycle == TerminalLifecycle::Tombstoned,
+                "terminal close state is unavailable"
+            );
+            let revision = transaction_terminal_revision(&tx)?;
             let result = serde_json::json!({
                 "terminal_id": terminal_id,
                 "incarnation": terminal.incarnation,
                 "closed": true,
                 "already_closed": true,
             });
-            let result_json = canonical_json(&result)?;
-            tx.execute(
-                "INSERT INTO terminal_mutations(
-                   origin, mutation_id, fingerprint, result_json, committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5)",
-                params![
-                    mutation.origin,
-                    mutation.id,
-                    fingerprint,
-                    result_json,
-                    i64::try_from(current_revision)
-                        .context("terminal revision exceeds SQLite integer range")?,
-                ],
-            )?;
             tx.commit()?;
-            return Ok(TerminalRegistryCommit {
-                revision: current_revision,
-                result,
-                replayed: false,
+            return Ok(TerminalResourceCloseCommit::ResourceReplay {
+                terminal: TerminalRegistryCommit { revision, result, replayed: true },
+                resource,
             });
         }
-
-        let revision = current_revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
-        let result = serde_json::json!({
-            "terminal_id": terminal_id,
-            "incarnation": terminal.incarnation,
-            "closed": true,
-            "already_closed": false,
-        });
-        let result_json = canonical_json(&result)?;
-        tx.execute(
-            "UPDATE terminal_hosts
-             SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
-             WHERE terminal_id = ?2",
-            params![sqlite_revision, terminal_id],
+        let terminal = close_terminal_in_transaction(
+            &tx,
+            &self.generation,
+            mutation,
+            &fingerprint,
+            expected_generation,
+            expected_terminal_revision,
+            terminal_id,
+            expected_incarnation,
         )?;
+        debug_assert!(!terminal.replayed);
+        let previous_revision = transaction_resource_revision(&tx)?;
+        anyhow::ensure!(
+            previous_revision == expected_resource_revision,
+            "resource revision conflict: expected {expected_resource_revision}, current {previous_revision}"
+        );
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        apply_resource_patch(&tx, patch, sqlite_revision)?;
         tx.execute(
-            "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
         tx.execute(
-            "INSERT INTO terminal_mutations(
-               origin, mutation_id, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
-        )?;
-        tx.execute(
-            "INSERT INTO terminal_events(
-               revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
-             ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO resource_mutations(
+                   origin, idempotency_key, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
             params![
-                sqlite_revision,
-                terminal_id,
-                terminal.workspace_key,
                 mutation.origin,
                 mutation.id,
-                result_json,
+                OPERATION,
+                fingerprint,
+                resource_result_json,
+                sqlite_revision,
             ],
         )?;
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            Some(patch),
+            resource_result,
+            resource_deltas,
+        )?;
+        resource_store::prune_resource_mutations(&tx)?;
+        let resource =
+            ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
         tx.commit()?;
-        Ok(TerminalRegistryCommit { revision, result, replayed: false })
+        Ok(TerminalResourceCloseCommit::Committed { terminal, resource })
     }
 
     /// Tombstone every hosted tab in one pane/screen as one SQLite unit. All
@@ -4211,6 +4275,128 @@ fn normalized_workspace_resource_deltas(
     Ok(Value::Array(deltas))
 }
 
+fn terminal_close_fingerprint(
+    mutation: &WorkspaceMutation,
+    terminal_id: &str,
+    expected_incarnation: Option<&str>,
+) -> anyhow::Result<String> {
+    validate_identifier("mutation id", &mutation.id)?;
+    validate_identifier("mutation origin", &mutation.origin)?;
+    validate_terminal_identity("terminal id", terminal_id)?;
+    if let Some(incarnation) = expected_incarnation {
+        validate_terminal_identity("terminal incarnation", incarnation)?;
+    }
+    canonical_json(&serde_json::json!({
+        "op": "close-terminal",
+        "terminal_id": terminal_id,
+        "incarnation": expected_incarnation,
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn close_terminal_in_transaction(
+    transaction: &Transaction<'_>,
+    generation: &str,
+    mutation: &WorkspaceMutation,
+    fingerprint: &str,
+    expected_generation: Option<&str>,
+    expected_revision: Option<u64>,
+    terminal_id: &str,
+    expected_incarnation: Option<&str>,
+) -> anyhow::Result<TerminalRegistryCommit> {
+    if let Some(replay) = terminal_replay(transaction, mutation, fingerprint)? {
+        return Ok(replay);
+    }
+    if let Some(expected) = expected_generation
+        && expected != generation
+    {
+        anyhow::bail!("terminal generation conflict: expected {expected}, current {generation}");
+    }
+    let current_revision = transaction_terminal_revision(transaction)?;
+    if let Some(expected) = expected_revision
+        && expected != current_revision
+    {
+        anyhow::bail!(
+            "terminal revision conflict: expected {expected}, current {current_revision}"
+        );
+    }
+    let Some(terminal) = read_terminal(transaction, terminal_id)? else {
+        anyhow::bail!("unknown terminal {terminal_id}; it may not have been adopted yet");
+    };
+    if let Some(expected) = expected_incarnation
+        && terminal.incarnation.as_deref() != Some(expected)
+    {
+        anyhow::bail!("terminal_incarnation_mismatch");
+    }
+
+    if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+        let result = serde_json::json!({
+            "terminal_id": terminal_id,
+            "incarnation": terminal.incarnation,
+            "closed": true,
+            "already_closed": true,
+        });
+        let result_json = canonical_json(&result)?;
+        transaction.execute(
+            "INSERT INTO terminal_mutations(
+               origin, mutation_id, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![
+                mutation.origin,
+                mutation.id,
+                fingerprint,
+                result_json,
+                i64::try_from(current_revision)
+                    .context("terminal revision exceeds SQLite integer range")?,
+            ],
+        )?;
+        return Ok(TerminalRegistryCommit { revision: current_revision, result, replayed: false });
+    }
+
+    let revision = current_revision
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
+    let sqlite_revision =
+        i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+    let result = serde_json::json!({
+        "terminal_id": terminal_id,
+        "incarnation": terminal.incarnation,
+        "closed": true,
+        "already_closed": false,
+    });
+    let result_json = canonical_json(&result)?;
+    transaction.execute(
+        "UPDATE terminal_hosts
+         SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
+         WHERE terminal_id = ?2",
+        params![sqlite_revision, terminal_id],
+    )?;
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
+        [revision.to_string()],
+    )?;
+    transaction.execute(
+        "INSERT INTO terminal_mutations(
+           origin, mutation_id, fingerprint, result_json, committed_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
+    )?;
+    transaction.execute(
+        "INSERT INTO terminal_events(
+           revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
+         ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
+        params![
+            sqlite_revision,
+            terminal_id,
+            terminal.workspace_key,
+            mutation.origin,
+            mutation.id,
+            result_json,
+        ],
+    )?;
+    Ok(TerminalRegistryCommit { revision, result, replayed: false })
+}
+
 fn validate_terminal_batch_close(
     mutation: &WorkspaceMutation,
     terminals: &[(String, Option<String>)],
@@ -4734,9 +4920,12 @@ const MACHINE_ID_LOCK_FILE: &str = "machine-id.lock";
 const SESSION_WRITER_LOCK_FILE: &str = "writer.lock";
 const SESSION_GUARD_DIR: &str = "session-locks";
 const SESSION_GUARD_COORDINATOR_FILE: &str = ".coordinator.lock";
+const SESSION_GUARD_COORDINATOR_WAITER_DIR: &str = ".coordinator.waiters";
 const SESSION_GUARD_COORDINATOR_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(250);
-const SESSION_GUARD_COORDINATOR_RETRY: std::time::Duration = std::time::Duration::from_millis(5);
+const SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT: usize = 64;
+static SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 #[cfg(test)]
 static RESET_RENAME_SYNC_FAILURE_ROOT: std::sync::Mutex<Option<PathBuf>> =
@@ -5027,8 +5216,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
                 .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
             file.sync_all()
                 .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            File::open(root)
-                .and_then(|directory| directory.sync_all())
+            platform::sync_directory(root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(pepper)
         }
@@ -5107,8 +5295,7 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
                 .and_then(|()| file.write_all(b"\n"))
                 .with_context(|| format!("write machine identity {}", path.display()))?;
             file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            File::open(root)
-                .and_then(|directory| directory.sync_all())
+            platform::sync_directory(root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(id)
         }
@@ -5199,6 +5386,7 @@ pub(crate) fn is_canonical_workspace_key(value: &str) -> bool {
 struct SessionLease {
     file: File,
     path: PathBuf,
+    coordinator_waiter_dir: Option<PathBuf>,
 }
 
 impl SessionLease {
@@ -5209,24 +5397,30 @@ impl SessionLease {
         FileExt::try_lock(&file).with_context(|| {
             format!("workspace session is already owned by another daemon: {}", path.display())
         })?;
-        Ok(Self { file, path: path.to_path_buf() })
+        Ok(Self { file, path: path.to_path_buf(), coordinator_waiter_dir: None })
     }
 
     fn acquire_coordinator(path: &Path) -> anyhow::Result<Self> {
+        Self::acquire_coordinator_until(
+            path,
+            std::time::Instant::now() + SESSION_GUARD_COORDINATOR_TIMEOUT,
+        )
+    }
+
+    fn acquire_coordinator_until(
+        path: &Path,
+        deadline: std::time::Instant,
+    ) -> anyhow::Result<Self> {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;
         validate_session_lock_file(path, &file)?;
-        let deadline = std::time::Instant::now() + SESSION_GUARD_COORDINATOR_TIMEOUT;
         loop {
             match FileExt::try_lock(&file) {
-                Ok(()) => break,
-                Err(fs4::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
-                    std::thread::sleep(SESSION_GUARD_COORDINATOR_RETRY);
-                }
+                Ok(()) => return Ok(Self::coordinator(file, path)),
                 Err(fs4::TryLockError::WouldBlock) => {
-                    return Err(std::io::Error::from(std::io::ErrorKind::WouldBlock)).with_context(
-                        || format!("workspace session coordinator is busy: {}", path.display()),
-                    );
+                    if std::time::Instant::now() >= deadline {
+                        return session_coordinator_busy(path);
+                    }
                 }
                 Err(error) => {
                     return Err(error).with_context(|| {
@@ -5234,8 +5428,42 @@ impl SessionLease {
                     });
                 }
             }
+
+            let waiter = SessionCoordinatorWaiter::register(path).with_context(|| {
+                format!("register workspace session coordinator waiter: {}", path.display())
+            })?;
+
+            // Registration precedes this second lock attempt. If the owner
+            // released before it saw the registration, this attempt observes
+            // the free lock and prevents a lost wakeup.
+            match FileExt::try_lock(&file) {
+                Ok(()) => return Ok(Self::coordinator(file, path)),
+                Err(fs4::TryLockError::WouldBlock) => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("lock workspace session coordinator: {}", path.display())
+                    });
+                }
+            }
+
+            if waiter.wait_until(deadline).with_context(|| {
+                format!("wait for workspace session coordinator: {}", path.display())
+            })? {
+                continue;
+            }
+
+            // The file lock remains authoritative when the owner crashes
+            // before it publishes a registered waiter signal.
+            match FileExt::try_lock(&file) {
+                Ok(()) => return Ok(Self::coordinator(file, path)),
+                Err(fs4::TryLockError::WouldBlock) => return session_coordinator_busy(path),
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("lock workspace session coordinator: {}", path.display())
+                    });
+                }
+            }
         }
-        Ok(Self { file, path: path.to_path_buf() })
     }
 
     fn acquire_coordinator_blocking(path: &Path) -> anyhow::Result<Self> {
@@ -5245,7 +5473,343 @@ impl SessionLease {
         FileExt::lock(&file)
             .with_context(|| format!("lock workspace session coordinator: {}", path.display()))?;
         validate_session_lock_file(path, &file)?;
-        Ok(Self { file, path: path.to_path_buf() })
+        Ok(Self::coordinator(file, path))
+    }
+
+    fn coordinator(file: File, path: &Path) -> Self {
+        Self {
+            file,
+            path: path.to_path_buf(),
+            coordinator_waiter_dir: Some(session_guard_coordinator_waiter_dir(path)),
+        }
+    }
+}
+
+fn session_coordinator_busy(path: &Path) -> anyhow::Result<SessionLease> {
+    Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
+        .with_context(|| format!("workspace session coordinator is busy: {}", path.display()))
+}
+
+struct SessionCoordinatorWaiter {
+    #[cfg(unix)]
+    signal_reader: File,
+    #[cfg(unix)]
+    _signal_anchor: File,
+    #[cfg(not(unix))]
+    socket: std::net::UdpSocket,
+    registration_path: PathBuf,
+    #[cfg(not(unix))]
+    token: String,
+}
+
+impl SessionCoordinatorWaiter {
+    fn register(coordinator_path: &Path) -> anyhow::Result<Self> {
+        use std::sync::atomic::Ordering;
+
+        let waiter_dir = session_guard_coordinator_waiter_dir(coordinator_path);
+        prepare_session_coordinator_waiter_dir(&waiter_dir)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            use std::os::unix::fs::OpenOptionsExt;
+
+            loop {
+                let sequence =
+                    SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let token = format!("{:x}-{sequence:x}", std::process::id());
+                let registration_path = waiter_dir.join(format!("{token}.waiter"));
+                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let fifo_path = std::ffi::CString::new(temporary_path.as_os_str().as_bytes())?;
+                // SAFETY: fifo_path is a valid NUL-terminated path and mode
+                // only grants access to the current user.
+                let created = unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) };
+                if created != 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        continue;
+                    }
+                    return Err(error.into());
+                }
+
+                let mut reader_options = OpenOptions::new();
+                reader_options
+                    .read(true)
+                    .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+                let signal_reader = match reader_options.open(&temporary_path) {
+                    Ok(reader) => reader,
+                    Err(error) => {
+                        let _ = fs::remove_file(&temporary_path);
+                        return Err(error.into());
+                    }
+                };
+                let mut anchor_options = OpenOptions::new();
+                anchor_options
+                    .write(true)
+                    .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+                let signal_anchor = match anchor_options.open(&temporary_path) {
+                    Ok(anchor) => anchor,
+                    Err(error) => {
+                        let _ = fs::remove_file(&temporary_path);
+                        return Err(error.into());
+                    }
+                };
+                if let Err(error) = fs::rename(&temporary_path, &registration_path) {
+                    let _ = fs::remove_file(&temporary_path);
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        continue;
+                    }
+                    return Err(error.into());
+                }
+                return Ok(Self {
+                    signal_reader,
+                    _signal_anchor: signal_anchor,
+                    registration_path,
+                });
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
+            let address = socket.local_addr()?;
+
+            loop {
+                let sequence =
+                    SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let token = format!("{:x}-{:x}-{:x}", std::process::id(), address.port(), sequence);
+                let registration_path = waiter_dir.join(format!("{token}.waiter"));
+                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let mut options = OpenOptions::new();
+                options.create_new(true).write(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+                }
+                let mut registration = match options.open(&temporary_path) {
+                    Ok(registration) => registration,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                if let Err(error) = writeln!(registration, "{address} {token}") {
+                    let _ = fs::remove_file(&temporary_path);
+                    return Err(error.into());
+                }
+                if let Err(error) = registration.flush() {
+                    let _ = fs::remove_file(&temporary_path);
+                    return Err(error.into());
+                }
+                drop(registration);
+                if let Err(error) = fs::rename(&temporary_path, &registration_path) {
+                    let _ = fs::remove_file(&temporary_path);
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        continue;
+                    }
+                    return Err(error.into());
+                }
+                return Ok(Self { socket, registration_path, token });
+            }
+        }
+    }
+
+    fn wait_until(&self, deadline: std::time::Instant) -> std::io::Result<bool> {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    return Ok(false);
+                }
+                let timeout_ms =
+                    remaining.as_millis().saturating_add(1).min(i32::MAX as u128) as i32;
+                let mut descriptor = libc::pollfd {
+                    fd: self.signal_reader.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                // SAFETY: descriptor points to one valid pollfd for the call.
+                let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+                if ready == 0 {
+                    return Ok(false);
+                }
+                if ready < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if descriptor.revents & libc::POLLIN != 0 {
+                    let mut signal = [0_u8; 1];
+                    let mut signal_reader = &self.signal_reader;
+                    match signal_reader.read(&mut signal) {
+                        Ok(1) => return Ok(true),
+                        Ok(_) => {}
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
+                        Err(error) => return Err(error),
+                    }
+                }
+                if descriptor.revents & (libc::POLLERR | libc::POLLNVAL) != 0 {
+                    return Err(std::io::Error::other("session coordinator signal pipe failed"));
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            let mut message = [0_u8; 128];
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    return Ok(false);
+                }
+                self.socket.set_read_timeout(Some(remaining))?;
+                match self.socket.recv_from(&mut message) {
+                    Ok((length, sender))
+                        if sender.ip().is_loopback()
+                            && message.get(..length) == Some(self.token.as_bytes()) =>
+                    {
+                        return Ok(true);
+                    }
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        return Ok(false);
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+    }
+}
+
+impl Drop for SessionCoordinatorWaiter {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.registration_path);
+    }
+}
+
+fn session_guard_coordinator_waiter_dir(coordinator_path: &Path) -> PathBuf {
+    coordinator_path.with_file_name(SESSION_GUARD_COORDINATOR_WAITER_DIR)
+}
+
+fn prepare_session_coordinator_waiter_dir(waiter_dir: &Path) -> anyhow::Result<()> {
+    match fs::symlink_metadata(waiter_dir) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => anyhow::bail!(
+            "session coordinator waiter path is not a directory: {}",
+            waiter_dir.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match fs::create_dir(waiter_dir) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let metadata = fs::symlink_metadata(waiter_dir)?;
+                    if !metadata.file_type().is_dir() {
+                        anyhow::bail!(
+                            "session coordinator waiter path is not a directory: {}",
+                            waiter_dir.display()
+                        );
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    platform::restrict_directory(waiter_dir)?;
+    Ok(())
+}
+
+fn publish_session_coordinator_available(waiter_dir: &Path) {
+    let Ok(entries) = fs::read_dir(waiter_dir) else {
+        return;
+    };
+    #[cfg(not(unix))]
+    let Ok(socket) = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)) else {
+        return;
+    };
+    for entry in entries.flatten().take(SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT) {
+        let path = entry.path();
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        match path.extension().and_then(|value| value.to_str()) {
+            Some("tmp") => {
+                #[cfg(unix)]
+                let is_temporary_waiter = {
+                    use std::os::unix::fs::FileTypeExt;
+
+                    metadata.file_type().is_file() || metadata.file_type().is_fifo()
+                };
+                #[cfg(not(unix))]
+                let is_temporary_waiter = metadata.file_type().is_file();
+                let is_stale = is_temporary_waiter
+                    && metadata
+                        .modified()
+                        .ok()
+                        .and_then(|modified| modified.elapsed().ok())
+                        .is_some_and(|age| age >= SESSION_GUARD_COORDINATOR_TIMEOUT);
+                if is_stale {
+                    let _ = fs::remove_file(path);
+                }
+                continue;
+            }
+            Some("waiter") => {}
+            _ => continue,
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+
+            if !metadata.file_type().is_fifo() {
+                let _ = fs::remove_file(path);
+                continue;
+            }
+            let mut options = OpenOptions::new();
+            options.write(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+            let published =
+                options.open(&path).and_then(|mut signal| signal.write_all(&[1])).is_ok();
+            let _ = fs::remove_file(path);
+            if published {
+                break;
+            }
+            continue;
+        }
+
+        #[cfg(not(unix))]
+        if !metadata.file_type().is_file() {
+            continue;
+        }
+        #[cfg(not(unix))]
+        if let Ok(registration) = fs::read_to_string(&path) {
+            let mut fields = registration.split_whitespace();
+            let address =
+                fields.next().and_then(|value| value.parse::<std::net::SocketAddr>().ok());
+            let token = fields.next();
+            if fields.next().is_none()
+                && let (Some(address), Some(token)) = (address, token)
+                && address.ip().is_loopback()
+                && token.len() <= 128
+                && token.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
+            {
+                if socket.send_to(token.as_bytes(), address).is_ok() {
+                    let _ = fs::remove_file(path);
+                    break;
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = fs::remove_file(path);
     }
 }
 
@@ -5296,7 +5860,11 @@ fn restrict_session_lock_file(path: &Path, _file: &File) -> anyhow::Result<()> {
 
 impl Drop for SessionLease {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.file);
+        if FileExt::unlock(&self.file).is_ok()
+            && let Some(waiter_dir) = &self.coordinator_waiter_dir
+        {
+            publish_session_coordinator_available(waiter_dir);
+        }
         let _ = &self.path;
     }
 }

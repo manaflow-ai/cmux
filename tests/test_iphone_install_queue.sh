@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Behavior tests for scripts/iphone-install-queue.sh: enqueue/list/drain/clear,
 # unreachable-phone queueing, reconnect drain (install + signed launch +
-# notification), and default device id resolution. Uses a fake xcrun/devicectl,
-# a fake mobile-dev-launch.sh, and a fake cmux CLI so no simulator, device, or
-# running app is touched.
+# verified notification), the needs-auth state for installs whose iPhone auth
+# gate failed (kept + truthfully notified + retryable), the human-only
+# unauthenticated-enqueue gate, and default device id resolution. Uses a fake
+# xcrun/devicectl, a fake mobile-dev-launch.sh, and a fake cmux CLI so no
+# simulator, device, or running app is touched.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,7 +16,8 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 export CMUX_IPHONE_QUEUE_DIR="$TMP_DIR/queue"
 export CMUX_CONFIG_DIR="$TMP_DIR/config"
-unset CMUX_IPHONE_DEVICE_ID CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE CMUX_IPHONE_QUEUE_CHECKOUT 2>/dev/null || true
+export CMUX_READINESS_RECEIPT_DIR="$TMP_DIR/receipts"
+unset CMUX_IPHONE_DEVICE_ID CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE CMUX_IPHONE_QUEUE_CHECKOUT CMUX_ALLOW_UNAUTHENTICATED_INSTALL 2>/dev/null || true
 
 DEVICE_ID="11111111-2222-3333-4444-555555555555"
 STATE_FILE="$TMP_DIR/device-state"   # "reachable" | "unreachable"
@@ -111,15 +114,29 @@ chmod +x "$FAKE_BIN/cmux"
 
 export PATH="$FAKE_BIN:$PATH"
 
-# Fake checkout with a mobile-dev-launch.sh that records its invocation.
+# Fake checkout with a mobile-dev-launch.sh that records its invocation and,
+# like the real launcher, writes a readiness receipt only when its auth gate
+# passes (the drain requires that receipt to count an install as verified).
 FAKE_CHECKOUT="$TMP_DIR/checkout"
 mkdir -p "$FAKE_CHECKOUT/scripts"
-cat > "$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh" <<EOF
+write_fake_mdl() {
+  local exit_code="$1" write_receipt="$2"
+  cat > "$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh" <<EOF
 #!/usr/bin/env bash
 echo "mobile-dev-launch \$*" >> "$CALL_LOG"
-exit 0
+if [[ "$write_receipt" == "1" ]]; then
+  mkdir -p "$CMUX_READINESS_RECEIPT_DIR"
+  echo '{"schema":"cmux-ios-dogfood-readiness-v1"}' \
+    > "$CMUX_READINESS_RECEIPT_DIR/tstq-$DEVICE_ID.json"
+fi
+if [[ "$exit_code" != "0" ]]; then
+  echo "error: iPhone auth gate FAILED: fake sign-in failure"
+fi
+exit "$exit_code"
 EOF
-chmod +x "$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh"
+  chmod +x "$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh"
+}
+write_fake_mdl 0 1
 
 # Fake signed app.
 APP="$TMP_DIR/cmux.app"
@@ -182,28 +199,83 @@ install_line="$(grep -n "devicectl device install app --device $DEVICE_ID" "$CAL
   || fail "drain must terminate the registered tagged app before replacing its bundle"
 grep -q -- "mobile-dev-launch --tag tstq --device --device-id $DEVICE_ID --ensure-mac" "$CALL_LOG" \
   || fail "drain should signed-launch via mobile-dev-launch.sh with --ensure-mac"
-grep -q "cmux notify --title" "$CALL_LOG" || fail "drain should send a cmux notification"
-ok "reconnect drain terminates before install, signed-launches with --ensure-mac, and notifies"
+grep -q "cmux notify --title iPhone install queue: installed tstq" "$CALL_LOG" \
+  || fail "drain should send a cmux notification for the installed tag"
+grep -q "VERIFIED signed in + paired" "$CALL_LOG" \
+  || fail "the success notification must state the install was VERIFIED signed in"
+ok "reconnect drain terminates before install, signed-launches with --ensure-mac, and notifies verified"
 
-# --- failed signed launch never falls back to plain launch --------------------
+# --- gate pass without a fresh readiness receipt is NOT verified ---------------
 echo "unreachable" > "$STATE_FILE"
 "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" >/dev/null
 echo "reachable" > "$STATE_FILE"
-cat > "$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh" <<EOF
-#!/usr/bin/env bash
-echo "mobile-dev-launch \$*" >> "$CALL_LOG"
-exit 1
-EOF
-chmod +x "$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh"
+write_fake_mdl 0 0   # exit 0 but no receipt: a launcher that lies
+rm -f "$CMUX_READINESS_RECEIPT_DIR/tstq-$DEVICE_ID.json"
+: > "$CALL_LOG"
+if "$QUEUE_SCRIPT" drain >/dev/null 2>&1; then
+  fail "drain should exit non-zero when no fresh readiness receipt backs the gate"
+fi
+[[ -d "$CMUX_IPHONE_QUEUE_DIR/needs-auth/tstq" ]] \
+  || fail "receipt-less install should move to needs-auth/"
+grep -q "no fresh readiness receipt" "$CMUX_IPHONE_QUEUE_DIR/needs-auth/tstq/error.txt" \
+  || fail "needs-auth reason should mention the missing receipt"
+"$QUEUE_SCRIPT" retry --tag tstq >/dev/null || fail "retry should re-queue the needs-auth entry"
+ok "gate pass without a fresh receipt parks in needs-auth (launcher cannot lie with exit 0)"
+
+# --- failed signed launch: kept in needs-auth, truthful notify, retryable ------
+write_fake_mdl 1 0
 : > "$CALL_LOG"
 if "$QUEUE_SCRIPT" drain >/dev/null 2>&1; then
   fail "drain should exit non-zero when the signed launch fails"
 fi
-[[ -d "$CMUX_IPHONE_QUEUE_DIR/failed/tstq" ]] || fail "failed entry should move to failed/"
+[[ -d "$CMUX_IPHONE_QUEUE_DIR/needs-auth/tstq" ]] \
+  || fail "auth-failed entry should move to needs-auth/ (installed app must not be dropped)"
+[[ -d "$CMUX_IPHONE_QUEUE_DIR/needs-auth/tstq/cmux.app" ]] \
+  || fail "needs-auth entry should retain the staged app for retry"
+grep -q "fake sign-in failure" "$CMUX_IPHONE_QUEUE_DIR/needs-auth/tstq/error.txt" \
+  || fail "needs-auth reason should carry the launcher's error line"
 grep -q "devicectl device process launch" "$CALL_LOG" \
   && fail "a failed signed launch must never fall back to a plain launch"
-"$QUEUE_SCRIPT" list | grep -q "failed   tstq" || fail "list should show the failed entry"
-ok "failed signed launch moves to failed/ without a plain-launch fallback"
+grep -q "cmux notify --title iPhone install queue: tstq installed but SIGN-IN FAILED" "$CALL_LOG" \
+  || fail "the notification must report the TRUE state (installed but SIGN-IN FAILED)"
+grep -q -- "--ensure-mac, or scripts/iphone-install-queue.sh retry --tag tstq" "$CALL_LOG" \
+  || fail "the notification must include the exact retry commands"
+"$QUEUE_SCRIPT" list | grep -q "needs-auth tstq" || fail "list should show the needs-auth entry"
+"$QUEUE_SCRIPT" retry --tag tstq >/dev/null || fail "retry should re-queue the needs-auth entry"
+[[ -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] || fail "retry should move the entry back to pending/"
+write_fake_mdl 0 1
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "drain after retry with fixed auth should succeed"
+[[ ! -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] || fail "retried entry should drain to completion"
+ok "auth-failed install parks in needs-auth, notifies truthfully, and retry re-queues it"
+
+# --- locked/offline phone mid-launch (launcher exit 75) keeps entry pending ----
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" >/dev/null
+write_fake_mdl 75 0
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "deferred-delivery drain should exit 0 (entry simply stays queued)"
+[[ -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] \
+  || fail "launcher exit 75 (phone locked/offline) must keep the entry pending, not needs-auth/failed"
+grep -q "cmux notify" "$CALL_LOG" && fail "a deferred delivery must not claim an install happened"
+write_fake_mdl 0 1
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "drain after unlock should succeed"
+[[ ! -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] || fail "entry should drain once the launcher succeeds"
+ok "launcher exit 75 keeps the entry pending for the LaunchAgent retry"
+
+# --- unauthenticated enqueue is human-only -------------------------------------
+if "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" --no-sign-in >/dev/null 2>&1; then
+  fail "enqueue --no-sign-in without CMUX_ALLOW_UNAUTHENTICATED_INSTALL must be refused"
+fi
+CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" \
+  --checkout "$FAKE_CHECKOUT" --no-sign-in >/dev/null \
+  || fail "enqueue --no-sign-in with the human allowance should be accepted"
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "opt-out drain should exit 0"
+grep -q "devicectl device process launch" "$CALL_LOG" \
+  || fail "opt-out entry should plain-launch"
+grep -q "auth NOT verified" "$CALL_LOG" \
+  || fail "the opt-out notification must state auth was NOT verified"
+ok "unauthenticated enqueue needs the human-only allowance and notifies unverified"
 
 # --- clear ---------------------------------------------------------------
 "$QUEUE_SCRIPT" clear >/dev/null

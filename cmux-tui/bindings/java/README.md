@@ -5,7 +5,7 @@ Typed handles cover machines, sessions, workspaces, screens, panes, tabs,
 terminals, browsers, connected clients, pairing requests, projections,
 notifications, agents, and sidebar views.
 
-The private protocol-v11 API remains available under `com.cmux.raw`.
+The private protocol-v12 API remains available under `com.cmux.raw`.
 
 ## Build and test
 

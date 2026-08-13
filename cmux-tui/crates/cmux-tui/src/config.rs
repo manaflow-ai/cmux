@@ -3351,7 +3351,11 @@ impl GhosttyHelperOutputReader {
     }
 }
 
-fn terminate_ghostty_helper_child(mut child: Child) {
+fn terminate_ghostty_helper_child(child: Child) {
+    let _ = terminate_ghostty_helper_child_with_reaped_signal(child);
+}
+
+fn terminate_ghostty_helper_child_with_reaped_signal(mut child: Child) -> mpsc::Receiver<()> {
     #[cfg(unix)]
     let descendant_groups = ghostty_helper_descendant_process_groups(child.id() as libc::pid_t);
     #[cfg(unix)]
@@ -3365,7 +3369,7 @@ fn terminate_ghostty_helper_child(mut child: Child) {
         libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
     }
     let _ = child.kill();
-    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-helper-reaper");
+    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-helper-reaper")
 }
 
 #[cfg(unix)]
@@ -3414,22 +3418,34 @@ fn ghostty_helper_process_table_snapshot() -> Option<String> {
 }
 
 #[cfg(unix)]
-fn terminate_ghostty_process_scan_child(mut child: Child) {
+fn terminate_ghostty_process_scan_child(child: Child) {
+    let _ = terminate_ghostty_process_scan_child_with_reaped_signal(child);
+}
+
+#[cfg(unix)]
+fn terminate_ghostty_process_scan_child_with_reaped_signal(mut child: Child) -> mpsc::Receiver<()> {
     unsafe {
         // SAFETY: this only targets the bounded process-scan child group.
         libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
     }
     let _ = child.kill();
-    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-process-scan-reaper");
+    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-process-scan-reaper")
 }
 
-fn reap_ghostty_child_after_short_wait(mut child: Child, reaper_name: &'static str) {
+fn reap_ghostty_child_after_short_wait(
+    mut child: Child,
+    reaper_name: &'static str,
+) -> mpsc::Receiver<()> {
+    let (reaped_sender, reaped_receiver) = mpsc::sync_channel(1);
     if matches!(child.wait_timeout(Duration::from_millis(10)), Ok(Some(_))) {
-        return;
+        let _ = reaped_sender.send(());
+        return reaped_receiver;
     }
     let _ = std::thread::Builder::new().name(reaper_name.to_string()).spawn(move || {
         let _ = child.wait();
+        let _ = reaped_sender.send(());
     });
+    reaped_receiver
 }
 
 #[cfg(unix)]
@@ -3568,6 +3584,8 @@ const GHOSTTY_PROCESS_SCAN_OUTPUT_MAX_BYTES: u64 = 1024 * 1024;
 const GHOSTTY_CONFIG_PARSE_DEADLINE: Duration = Duration::from_millis(250);
 #[cfg(unix)]
 const GHOSTTY_PROCESS_SCAN_DEADLINE: Duration = Duration::from_millis(150);
+#[cfg(not(target_os = "macos"))]
+const GHOSTTY_HELPER_REAP_DEADLINE: Duration = Duration::from_millis(150);
 // The child owns a 250 ms parse deadline. The parent starts timing before
 // spawn/exec and still needs room for setup, stdout drain, and normal exit.
 const GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE: Duration = Duration::from_millis(500);
@@ -3821,6 +3839,17 @@ fn desktop_theme_command_output(
     args: &[&str],
     deadline_at: Option<Instant>,
 ) -> Option<String> {
+    desktop_theme_command_output_with_lifecycle_signals(program, args, deadline_at, None, None)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn desktop_theme_command_output_with_lifecycle_signals(
+    program: &str,
+    args: &[&str],
+    deadline_at: Option<Instant>,
+    started_sender: Option<&mpsc::SyncSender<u32>>,
+    reaped_sender: Option<&mpsc::SyncSender<()>>,
+) -> Option<String> {
     let timeout =
         ghostty_config_deadline_remaining(deadline_at)?.min(GHOSTTY_DESKTOP_APPEARANCE_DEADLINE);
     if timeout.is_zero() {
@@ -3832,6 +3861,9 @@ fn desktop_theme_command_output(
     #[cfg(unix)]
     command.process_group(0);
     let mut child = command.spawn().ok()?;
+    if let Some(started_sender) = started_sender {
+        let _ = started_sender.send(child.id());
+    }
     #[cfg(unix)]
     let child_group = child.id() as libc::pid_t;
     let Some(stdout) = child.stdout.take() else {
@@ -3857,7 +3889,14 @@ fn desktop_theme_command_output(
         Err(mpsc::RecvTimeoutError::Timeout) => {
             #[cfg(unix)]
             kill_ghostty_process_group(child_group);
-            let _ = output_reader.recv_timeout(Duration::from_millis(10));
+            let reap_timeout =
+                ghostty_config_deadline_remaining(deadline_at)?.min(GHOSTTY_HELPER_REAP_DEADLINE);
+            if !reap_timeout.is_zero()
+                && output_reader.recv_timeout(reap_timeout).is_ok()
+                && let Some(reaped_sender) = reaped_sender
+            {
+                let _ = reaped_sender.send(());
+            }
             None
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => None,
@@ -5550,17 +5589,150 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn wait_for_helper_ready_pid(
+        stdout: std::process::ChildStdout,
+        marker: &'static str,
+    ) -> libc::pid_t {
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("cmux-tui-ghostty-test-ready-reader".to_string())
+            .spawn(move || {
+                use std::io::{BufRead, BufReader};
+
+                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                    let Some(pid) = line.strip_prefix(marker) else {
+                        continue;
+                    };
+                    if let Ok(pid) = pid.trim().parse::<libc::pid_t>() {
+                        let _ = ready_sender.send(pid);
+                        return;
+                    }
+                }
+            })
+            .unwrap();
+        ready_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("helper did not publish its ready pid")
+    }
+
+    #[cfg(unix)]
+    fn wait_for_helper_reaped(reaped_receiver: mpsc::Receiver<()>) {
+        reaped_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("helper reaper did not publish completion");
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    struct TestProcessExit {
+        descriptor: std::os::fd::OwnedFd,
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    impl TestProcessExit {
+        fn observe(pid: libc::pid_t) -> Option<Self> {
+            use std::os::fd::FromRawFd;
+
+            #[cfg(target_os = "linux")]
+            // SAFETY: pidfd_open observes the supplied live test child and
+            // returns a new descriptor without modifying process state.
+            let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+            #[cfg(target_vendor = "apple")]
+            // SAFETY: kqueue returns a new descriptor without external state.
+            let descriptor = unsafe { libc::kqueue() };
+            #[cfg(target_os = "linux")]
+            if descriptor < 0 {
+                let error = std::io::Error::last_os_error();
+                if matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EPERM)) {
+                    return None;
+                }
+                panic!("observe helper child {pid}: {error}");
+            }
+            #[cfg(target_vendor = "apple")]
+            assert!(
+                descriptor >= 0,
+                "observe helper child {pid}: {}",
+                std::io::Error::last_os_error()
+            );
+            // SAFETY: pidfd_open and kqueue return a new owned descriptor.
+            let descriptor =
+                unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor as libc::c_int) };
+
+            #[cfg(target_vendor = "apple")]
+            {
+                use std::os::fd::AsRawFd;
+
+                let change = libc::kevent {
+                    ident: pid as libc::uintptr_t,
+                    filter: libc::EVFILT_PROC,
+                    flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_ONESHOT,
+                    fflags: libc::NOTE_EXIT,
+                    data: 0,
+                    udata: std::ptr::null_mut(),
+                };
+                let registered = unsafe {
+                    libc::kevent(
+                        descriptor.as_raw_fd(),
+                        &raw const change,
+                        1,
+                        std::ptr::null_mut(),
+                        0,
+                        std::ptr::null(),
+                    )
+                };
+                assert!(
+                    registered >= 0,
+                    "register helper child {pid} exit: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+
+            Some(Self { descriptor })
+        }
+
+        fn wait(self, timeout: Duration) {
+            use std::os::fd::AsRawFd;
+
+            #[cfg(target_os = "linux")]
+            let ready = {
+                let mut descriptor = libc::pollfd {
+                    fd: self.descriptor.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                let timeout_ms = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+                unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) }
+            };
+            #[cfg(target_vendor = "apple")]
+            let ready = {
+                // SAFETY: kevent fully initializes the event before it is read.
+                let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
+                let timeout = libc::timespec {
+                    tv_sec: timeout.as_secs().try_into().unwrap_or(libc::time_t::MAX),
+                    tv_nsec: timeout.subsec_nanos().into(),
+                };
+                unsafe {
+                    libc::kevent(
+                        self.descriptor.as_raw_fd(),
+                        std::ptr::null(),
+                        0,
+                        &raw mut event,
+                        1,
+                        &raw const timeout,
+                    )
+                }
+            };
+            assert!(ready > 0, "helper child did not exit before the final deadline");
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
     fn ghostty_config_helper_cleanup_reaps_killed_child() {
         let child = Command::new("/bin/sleep").arg("5").spawn().unwrap();
         let pid = child.id() as libc::pid_t;
 
-        terminate_ghostty_helper_child(child);
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while unix_process_exists(pid) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
+        wait_for_helper_reaped(reaped_receiver);
 
         assert!(!unix_process_exists(pid), "helper child {pid} was not reaped");
     }
@@ -5573,12 +5745,8 @@ mod tests {
         let child = command.spawn().unwrap();
         let pid = child.id() as libc::pid_t;
 
-        terminate_ghostty_process_scan_child(child);
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while unix_process_exists(pid) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let reaped_receiver = terminate_ghostty_process_scan_child_with_reaped_signal(child);
+        wait_for_helper_reaped(reaped_receiver);
 
         assert!(!unix_process_exists(pid), "process scan child {pid} was not reaped");
     }
@@ -5607,27 +5775,22 @@ mod tests {
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn ghostty_desktop_probe_cleanup_kills_stdout_inheriting_child() {
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-tui-ghostty-desktop-probe-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let script_path = dir.join("probe.sh");
-        let child_pid_path = dir.join("child.pid");
-        let script = format!(
-            "sleep 5 &\necho $! > {}\nprintf \"'prefer-dark'\\n\"\nexit 0\n",
-            shell_quote_path(&child_pid_path)
-        );
-        std::fs::write(&script_path, script).unwrap();
-        let script_arg = script_path.to_string_lossy().to_string();
+        let (started_sender, started_receiver) = mpsc::sync_channel(1);
+        let (reaped_sender, reaped_receiver) = mpsc::sync_channel(1);
 
         let started_at = Instant::now();
-        let output = desktop_theme_command_output(
+        let output = desktop_theme_command_output_with_lifecycle_signals(
             "/bin/sh",
-            &[script_arg.as_str()],
+            &["-c", "sleep 5 & printf \"'prefer-dark'\\n\"; exit 0"],
             Some(Instant::now() + Duration::from_secs(1)),
+            Some(&started_sender),
+            Some(&reaped_sender),
         );
+        let child_group = started_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("desktop probe did not publish its process group")
+            as libc::pid_t;
+        wait_for_helper_reaped(reaped_receiver);
 
         assert_eq!(output, None);
         assert!(
@@ -5635,95 +5798,53 @@ mod tests {
             "desktop probe output drain was not bounded"
         );
 
-        let child_pid = {
-            let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
-                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
-                {
-                    break pid;
-                }
-                assert!(Instant::now() < deadline, "desktop probe child pid was not written");
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        };
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while unix_process_is_live(child_pid) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let _ = std::fs::remove_dir_all(dir);
-
         assert!(
-            !unix_process_is_live(child_pid),
-            "stdout-inheriting desktop probe child {child_pid} was not killed"
+            !unix_process_group_is_live(child_group),
+            "stdout-inheriting desktop probe group {child_group} was not killed"
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn ghostty_config_helper_cleanup_reaps_process_group_children() {
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-tui-ghostty-helper-process-group-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let child_pid_path = dir.join("child.pid");
-        let script = format!("sleep 5 & echo $! > '{}'; wait", child_pid_path.display());
+        const READY_MARKER: &str = "CMUX_HELPER_READY:";
+        let script = format!("sleep 5 & echo {READY_MARKER}$!; wait");
         let mut command = Command::new("/bin/sh");
-        command.arg("-c").arg(script).process_group(0);
-        let child = command.spawn().unwrap();
+        command.arg("-c").arg(script).stdout(Stdio::piped()).process_group(0);
+        let mut child = command.spawn().unwrap();
         let parent_pid = child.id() as libc::pid_t;
-        let child_pid = {
-            let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
-                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
-                {
-                    break pid;
-                }
-                assert!(Instant::now() < deadline, "child pid was not written");
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        };
+        let child_pid = wait_for_helper_ready_pid(child.stdout.take().unwrap(), READY_MARKER);
+        let child_exit = TestProcessExit::observe(child_pid);
 
-        terminate_ghostty_helper_child(child);
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while (unix_process_exists(parent_pid) || unix_process_is_live(child_pid))
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
+        let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
+        wait_for_helper_reaped(reaped_receiver);
+        if let Some(child_exit) = child_exit {
+            child_exit.wait(Duration::from_secs(2));
+            assert!(!unix_process_is_live(child_pid), "helper child {child_pid} was not killed");
+        } else {
+            eprintln!(
+                "skipped helper child {child_pid} exit postcondition: pidfd_open is unsupported"
+            );
         }
-        let _ = std::fs::remove_dir_all(dir);
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
-        assert!(!unix_process_exists(child_pid), "helper child {child_pid} was not killed");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn ghostty_config_helper_cleanup_kills_descendant_process_groups() {
         const CHILD_MARKER: &str = "CMUX_TEST_GHOSTTY_HELPER_DESCENDANT_GROUP";
-        const CHILD_PID_PATH: &str = "CMUX_TEST_GHOSTTY_HELPER_DESCENDANT_PID";
+        const READY_MARKER: &str = "CMUX_DESCENDANT_READY:";
         if std::env::var_os(CHILD_MARKER).is_some() {
-            let pid_path =
-                PathBuf::from(std::env::var_os(CHILD_PID_PATH).expect("child pid path set"));
             let mut command = Command::new("/bin/sleep");
             command.arg("5").process_group(0);
             let mut child = command.spawn().unwrap();
-            std::fs::write(pid_path, child.id().to_string()).unwrap();
+            println!("{READY_MARKER}{}", child.id());
+            std::io::stdout().flush().unwrap();
             let _ = child.wait();
             return;
         }
 
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-tui-ghostty-helper-descendant-group-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let child_pid_path = dir.join("child.pid");
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args([
@@ -5732,40 +5853,30 @@ mod tests {
                 "--nocapture",
             ])
             .env(CHILD_MARKER, "1")
-            .env(CHILD_PID_PATH, &child_pid_path)
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .process_group(0);
-        let child = command.spawn().unwrap();
+        let mut child = command.spawn().unwrap();
         let parent_pid = child.id() as libc::pid_t;
-        let child_pid = {
-            let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
-                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
-                {
-                    break pid;
-                }
-                assert!(Instant::now() < deadline, "descendant pid was not written");
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        };
+        let child_pid = wait_for_helper_ready_pid(child.stdout.take().unwrap(), READY_MARKER);
+        let child_exit = TestProcessExit::observe(child_pid);
 
-        terminate_ghostty_helper_child(child);
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while (unix_process_exists(parent_pid) || unix_process_exists(child_pid))
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
+        let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
+        wait_for_helper_reaped(reaped_receiver);
+        if let Some(child_exit) = child_exit {
+            child_exit.wait(Duration::from_secs(2));
+            assert!(
+                !unix_process_is_live(child_pid),
+                "descendant process-group child {child_pid} was not killed"
+            );
+        } else {
+            eprintln!(
+                "skipped descendant process-group child {child_pid} exit postcondition: \
+                 pidfd_open is unsupported"
+            );
         }
-        let _ = std::fs::remove_dir_all(dir);
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
-        assert!(
-            !unix_process_is_live(child_pid),
-            "descendant process-group child {child_pid} was not killed"
-        );
     }
 
     #[cfg(unix)]
@@ -5794,8 +5905,18 @@ mod tests {
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
-    fn shell_quote_path(path: &Path) -> String {
-        format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+    fn unix_process_group_is_live(group: libc::pid_t) -> bool {
+        let Ok(output) = Command::new("/bin/ps").args(["-axo", "pgid=,stat="]).output() else {
+            return unsafe { libc::killpg(group, 0) } == 0;
+        };
+        if !output.status.success() {
+            return unsafe { libc::killpg(group, 0) } == 0;
+        }
+        String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+            let mut parts = line.split_whitespace();
+            parts.next().and_then(|value| value.parse::<libc::pid_t>().ok()) == Some(group)
+                && parts.next().is_some_and(|status| !status.starts_with('Z'))
+        })
     }
 
     #[test]

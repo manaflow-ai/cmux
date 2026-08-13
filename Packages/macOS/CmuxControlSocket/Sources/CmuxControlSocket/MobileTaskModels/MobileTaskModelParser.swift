@@ -18,6 +18,70 @@ public struct MobileTaskModelParser: Sendable {
         )
     }
 
+    /// Parses Claude Code's control-stream `list_models` response.
+    ///
+    /// The synthetic `default` choice is omitted because the composer already
+    /// represents provider-default behavior with no explicit model flag.
+    public func claudeModels(from output: String) -> [MobileTaskModel] {
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let data = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data)
+                    as? [String: Any],
+                  object["type"] as? String == "control_response",
+                  let response = object["response"] as? [String: Any],
+                  response["subtype"] as? String == "success",
+                  response["request_id"] as? String == "cmux-list-options",
+                  let payload = response["response"] as? [String: Any],
+                  let rawModels = payload["models"] as? [[String: Any]] else {
+                continue
+            }
+            return uniqueModels(rawModels.compactMap { raw in
+                guard let rawID = raw["value"] as? String else { return nil }
+                let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !id.isEmpty, id.lowercased() != "default" else { return nil }
+                let rawName = raw["displayName"] as? String
+                let displayName = rawName?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return MobileTaskModel(
+                    id: id,
+                    displayName: displayName.flatMap { $0.isEmpty ? nil : $0 } ?? id
+                )
+            })
+        }
+        return []
+    }
+
+    /// Parses Codex's model catalog JSON.
+    ///
+    /// - Parameter output: Standard output from `codex debug models`.
+    /// - Returns: Listed model identifiers with display names in upstream order.
+    public func codexModels(from output: String) -> [MobileTaskModel] {
+        guard let data = output.data(using: .utf8) else { return [] }
+        return codexModels(from: data)
+    }
+
+    /// Parses the model catalog downloaded and owned by Codex itself.
+    public func codexModels(from data: Data) -> [MobileTaskModel] {
+        guard let object = try? JSONSerialization.jsonObject(with: data)
+                as? [String: Any],
+              let rawModels = object["models"] as? [[String: Any]] else {
+            return []
+        }
+        return uniqueModels(rawModels.compactMap { raw in
+            guard raw["visibility"] as? String == "list",
+                  let rawID = raw["slug"] as? String else { return nil }
+            let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty else { return nil }
+            let rawName = raw["display_name"] as? String
+            let displayName = rawName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return MobileTaskModel(
+                id: id,
+                displayName: displayName.flatMap { $0.isEmpty ? nil : $0 } ?? id
+            )
+        })
+    }
+
     /// Parses a top-level quoted `model = "..."` assignment from Codex TOML.
     ///
     /// - Parameter data: UTF-8 contents of `~/.codex/config.toml`.
@@ -68,5 +132,10 @@ public struct MobileTaskModelParser: Sendable {
     private func uniqueNonemptyStrings(_ values: [String]) -> [String] {
         var seen: Set<String> = []
         return values.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    private func uniqueModels(_ models: [MobileTaskModel]) -> [MobileTaskModel] {
+        var seen: Set<String> = []
+        return models.filter { seen.insert($0.id).inserted }
     }
 }
