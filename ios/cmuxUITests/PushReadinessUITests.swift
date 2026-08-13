@@ -116,6 +116,30 @@ final class PushReadinessUITests: XCTestCase {
     }
 
     @MainActor
+    func testPhonePushToggleTurnsOffWhileMutationIsPending() {
+        let app = launchPreview(
+            "healthy",
+            extraEnvironment: ["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY": "1"]
+        )
+        defer { app.terminate() }
+
+        let phone = app.switches["MobileSettingsNotifications"]
+        XCTAssertTrue(phone.waitForExistence(timeout: 8))
+        XCTAssertEqual(phone.value as? String, "1")
+
+        tapSwitch(phone)
+
+        XCTAssertEqual(
+            phone.value as? String,
+            "0",
+            "The toggle must reflect the requested opt-out before the async cleanup finishes"
+        )
+        XCTAssertFalse(phone.isEnabled)
+        waitForEnabled(phone)
+        XCTAssertEqual(phone.value as? String, "0")
+    }
+
+    @MainActor
     func testFailedMacMutationRollsBackAndStaysVisible() {
         let app = launchPreview(
             "healthy",
