@@ -447,8 +447,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var userViewportInteractionGeneration: UInt64 {
         viewportRestoreGate.withLock { $0.interactionGeneration }
     }
-    func bumpUserViewportInteractionGeneration() {
-        viewportRestoreGate.withLock { $0.interactionGeneration &+= 1 }
+    @discardableResult
+    func bumpUserViewportInteractionGeneration() -> UInt64 {
+        viewportRestoreGate.withLock {
+            $0.interactionGeneration &+= 1
+            return $0.interactionGeneration
+        }
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -2332,6 +2336,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
         guard deltaY != 0 else { return }
+        let interactionGeneration = bumpUserViewportInteractionGeneration()
         // User-driven movement reveals the chip; this is guard-only work per
         // frame (the linger is armed by the gesture-end callbacks).
         noteArtifactChipScrollActivity()
@@ -2339,20 +2344,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
         pendingScrollCell = scrollCell(at: touchPoint)
+        pendingScrollInteractionGeneration = interactionGeneration
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    private var pendingScrollInteractionGeneration: UInt64?
     var pendingLocalScrollLines: Double = 0
     var pendingLocalScrollCell: (col: Int, row: Int) = (0, 0)
+    var pendingLocalScrollInteractionGeneration: UInt64?
     var localScrollApplyInFlight = false
+    var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
         pendingScrollLines = 0
+        pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
+        pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = false
+        completePendingLocalScrollDrains(returning: false)
     }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -2366,16 +2378,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return (col, row)
     }
 
-    private func flushPendingScrollIfNeeded() {
-        guard pendingScrollLines != 0 else { return }
+    @discardableResult
+    private func flushPendingScrollIfNeeded() -> (generation: UInt64, appliedLocally: Bool)? {
+        guard pendingScrollLines != 0 else { return nil }
         let lines = pendingScrollLines
         let cell = pendingScrollCell
+        let generation = pendingScrollInteractionGeneration
+            ?? bumpUserViewportInteractionGeneration()
         pendingScrollLines = 0
-        bumpUserViewportInteractionGeneration()
+        pendingScrollInteractionGeneration = nil
+        let appliedLocally = scrollPresentationAuthority.appliesLocally
         if scrollPresentationAuthority.appliesLocally {
-            applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+            applyLocalScrollbackScroll(
+                lines: lines,
+                col: cell.col,
+                row: cell.row,
+                interactionGeneration: generation
+            )
         }
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+        return (generation, appliedLocally)
+    }
+
+    /// Pulls a pending native scroll batch into the replay transaction before
+    /// revealing the verified renderer. Without this drain, a render-grid
+    /// update can reveal the pre-scroll viewport for one frame while the
+    /// display-link batch is still waiting behind the frozen presentation.
+    @discardableResult
+    func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
+        var drained = false
+        while let flushed = flushPendingScrollIfNeeded() {
+            guard flushed.appliedLocally else { return drained }
+            guard await waitForLocalScrollApplied(upTo: flushed.generation) else {
+                return drained
+            }
+            drained = true
+        }
+        return drained
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -2659,6 +2698,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// hammer the zoom path and reproduce the fast-zoom crash locally.
     func debugStressZoomStep(_ direction: TerminalFontZoomDirection) {
         performFontZoom(direction)
+    }
+
+    func debugEnqueueScrollForTesting(deltaY: CGFloat, touchPoint: CGPoint) {
+        enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
     }
 
     private func recordBottomViewportMismatchIfNeeded() {
@@ -3529,7 +3572,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // pending deltas and freeze the scroll mechanics at the current offset
         // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
+        pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
+        pendingLocalScrollInteractionGeneration = nil
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }
