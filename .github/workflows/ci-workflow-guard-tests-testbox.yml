@@ -396,8 +396,10 @@ jobs:
               --data "$payload" 2>"$RUNNER_TEMP/testbox-ready-phone-home-$attempt.err")"
             phone_home_status=$?
             set -e
-            if (( phone_home_status == 0 )) && [[ -n "$response" ]]; then
-              printf '%s\n' "$response" >"$RUNNER_TEMP/testbox-ready-phone-home-response.json"
+            if (( phone_home_status == 0 )); then
+              # The API may acknowledge a valid phone-home with 204 No Content.
+              # Curl success is the acknowledgement; a response body is optional.
+              printf '%s\n' "$response" >"$RUNNER_TEMP/testbox-ready-phone-home-response.txt"
               exit 0
             fi
             if (( attempt < 5 )); then

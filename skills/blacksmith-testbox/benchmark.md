@@ -295,11 +295,12 @@ benchmarked.
 
 The helper creates one structured JSON record, one raw Cargo log, and one raw
 `/usr/bin/time -p` file per stage. Each remote Cargo build is bounded to 20
-minutes with a 30-second kill grace period. It verifies source and submodule
-identity before the stage, exports and records the exact Zig binary used by
-Cargo, holds a remote `flock` through all writes, restores the controlled
-changed file from an integrity-checked backup, and verifies clean identity
-again.
+minutes with a 30-second kill grace period, and the outer CLI invocation is
+bounded to 25 minutes so rsync, SSH, or control-plane hangs cannot bypass the
+benchmark's cleanup path. It verifies source and submodule identity before the
+stage, exports and records the exact Zig binary used by Cargo, holds a remote
+`flock` through all writes, restores the controlled changed file from an
+integrity-checked backup, and verifies clean identity again.
 
 ```bash
 # Run this orchestration block in Bash, not an interactive zsh session.
@@ -311,7 +312,8 @@ run_stage() {
     'CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=%q %q %q %q %q' \
     "$TBX" ./scripts/blacksmith-cmux-tui-testbox-stage.sh \
     "$stage" "$SOURCE_SHA" "$GHOSTTY_SHA"
-  blacksmith testbox run --id "$TBX" --debug \
+  timeout --foreground --kill-after=30s 25m \
+    blacksmith testbox run --id "$TBX" --debug \
     "$remote_command" >"$OUT/$stage.run.log" 2>&1
   run_status=$?
   set -e

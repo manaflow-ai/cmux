@@ -24,6 +24,10 @@ if [[ "$operator_confirmation" != "PREVIEW" && "$operator_confirmation" != "STOP
 fi
 
 mkdir -p "$evidence_dir"
+command -v timeout >/dev/null || {
+  echo "timeout is required for bounded cleanup operations" >&2
+  exit 65
+}
 receipt_path="$evidence_dir/testbox-receipt.json"
 if [[ ! -s "$receipt_path" ]]; then
   echo "refusing cleanup without the warmup ownership receipt: $receipt_path" >&2
@@ -145,7 +149,7 @@ is_known_absence() {
 
 inventory_log="$evidence_dir/list-before-stop.log"
 set +e
-blacksmith testbox list --all >"$inventory_log" 2>&1
+timeout --foreground --kill-after=5s 20s blacksmith testbox list --all >"$inventory_log" 2>&1
 inventory_status=$?
 set -e
 if (( inventory_status != 0 )); then
@@ -167,7 +171,7 @@ esac
 
 status_log="$evidence_dir/status-before-stop.log"
 set +e
-blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
+timeout --foreground --kill-after=5s 20s blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
 status_command_status=$?
 set -e
 status_value=""
@@ -250,7 +254,7 @@ if (( status_absent == 1 )) || is_terminal "$status_value"; then
   printf 'Testbox %s is already terminal or absent; no stop request needed\n' "$testbox_id" >"$stop_log"
 else
   set +e
-  blacksmith testbox stop --id "$testbox_id" >"$stop_log" 2>&1
+  timeout --foreground --kill-after=5s 20s blacksmith testbox stop --id "$testbox_id" >"$stop_log" 2>&1
   stop_status=$?
   set -e
   if (( stop_status != 0 )); then
@@ -269,7 +273,7 @@ while :; do
   poll_attempt=$((poll_attempt + 1))
   : >"$status_log"
   set +e
-  blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
+  timeout --foreground --kill-after=5s 20s blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
   status_command_status=$?
   set -e
   if (( status_command_status == 0 )); then
@@ -307,7 +311,7 @@ while :; do
 done
 
 set +e
-blacksmith testbox list --all >"$list_log" 2>&1
+timeout --foreground --kill-after=5s 20s blacksmith testbox list --all >"$list_log" 2>&1
 list_status=$?
 set -e
 if (( list_status != 0 )); then
