@@ -2408,6 +2408,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Last lane set written by `recordActiveLaneSnapshot`, to skip redundant writes.
     private var lastRecordedLanes: [ActiveLaneSnapshot.Lane]?
     private var laneSnapshotTimer: DispatchSourceTimer?
+    /// The lane set found on disk at launch — what a restore offers to bring back.
+    ///
+    /// Held in memory for the whole launch because capture overwrites the file with the
+    /// *current* state. After a reboot that state is empty, so the first capture tick
+    /// would erase the very record a restore needs, leaving the command working only in
+    /// the seconds before it ran. Reading once at startup decouples the two.
+    private var pendingRestoreSnapshot: ActiveLaneSnapshot.Snapshot?
+    private var didLoadPendingRestoreSnapshot = false
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private let sessionPersistenceQueue = DispatchQueue(
@@ -3038,6 +3046,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
+        // Strictly before the capture timer: the first tick overwrites the file with the
+        // current lane set, which after a reboot is empty.
+        loadPendingRestoreSnapshotIfNeeded()
         startLaneSnapshotTimerIfNeeded()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
@@ -5365,8 +5376,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Workspaces recorded as having had a lane, which are open now and not yet attached.
+    /// Read the on-disk lane set once, before capture can overwrite it.
+    func loadPendingRestoreSnapshotIfNeeded() {
+        guard !didLoadPendingRestoreSnapshot else { return }
+        didLoadPendingRestoreSnapshot = true
+        pendingRestoreSnapshot = ActiveLaneSnapshot.read()
+        if let count = pendingRestoreSnapshot?.lanes.count, count > 0 {
+            NSLog("[LaneRestore] %d lane(s) available to restore from the last session", count)
+        }
+    }
+
     func lanesAwaitingRestore() -> [(workspace: Workspace, lane: ActiveLaneSnapshot.Lane)] {
-        guard let snapshot = ActiveLaneSnapshot.read() else { return [] }
+        loadPendingRestoreSnapshotIfNeeded()
+        guard let snapshot = pendingRestoreSnapshot else { return [] }
 
         var workspacesById: [UUID: Workspace] = [:]
         for context in mainWindowContexts.values {
