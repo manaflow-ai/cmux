@@ -20,8 +20,10 @@ struct WorkspaceShellHost: View {
     let signOut: @MainActor @Sendable () -> Void
     let showAddDevice: (() -> Void)?
     let showPairingScanner: (() -> Void)?
+    var showsTailscalePairingBanner = false
+    var dismissTailscalePairingBanner: () -> Void = {}
     var showSettings: () -> Void = {}
-    var deviceTreePresentation = MobileChildSheetPresentation()
+    var showComputers: () -> Void = {}
     var taskComposerPresentation = MobileChildSheetPresentation()
     let reconnectStoredMac: () -> Void
     let workspaceListDidBecomeVisible: @MainActor @Sendable () async -> Void
@@ -39,8 +41,10 @@ struct WorkspaceShellHost: View {
             retryInitialConnection: retry,
             showAddDevice: showAddDevice,
             showPairingScanner: showPairingScanner,
+            showsTailscalePairingBanner: showsTailscalePairingBanner,
+            dismissTailscalePairingBanner: dismissTailscalePairingBanner,
             showSettings: showSettings,
-            deviceTreePresentation: deviceTreePresentation,
+            showComputers: showComputers,
             taskComposerPresentation: taskComposerPresentation
         )
         .task(id: deadlineTaskID) {

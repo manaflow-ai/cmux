@@ -1,12 +1,21 @@
 import { MagicLinkSignIn, StackHandler } from "@stackframe/stack";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
 
 // Stack Auth owns this catch-all route and reads its URL before it can render.
 // Keep authentication reliable instead of withholding it behind an empty
 // instant-navigation boundary.
 export const instant = false;
+// CLI auth confirmation consumes a one-time query parameter. Do not cache an
+// empty handler shell before Stack can read that parameter.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+// CLI auth confirmation consumes a one-time query parameter. Static
+// prerendering would cache an empty handler shell and drop that parameter.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function StackHandlerPage(
   props: { params: Promise<{ stack: string[] }> },
@@ -42,7 +51,18 @@ export default async function StackHandlerPage(
     );
   }
 
-  return <StackHandler fullPage app={stackServerApp} params={props.params} />;
+  const stackHandler = (
+    <StackHandler fullPage app={stackServerApp} params={props.params} />
+  );
+
+  // Stack's email-verification page calls useUser() while rendering its
+  // client component. Next requires that CSR bailout to have a boundary on
+  // this route, otherwise a real verification link returns HTTP 500.
+  if (stack[0] === "email-verification") {
+    return <Suspense fallback={null}>{stackHandler}</Suspense>;
+  }
+
+  return stackHandler;
 }
 
 function coderouterHost(host: string | null): boolean {

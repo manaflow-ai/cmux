@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileBrowser
@@ -47,6 +48,12 @@ struct WorkspaceChatPane: View {
                 accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
                 providesOwnChrome: false,
                 runsStoreTask: false,
+                onDictationDiagnosticEvent: { event in
+                    event.recordAppDiagnostic(
+                        correlationID: session.id,
+                        store: store
+                    )
+                },
                 onOpenTerminal: openTerminal
             )
             .environment(\.chatArtifactLoader, artifactLoader)
@@ -61,6 +68,12 @@ struct WorkspaceChatPane: View {
             cachedArtifactLoader = CachedArtifactLoader(
                 key: artifactLoaderKey,
                 loader: makeArtifactLoader(for: artifactLoaderKey)
+            )
+        }
+        .onDisappear {
+            store.recordAppEvent(
+                .chatClosed,
+                correlationID: session.id
             )
         }
     }
@@ -84,9 +97,17 @@ struct WorkspaceChatPane: View {
         guard key.supportsArtifacts,
               let source = store.makeChatEventSource()
         else {
-            return .unsupported(cache: artifactThumbnailCache)
+            return .unsupported(
+                cache: artifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog
+            )
         }
-        return ChatArtifactLoader(source: source, sessionID: key.sessionID, cache: artifactThumbnailCache)
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: key.sessionID,
+            cache: artifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog
+        )
     }
 
     /// The escape hatch: select the session's terminal surface, then leave

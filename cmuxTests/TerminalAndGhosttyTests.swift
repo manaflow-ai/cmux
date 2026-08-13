@@ -6343,7 +6343,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     private let transport = SocketTransport()
 
     @MainActor
-    func testStartPreservesRefusedSocketFileWhenLockHasNoReusableMarker() throws {
+    func testStartReclaimsRefusedSocketFileWhenLockHasNoReusableMarker() throws {
         TerminalController.shared.stop()
         defer { TerminalController.shared.stop() }
 
@@ -6361,17 +6361,11 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
+        // The lock is unheld even though its marker was never written. The
+        // refused probe plus exclusive flock is enough to reclaim the orphan.
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
-        TerminalController.shared.start(
-            tabManager: TabManager(),
-            socketPath: path,
-            accessMode: .allowAll
-        )
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(transport.pathAcceptsConnections(path))
+        XCTAssertTrue(transport.pathAcceptsConnections(path))
     }
 
     @MainActor

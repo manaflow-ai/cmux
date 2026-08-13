@@ -9,9 +9,9 @@
 #   CMUX_DOGFOOD_ATTACH_URL=<cmux-ios://attach...>        -> auto-pair after sign-in
 # (sim env via SIMCTL_CHILD_*, device env via DEVICECTL_CHILD_*).
 #
-# Credentials are loaded by scripts/lib/dev-secrets.sh: the personal dogfood
-# account (~/.secrets/cmuxterm-dev.env) wins by default; --agent forces the
-# shared agent account (~/.secrets/cmux.env).
+# Credentials are loaded by scripts/lib/dev-secrets.sh: the verified personal
+# dogfood file (~/.secrets/cmuxterm-dev.env) wins by default; --agent forces
+# the shared agent account (~/.secrets/cmux.env).
 #
 # Usage:
 #   scripts/mobile-dev-launch.sh --tag grid [--simulator "iPhone 17"] [--attach|--no-attach] [--detach]
@@ -148,6 +148,14 @@ if [[ -n "$IROH_RELEASE_GATE_MODE" ]]; then
       ;;
   esac
 fi
+
+# Ignore ambient auth vars from the calling shell. Normal dev launches must
+# resolve from the verified file-backed dogfood creds or an explicit
+# --credentials-file, never a stale shell export.
+unset CMUX_AUTH_ENVIRONMENT CMUX_STACK_PROJECT_ID CMUX_STACK_PUBLISHABLE_CLIENT_KEY
+unset CMUX_AUTH_CREDENTIALS_FILE
+unset CMUX_DOGFOOD_STACK_EMAIL CMUX_DOGFOOD_STACK_PASSWORD
+unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
 
 # --- credentials ------------------------------------------------------------
 # Dogfood account wins over the agent account so iOS dev builds sign in as the

@@ -271,7 +271,9 @@ actor APIClient {
             // Check for known error
             if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error") {
                 let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                let message = errorData?["message"] as? String ?? "Unknown error"
+                let message = errorData?["message"] as? String
+                    ?? errorData?["error"] as? String
+                    ?? "Unknown error"
                 let details = errorData?["details"] as? [String: Any]
                 throw StackAuthError.from(code: errorCode, message: message, details: details)
             }

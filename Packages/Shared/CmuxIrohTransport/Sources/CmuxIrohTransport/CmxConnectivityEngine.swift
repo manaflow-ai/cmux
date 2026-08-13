@@ -538,7 +538,8 @@ public actor CmxConnectivityEngine {
                             basedOn: context
                         )
                     },
-                    protocolConfiguration: protocolConfiguration
+                    protocolConfiguration: protocolConfiguration,
+                    diagnostics: diagnosticLog
                 )
                 do {
                     try await session.connect()

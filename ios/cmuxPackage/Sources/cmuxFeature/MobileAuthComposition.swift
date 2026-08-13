@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileSupport
 import CmuxMobileTransport
@@ -39,6 +40,9 @@ public struct MobileAuthComposition {
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
 
+    /// Owns bootstrap and protected-data revalidation tasks for this graph.
+    private let taskOwner: MobileAuthTaskOwner
+
     /// Build the auth graph.
     ///
     /// - Parameters:
@@ -49,15 +53,16 @@ public struct MobileAuthComposition {
     ///   - defaults: Persistence for the session/user caches and push opt-in.
     ///   - reachability: Connectivity probe for fail-fast sign-in.
     ///   - policy: The build-flag policy (dev-auth `42` shortcut).
+    ///   - diagnosticLog: Optional privacy-safe app diagnostic recorder.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main,
         defaults: UserDefaults = .standard,
         reachability: any ReachabilityProviding,
-        policy: MobileAuthBuildPolicy = .current
+        policy: MobileAuthBuildPolicy = .current,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.reachability = reachability
-
         let overrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
             bakedAuthEnvironment: bundle.object(
@@ -87,6 +92,7 @@ public struct MobileAuthComposition {
             keyValueStore: defaults,
             key: Self.sessionCacheDefaultsKey
         )
+        let hadCachedSessionAtLaunch = sessionCache.hasTokens
         let userCache = CMUXAuthIdentityStore(
             keyValueStore: defaults,
             key: Self.cachedUserDefaultsKey
@@ -150,14 +156,23 @@ public struct MobileAuthComposition {
         self.coordinator = coordinator
         self.pushRegistration = push
         self.protectedDataAvailability = availability
+        self.taskOwner = MobileAuthTaskOwner(
+            diagnosticLog: diagnosticLog,
+            shouldObserveCachedRestore: hadCachedSessionAtLaunch
+                && !launch.clearAuthRequested
+                && !launch.mockDataEnabled
+                && !launch.clearStaleAuthOnLaunch
+        )
     }
 
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
-        protectedDataAvailability.startObserving { [coordinator] in
-            Task { await coordinator.revalidateSession() }
+        taskOwner.recordRestoreStarted()
+        protectedDataAvailability.startObserving { [coordinator, taskOwner] in
+            taskOwner.revalidateSession(using: coordinator)
         }
         coordinator.start()
+        taskOwner.observeRestore(using: coordinator)
     }
 
     private static var isDevelopmentBuild: Bool {
@@ -332,5 +347,56 @@ public struct MobileAuthComposition {
             }
         }
         return overrides
+    }
+}
+
+/// Lifetime owner for auth operations started from synchronous UIKit seams.
+@MainActor
+private final class MobileAuthTaskOwner {
+    private let diagnosticLog: DiagnosticLog?
+    private let shouldObserveCachedRestore: Bool
+    private var restoreTask: Task<Void, Never>?
+    private var revalidationTask: Task<Void, Never>?
+
+    init(
+        diagnosticLog: DiagnosticLog?,
+        shouldObserveCachedRestore: Bool
+    ) {
+        self.diagnosticLog = diagnosticLog
+        self.shouldObserveCachedRestore = shouldObserveCachedRestore
+    }
+
+    func recordRestoreStarted() {
+        guard shouldObserveCachedRestore else { return }
+        diagnosticLog?.recordAppEvent(.authRestoreStarted)
+    }
+
+    func observeRestore(using coordinator: AuthCoordinator) {
+        guard shouldObserveCachedRestore, let diagnosticLog else { return }
+        restoreTask?.cancel()
+        restoreTask = Task { @MainActor [weak self, coordinator] in
+            await coordinator.awaitBootstrapped()
+            guard !Task.isCancelled else { return }
+            diagnosticLog.recordAppEvent(
+                coordinator.isAuthenticated ? .authRestoreSucceeded : .authRestoreFailed,
+                failure: coordinator.isAuthenticated ? nil : .authorizationFailed,
+                count: coordinator.isAuthenticated ? 1 : nil
+            )
+            self?.restoreTask = nil
+        }
+    }
+
+    func revalidateSession(using coordinator: AuthCoordinator) {
+        revalidationTask?.cancel()
+        revalidationTask = Task { @MainActor [weak self, coordinator] in
+            await coordinator.revalidateSession()
+            guard !Task.isCancelled else { return }
+            self?.revalidationTask = nil
+        }
+    }
+
+    deinit {
+        restoreTask?.cancel()
+        revalidationTask?.cancel()
     }
 }

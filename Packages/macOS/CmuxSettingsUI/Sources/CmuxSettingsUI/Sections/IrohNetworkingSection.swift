@@ -22,9 +22,11 @@ public struct IrohNetworkingSection: View {
             relayPolicyCard
             customRelayCard
             privateNetworkCard
+            connectionCheckCard
             diagnosticsCard
         }
         .task { await model.observe() }
+        .onDisappear { model.cancelConnectionCheck() }
         .sheet(isPresented: $showsCustomEditor) {
             NavigationStack {
                 IrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
@@ -195,7 +197,7 @@ public struct IrohNetworkingSection: View {
 
             SettingsCardNote(String(
                 localized: "settings.networking.private.note.short",
-                defaultValue: "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+                defaultValue: "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
             ))
         }
     }
@@ -230,6 +232,12 @@ public struct IrohNetworkingSection: View {
                 isMutating: model.isMutating,
                 setEnabled: { model.setPathPreference($0 ? .relayOnly : .automatic) }
             )
+            SettingsCardDivider()
+            IrohNeverUseRelaysRow(
+                isEnabled: model.snapshot.pathPreference == .neverUseRelays,
+                isMutating: model.isMutating,
+                setEnabled: { model.setPathPreference($0 ? .neverUseRelays : .automatic) }
+            )
             IrohDiagnosticsReportRows(
                 report: model.diagnosticReport,
                 exportText: model.diagnosticExportText,
@@ -243,6 +251,15 @@ public struct IrohNetworkingSection: View {
                 ))
             }
         }
+    }
+
+    private var connectionCheckCard: some View {
+        IrohConnectionCheckCard(
+            report: model.connectionCheck,
+            snapshot: model.snapshot,
+            isRunning: model.isRunningConnectionCheck,
+            run: model.runConnectionCheck
+        )
     }
 
     private enum PreferenceChoice: Hashable {
@@ -608,6 +625,16 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.routeGated",
                 defaultValue: "Connection Attempt Held"
             )
+        case .some(.payloadTooLarge):
+            DiagnosticEventPresentation().displayName(.payloadTooLarge)
+        case .some(.resourceLimitReached):
+            DiagnosticEventPresentation().displayName(.resourceLimitReached)
+        case .some(.attachmentCountLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentCountLimitReached)
+        case .some(.attachmentAggregateSizeLimitReached):
+            DiagnosticEventPresentation().displayName(.attachmentAggregateSizeLimitReached)
+        case .some(.localStateUnavailable):
+            DiagnosticEventPresentation().displayName(.localStateUnavailable)
         case .some(.cancelled):
             String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")
         case .some(.unknown):
@@ -644,6 +671,38 @@ private struct IrohRelayOnlyRow: View {
             .labelsHidden()
             .disabled(isMutating)
             .accessibilityIdentifier("SettingsIrohRelayOnly")
+        }
+    }
+}
+
+private struct IrohNeverUseRelaysRow: View {
+    let isEnabled: Bool
+    let isMutating: Bool
+    let setEnabled: @MainActor @Sendable (Bool) -> Void
+
+    var body: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:networking:neverUseRelays",
+            String(
+                localized: "settings.networking.neverUseRelays",
+                defaultValue: "Never Use Relays"
+            ),
+            subtitle: String(
+                localized: "settings.networking.neverUseRelays.subtitle",
+                defaultValue: "Requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
+            )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { isEnabled },
+                    set: { newValue in setEnabled(newValue) }
+                )
+            )
+            .labelsHidden()
+            .disabled(isMutating)
+            .accessibilityIdentifier("SettingsIrohNeverUseRelays")
         }
     }
 }

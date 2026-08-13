@@ -81,6 +81,7 @@ public actor CmxIrohClientRuntime {
     let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     let lanFallback: LANFallbackProvider?
     let customPrivateFallback: CustomPrivateFallbackProvider?
+    let diagnosticLog: DiagnosticLog?
     let now: @Sendable () -> Date
     let automaticRelayCredentialRefreshEnabled: Bool
     let handleBinding: BindingHandler
@@ -186,6 +187,7 @@ public actor CmxIrohClientRuntime {
         self.networkPathSnapshot = networkPathSnapshot
         self.lanFallback = lanFallback
         self.customPrivateFallback = customPrivateFallback
+        self.diagnosticLog = diagnosticLog
         self.now = now
         self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.handleBinding = handleBinding

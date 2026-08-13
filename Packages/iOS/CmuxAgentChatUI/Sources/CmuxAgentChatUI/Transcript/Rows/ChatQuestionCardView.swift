@@ -98,7 +98,7 @@ public struct ChatQuestionCardView: View {
         #if os(iOS)
         MobileHapticFeedback().impact(style: .medium)
         #endif
-        actions.answerOption(index)
+        actions.answerQuestion(index)
     }
 
     private func receipt(selected: String) -> some View {

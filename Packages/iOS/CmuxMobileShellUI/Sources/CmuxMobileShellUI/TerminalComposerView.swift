@@ -75,7 +75,7 @@ struct TerminalComposerView: View {
     /// terminal switch so the mic never stays hot after the user leaves. An
     /// `@Observable` reference type is held with `@State`; SwiftUI tracks the
     /// `state` it reads (mic button enabled/listening) automatically.
-    @State private var dictation = ComposerDictationController()
+    @State private var dictation: ComposerDictationController
 
     init(
         store: CMUXMobileShellStore,
@@ -95,6 +95,9 @@ struct TerminalComposerView: View {
         self.photoPickerWillPresent = photoPickerWillPresent
         self.photoPickerDidPresent = photoPickerDidPresent
         self.photoPickerDidDismiss = photoPickerDidDismiss
+        _dictation = State(initialValue: ComposerDictationController { event in
+            Self.recordDictationDiagnostic(event, terminalID: terminalID, store: store)
+        })
     }
 
     /// Single-line height of the round attach button beside the field. It stays
@@ -270,13 +273,11 @@ struct TerminalComposerView: View {
         }
     }
 
-    /// Record a composer diagnostic event into the store's structured log (DEBUG
-    /// dogfood builds only) so the "Send to agent" feedback pane exports it. A
-    /// no-op when no log is wired (release, or a host that does not set it).
+    /// Record a privacy-safe composer lifecycle event into the durable app log.
+    /// The payload is fixed vocabulary and bounded integers only, so Release
+    /// builds keep the same mount/focus evidence as dogfood builds.
     private func recordComposerEvent(_ code: DiagnosticEventCode, a: Int? = nil) {
-        #if DEBUG
         store.diagnosticLog?.record(DiagnosticEvent(code, a: a))
-        #endif
     }
 
     /// On iOS 26 the glass controls float in a `GlassEffectContainer` over the
@@ -402,12 +403,23 @@ struct TerminalComposerView: View {
         )
         .onChange(of: pickerSelection) { _, items in
             guard !items.isEmpty else { return }
+            store.recordAppEvent(
+                .photoPickerSelected,
+                correlationID: terminalID,
+                count: items.count
+            )
             stagePickedItems(items)
         }
         .onChange(of: isPickerPresented) { _, isPresented in
             if isPresented {
                 photoPickerDidPresent()
             } else {
+                // PhotosPicker may update its selection binding after this
+                // presentation edge. Dismissal is the only reliable fact.
+                store.recordAppEvent(
+                    .photoPickerDismissed,
+                    correlationID: terminalID
+                )
                 photoPickerDidDismiss()
             }
         }
@@ -505,8 +517,22 @@ struct TerminalComposerView: View {
     /// surface input session synchronously resigns its actual terminal/composer
     /// owner; SwiftUI then mirrors that responder change through `@FocusState`.
     private func presentPhotoPicker() {
+        store.recordAppEvent(.photoPickerOpened, correlationID: terminalID)
         photoPickerWillPresent()
         isPickerPresented = true
+    }
+
+    /// Bridge the support package's fixed dictation vocabulary into the app-wide
+    /// durable log. No transcript, locale, or system error crosses this boundary.
+    private static func recordDictationDiagnostic(
+        _ event: ComposerDictationDiagnosticEvent,
+        terminalID: String,
+        store: CMUXMobileShellStore
+    ) {
+        event.recordAppDiagnostic(
+            correlationID: terminalID,
+            store: store
+        )
     }
 
     /// Toggle voice dictation. On start the current text is captured as the merge
@@ -591,23 +617,73 @@ struct TerminalComposerView: View {
         stagingTask.task?.cancel()
         stagingTask.task = Task { @MainActor in
             for item in items {
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        correlationID: terminalID,
+                        failure: .cancelled
+                    )
+                    break
+                }
+                store.recordAppEvent(
+                    .attachmentPreparationStarted,
+                    correlationID: terminalID
+                )
                 // Cheap pre-filter for responsiveness: stop once the store is at
                 // the count cap or the budget is already full. The store remains
                 // the authoritative cap (checked atomically at add time); this
                 // only avoids loading/encoding picks that obviously cannot land.
                 let staged = pendingAttachments
-                guard staged.count < Self.maxAttachmentCount else { break }
+                guard staged.count < Self.maxAttachmentCount else {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        correlationID: terminalID,
+                        failure: .attachmentCountLimitReached
+                    )
+                    break
+                }
                 let stagedBytes = staged.reduce(0) { $0 + $1.data.count }
-                guard stagedBytes < Self.maxTotalAttachmentBytes else { break }
+                guard stagedBytes < Self.maxTotalAttachmentBytes else {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        correlationID: terminalID,
+                        failure: .attachmentAggregateSizeLimitReached
+                    )
+                    break
+                }
                 // Load the asset file-backed: PhotosUI copies the imported image to
                 // a temp file on disk and hands back only its URL, so the FULL
                 // original (a ProRAW/DNG/panorama can be hundreds of MB) is never
                 // slurped into memory as `Data` the way `loadTransferable(Data)`
                 // would. ImageIO then downsamples straight from the file below.
-                guard let imported = try? await item.loadTransferable(type: ImportedImageFile.self) else { continue }
+                let imported: ImportedImageFile
+                do {
+                    guard let loaded = try await item.loadTransferable(
+                        type: ImportedImageFile.self
+                    ) else {
+                        store.recordAppEvent(
+                            .attachmentPreparationFailed,
+                            correlationID: terminalID,
+                            failure: .unknown
+                        )
+                        continue
+                    }
+                    imported = loaded
+                } catch {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        correlationID: terminalID,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
+                    continue
+                }
                 if Task.isCancelled {
                     try? FileManager.default.removeItem(at: imported.url)
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        correlationID: terminalID,
+                        failure: .cancelled
+                    )
                     break
                 }
                 let fileURL = imported.url
@@ -619,6 +695,12 @@ struct TerminalComposerView: View {
                 // itself; ImageIO still downsamples whatever passes.
                 if let fileSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size]) as? Int,
                    fileSize > Self.maxRawInputBytes {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        correlationID: terminalID,
+                        failure: .payloadTooLarge,
+                        count: fileSize
+                    )
                     continue
                 }
                 // Bounded encode + downsample off the main thread, reading the
@@ -627,9 +709,21 @@ struct TerminalComposerView: View {
                 // full-resolution raster in memory. This is the expensive part and
                 // must not block the composer's keyboard/typing.
                 guard let prepared = await MobileImageAttachmentPreparer().prepare(url: fileURL) else {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        correlationID: terminalID,
+                        failure: .unknown
+                    )
                     continue
                 }
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    store.recordAppEvent(
+                        .attachmentPreparationFailed,
+                        correlationID: terminalID,
+                        failure: .cancelled
+                    )
+                    break
+                }
                 // The store is the single source of truth for the count/byte caps
                 // and the session-generation guard: it re-checks the CURRENT
                 // staged set atomically, so even if a prior (cancelled-too-late)
@@ -640,6 +734,11 @@ struct TerminalComposerView: View {
                     forTerminalID: terminalID,
                     ifSessionGeneration: sessionGeneration
                 ) else { continue }
+                store.recordAppEvent(
+                    .attachmentPreparationSucceeded,
+                    correlationID: terminalID,
+                    count: prepared.data.count
+                )
                 // The off-main path hands back the downsampled thumbnail as
                 // Sendable PNG bytes; build the UIKit image here on the main
                 // actor (UIImage is not Sendable and must not cross the task
