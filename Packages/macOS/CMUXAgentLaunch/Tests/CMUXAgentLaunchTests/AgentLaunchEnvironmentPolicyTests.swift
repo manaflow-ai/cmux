@@ -40,6 +40,18 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
+    @Test("Claude restore transport keeps the resolved executable replay path")
+    func claudeRestoreTransportKeepsResolvedExecutablePath() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: ["CMUX_RESOLVED_CLAUDE_PATH": "/opt/Claude Code/bin/claude"],
+            kind: "claude"
+        )
+
+        #expect(selected == [
+            "CMUX_RESOLVED_CLAUDE_PATH": "/opt/Claude Code/bin/claude",
+        ])
+    }
+
     @Test("Preserves Campfire config roots and drops Pi-managed env")
     func preservesCampfireConfigRootsAndDropsManagedPackageDir() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
