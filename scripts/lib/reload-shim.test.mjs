@@ -1,11 +1,11 @@
 // Run with: node --test scripts/lib/reload-shim.test.mjs
 //
-// These tests execute the shim writer from reload.sh and then run the generated
-// command, so they cover the same pointer/socket validation path users invoke.
-// The writer is extracted only to avoid sourcing reload.sh (which intentionally
-// starts a build when run as a script); the assertions are entirely behavioral.
+// These tests execute the shim and pointer writers from reload.sh, covering the
+// same discovery paths users invoke. The functions are extracted only to avoid
+// sourcing reload.sh (which intentionally starts a build when run as a script);
+// the assertions are entirely behavioral.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -24,6 +24,15 @@ function shimWriterSource() {
   const end = source.indexOf("\n}\n\nselect_cmux_shim_target", start);
   assert.notEqual(start, -1, "reload.sh must contain the shim writer");
   assert.notEqual(end, -1, "reload.sh shim writer must end before target selection");
+  return source.slice(start, end + 2);
+}
+
+function pointerWriterSource() {
+  const source = fs.readFileSync(reloadScript, "utf8");
+  const start = source.indexOf("reload_write_cli_pointer() {");
+  const end = source.indexOf("\n}\n\nreload_write_discovery_file", start);
+  assert.notEqual(start, -1, "reload.sh must contain the pointer writer");
+  assert.notEqual(end, -1, "reload.sh pointer writer must end before the marker writer");
   return source.slice(start, end + 2);
 }
 
@@ -74,6 +83,58 @@ function runShim(shim, environment, args = ["ping"]) {
     env: environment,
   });
 }
+
+test("reload pointer publication waits for the shared ownership lock", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-pointer-lock-"));
+  const pointer = path.join(root, "last-cli-path");
+  const lockPath = `${pointer}.lock`;
+  let holder;
+  let writer;
+  try {
+    fs.writeFileSync(pointer, "old-cli\n", { mode: 0o600 });
+    holder = spawn(
+      "perl",
+      [
+        "-MFcntl=:DEFAULT",
+        "-MFcntl=:flock",
+        "-e",
+        "$|=1; sysopen(my $fh, $ARGV[0], O_CREAT|O_RDWR|O_NOFOLLOW, 0600) or die $!; flock($fh, LOCK_EX) or die $!; print qq(locked\\n); scalar <STDIN>; flock($fh, LOCK_UN);",
+        lockPath,
+      ],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    );
+    const [holderReady] = await once(holder.stdout, "data");
+    assert.equal(holderReady.toString().trim(), "locked");
+
+    const script = `${pointerWriterSource()}\nprintf 'writer-started\\n' >&2\nreload_write_cli_pointer "$1" "$2"\n`;
+    writer = spawn(
+      "bash",
+      ["-c", script, "reload-pointer-test", pointer, "new-cli"],
+      { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const [writerReady] = await once(writer.stderr, "data");
+    assert.equal(writerReady.toString().trim(), "writer-started");
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(writer.exitCode, null, "writer must remain blocked behind the held lock");
+    assert.equal(fs.readFileSync(pointer, "utf8"), "old-cli\n");
+
+    const writerExit = once(writer, "exit");
+    const holderExit = once(holder, "exit");
+    holder.stdin.end();
+    const [writerStatus] = await writerExit;
+    const [holderStatus] = await holderExit;
+    assert.equal(holderStatus, 0);
+    assert.equal(writerStatus, 0);
+    assert.equal(fs.readFileSync(pointer, "utf8"), "new-cli\n");
+    assert.equal(fs.statSync(pointer).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(lockPath).mode & 0o777, 0o600);
+  } finally {
+    if (writer?.exitCode === null) writer.kill("SIGKILL");
+    if (holder?.exitCode === null) holder.kill("SIGKILL");
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("reload shim skips a stale pointer target and falls through to stable CLI", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-stale-"));

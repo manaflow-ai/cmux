@@ -72,6 +72,7 @@ reload_cleanup_tag_state_with_lock() {
   perl -MFcntl=:DEFAULT -MFcntl=:flock -MSocket -MErrno=EEXIST,ECONNREFUSED,ENOENT -e '
     my ($socket_path, $lock_path, $slug, @discovery_paths) = @ARGV;
     my $pointer_path = pop @discovery_paths;
+    my $pointer_lock_path = "${pointer_path}.lock";
     my $created_lock = 0;
     my $fh;
 
@@ -120,6 +121,50 @@ reload_cleanup_tag_state_with_lock() {
         : $current eq $expected;
       return 0 unless $still_matches;
       return unlink($path) || $! == ENOENT;
+    }
+
+    sub acquire_owned_file_lock {
+      my ($path) = @_;
+      my $lock_fh;
+      for (1 .. 3) {
+        if (sysopen($lock_fh, $path, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW, 0600)) {
+          last;
+        }
+        return unless $! == EEXIST;
+        if (sysopen($lock_fh, $path, O_RDWR | O_NOFOLLOW)) {
+          last;
+        }
+        return unless $! == ENOENT;
+      }
+      return unless $lock_fh;
+
+      my @handle_identity = stat($lock_fh);
+      unless (@handle_identity && (($handle_identity[2] & 0170000) == 0100000)
+          && $handle_identity[4] == $< && $handle_identity[3] == 1) {
+        close($lock_fh);
+        return;
+      }
+      my $locked = eval {
+        local $SIG{ALRM} = sub { die "pointer lock timeout\n" };
+        alarm 10;
+        my $result = flock($lock_fh, LOCK_EX);
+        alarm 0;
+        $result;
+      };
+      alarm 0;
+      unless ($locked) {
+        close($lock_fh);
+        return;
+      }
+
+      my @path_identity = lstat($path);
+      unless (@path_identity && $path_identity[0] == $handle_identity[0]
+          && $path_identity[1] == $handle_identity[1]) {
+        flock($lock_fh, LOCK_UN);
+        close($lock_fh);
+        return;
+      }
+      return $lock_fh;
     }
 
     # Claim the lock inode before unlinking anything. If a replacement listener
@@ -196,12 +241,25 @@ reload_cleanup_tag_state_with_lock() {
         exit 1;
       }
     }
-    my $cli_suffix = "/cmux DEV ${slug}.app/Contents/Resources/bin/cmux";
-    unless (clear_matching_discovery_file($pointer_path, $cli_suffix, 1)) {
+    # The pointer is global across tags, so its own persistent lock must cover
+    # the final ownership check and unlink. A per-tag socket lock alone cannot
+    # exclude another tag publishing a replacement pointer.
+    my $pointer_lock_fh = acquire_owned_file_lock($pointer_lock_path);
+    unless ($pointer_lock_fh) {
       flock($fh, LOCK_UN);
       close($fh);
       exit 1;
     }
+    my $cli_suffix = "/cmux DEV ${slug}.app/Contents/Resources/bin/cmux";
+    unless (clear_matching_discovery_file($pointer_path, $cli_suffix, 1)) {
+      flock($pointer_lock_fh, LOCK_UN);
+      close($pointer_lock_fh);
+      flock($fh, LOCK_UN);
+      close($fh);
+      exit 1;
+    }
+    flock($pointer_lock_fh, LOCK_UN);
+    close($pointer_lock_fh);
 
     # Do not unlink a lock pathname that was replaced while we held the old
     # inode. This also handles a listener that intentionally recreated its lock.
@@ -535,7 +593,7 @@ publish_reload_cli_path() {
     return 0
   fi
 
-  reload_write_discovery_file "/tmp/cmux-last-cli-path" "$cli_path" || true
+  reload_write_cli_pointer "/tmp/cmux-last-cli-path" "$cli_path" || return 1
   ln -sfn "$cli_path" /tmp/cmux-cli || true
 
   # Stable shim that always follows the last reload-selected dev CLI.
@@ -546,6 +604,66 @@ publish_reload_cli_path() {
   if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
     write_dev_cli_shim "$CMUX_SHIM_TARGET" "/Applications/cmux.app/Contents/Resources/bin/cmux"
   fi
+}
+
+reload_write_cli_pointer() {
+  local target="$1"
+  local value="$2"
+
+  # The exiting app and every tag reload use this same persistent lock. The
+  # pointer rename stays atomic for lock-free readers, while writers/removers
+  # cannot invalidate one another between ownership validation and mutation.
+  perl -MFcntl=:DEFAULT -MFcntl=:flock -MFile::Basename=dirname -MFile::Temp=tempfile -MErrno=EEXIST,ENOENT -e '
+    my ($target, $value) = @ARGV;
+    exit 1 if !length($value) || length($value) > 4095 || $value =~ /[\r\n\0]/;
+    my $lock_path = "${target}.lock";
+    my $lock_fh;
+    for (1 .. 3) {
+      if (sysopen($lock_fh, $lock_path, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW, 0600)) {
+        last;
+      }
+      exit 1 unless $! == EEXIST;
+      if (sysopen($lock_fh, $lock_path, O_RDWR | O_NOFOLLOW)) {
+        last;
+      }
+      exit 1 unless $! == ENOENT;
+    }
+    exit 1 unless $lock_fh;
+
+    my @handle_identity = stat($lock_fh);
+    exit 1 unless @handle_identity && (($handle_identity[2] & 0170000) == 0100000)
+        && $handle_identity[4] == $< && $handle_identity[3] == 1;
+    local $SIG{ALRM} = sub { exit 1 };
+    alarm 10;
+    flock($lock_fh, LOCK_EX) or exit 1;
+    alarm 0;
+    my @path_identity = lstat($lock_path);
+    exit 1 unless @path_identity && $path_identity[0] == $handle_identity[0]
+        && $path_identity[1] == $handle_identity[1];
+
+    my @target_identity = lstat($target);
+    if (@target_identity) {
+      exit 1 unless (($target_identity[2] & 0170000) == 0100000)
+          && $target_identity[4] == $< && $target_identity[3] == 1;
+    } else {
+      exit 1 unless $! == ENOENT;
+    }
+
+    my $directory = dirname($target);
+    my ($temporary_fh, $temporary_path) = tempfile(
+      ".cmux-discovery.XXXXXX",
+      DIR => $directory,
+      UNLINK => 0,
+    );
+    my $ok = print {$temporary_fh} $value, "\n";
+    $ok = 0 unless close($temporary_fh);
+    unless ($ok && rename($temporary_path, $target)) {
+      unlink($temporary_path);
+      exit 1;
+    }
+    flock($lock_fh, LOCK_UN);
+    close($lock_fh);
+  ' "$target" "$value" >/dev/null 2>&1
 }
 
 reload_write_discovery_file() {
@@ -1492,7 +1610,10 @@ if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then
   write_last_socket_path "/tmp/cmux-debug-${TAG_SLUG}.sock"
 fi
 if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 ]]; then
-  publish_reload_cli_path "$CLI_PATH"
+  if ! publish_reload_cli_path "$CLI_PATH"; then
+    CAN_PUBLISH_RELOAD_STATE=0
+    RELOAD_PUBLICATION_SKIP_REASON="could not acquire or update the shared ambient CLI pointer"
+  fi
 fi
 
 if [[ "$LAUNCH" -eq 1 ]]; then
