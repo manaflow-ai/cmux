@@ -128,7 +128,7 @@ describe("applyHeartbeat", () => {
     expect(events).toEqual([]);
   });
 
-  it("signed-out goodbye is immediately undiscoverable and a later sign-in re-adds it", () => {
+  it("signed-out goodbye stays undiscoverable without a new lifecycle", () => {
     const first = applyHeartbeat(undefined, beat(), T0).instance;
     const signedOut = applyHeartbeat(
       first,
@@ -139,7 +139,16 @@ describe("applyHeartbeat", () => {
     expect(signedOut.signedOut).toBe(true);
     expect(buildSnapshot("team-1", [signedOut], T0 + 1_001).devices).toEqual([]);
 
-    const signedIn = applyHeartbeat(signedOut, beat(), T0 + 2_000).instance;
+    const staleSignIn = applyHeartbeat(signedOut, beat(), T0 + 2_000).instance;
+    expect(staleSignIn.online).toBe(false);
+    expect(staleSignIn.signedOut).toBe(true);
+    expect(buildSnapshot("team-1", [staleSignIn], T0 + 2_001).devices).toEqual([]);
+
+    const signedIn = applyHeartbeat(
+      signedOut,
+      beat({ lifecycleId: "session-new" }),
+      T0 + 3_000,
+    ).instance;
     expect(signedIn.online).toBe(true);
     expect(signedIn.signedOut).toBeUndefined();
     expect(buildSnapshot("team-1", [signedIn], T0 + 2_001).devices).toHaveLength(1);

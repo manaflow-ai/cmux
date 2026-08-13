@@ -38,6 +38,27 @@ import Testing
         }
     }
 
+    private struct TestDefaults {
+        let pairingHint: UserDefaults
+        let multiMacAggregation: UserDefaults
+        private let suiteNames: [String]
+
+        init() {
+            let suffix = UUID().uuidString
+            let pairingName = "cmux-device-list-pairing-\(suffix)"
+            let aggregationName = "cmux-device-list-aggregation-\(suffix)"
+            self.suiteNames = [pairingName, aggregationName]
+            self.pairingHint = UserDefaults(suiteName: pairingName)!
+            self.multiMacAggregation = UserDefaults(suiteName: aggregationName)!
+        }
+
+        func cleanup() {
+            for suiteName in suiteNames {
+                UserDefaults.standard.removePersistentDomain(forName: suiteName)
+            }
+        }
+    }
+
     private struct Registry: DeviceRegistryRefreshing {
         let result: DeviceRegistryListOutcome
 
@@ -128,6 +149,8 @@ import Testing
     @Test func authoritativeSnapshotIsRenderedWithoutRegistryRoundTrip() async throws {
         let (syncStore, directory) = try makeSyncStore()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let defaults = TestDefaults()
+        defer { defaults.cleanup() }
         let record = device("mac-live", displayName: "Live Mac")
         try await syncStore.applySnapshot(
             teamID: "team-a",
@@ -147,7 +170,9 @@ import Testing
             makeSyncTransport: transportFactory(),
             identityProvider: StaticIdentityProvider(userID: Self.owner),
             teamIDProvider: { "team-a" },
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            pairingHintDefaults: defaults.pairingHint,
+            multiMacAggregationDefaults: defaults.multiMacAggregation
         )
 
         await shell.loadRegistryDevices()
@@ -159,6 +184,8 @@ import Testing
     @Test func cursorZeroFallsBackUntilTheFirstSnapshotCommits() async throws {
         let (syncStore, directory) = try makeSyncStore()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let defaults = TestDefaults()
+        defer { defaults.cleanup() }
 
         let shell = MobileShellComposite(
             isSignedIn: true,
@@ -168,7 +195,9 @@ import Testing
             makeSyncTransport: transportFactory(),
             identityProvider: StaticIdentityProvider(userID: Self.owner),
             teamIDProvider: { "team-a" },
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            pairingHintDefaults: defaults.pairingHint,
+            multiMacAggregationDefaults: defaults.multiMacAggregation
         )
 
         await shell.loadRegistryDevices()
@@ -177,9 +206,57 @@ import Testing
         #expect(shell.deviceListAuthoritativeTeamID == nil)
     }
 
+    @Test func unavailableSyncStoreFailsClosedInsteadOfResurrectingPairedMacs() async throws {
+        let defaults = TestDefaults()
+        defer { defaults.cleanup() }
+        let pairedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-paired-unavailable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: pairedDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: pairedDirectory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: pairedDirectory.appendingPathComponent("paired.sqlite3")
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "signed-out-mac",
+            displayName: "Signed Out Mac",
+            routes: [],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: Self.owner,
+            teamID: "team-a",
+            now: Date()
+        )
+
+        let shell = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            deviceRegistry: Registry(result: .ok([registryDevice("stale-registry")])),
+            syncStore: nil,
+            deviceListLocalFirst: true,
+            makeSyncTransport: nil,
+            identityProvider: StaticIdentityProvider(userID: Self.owner),
+            teamIDProvider: { "team-a" },
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            pairingHintDefaults: defaults.pairingHint,
+            multiMacAggregationDefaults: defaults.multiMacAggregation
+        )
+
+        await shell.loadPairedMacs()
+        await shell.loadRegistryDevices()
+
+        #expect(shell.pairedMacs.map(\.macDeviceID) == ["signed-out-mac"])
+        #expect(shell.deviceTreeDevices.isEmpty)
+        #expect(shell.displayPairedMacs.isEmpty)
+    }
+
     @Test func authoritativeEmptyRemovesRegistryAndPairedFallback() async throws {
         let (syncStore, syncDirectory) = try makeSyncStore()
         defer { try? FileManager.default.removeItem(at: syncDirectory) }
+        let defaults = TestDefaults()
+        defer { defaults.cleanup() }
         try await syncStore.applySnapshot(
             teamID: "team-a",
             collection: devicesSyncCollection,
@@ -220,7 +297,9 @@ import Testing
             makeSyncTransport: transportFactory(),
             identityProvider: StaticIdentityProvider(userID: Self.owner),
             teamIDProvider: { "team-a" },
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            pairingHintDefaults: defaults.pairingHint,
+            multiMacAggregationDefaults: defaults.multiMacAggregation
         )
 
         await shell.loadPairedMacs()
@@ -234,6 +313,8 @@ import Testing
     @Test func liveDeltaRemovesSignedOutMacWithoutReloadingTheShell() async throws {
         let (syncStore, syncDirectory) = try makeSyncStore()
         defer { try? FileManager.default.removeItem(at: syncDirectory) }
+        let defaults = TestDefaults()
+        defer { defaults.cleanup() }
         let live = device("mac-live")
         try await syncStore.applySnapshot(
             teamID: "team-a",
@@ -273,7 +354,9 @@ import Testing
             makeSyncTransport: { _, _ in FramesTransport(framesToSend: [delta]) },
             identityProvider: StaticIdentityProvider(userID: Self.owner),
             teamIDProvider: { "team-a" },
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            pairingHintDefaults: defaults.pairingHint,
+            multiMacAggregationDefaults: defaults.multiMacAggregation
         )
 
         await shell.loadRegistryDevices()
@@ -285,6 +368,8 @@ import Testing
     @Test func authoritativeStateIsScopedToTheSelectedTeam() async throws {
         let (syncStore, directory) = try makeSyncStore()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let defaults = TestDefaults()
+        defer { defaults.cleanup() }
         try await syncStore.applySnapshot(
             teamID: "team-a",
             collection: devicesSyncCollection,
@@ -325,7 +410,9 @@ import Testing
             makeSyncTransport: transportFactory(),
             identityProvider: StaticIdentityProvider(userID: Self.owner),
             teamIDProvider: { await selectedTeam.value },
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            pairingHintDefaults: defaults.pairingHint,
+            multiMacAggregationDefaults: defaults.multiMacAggregation
         )
 
         await shell.loadPairedMacs()
