@@ -308,6 +308,7 @@ jobs:
         run: |
           set -euo pipefail
           state=/tmp/.testbox
+          rm -f /tmp/.testbox/cmux-tui-rust-setup-identity.json
           for required_file in testbox_id installation_model_id auth_token api_url runner_host runner_ssh_port adopted_run_id; do
             test -s "$state/$required_file"
           done
@@ -339,6 +340,7 @@ jobs:
             --data "$payload")"
           [[ -n "$response" ]]
           marker="$state/cmux-tui-rust-setup-identity.json"
+          rm -f "$marker"
           install -m 600 testbox-benchmark/setup-identity.json "$marker"
           test -s "$marker"
 

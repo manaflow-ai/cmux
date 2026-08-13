@@ -82,14 +82,22 @@ if [[ ! -s "$setup_identity_path" ]]; then
   echo "refusing to run without a successful Testbox setup identity marker" >&2
   exit 65
 fi
+setup_run_id="$(tr -d '\r\n' <"$state_dir/adopted_run_id")"
+if [[ ! "$setup_run_id" =~ ^[0-9]+$ ]]; then
+  echo "invalid Testbox setup workflow run ID" >&2
+  exit 65
+fi
 verify_setup_identity() {
-  python3 - "$setup_identity_path" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" <<'PY'
+  python3 - "$setup_identity_path" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" "$setup_run_id" <<'PY'
 import json
 import pathlib
 import sys
 
-path, expected_source, expected_tree, expected_ghostty, expected_testbox = sys.argv[1:]
-record = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+path, expected_source, expected_tree, expected_ghostty, expected_testbox, expected_run_id = sys.argv[1:]
+try:
+    record = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as error:
+    raise SystemExit(f"invalid setup identity marker: {error}")
 source = record.get("source", {})
 testbox = record.get("testbox", {})
 errors = []
@@ -103,6 +111,8 @@ if source.get("ghostty_head_sha") != expected_ghostty:
     errors.append("setup Ghostty checkout mismatch")
 if testbox.get("id") != expected_testbox:
     errors.append("setup Testbox ID mismatch")
+if str(testbox.get("setup_workflow_run_id")) != expected_run_id:
+    errors.append("setup workflow run ID mismatch")
 if errors:
     for error in errors:
         print(error, file=sys.stderr)
@@ -335,7 +345,7 @@ rm -f "$time_path" "$log_path" "$json_path" "$post_identity_path"
 set +e
 (
   cd "$repo_root/cmux-tui"
-  timeout --foreground --kill-after=30s 20m \
+  timeout --kill-after=30s 20m \
     /usr/bin/time -p -o "$time_path" cargo build -p cmux-tui --locked
 ) >"$log_path" 2>&1
 build_status=$?

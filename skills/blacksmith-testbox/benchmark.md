@@ -72,8 +72,19 @@ remote_sha="$(git ls-remote --exit-code origin "refs/heads/$SOURCE_REF" | awk 'N
   echo "push the exact clean branch head before warming Testbox" >&2
   exit 1
 }
-mkdir -p ".cmux-scratch/blacksmith-testbox-$SOURCE_SHA/raw"
-python3 - "$SOURCE_REF" "$SOURCE_SHA" "$SOURCE_TREE_SHA" "$GHOSTTY_SHA" > ".cmux-scratch/blacksmith-testbox-$SOURCE_SHA/source.json" <<'PY'
+EVIDENCE_ROOT="$PWD/.cmux-scratch"
+if [[ -e "$EVIDENCE_ROOT/blacksmith-testbox-$SOURCE_SHA" ]]; then
+  RUN_SUFFIX="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+else
+  RUN_SUFFIX="initial-$$"
+fi
+OUT_ROOT="$EVIDENCE_ROOT/blacksmith-testbox-$SOURCE_SHA-$RUN_SUFFIX"
+if [[ -e "$OUT_ROOT" ]]; then
+  echo "evidence directory already exists; choose a new run path: $OUT_ROOT" >&2
+  exit 1
+fi
+mkdir -p "$OUT_ROOT/raw"
+python3 - "$SOURCE_REF" "$SOURCE_SHA" "$SOURCE_TREE_SHA" "$GHOSTTY_SHA" > "$OUT_ROOT/source.json" <<'PY'
 import json
 import sys
 
@@ -118,11 +129,7 @@ Use the branch ref, not `SOURCE_SHA`, in warmup:
 ```bash
 WORKFLOW=.github/workflows/ci-workflow-guard-tests-testbox.yml
 JOB=cmux-tui-rust
-OUT_ROOT="$PWD/.cmux-scratch/blacksmith-testbox-$SOURCE_SHA"
-if [[ -e "$OUT_ROOT" ]]; then
-  echo "evidence directory already exists; choose a new run path and preserve prior records: $OUT_ROOT" >&2
-  exit 1
-fi
+OUT_ROOT="${OUT_ROOT:?set by the exact-source preflight above}"
 OUT="$OUT_ROOT"
 TBX=""
 warmup_testbox_id=""
