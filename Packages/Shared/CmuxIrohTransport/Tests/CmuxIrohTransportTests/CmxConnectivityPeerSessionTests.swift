@@ -438,6 +438,74 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func staleServerEventRequestClosesTheSessionOwnedReceiver() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let session = TestConnectivitySession(
+            continuityID: 73,
+            gatesServerEventByteStream: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let ownerID = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: ownerID)
+        let eventRequest = Task {
+            try await peer.serverEventByteStream(for: request)
+        }
+        try await Self.waitUntil {
+            await session.serverEventByteStreamIsWaiting()
+        }
+
+        await peer.invalidate()
+        await session.releaseServerEventByteStream()
+
+        if case .success = await eventRequest.result {
+            Issue.record("A stale server-event request unexpectedly succeeded")
+        }
+        #expect(await session.serverEventByteStreamCloseCount() == 1)
+    }
+
+    @Test
+    func cancellingServerEventRequestClosesTheSessionOwnedReceiver() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let session = TestConnectivitySession(
+            continuityID: 74,
+            gatesServerEventByteStream: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let ownerID = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: ownerID)
+        let eventRequest = Task {
+            try await peer.serverEventByteStream(for: request)
+        }
+        try await Self.waitUntil {
+            await session.serverEventByteStreamIsWaiting()
+        }
+
+        eventRequest.cancel()
+        await session.releaseServerEventByteStream()
+
+        if case .success = await eventRequest.result {
+            Issue.record("A cancelled server-event request unexpectedly succeeded")
+        }
+        #expect(await session.serverEventByteStreamCloseCount() == 1)
+    }
+
+    @Test
     func concurrentCallerSharesCandidateDuringTheLivenessProbe() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -799,6 +867,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private let gatesCloseAttribution: Bool
     private let keepsSelectedPathStreamOpen: Bool
     private let gatesPostCloseCleanup: Bool
+    private let gatesServerEventByteStream: Bool
     private var closed = false
     private var closes = 0
     private var closeFailure = DiagnosticFailureKind.connectionClosed
@@ -813,6 +882,9 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private var closeGateWaiter: CheckedContinuation<Void, Never>?
     private var postCloseCleanupWaiting = false
     private var postCloseCleanupWaiter: CheckedContinuation<Void, Never>?
+    private var serverEventByteStreamWaiting = false
+    private var serverEventByteStreamWaiter: CheckedContinuation<Void, Never>?
+    private var serverEventByteStreamCloses = 0
     private var received: [Data] = []
     private var selectedPath = CmxIrohObservedConnectionPath.direct
     private var selectedPathContinuation:
@@ -824,12 +896,14 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         keepsSelectedPathStreamOpen: Bool = false,
         gatesFirstIsClosedCheck: Bool = false,
         gatesFirstClose: Bool = false,
-        gatesPostCloseCleanup: Bool = false
+        gatesPostCloseCleanup: Bool = false,
+        gatesServerEventByteStream: Bool = false
     ) {
         self.continuityID = continuityID
         self.gatesCloseAttribution = gatesCloseAttribution
         self.keepsSelectedPathStreamOpen = keepsSelectedPathStreamOpen
         self.gatesPostCloseCleanup = gatesPostCloseCleanup
+        self.gatesServerEventByteStream = gatesServerEventByteStream
         isClosedGatePending = gatesFirstIsClosedCheck
         closeGatePending = gatesFirstClose
     }
@@ -852,8 +926,34 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         throw TestConnectivitySessionError.unsupported
     }
 
-    func serverEventByteStream() throws -> CmxIndependentEventByteStream {
-        throw TestConnectivitySessionError.unsupported
+    func serverEventByteStream() async throws -> CmxIndependentEventByteStream {
+        if gatesServerEventByteStream {
+            serverEventByteStreamWaiting = true
+            await withCheckedContinuation { continuation in
+                serverEventByteStreamWaiter = continuation
+            }
+            serverEventByteStreamWaiting = false
+        }
+        return AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
+    }
+
+    func closeServerEventByteStream() async {
+        serverEventByteStreamCloses += 1
+    }
+
+    func serverEventByteStreamIsWaiting() -> Bool {
+        serverEventByteStreamWaiting
+    }
+
+    func releaseServerEventByteStream() {
+        serverEventByteStreamWaiter?.resume()
+        serverEventByteStreamWaiter = nil
+    }
+
+    func serverEventByteStreamCloseCount() -> Int {
+        serverEventByteStreamCloses
     }
 
     func waitUntilClosed() async {

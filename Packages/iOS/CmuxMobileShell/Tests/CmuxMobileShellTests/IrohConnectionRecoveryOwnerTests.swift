@@ -253,6 +253,40 @@ extension ReconnectRouteSelectionTests {
         #expect(failedOwner.phase == .failed(failedAttempt))
     }
 
+    @Test func cancellingValidationWaiterResolvesWithoutSettlingTheAttempt()
+        async throws {
+        let owner = MobileConnectionRecoveryOwner()
+        defer { owner.cancel() }
+        let attempt = try #require(owner.begin(
+            trigger: "networkChange",
+            sourceConnectionGeneration: UUID(),
+            probing: false
+        ))
+        let replacementGeneration = UUID()
+        #expect(owner.transitionToValidation(
+            attempt,
+            connectionGeneration: replacementGeneration
+        ))
+
+        let waiter = Task {
+            await owner.waitForValidationSettlement(attempt)
+        }
+        await Task.yield()
+        waiter.cancel()
+
+        let settlement = await MobileShellComposite.raceAgainstDeadline(
+            nanoseconds: 500_000_000
+        ) {
+            await waiter.value
+        }
+        #expect(settlement.value == false)
+        #expect(settlement.abandoned == nil)
+        #expect(owner.phase == .validatingReplacement(
+            attempt,
+            connectionGeneration: replacementGeneration
+        ))
+    }
+
     @Test func localPinnedIrohRecoveryDoesNotWaitForBackupRefresh() async throws {
         let backup = BlockingSecondFetchBackup()
         let fixture = try await makeRecoveryOwnerFixture(backup: backup)

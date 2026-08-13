@@ -383,19 +383,33 @@ actor CmxConnectivityPeerSession {
         guard controlOwner != nil, let activeConnection else {
             throw CmxConnectivityEngineError.inactive
         }
+        let session = activeConnection.session
         let connectionID = activeConnection.id
-        let stream = try await activeConnection.session.serverEventByteStream()
-        guard self.activeConnection?.id == connectionID,
-              controlOwner != nil else {
-            let drain = Task {
-                do {
-                    for try await _ in stream {}
-                } catch {}
+        var receiverAcquired = false
+        var receiverClosed = false
+        do {
+            let stream = try await session.serverEventByteStream()
+            receiverAcquired = true
+            // The receiver is created by an unstructured accept loop. Check
+            // the caller's cancellation after that handoff so a cancelled
+            // RPC cannot publish a stream that still owns peer stream credit.
+            try Task.checkCancellation()
+            guard self.activeConnection?.id == connectionID,
+                  controlOwner != nil else {
+                // The receiver owns the accept loop and its stream credit. A
+                // cancelled drain task is not a reliable close signal when
+                // this call lost a session-generation race.
+                await session.closeServerEventByteStream()
+                receiverClosed = true
+                throw CmxConnectivityEngineError.superseded
             }
-            drain.cancel()
-            throw CmxConnectivityEngineError.superseded
+            return stream
+        } catch {
+            if receiverAcquired, !receiverClosed, Task.isCancelled {
+                await session.closeServerEventByteStream()
+            }
+            throw error
         }
-        return stream
     }
 
     func connectionContinuityID() async -> UInt64? {
@@ -424,12 +438,6 @@ actor CmxConnectivityPeerSession {
         publishSnapshot()
     }
 
-    /// Closes a redundant dial that lost to an installed winner.
-    ///
-    /// Closing suspends this actor, so the winner can be invalidated,
-    /// replaced, or remotely closed before the close settles. Only a
-    /// still-installed live winner may be handed out; a nil result means
-    /// the caller must redial.
     /// The outcomes of settling a completed dial against the currently
     /// installed connection.
     private enum InstalledDialSettlement {
@@ -479,6 +487,12 @@ actor CmxConnectivityPeerSession {
         return .redial
     }
 
+    /// Closes a redundant dial that lost to an installed winner.
+    ///
+    /// Closing suspends this actor, so the winner can be invalidated,
+    /// replaced, or remotely closed before the close settles. Only a
+    /// still-installed live winner may be handed out; a nil result means
+    /// the caller must redial.
     private func settleRedundantDial(
         _ connected: any CmxConnectivitySession,
         installedID: UUID

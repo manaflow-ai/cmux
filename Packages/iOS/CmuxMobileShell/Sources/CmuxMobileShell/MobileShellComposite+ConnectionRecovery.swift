@@ -393,13 +393,20 @@ extension MobileShellComposite {
                         return await self.connectionRecoveryOwner
                             .waitForValidationSettlement(attempt)
                     }
-                    self.registerAbandonedRecoveryOperation(
-                        validation.abandoned
-                    )
                     if validation.didTimeOut {
                         self.settleTimedOutConnectionRecovery(
                             attempt,
                             stackUserID: stackUserID
+                        )
+                    } else if validation.wasCancelled,
+                              self.connectionRecoveryOwner.isValidatingReplacement,
+                              self.connectionRecoveryOwner.isCurrent(attempt) {
+                        // Cancellation is not validation. Settle the owner as
+                        // a cancelled recovery unless another lifecycle path
+                        // already moved this attempt to idle or failed.
+                        _ = self.failConnectionRecovery(
+                            attempt,
+                            failure: .cancelled
                         )
                     }
                     self.applyConnectionRecoveryOwnerState()
@@ -1179,6 +1186,18 @@ extension MobileShellComposite {
         nanoseconds: UInt64,
         _ operation: @escaping @Sendable () async -> Value
     ) async -> DeadlineRaceOutcome<Value> {
+        // A zero budget is already a terminal timeout. Do not launch the
+        // operation and then retain it as abandoned work after the caller's
+        // absolute deadline has elapsed.
+        let wasCancelledAtEntry = Task.isCancelled
+        guard nanoseconds > 0 else {
+            return DeadlineRaceOutcome(
+                value: nil,
+                abandoned: nil,
+                didTimeOut: !wasCancelledAtEntry,
+                wasCancelled: wasCancelledAtEntry
+            )
+        }
         let operationTask = Task { await operation() }
         // RPCTaskTimeout owns the deadline race through an actor. Keep the
         // operation itself separate so a cancellation-ignoring FFI dial does

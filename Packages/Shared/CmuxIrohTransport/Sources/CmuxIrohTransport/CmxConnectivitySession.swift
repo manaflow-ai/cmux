@@ -10,6 +10,11 @@ protocol CmxConnectivitySession: Sendable {
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream
     func serverEventByteStream() async throws -> CmxIndependentEventByteStream
+    /// Closes only the session-owned server-event receiver.
+    ///
+    /// A stale stream consumer must release its accept loop and receive-stream
+    /// credit even when the parent connection is already being retired.
+    func closeServerEventByteStream() async
     func waitUntilClosed() async
     func closeAttribution() async -> CmxIrohConnectionCloseAttribution
     func isClosed() async -> Bool

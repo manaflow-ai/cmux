@@ -8,6 +8,46 @@ import Foundation
 /// recovery.
 @MainActor
 final class MobileConnectionRecoveryOwner {
+    /// Bridges task cancellation into the main-actor waiter registry without
+    /// capturing the actor-isolated owner from a nonisolated cancellation
+    /// handler. The lock also serializes settlement against cancellation so a
+    /// continuation is resumed exactly once.
+    private final class ValidationWaiter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+        private var result: Bool?
+
+        func install(_ continuation: CheckedContinuation<Bool, Never>) {
+            var resultToReturn: Bool?
+            lock.lock()
+            if let result {
+                resultToReturn = result
+            } else {
+                self.continuation = continuation
+            }
+            lock.unlock()
+
+            if let resultToReturn {
+                continuation.resume(returning: resultToReturn)
+            }
+        }
+
+        func resolve(_ result: Bool) {
+            let continuationToResume: CheckedContinuation<Bool, Never>?
+            lock.lock()
+            guard self.result == nil else {
+                lock.unlock()
+                return
+            }
+            self.result = result
+            continuationToResume = continuation
+            continuation = nil
+            lock.unlock()
+
+            continuationToResume?.resume(returning: result)
+        }
+    }
+
     struct Attempt: Equatable {
         let id: UUID
         let trigger: String
@@ -26,7 +66,7 @@ final class MobileConnectionRecoveryOwner {
     private(set) var phase: Phase = .idle
     private(set) var task: Task<Void, Never>?
     private var validationWaiters: [
-        UUID: [CheckedContinuation<Bool, Never>]
+        UUID: [UUID: ValidationWaiter]
     ] = [:]
 
     var activeAttempt: Attempt? {
@@ -166,9 +206,27 @@ final class MobileConnectionRecoveryOwner {
               active.id == attempt.id else {
             return false
         }
-        return await withCheckedContinuation { continuation in
-            validationWaiters[attempt.id, default: []].append(continuation)
+        let waiterID = UUID()
+        let waiter = ValidationWaiter()
+        let result = await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled,
+                      case .validatingReplacement(let active, _) = phase,
+                      active.id == attempt.id else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                validationWaiters[attempt.id, default: [:]][waiterID] = waiter
+                waiter.install(continuation)
+            }
+        }, onCancel: {
+            waiter.resolve(false)
+        })
+        validationWaiters[attempt.id]?.removeValue(forKey: waiterID)
+        if validationWaiters[attempt.id]?.isEmpty == true {
+            validationWaiters[attempt.id] = nil
         }
+        return result
     }
 
     func fail(_ attempt: Attempt) -> Bool {
@@ -223,9 +281,9 @@ final class MobileConnectionRecoveryOwner {
         for attemptID: UUID,
         result: Bool
     ) {
-        let waiters = validationWaiters.removeValue(forKey: attemptID) ?? []
-        for waiter in waiters {
-            waiter.resume(returning: result)
+        let waiters = validationWaiters.removeValue(forKey: attemptID) ?? [:]
+        for waiter in waiters.values {
+            waiter.resolve(result)
         }
     }
 }

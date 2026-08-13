@@ -39,6 +39,23 @@ extension ReconnectRouteSelectionTests {
         #expect(outcome.abandoned == nil)
     }
 
+    @Test func expiredDeadlineDoesNotStartTheOperation() async {
+        let gate = ReconnectDeadlineTestGate()
+        let outcome = await MobileShellComposite.raceAgainstDeadline(
+            nanoseconds: 0
+        ) {
+            await gate.markStarted()
+            return 42
+        }
+
+        #expect(outcome.value == nil)
+        #expect(outcome.didTimeOut)
+        #expect(!outcome.wasCancelled)
+        #expect(outcome.abandoned == nil)
+        let started = await gate.wasStarted()
+        #expect(!started)
+    }
+
     @Test func deadlineRaceDistinguishesCallerCancellationFromTimeout() async {
         let gate = ReconnectDeadlineTestGate()
         let raceTask = Task {
@@ -273,6 +290,15 @@ extension ReconnectRouteSelectionTests {
 private actor ReconnectDeadlineTestGate {
     private var releaseContinuation: CheckedContinuation<Void, Never>?
     private var isReleased = false
+    private var started = false
+
+    func markStarted() {
+        started = true
+    }
+
+    func wasStarted() -> Bool {
+        started
+    }
 
     func wait() async {
         guard !isReleased else { return }

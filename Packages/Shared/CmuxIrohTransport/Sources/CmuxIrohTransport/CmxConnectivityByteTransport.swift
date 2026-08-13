@@ -64,13 +64,11 @@ actor CmxConnectivityByteTransport:
                 try await attempt.task.value
             } onCancel: {
                 attempt.task.cancel()
-                Task { [weak self] in
-                    await self?.retireControlSession(
-                        reason: .controlOwnerReleased,
-                        failure: .cancelled
-                    )
-                }
             }
+            // Cancellation can arrive after the shared acquisition task has
+            // returned but before this actor installs the session. Keep the
+            // ownership transition single-threaded through the catch path.
+            try Task.checkCancellation()
             guard !closed, connectAttempt?.id == attempt.id else {
                 await retireControlSession(
                     reason: .controlOwnerReleased,

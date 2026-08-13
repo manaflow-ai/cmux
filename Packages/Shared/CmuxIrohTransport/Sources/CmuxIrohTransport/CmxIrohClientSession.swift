@@ -215,6 +215,14 @@ public actor CmxIrohClientSession {
         return try await receiver.byteStream()
     }
 
+    /// Stops the session-owned server-event accept loop without requiring the
+    /// caller to tear down the entire parent connection.
+    func closeServerEventByteStream() async {
+        let receiver = serverEventReceiver
+        serverEventReceiver = nil
+        await receiver?.close()
+    }
+
     /// Suspends until the exact admitted QUIC connection closes.
     ///
     /// The session pool uses this independently of control-lane I/O so a peer or

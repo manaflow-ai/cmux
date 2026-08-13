@@ -516,6 +516,47 @@ struct CmxConnectivityEngineTests {
     }
 
     @Test
+    func cancellingTransportConnectRetiresThePendingOwner() async throws {
+        let blockedAdmission = GatedAdmissionReceiveStream(
+            buffer: CmxIrohAdmissionAckCodec()
+                .encodeFrame(.acceptedRelayOnly)
+        )
+        let rig = try await Self.admittedPeerRig(
+            responses: [
+                Self.peerRouteResponse(
+                    revision: 9,
+                    lastSeenAt: "2026-07-30T00:00:00Z"
+                ),
+            ],
+            dialableConnections: 2,
+            firstAdmissionReceiveStream: blockedAdmission
+        )
+        let retiring = CmxConnectivityByteTransport(
+            request: rig.request,
+            engine: rig.engine
+        )
+        let blockedConnect = Task { try await retiring.connect() }
+        await blockedAdmission.waitUntilBlocked()
+
+        blockedConnect.cancel()
+        try await Self.waitUntil {
+            await rig.connections[0].observedCloseCallCount() == 1
+        }
+
+        let replacement = CmxConnectivityByteTransport(
+            request: rig.request,
+            engine: rig.engine
+        )
+        try await replacement.connect()
+        #expect(await rig.connections[1].observedBidirectionalStreamOpenCount() == 1)
+
+        await replacement.close()
+        await blockedAdmission.release()
+        _ = await blockedConnect.result
+        await rig.engine.stop()
+    }
+
+    @Test
     func olderRouteRevisionInstallCannotRollBackANewerInstall() async throws {
         let rig = try await Self.admittedPeerRig(responses: [
             Self.peerRouteResponse(
