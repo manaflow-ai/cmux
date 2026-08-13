@@ -650,6 +650,10 @@ final class AutomationSocketUITests: XCTestCase {
             keepAwakeItem.waitForExistence(timeout: 3.0),
             "Expected the localized Keep Mac Awake menu item"
         )
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "mac-keep-awake-menu"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         keepAwakeItem.click()
     }
 
