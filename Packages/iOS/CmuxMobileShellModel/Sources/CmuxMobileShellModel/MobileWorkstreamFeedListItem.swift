@@ -104,12 +104,23 @@ public struct MobileWorkstreamFeedListItem: Decodable, Equatable, Sendable, Iden
         )
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         title = try c.decodeIfPresent(String.self, forKey: .title)
-        lastAssistantMessage = try c.decodeIfPresent(String.self, forKey: .lastAssistantMessage)
-            ?? c.decodeIfPresent(String.self, forKey: .lastAssistantMessageCamel)
-            ?? c.decodeIfPresent(String.self, forKey: .assistantMessage)
-            ?? c.decodeIfPresent(String.self, forKey: .assistantMessageCamel)
-            ?? c.decodeIfPresent(String.self, forKey: .assistantPreamble)
-            ?? c.decodeIfPresent(String.self, forKey: .assistantPreambleSnake)
+        var decodedAssistantMessage = try c.decodeIfPresent(String.self, forKey: .lastAssistantMessage)
+        if decodedAssistantMessage == nil {
+            decodedAssistantMessage = try c.decodeIfPresent(String.self, forKey: .lastAssistantMessageCamel)
+        }
+        if decodedAssistantMessage == nil {
+            decodedAssistantMessage = try c.decodeIfPresent(String.self, forKey: .assistantMessage)
+        }
+        if decodedAssistantMessage == nil {
+            decodedAssistantMessage = try c.decodeIfPresent(String.self, forKey: .assistantMessageCamel)
+        }
+        if decodedAssistantMessage == nil {
+            decodedAssistantMessage = try c.decodeIfPresent(String.self, forKey: .assistantPreamble)
+        }
+        if decodedAssistantMessage == nil {
+            decodedAssistantMessage = try c.decodeIfPresent(String.self, forKey: .assistantPreambleSnake)
+        }
+        lastAssistantMessage = decodedAssistantMessage
         workspaceID = try c.decodeIfPresent(String.self, forKey: .workspaceID)
         surfaceID = try c.decodeIfPresent(String.self, forKey: .surfaceID)
 
