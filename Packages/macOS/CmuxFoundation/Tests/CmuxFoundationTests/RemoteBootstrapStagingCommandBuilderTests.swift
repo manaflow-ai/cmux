@@ -92,7 +92,7 @@ struct RemoteBootstrapStagingCommandBuilderTests {
 
     @Test("installs through POSIX sh when the remote login shell is fish")
     func stagesThroughFishLoginShell() throws {
-        guard FileManager.default.isExecutableFile(atPath: "/usr/local/bin/fish") else {
+        guard let fishPath = Self.fishExecutablePath else {
             return
         }
 
@@ -107,7 +107,7 @@ struct RemoteBootstrapStagingCommandBuilderTests {
         #!/bin/sh
         cmux_remote_command=
         for cmux_argument in "$@"; do cmux_remote_command=$cmux_argument; done
-        HOME="$CMUX_REMOTE_HOME" PATH=/usr/bin:/bin /usr/local/bin/fish -c "$cmux_remote_command"
+        HOME="$CMUX_REMOTE_HOME" PATH=/usr/bin:/bin "$CMUX_FISH_PATH" -c "$cmux_remote_command"
         """.write(to: fakeSSH, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
@@ -126,6 +126,7 @@ struct RemoteBootstrapStagingCommandBuilderTests {
             environment: [
                 "PATH": "/usr/bin:/bin",
                 "CMUX_REMOTE_HOME": remoteHome.path,
+                "CMUX_FISH_PATH": fishPath,
             ]
         )
 
@@ -133,6 +134,58 @@ struct RemoteBootstrapStagingCommandBuilderTests {
         #expect(preparation.stderr.isEmpty)
         #expect(FileManager.default.fileExists(
             atPath: remoteHome.appendingPathComponent(".cmux/relay/52262.bootstrap.sh").path
+        ))
+
+        let execution = try run(
+            executable: fishPath,
+            arguments: ["-c", builder.remoteExecutionShellScript],
+            environment: [
+                "HOME": remoteHome.path,
+                "PATH": "/usr/bin:/bin",
+            ]
+        )
+        #expect(execution.status == 0)
+        #expect(execution.stdout == "fish-bootstrap\n")
+        #expect(execution.stderr.isEmpty)
+    }
+
+    @Test("returns installer status and captured stderr")
+    func reportsInstallerFailure() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-bootstrap-failure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fakeSSH = directory.appendingPathComponent("ssh")
+        try """
+        #!/bin/sh
+        cat >/dev/null
+        printf '%s\\n' 'remote installer stderr' >&2
+        exit 23
+        """.write(to: fakeSSH, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeSSH.path
+        )
+
+        let builder = try #require(RemoteBootstrapStagingCommandBuilder(
+            installerSSHArguments: [fakeSSH.path, "-o", "RemoteCommand=none"],
+            destination: "user@example.com",
+            remoteRelayPort: 52_263,
+            bootstrapScript: "true"
+        ))
+        let preparation = try run(
+            executable: "/bin/sh",
+            arguments: ["-c", builder.preparationShellScript],
+            environment: [
+                "PATH": "/usr/bin:/bin",
+            ]
+        )
+
+        #expect(preparation.status == 23)
+        #expect(preparation.stderr.contains("remote installer stderr"))
+        #expect(!FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("remote-home/.cmux/relay/52263.bootstrap.sh").path
         ))
     }
 
@@ -166,5 +219,13 @@ struct RemoteBootstrapStagingCommandBuilderTests {
             String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
             String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         )
+    }
+
+    private static var fishExecutablePath: String? {
+        [
+            "/opt/homebrew/bin/fish",
+            "/usr/local/bin/fish",
+            "/usr/bin/fish",
+        ].first(where: { FileManager.default.isExecutableFile(atPath: $0) })
     }
 }

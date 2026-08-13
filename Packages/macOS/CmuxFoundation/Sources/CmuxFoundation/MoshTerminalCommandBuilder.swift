@@ -163,22 +163,8 @@ public struct MoshTerminalCommandBuilder: Sendable {
         }
         script += [
             "cmux_mosh_remote_ip_mode=\(remoteIPMode.rawValue.remoteCommandShellQuoted)",
+            "cmux_mosh_address_fallback=0",
         ]
-        if remoteIPMode == .remote {
-            script += [
-                "cmux_mosh_ssh_connection_probe=\"$(\(remoteSSHConnectionProbe) 2>/dev/null || true)\"",
-                "case \"$cmux_mosh_ssh_connection_probe\" in *__CMUX_SSH_CONNECTION__*) cmux_mosh_ssh_connection=\"${cmux_mosh_ssh_connection_probe##*__CMUX_SSH_CONNECTION__}\" ;; *) cmux_mosh_ssh_connection= ;; esac",
-                "cmux_mosh_ssh_peer_ip=\"${cmux_mosh_ssh_connection%% *}\"",
-                "cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection#* }\"",
-                "cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection_tail#* }\"",
-                "cmux_mosh_ssh_server_ip=\"${cmux_mosh_ssh_connection_tail%% *}\"",
-                "if [ -z \"$cmux_mosh_ssh_peer_ip\" ] || [ -z \"$cmux_mosh_ssh_server_ip\" ] || [ \"$cmux_mosh_ssh_peer_ip\" = 0.0.0.0 ] || [ \"$cmux_mosh_ssh_server_ip\" = 0.0.0.0 ]; then",
-                "  cmux_mosh_remote_ip_mode=local",
-                "  printf '%s\\n' \(remoteMoshAddressFallbackMessage.remoteCommandShellQuoted) >&2",
-                "fi",
-                "unset cmux_mosh_ssh_connection_probe cmux_mosh_ssh_connection cmux_mosh_ssh_connection_tail cmux_mosh_ssh_peer_ip cmux_mosh_ssh_server_ip",
-            ]
-        }
         script += [
             capabilityProbe,
             "cmux_mosh_probe_status=$?",
@@ -190,7 +176,43 @@ public struct MoshTerminalCommandBuilder: Sendable {
             "  printf '%s\\n' \(remoteMoshProbeFailedMessage.remoteCommandShellQuoted) >&2",
             "  cmux_mosh_fallback",
             "fi",
-            "unset cmux_mosh_probe_status",
+        ]
+        if remoteIPMode == .remote {
+            script += [
+                "cmux_mosh_ssh_connection_probe_status=0",
+                "cmux_mosh_ssh_connection_probe=\"$(\(remoteSSHConnectionProbe) 2>/dev/null)\" || cmux_mosh_ssh_connection_probe_status=$?",
+                "case \"$cmux_mosh_ssh_connection_probe\" in *__CMUX_SSH_CONNECTION__*) cmux_mosh_ssh_connection=\"${cmux_mosh_ssh_connection_probe##*__CMUX_SSH_CONNECTION__}\" ;; *) cmux_mosh_ssh_connection= ;; esac",
+                "if [ \"$cmux_mosh_ssh_connection_probe_status\" -ne 0 ]; then",
+                "  cmux_mosh_address_fallback=1",
+                "elif [ -z \"$cmux_mosh_ssh_connection\" ]; then",
+                "  cmux_mosh_address_fallback=1",
+                "else",
+                "  cmux_mosh_ssh_peer_ip=\"${cmux_mosh_ssh_connection%% *}\"",
+                "  cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection#* }\"",
+                "  cmux_mosh_ssh_peer_port=\"${cmux_mosh_ssh_connection_tail%% *}\"",
+                "  cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection_tail#* }\"",
+                "  cmux_mosh_ssh_server_ip=\"${cmux_mosh_ssh_connection_tail%% *}\"",
+                "  cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection_tail#* }\"",
+                "  cmux_mosh_ssh_server_port=\"${cmux_mosh_ssh_connection_tail%% *}\"",
+                "  if [ -z \"$cmux_mosh_ssh_peer_ip\" ] || [ -z \"$cmux_mosh_ssh_server_ip\" ]; then",
+                "    cmux_mosh_address_fallback=1",
+                "  else",
+                "    case \"$cmux_mosh_ssh_peer_ip\" in 0.0.0.0|::|::0|*[!0-9A-Fa-f:.]*) cmux_mosh_address_fallback=1 ;; esac",
+                "    case \"$cmux_mosh_ssh_server_ip\" in 0.0.0.0|::|::0|*[!0-9A-Fa-f:.]*) cmux_mosh_address_fallback=1 ;; esac",
+                "    case \"$cmux_mosh_ssh_peer_port\" in ''|*[!0-9]*) cmux_mosh_address_fallback=1 ;; esac",
+                "    case \"$cmux_mosh_ssh_server_port\" in ''|*[!0-9]*) cmux_mosh_address_fallback=1 ;; esac",
+                "    if [ \"$cmux_mosh_ssh_peer_port\" = 0 ] || [ \"$cmux_mosh_ssh_server_port\" = 0 ]; then cmux_mosh_address_fallback=1; fi",
+                "  fi",
+                "fi",
+                "if [ \"$cmux_mosh_address_fallback\" -eq 1 ]; then cmux_mosh_remote_ip_mode=local; fi",
+                "unset cmux_mosh_ssh_connection_probe_status cmux_mosh_ssh_connection_probe cmux_mosh_ssh_connection cmux_mosh_ssh_peer_ip cmux_mosh_ssh_peer_port cmux_mosh_ssh_connection_tail cmux_mosh_ssh_server_ip cmux_mosh_ssh_server_port",
+            ]
+        }
+        script += [
+            "if [ \"$cmux_mosh_address_fallback\" -eq 1 ]; then",
+            "  printf '%s\\n' \(remoteMoshAddressFallbackMessage.remoteCommandShellQuoted) >&2",
+            "fi",
+            "unset cmux_mosh_probe_status cmux_mosh_address_fallback",
         ]
         if let managementReadyShellScript = managementReadyShellScript?
             .trimmingCharacters(in: .whitespacesAndNewlines),
