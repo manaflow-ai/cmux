@@ -19,6 +19,9 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_account_removed"
   | "coderouter_account_status_viewed"
   | "coderouter_auth_rejected"
+  | "coderouter_handoff_lease_issued"
+  | "coderouter_handoff_lease_exchanged"
+  | "coderouter_handoff_rejected"
   | "coderouter_route_session_issued"
   | "coderouter_route_session_revoked"
   | "coderouter_organization_catalog_viewed"
@@ -171,6 +174,8 @@ async function deliver(
 function eventNeedsUserScope(event: CoderouterAnalyticsEvent): boolean {
   return event === "coderouter_account_added" ||
     event === "coderouter_account_removed" ||
+    event === "coderouter_handoff_lease_issued" ||
+    event === "coderouter_handoff_lease_exchanged" ||
     event === "coderouter_route_session_issued" ||
     event === "coderouter_route_session_revoked";
 }
@@ -210,6 +215,25 @@ function eventProperties(
     case "coderouter_auth_rejected": {
       const surface = authSurface(input.surface);
       const reason = authReason(input.reason);
+      return surface && reason ? { surface, reason } : null;
+    }
+    case "coderouter_handoff_lease_issued":
+      return { authorization_mode: "native_stack" };
+    case "coderouter_handoff_lease_exchanged": {
+      const mode = enumValue(input.authorization_mode, [
+        "lease",
+        "native_confirmation",
+      ]);
+      return mode ? { authorization_mode: mode } : null;
+    }
+    case "coderouter_handoff_rejected": {
+      const surface = enumValue(input.surface, ["mint", "exchange"]);
+      const reason = enumValue(input.reason, [
+        "missing_native_auth",
+        "invalid_native_auth",
+        "invalid_lease",
+        "expired_or_consumed",
+      ]);
       return surface && reason ? { surface, reason } : null;
     }
     case "coderouter_route_session_issued":

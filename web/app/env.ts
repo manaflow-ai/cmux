@@ -150,6 +150,32 @@ const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((valu
     });
   }
 });
+const coderouterPublicOrigin = z.string().url().superRefine((value, context) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "CMUX_CODEROUTER_PUBLIC_ORIGIN must be a valid origin",
+    });
+    return;
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CMUX_CODEROUTER_PUBLIC_ORIGIN must be an origin-only HTTPS URL",
+    });
+  }
+});
 const stackEnv = (
   value: string | undefined,
   fallback: string
@@ -168,8 +194,16 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
-    // The deployed handoff route fails closed when this limiter is absent.
+    // Native app and CodeRouter handoff routes fail closed when this limiter
+    // (and the existing feedback fallback) is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Canonical origin returned with CodeRouter route tokens. Deployed
+    // non-preview runtimes must set this; handoff exchange never trusts a
+    // forwarded/request host in production.
+    CMUX_CODEROUTER_PUBLIC_ORIGIN: requireVercelNonPreviewValue(
+      "CMUX_CODEROUTER_PUBLIC_ORIGIN",
+      coderouterPublicOrigin,
+    ),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.
@@ -333,6 +367,9 @@ export const env = createEnv({
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
+    ),
+    CMUX_CODEROUTER_PUBLIC_ORIGIN: trimEnv(
+      process.env.CMUX_CODEROUTER_PUBLIC_ORIGIN,
     ),
     CMUX_APNS_KEY_P8: trimEnv(process.env.CMUX_APNS_KEY_P8),
     CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),

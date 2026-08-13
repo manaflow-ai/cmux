@@ -9,9 +9,10 @@ type CodeRouterFailure =
   | "rds"
   | "analytics_delivery"
   | "analytics_query"
+  | "configuration"
   | "upstream_transport";
 
-const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|header|key|prompt|response|secret|session|team.?id|token/i;
+const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|handoff|header|key|lease|prompt|response|secret|session|team.?id|token/i;
 
 export function addCoderouterBreadcrumb(
   category: string,

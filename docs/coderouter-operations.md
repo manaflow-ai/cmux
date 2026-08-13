@@ -5,6 +5,13 @@ latency evidence, and privacy-safe observability. Never paste route tokens,
 OAuth credentials, request bodies, email addresses, or provider-account IDs
 into tickets, logs, Sentry, or PostHog.
 
+The native cross-process handoff contract, including the method-specific
+authorization assumptions and atomic one-time exchange, is documented in
+[`docs/coderouter-handoff-protocol.md`](coderouter-handoff-protocol.md).
+Production handoff rollout also requires the durable Firewall rule and the
+trusted `CMUX_CODEROUTER_PUBLIC_ORIGIN` setting; the exchange route fails closed
+when either required deployment control is unavailable.
+
 ## Stripe webhook replay
 
 1. Identify the failed Stripe event and the production `cmux.com` webhook

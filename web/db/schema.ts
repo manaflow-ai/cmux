@@ -528,6 +528,44 @@ export const coderouterRouteTokens = pgTable(
 );
 
 /**
+ * Short-lived bearer handoffs from an authenticated native client to another
+ * CodeRouter process. The value returned to the client is never stored; only
+ * its SHA-256 digest is persisted. A lease can be claimed exactly once.
+ */
+export const coderouterHandoffLeases = pgTable(
+  "coderouter_handoff_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    leaseHash: text("lease_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "coderouter_handoff_leases_hash_format_check",
+      sql`${table.leaseHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "coderouter_handoff_leases_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    uniqueIndex("coderouter_handoff_leases_hash_unique").on(table.leaseHash),
+    index("coderouter_handoff_leases_expiry_idx").on(table.expiresAt),
+    index("coderouter_handoff_leases_team_expiry_idx").on(
+      table.teamId,
+      table.expiresAt,
+    ),
+    index("coderouter_handoff_leases_user_expiry_idx").on(
+      table.stackUserId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+/**
  * Envelope-encrypted provider credentials. Every secret-bearing field is
  * ciphertext; the plaintext data key exists only briefly in Vercel memory.
  */
