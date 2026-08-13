@@ -250,7 +250,7 @@ extension MobileShellComposite {
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
             b: trigger.diagnosticCode,
-            c: activePeerDiagnosticAlias
+            c: activePeerDiagnosticAlias.map(Int.init)
         ))
         applyConnectionRecoveryOwnerState()
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
@@ -434,7 +434,7 @@ extension MobileShellComposite {
             surface: attempt.diagnosticID,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            c: activePeerDiagnosticAlias
+            c: activePeerDiagnosticAlias.map(Int.init)
         ))
     }
 
@@ -448,7 +448,7 @@ extension MobileShellComposite {
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
             b: failure.rawValue,
-            c: activePeerDiagnosticAlias
+            c: activePeerDiagnosticAlias.map(Int.init)
         ))
     }
 

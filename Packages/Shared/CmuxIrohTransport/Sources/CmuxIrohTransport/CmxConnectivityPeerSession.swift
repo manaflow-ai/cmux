@@ -389,7 +389,8 @@ actor CmxConnectivityPeerSession {
         if let diagnosticLog {
             let recorder = CmxIrohConnectionDiagnosticRecorder(
                 diagnosticLog: diagnosticLog,
-                sessionID: diagnosticID
+                sessionID: diagnosticID,
+                peerAlias: peerAlias
             )
             pathEventObservationTask = Task {
                 let events = await connected.observedPathEvents()

@@ -504,7 +504,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
              .admissionDenied, .authorizationFailed, .accountMismatch,
              .protocolViolation, .superseded, .cancelled,
              .admissionLeaseExpired, .admissionRevalidationFailed,
-             .sendQueueOverflow, .unknown:
+             .sendQueueOverflow, .payloadTooLarge, .resourceLimitReached,
+             .attachmentCountLimitReached, .attachmentAggregateSizeLimitReached,
+             .localStateUnavailable, .unknown:
             return false
     }
     }

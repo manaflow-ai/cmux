@@ -45,7 +45,7 @@ extension MobileShellComposite {
                     b: failure.rawValue,
                     c: attemptID
                 ))
-            case let .cancelled(attemptID, transport, reason, elapsedMilliseconds):
+            case let .cancelled(attemptID, _, reason, elapsedMilliseconds):
                 diagnosticLog.record(DiagnosticEvent(
                     .transportDialCancelled,
                     surface: peerAlias,

@@ -44,7 +44,7 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
     /// - Returns: A bounded attribution containing no raw cause text.
     public static func classify(_ cause: String) -> Self {
         let remoteReason = remoteReason(in: cause)
-        Self(
+        return Self(
             initiator: initiator(in: cause),
             applicationErrorCode: applicationErrorCode(in: cause),
             failureKind: failureKind(in: cause, remoteReason: remoteReason),
