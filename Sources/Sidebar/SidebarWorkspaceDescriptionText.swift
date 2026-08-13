@@ -62,7 +62,7 @@ struct SidebarWorkspaceDescriptionText: View {
                 )
 #endif
             }
-            .onChange(of: markdown) { newValue in
+            .onChange(of: markdown) { _, newValue in
 #if DEBUG
                 let newlineCount = newValue.reduce(into: 0) { count, character in
                     if character == "\n" { count += 1 }
