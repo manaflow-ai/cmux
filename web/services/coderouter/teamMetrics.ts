@@ -1,6 +1,7 @@
 import { unstable_cache } from "next/cache";
 
 import { coderouterTeamAnalyticsId } from "./analyticsIdentity";
+import { captureCoderouterEvent } from "./analytics";
 import { CODEROUTER_API_RATE_CARD_VERSION } from "./apiEquivalentPricing";
 import { reportCoderouterFailure } from "./observability";
 
@@ -97,6 +98,7 @@ async function queryCoderouterTeamMetrics(
   const config = dependencies.config();
   if (!config) {
     dependencies.reportFailure?.("configuration_missing");
+    captureMetricsOutcome(authorizedTeamId, "unavailable", "configuration");
     return { kind: "unavailable" };
   }
   try {
@@ -123,6 +125,11 @@ async function queryCoderouterTeamMetrics(
     );
     if (!response.ok) {
       dependencies.reportFailure?.("endpoint_status", response.status);
+      captureMetricsOutcome(
+        authorizedTeamId,
+        "unavailable",
+        "endpoint_status",
+      );
       return { kind: "unavailable" };
     }
     const responseText = await response.text();
@@ -131,10 +138,20 @@ async function queryCoderouterTeamMetrics(
       parsedBody = JSON.parse(responseText);
     } catch {
       dependencies.reportFailure?.("malformed_response");
+      captureMetricsOutcome(
+        authorizedTeamId,
+        "unavailable",
+        "response_parse",
+      );
       return { kind: "unavailable" };
     }
     if (!isPlainRecord(parsedBody)) {
       dependencies.reportFailure?.("malformed_response");
+      captureMetricsOutcome(
+        authorizedTeamId,
+        "unavailable",
+        "response_validation",
+      );
       return { kind: "unavailable" };
     }
     const body = parsedBody;
@@ -151,15 +168,48 @@ async function queryCoderouterTeamMetrics(
       results.length > MAX_ROWS
     ) {
       dependencies.reportFailure?.("malformed_response");
+      captureMetricsOutcome(
+        authorizedTeamId,
+        "unavailable",
+        "response_validation",
+      );
       return { kind: "unavailable" };
     }
     const metrics = metricsFromRows(results, dependencies.now());
-    if (!metrics) dependencies.reportFailure?.("invalid_metrics");
-    return metrics ?? { kind: "unavailable" };
+    if (!metrics) {
+      dependencies.reportFailure?.("invalid_metrics");
+      captureMetricsOutcome(
+        authorizedTeamId,
+        "unavailable",
+        "response_validation",
+      );
+      return { kind: "unavailable" };
+    }
+    captureMetricsOutcome(authorizedTeamId, "ready", "none");
+    return metrics;
   } catch {
     dependencies.reportFailure?.("request_failed");
+    captureMetricsOutcome(authorizedTeamId, "unavailable", "request");
     return { kind: "unavailable" };
   }
+}
+
+function captureMetricsOutcome(
+  teamId: string,
+  outcome: "ready" | "unavailable",
+  failureStage:
+    | "none"
+    | "configuration"
+    | "request"
+    | "endpoint_status"
+    | "response_parse"
+    | "response_validation",
+): void {
+  captureCoderouterEvent({
+    event: "coderouter_metrics_loaded",
+    teamId,
+    properties: { outcome, failure_stage: failureStage },
+  });
 }
 
 function metricsFromRows(
@@ -323,16 +373,13 @@ function postHogMetricsConfig(): PostHogMetricsConfig | null {
   ) {
     return null;
   }
-  const endpointName = (
-    process.env.POSTHOG_CODEROUTER_ENDPOINT_NAME ??
-    DEFAULT_ENDPOINT_NAME
-  ).trim();
-  if (!endpointName) return null;
   return {
     endpointSecret,
     environmentId,
     scopeSecret,
-    endpointName,
+    // This is deliberately not environment-configurable. Only the reviewed,
+    // customer-scoped query may receive a team pseudonym.
+    endpointName: DEFAULT_ENDPOINT_NAME,
     apiHost: (
       process.env.POSTHOG_CODEROUTER_API_HOST ??
       "https://us.posthog.com"
