@@ -295,7 +295,7 @@ final class AppCompositionRoot {
         featureFlags.start()
     }
 
-    deinit {
+    isolated deinit {
         pushReachabilityTask?.cancel()
         featureFlags.stop()
     }
