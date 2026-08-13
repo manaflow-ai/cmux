@@ -99,9 +99,13 @@ the lease expires.
 
 The existing route-token table stores only `SHA-256(token)`. Billing
 revocation marks outstanding handoff leases consumed before revoking route
-tokens, using the same lock order as exchange; a cancellation cannot race an
-exchange into a newly live token. Normal route-token authentication remains
-authoritative after exchange.
+tokens, using the same principal locks as mint and exchange. Hosted mint and
+exchange recheck entitlement through their transaction-bound database
+connection after acquiring those locks, so cancellation cannot race either
+operation into new authority. Account-deletion startup uses its deletion lock
+to invalidate outstanding leases and route tokens; later mint and exchange
+check the same durable tombstone while holding that lock. Normal route-token
+authentication remains authoritative after exchange.
 
 ## Bounds and abuse controls
 
@@ -122,7 +126,8 @@ authoritative after exchange.
 - Mint traffic opportunistically deletes at most 100 leases older than the
   ten-minute retention window. Each mint adds one row, so normal mint traffic
   drains stale rows faster than it creates them without requiring a separate
-  cleanup worker.
+  cleanup worker. Cleanup runs in its own transaction, so a maintenance
+  failure cannot abort lease issuance.
 
 Telemetry receives only fixed operation/outcome labels. Lease and route-token
 values are not passed to CodeRouter analytics, breadcrumbs, error context, or

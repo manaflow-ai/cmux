@@ -16,9 +16,13 @@ const {
   validTeamSelectorHeaders,
 } = await import("../app/api/coderouter/handoff/_shared");
 const {
+  CodeRouterHandoffEntitlementDenied,
   handoffLeaseHash,
   isValidCoderouterHandoffLease,
 } = await import("../services/coderouter/repository");
+const { AccountDeletionMutationBlockedError } = await import(
+  "../services/account/deletionLock"
+);
 
 const LEASE = "crh_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
 const EXPIRES_AT = new Date("2026-08-13T12:02:00.000Z");
@@ -156,6 +160,88 @@ describe("CodeRouter native handoff mint", () => {
     expect(issueLease).not.toHaveBeenCalled();
   });
 
+  test("passes a transaction-bound entitlement recheck to lease issuance", async () => {
+    const entitlementDb = {};
+    const hasActiveEntitlement = mock(async () => true);
+    const issueLease = mock(async () => {
+      return { lease: LEASE, expiresAt: EXPIRES_AT };
+    });
+    const POST = makeCoderouterHandoffPostHandler({
+      resolveContext: mock(async () => context) as never,
+      hasActiveEntitlement,
+      issueLease: issueLease as never,
+      hostedProRequired: () => true,
+      rateLimit: allowedRateLimit(),
+    });
+
+    const response = await POST(mintRequest());
+
+    expect(response.status).toBe(200);
+    const issueCalls = (issueLease as unknown as {
+      mock: { calls: unknown[][] };
+    }).mock.calls;
+    const authorizeCallback = issueCalls[0]?.[3] as
+      | ((
+        identity: { teamId: string; stackUserId: string },
+        db: unknown,
+      ) => Promise<boolean>)
+      | undefined;
+    expect(authorizeCallback).toBeDefined();
+    expect(
+      await authorizeCallback!(
+        { teamId: "team_1", stackUserId: "user_1" },
+        entitlementDb,
+      ),
+    ).toBe(true);
+    expect(hasActiveEntitlement).toHaveBeenLastCalledWith(
+      "user_1",
+      "team_1",
+      entitlementDb,
+    );
+  });
+
+  test("returns account_deletion_in_progress when mint loses the deletion lock", async () => {
+    const issueLease = mock(async () => {
+      throw new AccountDeletionMutationBlockedError("user_1");
+    });
+    const POST = makeCoderouterHandoffPostHandler({
+      resolveContext: mock(async () => context) as never,
+      hasActiveEntitlement: mock(async () => true),
+      issueLease: issueLease as never,
+      hostedProRequired: () => false,
+      rateLimit: allowedRateLimit(),
+    });
+
+    const response = await POST(mintRequest());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "account_deletion_in_progress",
+      retryable: false,
+    });
+  });
+
+  test("returns pro_required when the serialized entitlement recheck lapses", async () => {
+    const issueLease = mock(async () => {
+      throw new CodeRouterHandoffEntitlementDenied("lapsed");
+    });
+    const POST = makeCoderouterHandoffPostHandler({
+      resolveContext: mock(async () => context) as never,
+      hasActiveEntitlement: mock(async () => true),
+      issueLease: issueLease as never,
+      hostedProRequired: () => true,
+      rateLimit: allowedRateLimit(),
+    });
+
+    const response = await POST(mintRequest());
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toEqual({
+      error: "pro_required",
+      retryable: false,
+    });
+  });
+
   test("returns the opaque lease with no-store and never changes the request body contract", async () => {
     const issueLease = mock(async () => {
       return { lease: LEASE, expiresAt: EXPIRES_AT };
@@ -192,17 +278,7 @@ describe("CodeRouter native handoff mint", () => {
 
 describe("CodeRouter native handoff exchange", () => {
   test("exchanges a lease without requiring Stack credentials", async () => {
-    let authorizationResult: boolean | undefined;
-    const exchangeLease = mock(async (...args: unknown[]) => {
-      const authorize = args[3] as
-        | ((identity: {
-          readonly teamId: string;
-          readonly stackUserId: string;
-        }) => Promise<boolean>)
-        | undefined;
-      authorizationResult = authorize
-        ? await authorize({ teamId: "team_1", stackUserId: "user_1" })
-        : undefined;
+    const exchangeLease = mock(async () => {
       return {
         teamId: "team_1",
         stackUserId: "user_1",
@@ -229,8 +305,20 @@ describe("CodeRouter native handoff exchange", () => {
     expect(exchangeCalls[0]?.[0]).toBe(LEASE);
     expect(exchangeCalls[0]?.[2]).toEqual({});
     expect(typeof exchangeCalls[0]?.[3]).toBe("function");
-    expect(authorizationResult).toBe(true);
-    expect(hasActiveEntitlement).toHaveBeenCalledWith("user_1", "team_1");
+    const authorizeCallback = exchangeCalls[0]?.[3] as
+      | ((
+        identity: { teamId: string; stackUserId: string },
+        db: unknown,
+      ) => Promise<boolean>)
+      | undefined;
+    expect(authorizeCallback).toBeDefined();
+    expect(
+      await authorizeCallback!(
+        { teamId: "team_1", stackUserId: "user_1" },
+        {},
+      ),
+    ).toBe(true);
+    expect(hasActiveEntitlement).toHaveBeenCalledWith("user_1", "team_1", {});
     await expect(response.json()).resolves.toMatchObject({
       teamId: "team_1",
       token: "crt_route_token_value",
@@ -456,12 +544,10 @@ describe("CodeRouter handoff rate limiting", () => {
   });
 
   test("does not pass token-derived keys to the durable limiter", async () => {
-    const checkRateLimit = mock(async (...args: unknown[]) => {
-      const options = args[1] as { request?: unknown };
-      expect(Object.keys(options)).toEqual(["request"]);
-      expect(options.request).toBeInstanceOf(Request);
-      return { rateLimited: false, error: null };
-    });
+    const checkRateLimit = mock(async () => ({
+      rateLimited: false,
+      error: null,
+    }));
     const limiter = makeCoderouterHandoffRateLimiter({
       isVercel: () => true,
       rateLimitId: () => "coderouter-handoff",
@@ -470,6 +556,11 @@ describe("CodeRouter handoff rate limiting", () => {
 
     expect(await limiter(exchangeRequest())).toBe("allowed");
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    const options = (checkRateLimit as unknown as {
+      mock: { calls: unknown[][] };
+    }).mock.calls[0]?.[1] as { request?: unknown };
+    expect(Object.keys(options)).toEqual(["request"]);
+    expect(options.request).toBeInstanceOf(Request);
   });
 
   test("keeps a bounded local development backstop", async () => {

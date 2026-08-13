@@ -1,6 +1,8 @@
 import { env } from "../../../env";
 import { hasActiveCoderouterSubscription } from "../../../../services/billing/pro";
+import { AccountDeletionMutationBlockedError } from "../../../../services/account/deletionLock";
 import {
+  CodeRouterHandoffEntitlementDenied,
   issueCoderouterHandoffLease,
 } from "../../../../services/coderouter/repository";
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
@@ -100,7 +102,8 @@ export function makeCoderouterHandoffPostHandler(
       return jsonHandoffResponse({ error: "forbidden" }, 403);
     }
 
-    if (dependencies.hostedProRequired()) {
+    const hostedProRequired = dependencies.hostedProRequired();
+    if (hostedProRequired) {
       try {
         if (
           !(await dependencies.hasActiveEntitlement(
@@ -137,12 +140,39 @@ export function makeCoderouterHandoffPostHandler(
 
     let issued: Awaited<ReturnType<typeof issueCoderouterHandoffLease>>;
     try {
-      issued = await dependencies.issueLease(
-        resolved.value.team.teamId,
-        resolved.value.user.id,
-        dependencies.now?.() ?? new Date(),
-      );
+      const issuedAt = dependencies.now?.() ?? new Date();
+      if (hostedProRequired) {
+        issued = await dependencies.issueLease(
+          resolved.value.team.teamId,
+          resolved.value.user.id,
+          issuedAt,
+          async (identity, db) =>
+            await dependencies.hasActiveEntitlement(
+              identity.stackUserId,
+              identity.teamId,
+              db,
+            ),
+        );
+      } else {
+        issued = await dependencies.issueLease(
+          resolved.value.team.teamId,
+          resolved.value.user.id,
+          issuedAt,
+        );
+      }
     } catch (error) {
+      if (error instanceof AccountDeletionMutationBlockedError) {
+        return jsonHandoffResponse(
+          { error: "account_deletion_in_progress", retryable: false },
+          409,
+        );
+      }
+      if (error instanceof CodeRouterHandoffEntitlementDenied) {
+        return jsonHandoffResponse(
+          { error: "pro_required", retryable: false },
+          402,
+        );
+      }
       reportCoderouterFailure("rds", error, {
         operation: "issue_handoff_lease",
       });

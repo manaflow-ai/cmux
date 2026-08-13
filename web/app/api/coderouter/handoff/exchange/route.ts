@@ -3,6 +3,7 @@ import { hasActiveCoderouterSubscription } from "../../../../../services/billing
 import {
   exchangeCoderouterHandoffLease,
   type CodeRouterHandoffAuthorizer,
+  type CodeRouterHandoffEntitlementDb,
   type CodeRouterHandoffIdentity,
 } from "../../../../../services/coderouter/repository";
 import { resolveCodeRouterRequestContext } from "../../../../../services/coderouter/requestContext";
@@ -162,10 +163,11 @@ export function makeCoderouterHandoffExchangePostHandler(
     // native-confirmed exchanges.
     const authorizeLease: CodeRouterHandoffAuthorizer | undefined =
       hostedProRequired
-        ? async (identity) =>
+        ? async (identity, db: CodeRouterHandoffEntitlementDb) =>
           await dependencies.hasActiveEntitlement(
             identity.stackUserId,
             identity.teamId,
+            db,
           )
         : undefined;
 

@@ -1,6 +1,12 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, gt, isNotNull, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
+import {
+  AccountDeletionMutationBlockedError,
+  accountDeletionAdvisoryLockKey,
+  assertAccountDeletionUserMutationAllowed,
+} from "../account/deletionLock";
+import { reportCoderouterFailure } from "./observability";
 import {
   coderouterAccounts,
   coderouterCredentials,
@@ -28,6 +34,13 @@ const HANDOFF_LEASE_CLEANUP_BATCH_SIZE = 100;
 const HANDOFF_LOCK_NAMESPACE = "coderouter-handoff";
 const VAULT_LEASE_MS = 30_000;
 const REFRESH_LEASE_MS = 30_000;
+export type CodeRouterHandoffTransaction = Parameters<
+  Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]
+>[0];
+
+export class CodeRouterHandoffEntitlementDenied extends Error {
+  readonly _tag = "CodeRouterHandoffEntitlementDenied";
+}
 
 export class CodeRouterLeaseBusy extends Error {
   readonly _tag = "CodeRouterLeaseBusy";
@@ -56,7 +69,7 @@ function handoffLockKey(scope: "team" | "user", id: string): string {
 }
 
 async function lockHandoffUser(
-  tx: Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0],
+  tx: CodeRouterHandoffTransaction,
   stackUserId: string,
 ): Promise<void> {
   await tx.execute(
@@ -65,7 +78,7 @@ async function lockHandoffUser(
 }
 
 async function lockHandoffPrincipal(
-  tx: Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0],
+  tx: CodeRouterHandoffTransaction,
   teamId: string,
   stackUserId: string,
 ): Promise<void> {
@@ -77,12 +90,59 @@ async function lockHandoffPrincipal(
 }
 
 async function lockHandoffTeam(
-  tx: Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0],
+  tx: CodeRouterHandoffTransaction,
   teamId: string,
 ): Promise<void> {
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${handoffLockKey("team", teamId)}, 0))`,
   );
+}
+
+/**
+ * Account deletion and handoff operations use the account-deletion lock first,
+ * then team and user handoff locks. Keeping invalidation in this transaction
+ * makes the tombstone/authority boundary atomic: a mint or exchange cannot
+ * insert or claim a lease after deletion has won the user lock.
+ */
+export async function invalidateCoderouterHandoffAuthority(
+  tx: CodeRouterHandoffTransaction,
+  input: {
+    readonly stackUserId: string;
+    readonly teamIds?: readonly string[];
+  },
+  now = new Date(),
+): Promise<void> {
+  const teamIds = [...new Set(input.teamIds ?? [])]
+    .filter((teamId) => boundedHandoffPrincipalId(teamId))
+    .sort();
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.stackUserId)}, 0))`,
+  );
+  for (const teamId of teamIds) {
+    await lockHandoffTeam(tx, teamId);
+  }
+  await lockHandoffUser(tx, input.stackUserId);
+
+  const leaseAuthority = teamIds.length > 0
+    ? or(
+      eq(coderouterHandoffLeases.stackUserId, input.stackUserId),
+      inArray(coderouterHandoffLeases.teamId, teamIds),
+    )
+    : eq(coderouterHandoffLeases.stackUserId, input.stackUserId);
+  const routeAuthority = teamIds.length > 0
+    ? or(
+      eq(coderouterRouteTokens.stackUserId, input.stackUserId),
+      inArray(coderouterRouteTokens.teamId, teamIds),
+    )
+    : eq(coderouterRouteTokens.stackUserId, input.stackUserId);
+  await tx
+    .update(coderouterHandoffLeases)
+    .set({ consumedAt: now })
+    .where(and(leaseAuthority, isNull(coderouterHandoffLeases.consumedAt)));
+  await tx
+    .update(coderouterRouteTokens)
+    .set({ revokedAt: now })
+    .where(and(routeAuthority, isNull(coderouterRouteTokens.revokedAt)));
 }
 
 export function isValidCoderouterHandoffLease(lease: string): boolean {
@@ -117,6 +177,7 @@ export async function issueCoderouterHandoffLease(
   teamId: string,
   stackUserId: string,
   now = new Date(),
+  authorize?: CodeRouterHandoffAuthorizer,
 ): Promise<{ lease: string; expiresAt: Date }> {
   if (!boundedHandoffPrincipalId(teamId) || !boundedHandoffPrincipalId(stackUserId)) {
     throw new Error("invalid CodeRouter handoff principal");
@@ -125,19 +186,15 @@ export async function issueCoderouterHandoffLease(
     randomBytes(CODEROUTER_HANDOFF_LEASE_BYTES).toString("base64url")
   }`;
   const expiresAt = new Date(now.getTime() + CODEROUTER_HANDOFF_LEASE_TTL_MS);
-  await cloudDb().transaction(async (tx) => {
-    // Serialize minting with billing revocation on the same principal lock.
-    // The entitlement read happens before this repository call, but the
-    // exchange path rechecks entitlement; this lock prevents a revocation from
-    // invalidating existing authority and then racing a new lease insert.
-    await lockHandoffPrincipal(tx, teamId, stackUserId);
-    // Cleanup is best-effort and runs under the same principal lock. The
-    // bounded, skip-locked batch avoids unbounded table growth without making
-    // a maintenance error determine the mint result.
-    const cleanupBefore = new Date(
-      now.getTime() - HANDOFF_LEASE_RETENTION_MS,
-    ).toISOString();
-    try {
+  const db = cloudDb();
+  // Cleanup is deliberately isolated from issuance. PostgreSQL aborts the
+  // surrounding transaction after a failed DELETE; catching that exception
+  // would not make a subsequent INSERT usable.
+  const cleanupBefore = new Date(
+    now.getTime() - HANDOFF_LEASE_RETENTION_MS,
+  ).toISOString();
+  try {
+    await db.transaction(async (tx) => {
       await tx.execute(sql`
         delete from "coderouter_handoff_leases"
         where "id" in (
@@ -149,9 +206,30 @@ export async function issueCoderouterHandoffLease(
           for update skip locked
         )
       `);
+    });
+  } catch (error) {
+    // Expired rows are harmless; leave them for the next mint or scheduled
+    // database maintenance rather than failing closed on cleanup alone.
+    try {
+      reportCoderouterFailure("rds", error, {
+        operation: "cleanup_handoff_leases",
+      });
     } catch {
-      // Expired rows are harmless; leave them for the next mint or scheduled
-      // database maintenance rather than failing closed on cleanup alone.
+      // Observability is also best-effort; issuance must remain independent.
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    // Serialize minting with billing revocation on the same principal lock.
+    // The entitlement read happens before this repository call, but the
+    // transaction-bound authorizer below rechecks it after this lock. This
+    // makes the entitlement decision and lease insert one authority check.
+    await assertAccountDeletionUserMutationAllowed(tx, stackUserId);
+    await lockHandoffPrincipal(tx, teamId, stackUserId);
+    if (authorize && !(await authorize({ teamId, stackUserId }, tx))) {
+      throw new CodeRouterHandoffEntitlementDenied(
+        "CodeRouter entitlement is no longer active",
+      );
     }
     await tx.insert(coderouterHandoffLeases).values({
       teamId,
@@ -176,11 +254,17 @@ export type CodeRouterHandoffIdentity = {
   readonly stackUserId?: string;
 };
 
+export type CodeRouterHandoffEntitlementDb = Pick<
+  ReturnType<typeof cloudDb>,
+  "select"
+>;
+
 export type CodeRouterHandoffAuthorizer = (
   identity: {
     readonly teamId: string;
     readonly stackUserId: string;
   },
+  db: CodeRouterHandoffEntitlementDb,
 ) => Promise<boolean>;
 
 /**
@@ -240,8 +324,14 @@ export async function exchangeCoderouterHandoffLease(
       .where(and(...predicates))
       .limit(1);
     if (!candidate) return null;
+    try {
+      await assertAccountDeletionUserMutationAllowed(tx, candidate.stackUserId);
+    } catch (error) {
+      if (error instanceof AccountDeletionMutationBlockedError) return null;
+      throw error;
+    }
     await lockHandoffPrincipal(tx, candidate.teamId, candidate.stackUserId);
-    if (authorize && !(await authorize(candidate))) return null;
+    if (authorize && !(await authorize(candidate, tx))) return null;
 
     const [claimed] = await tx
       .update(coderouterHandoffLeases)
@@ -278,6 +368,9 @@ export async function revokeRouteTokensForUser(
     // leave a freshly inserted route token alive.
     // User-scoped billing revocation has no team selector; take the user
     // authority lock used by all user-scoped handoff operations.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(stackUserId)}, 0))`,
+    );
     await lockHandoffUser(tx, stackUserId);
     await tx
       .update(coderouterHandoffLeases)
@@ -301,6 +394,8 @@ export async function revokeRouteTokensForTeam(
   now = new Date(),
 ): Promise<void> {
   await cloudDb().transaction(async (tx) => {
+    // Team billing revocation and handoff mint/exchange share this authority
+    // lock. User deletion additionally takes the account-deletion lock.
     await lockHandoffTeam(tx, teamId);
     await tx
       .update(coderouterHandoffLeases)

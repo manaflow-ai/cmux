@@ -4,7 +4,11 @@ import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
 import {
+  accountDeletionUserHash,
+} from "../services/account/deletionLock";
+import {
   CODEROUTER_HANDOFF_LEASE_TTL_MS,
+  CodeRouterHandoffEntitlementDenied,
   exchangeCoderouterHandoffLease,
   handoffLeaseHash,
   issueCoderouterHandoffLease,
@@ -182,6 +186,97 @@ describe("CodeRouter handoff lease database behavior", () => {
           async () => true,
         ),
       ).not.toBeNull();
+    });
+  });
+
+  dbTest("rechecks entitlement in the issuance transaction", async () => {
+    await withFixture(async ({ teamId, userId, now }) => {
+      let transactionDbSeen = false;
+      const issued = await issueCoderouterHandoffLease(
+        teamId,
+        userId,
+        now,
+        async (identity, tx) => {
+          transactionDbSeen = typeof tx.select === "function";
+          return identity.teamId === teamId && identity.stackUserId === userId;
+        },
+      );
+      expect(transactionDbSeen).toBe(true);
+
+      await expect(issueCoderouterHandoffLease(
+        teamId,
+        userId,
+        now,
+        async () => false,
+      )).rejects.toBeInstanceOf(CodeRouterHandoffEntitlementDenied);
+
+      const hashes = await database()<Array<{ leaseHash: string }>>`
+        select lease_hash as "leaseHash"
+        from coderouter_handoff_leases
+        where team_id = ${teamId}
+      `;
+      expect(hashes.map((row) => row.leaseHash)).toEqual([
+        handoffLeaseHash(issued.lease),
+      ]);
+    });
+  });
+
+  dbTest("blocks mint and exchange after account deletion tombstone", async () => {
+    await withFixture(async ({ teamId, userId, now }) => {
+      const issued = await issueCoderouterHandoffLease(teamId, userId, now);
+      await database()`
+        insert into account_deletion_tombstones (
+          user_id_hash,
+          user_id,
+          status,
+          updated_at
+        ) values (
+          ${accountDeletionUserHash(userId)},
+          ${userId},
+          'pending',
+          ${now}
+        )
+      `;
+      try {
+        await expect(
+          issueCoderouterHandoffLease(teamId, userId, now),
+        ).rejects.toThrow();
+        expect(
+          await exchangeCoderouterHandoffLease(issued.lease, now),
+        ).toBeNull();
+      } finally {
+        await database()`
+          delete from account_deletion_tombstones
+          where user_id_hash = ${accountDeletionUserHash(userId)}
+        `;
+      }
+    });
+  });
+
+  dbTest("does not retain a lease when route-token creation fails", async () => {
+    await withFixture(async ({ teamId, userId, now }) => {
+      const issued = await issueCoderouterHandoffLease(teamId, userId, now);
+      await database()`
+        alter table coderouter_route_tokens
+        add constraint coderouter_handoff_test_route_token_failure
+        check (label <> 'native-handoff')
+      `;
+      try {
+        await expect(
+          exchangeCoderouterHandoffLease(issued.lease, now),
+        ).rejects.toThrow();
+        const [row] = await database()<Array<{ consumedAt: Date | null }>>`
+          select consumed_at as "consumedAt"
+          from coderouter_handoff_leases
+          where team_id = ${teamId}
+        `;
+        expect(row?.consumedAt).toBeNull();
+      } finally {
+        await database()`
+          alter table coderouter_route_tokens
+          drop constraint coderouter_handoff_test_route_token_failure
+        `;
+      }
     });
   });
 
