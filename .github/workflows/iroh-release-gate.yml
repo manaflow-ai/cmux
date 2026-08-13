@@ -19,6 +19,7 @@ on:
           - relay-expiry
           - direct-only
           - private-path
+          - cold-start
 
 permissions:
   contents: read
@@ -59,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
+        mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path","cold-start"]' || format('["{0}"]', inputs.mode)) }}
     runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 120
     steps:

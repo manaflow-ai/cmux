@@ -12,6 +12,9 @@ public enum CmxIrohClientSessionError: Error, Equatable, Sendable {
     /// A role-invalid frame appeared during the admission barrier.
     case invalidAdmissionFrame
 
+    /// A dial phase exceeded its bound before the peer answered.
+    case dialTimedOut
+
     /// An operation required an admitted control stream.
     case notConnected
 

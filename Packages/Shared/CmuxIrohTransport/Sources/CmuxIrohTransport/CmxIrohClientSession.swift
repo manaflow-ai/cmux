@@ -6,6 +6,12 @@ public actor CmxIrohClientSession {
     public typealias PrivateFallbackContextProvider = @Sendable () async throws -> CmxIrohClientContext
 
     private let endpoint: any CmxIrohEndpoint
+    /// Bound on each dial phase. A peer that has not answered by then is
+    /// almost always a stale-hint or half-ready target (issue 9724 recorded a
+    /// 16s hang against a just-relaunched Mac); failing fast hands control to
+    /// the retry layer, which redials with fresher hints. Cancellation crosses
+    /// the FFI boundary, so the raced attempt aborts promptly.
+    private let dialPhaseTimeout: Duration
     private let targetIdentity: CmxIrohPeerIdentity
     private let dialPlan: CmxIrohDialPlan
     private let credential: CmxIrohAdmissionCredential
@@ -44,6 +50,7 @@ public actor CmxIrohClientSession {
         privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
         privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
         privateFallbackContextProvider: PrivateFallbackContextProvider? = nil,
+        dialPhaseTimeout: Duration = .seconds(5),
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
     ) throws {
         self.endpoint = endpoint
@@ -53,6 +60,7 @@ public actor CmxIrohClientSession {
         self.privateFallbackAuthorization = privateFallbackAuthorization
         self.privateFallbackValidator = privateFallbackValidator
         self.privateFallbackContextProvider = privateFallbackContextProvider
+        self.dialPhaseTimeout = dialPhaseTimeout
         self.protocolConfiguration = protocolConfiguration
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
@@ -278,17 +286,42 @@ public actor CmxIrohClientSession {
         controlReceiveBuffer.removeAll(keepingCapacity: false)
     }
 
+    /// Dials one address within `dialPhaseTimeout`, cancelling the attempt at
+    /// the bound so it cannot outlive the budget on a hung or stale path.
+    private func connectBounded(
+        to address: CmxIrohEndpointAddress
+    ) async throws -> any CmxIrohConnection {
+        let endpoint = endpoint
+        let alpn = protocolConfiguration.alpn
+        let bound = dialPhaseTimeout
+        return try await withThrowingTaskGroup(
+            of: (any CmxIrohConnection)?.self
+        ) { group in
+            group.addTask {
+                try await endpoint.connect(to: address, alpn: alpn)
+            }
+            group.addTask {
+                try await ContinuousClock().sleep(for: bound)
+                return nil
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next(), let connection = first else {
+                throw CmxIrohClientSessionError.dialTimedOut
+            }
+            return connection
+        }
+    }
+
     private func establishConnection() async throws -> CmxIrohConnectedControl {
         var establishedConnection: (any CmxIrohConnection)?
         var publicConnectionError: (any Error)?
         if !dialPlan.publicPaths.isEmpty {
             do {
-                establishedConnection = try await endpoint.connect(
+                establishedConnection = try await connectBounded(
                     to: CmxIrohEndpointAddress(
                         identity: targetIdentity,
                         pathHints: dialPlan.publicPaths
-                    ),
-                    alpn: protocolConfiguration.alpn
+                    )
                 )
             } catch {
                 try Task.checkCancellation()
@@ -326,12 +359,11 @@ public actor CmxIrohClientSession {
                 authorization
             )
             try Task.checkCancellation()
-            establishedConnection = try await endpoint.connect(
+            establishedConnection = try await connectBounded(
                 to: CmxIrohEndpointAddress(
                     identity: targetIdentity,
                     pathHints: fallbackPaths
-                ),
-                alpn: protocolConfiguration.alpn
+                )
             )
         }
         guard let establishedConnection else {

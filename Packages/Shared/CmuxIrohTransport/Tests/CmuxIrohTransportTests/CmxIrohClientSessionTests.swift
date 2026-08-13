@@ -15,6 +15,27 @@ struct CmxIrohClientSessionTests {
         credential = try .pairGrant("e30.e30.AA")
     }
 
+    @Test("a hung dial fails at the phase bound instead of hanging")
+    func hungDialFailsAtThePhaseBound() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.hang]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [try publicRelayHint()]),
+            credential: credential,
+            dialPhaseTimeout: .milliseconds(40)
+        )
+        let clock = ContinuousClock()
+        let started = clock.now
+        await #expect(throws: CmxIrohClientSessionError.dialTimedOut) {
+            try await session.connect()
+        }
+        #expect(clock.now - started < .seconds(2))
+    }
+
     @Test
     func publicDialAdmitsControlAndPreservesFollowingRPCBytes() async throws {
         let events = TestIrohEventRecorder()
