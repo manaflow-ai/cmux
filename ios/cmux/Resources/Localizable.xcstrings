@@ -7600,6 +7600,34 @@
         }
       }
     },
+    "mobile.settings.keepMacAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macをスリープさせない" } }
+      }
+    },
+    "mobile.settings.keepMacAwake.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't confirm the change on your Mac. The previous setting was restored." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macで変更を確認できませんでした。以前の設定に戻しました。" } }
+      }
+    },
+    "mobile.settings.keepMacAwake.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Prevents this Mac from sleeping while cmux is open. Its display can still turn off." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxが開いている間、このMacがスリープするのを防ぎます。ディスプレイはオフにできます。" } }
+      }
+    },
+    "mobile.settings.keepMacAwake.updateRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update cmux on this Mac to control Keep Mac Awake from iPhone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneから「Macをスリープさせない」を操作するには、このMacのcmuxをアップデートしてください。" } }
+      }
+    },
     "mobile.settings.legalSupport": {
       "extractionState": "manual",
       "localizations": {
@@ -7615,6 +7643,13 @@
             "value": "法務とサポート"
           }
         }
+      }
+    },
+    "mobile.settings.macPower": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac Power" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macの電源" } }
       }
     },
     "mobile.settings.mac": {

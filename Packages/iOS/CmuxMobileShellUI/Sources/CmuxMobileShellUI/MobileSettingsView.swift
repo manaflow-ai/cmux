@@ -146,6 +146,20 @@ struct MobileSettingsView: View {
                         }
                     }
                 }
+                if let store, store.connectionState == .connected {
+                    MobileCaffeineSettingsContent(
+                        isEnabled: store.caffeineStatus?.enabled,
+                        isSupported: store.supportsCaffeineControl,
+                        isBusy: store.isCaffeineMutationInFlight,
+                        onSet: { enabled in
+                            await store.setCaffeineEnabled(enabled)
+                        }
+                    )
+                    .task(id: caffeineLoadID) {
+                        guard store.supportsCaffeineControl else { return }
+                        await store.refreshCaffeineStatus()
+                    }
+                }
                 if hasConnectionSection {
                     Button {
                         showingSetupHelp = true
@@ -747,6 +761,15 @@ struct MobileSettingsView: View {
     /// so they are hidden.
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil
+    }
+
+    private var caffeineLoadID: String {
+        guard let store else { return "disconnected" }
+        return [
+            store.connectedMacDeviceID ?? "unknown",
+            String(store.supportsCaffeineControl),
+            String(describing: store.connectionState),
+        ].joined(separator: ":")
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
