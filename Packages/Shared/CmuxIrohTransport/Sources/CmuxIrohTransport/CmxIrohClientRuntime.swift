@@ -703,6 +703,10 @@ public actor CmxIrohClientRuntime {
     /// - Parameter deviceID: The Mac's registry device id, or `nil` to
     ///   invalidate discovery reuse for every peer.
     public func invalidateDiscoverySnapshot(forMacDeviceID deviceID: String?) async {
+        // A route push can arrive after activation but before the shell's
+        // first lookup. Do not let that lookup consume the superseded
+        // activation response while the registry invalidation is in flight.
+        initialDiscoverySnapshotAvailable = false
         await registryContextProvider?.invalidateVerifiedDiscovery(
             forDeviceID: deviceID
         )
