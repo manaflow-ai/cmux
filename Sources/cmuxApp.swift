@@ -383,6 +383,14 @@ struct cmuxApp: App {
                 ) {
                     reattachLiveTmuxSessions()
                 }
+                Button(
+                    String(
+                        localized: "menu.app.restorePreviousSessions",
+                        defaultValue: "Restore Previous Sessions…"
+                    )
+                ) {
+                    restorePreviousSessions()
+                }
             }
 
             CommandGroup(replacing: .appInfo) {
@@ -1243,6 +1251,65 @@ struct cmuxApp: App {
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         AppDelegate.shared?.recoverLiveTmuxSessions()
+    }
+
+    /// Bring back the workspaces that had an agent lane before the last shutdown.
+    ///
+    /// The reboot counterpart to `reattachLiveTmuxSessions`: that one joins tmux sessions
+    /// that are still running, this one restarts lanes whose daemons died with the machine.
+    /// Each rebuilt pane re-runs its wrapper, which resumes the conversation from the
+    /// `claude-lane` ledger.
+    private func restorePreviousSessions() {
+        let pending = AppDelegate.shared?.lanesAwaitingRestore() ?? []
+
+        let alert = NSAlert()
+        guard !pending.isEmpty else {
+            alert.messageText = String(
+                localized: "dialog.laneRestore.none.title",
+                defaultValue: "Nothing to restore"
+            )
+            alert.informativeText = String(
+                localized: "dialog.laneRestore.none.message",
+                defaultValue:
+                    "No recorded lane is waiting: either none was running when cmux last closed, or every one of them is already open."
+            )
+            alert.addButton(withTitle: String(localized: "dialog.laneRestore.ok", defaultValue: "OK"))
+            if NSApp.activationPolicy() == .regular {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            alert.runModal()
+            return
+        }
+
+        // Count and list stay outside the localized strings: interpolating into
+        // `defaultValue` turns each into a format string, which is far harder to
+        // translate correctly per-locale.
+        alert.messageText = String(
+            localized: "dialog.laneRestore.confirm.title",
+            defaultValue: "Restore previous sessions?"
+        )
+        let explanation = String(
+            localized: "dialog.laneRestore.confirm.message",
+            defaultValue:
+                "These workspaces had an agent running when cmux last closed. Restoring rebuilds each one and resumes its conversation where it left off."
+        )
+        let lines = pending.map { "\($0.lane.session)  —  \($0.workspace.title)" }
+        alert.informativeText = explanation + "\n\n" + lines.joined(separator: "\n")
+        alert.addButton(
+            withTitle: String(localized: "dialog.laneRestore.restore", defaultValue: "Restore")
+        )
+        alert.addButton(
+            withTitle: String(localized: "dialog.laneRestore.cancel", defaultValue: "Cancel")
+        )
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
+        if NSApp.activationPolicy() == .regular {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        AppDelegate.shared?.restorePreviousSessions()
     }
 
     @ViewBuilder
