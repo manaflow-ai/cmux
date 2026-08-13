@@ -112,16 +112,18 @@ source "$SCRIPT_DIR/lib/mobile-attach.sh"
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 cmux_attach_validate_dev_tag "$TAG"
 
-# Some hosted macOS runners terminate a quiet xcodebuild after a few minutes.
-# Keep the release-gate build observable without changing the build or runtime
-# timeout. The child command still owns its exit status and receives signals
-# from the parent normally.
+# Hosted logs are bounded, while a cold optimized iOS build can emit several
+# megabytes before it links. Keep the full build output on the runner, expose a
+# heartbeat to the job log, and print a bounded diagnostic tail only on failure.
+# The child command still owns its exit status and receives signals normally.
 run_build_with_heartbeat() {
   local label="$1"
   shift
-  local child_pid heartbeat_pid status
+  local child_pid heartbeat_pid status build_log
 
-  "$@" &
+  build_log="${RUNNER_TEMP:-/tmp}/cmux-iroh-${TAG}-${label}.log"
+
+  "$@" >"$build_log" 2>&1 &
   child_pid=$!
   (
     while kill -0 "$child_pid" 2>/dev/null; do
@@ -140,6 +142,13 @@ run_build_with_heartbeat() {
   fi
   kill "$heartbeat_pid" 2>/dev/null || true
   wait "$heartbeat_pid" 2>/dev/null || true
+  if [[ "$status" -ne 0 ]]; then
+    printf 'error: %s build failed with status %s; tail of %s follows\n' \
+      "$label" "$status" "$build_log" >&2
+    tail -n 240 "$build_log" >&2 || true
+  else
+    printf '==> %s build succeeded; full log: %s\n' "$label" "$build_log"
+  fi
   return "$status"
 }
 
