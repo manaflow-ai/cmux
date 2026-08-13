@@ -21,8 +21,49 @@ import Testing
             "permissionRequest", "question", "status", "attachment", "unsupported",
         ]))
         #expect(store.entries.contains(where: { $0.requiresReply && $0.isPresence }))
+        #expect(store.entries.contains(where: { entry in
+            guard entry.isPresence else { return false }
+            if case .idle = entry.state { return true }
+            return false
+        }))
+        #expect(store.entries.contains(where: { entry in
+            guard entry.isPresence else { return false }
+            if case .needsInput = entry.state { return true }
+            return false
+        }))
+        #expect(Set(store.sessions.map(\.agentKind)) == Set([.codex, .claude]))
         #expect(store.entries.contains(where: { $0.terminalBlock != nil }))
         #expect(store.attentionCount == 1)
+    }
+
+    @Test func fixtureActionsRemainInlineAndUpdateAttention() async throws {
+        let store = AgentFeedStore.fixture()
+        let pendingQuestion = try #require(store.entries.first(where: { entry in
+            guard let message = entry.message else { return false }
+            if case .question = message.kind { return true }
+            return false
+        }))
+        await store.answer(
+            optionIndex: 0,
+            in: pendingQuestion.sessionID,
+            messageID: pendingQuestion.message?.id
+        )
+        #expect(store.entries.contains(where: { entry in
+            guard let message = entry.message else { return false }
+            if case .question(let question) = message.kind {
+                return question.selectedOptionLabel != nil
+            }
+            return false
+        }))
+
+        await store.send("Ship the chosen composition", to: AgentFeedFixture.finishedSessionID)
+        #expect(store.entries.contains(where: { entry in
+            guard let message = entry.message else { return false }
+            if case .prose(let prose) = message.kind {
+                return prose.text == "Ship the chosen composition" && message.role == .user
+            }
+            return false
+        }))
     }
 
     @Test func fixtureReloadRebuildsStableIDs() {

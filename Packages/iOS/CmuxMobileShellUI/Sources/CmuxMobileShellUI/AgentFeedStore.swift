@@ -31,6 +31,10 @@ final class AgentFeedStore {
     private var stateBySessionID: [String: ChatAgentState] = [:]
     private var workspaceNamesByID: [String: String] = [:]
     private var eventTasks: [String: Task<Void, Never>] = [:]
+    /// Session ids whose first history attempt has completed, including a
+    /// failed attempt. This keeps the loading indicator honest when one
+    /// session is slow or unavailable while another has already rendered.
+    private var initialHistoryCompletedSessionIDs: Set<String> = []
     private var configurationKey = ""
     private var generation: UInt64 = 0
 
@@ -76,6 +80,7 @@ final class AgentFeedStore {
         messagesBySessionID = [:]
         terminalBlocksBySessionID = [:]
         streamingBySessionID = [:]
+        initialHistoryCompletedSessionIDs = []
         stateBySessionID = Dictionary(uniqueKeysWithValues: orderedSessions.map { ($0.id, $0.state) })
         lastError = nil
         rebuildEntries()
@@ -127,6 +132,7 @@ final class AgentFeedStore {
             terminalBlocksBySessionID.removeValue(forKey: sessionID)
             streamingBySessionID.removeValue(forKey: sessionID)
             stateBySessionID.removeValue(forKey: sessionID)
+            initialHistoryCompletedSessionIDs.remove(sessionID)
         }
 
         let currentIDs = Set(descriptorsByID.keys)
@@ -147,7 +153,7 @@ final class AgentFeedStore {
                 generation: currentGeneration
             )
         }
-        isLoading = ordered.contains { eventTasks[$0.id] != nil && messagesBySessionID[$0.id] == nil }
+        isLoading = !Set(ordered.map(\.id)).isSubset(of: initialHistoryCompletedSessionIDs)
     }
 
     func loadFixture() {
@@ -158,21 +164,18 @@ final class AgentFeedStore {
         isFixture = true
         isLoading = false
         lastError = nil
-        sessions = [AgentFeedFixture.descriptor]
-        descriptorsByID = [AgentFeedFixture.sessionID: AgentFeedFixture.descriptor]
-        workspaceNamesByID = [AgentFeedFixture.workspaceID: "cmux mobile"]
-        messagesBySessionID = [
-            AgentFeedFixture.sessionID: Dictionary(
-                uniqueKeysWithValues: AgentFeedFixture.messages.map { ($0.id, $0) }
-            ),
-        ]
-        terminalBlocksBySessionID = [
-            AgentFeedFixture.sessionID: Dictionary(
-                uniqueKeysWithValues: AgentFeedFixture.terminalBlocks.map { ($0.id, $0) }
-            ),
-        ]
+        sessions = AgentFeedFixture.descriptors
+        descriptorsByID = Dictionary(uniqueKeysWithValues: AgentFeedFixture.descriptors.map { ($0.id, $0) })
+        workspaceNamesByID = AgentFeedFixture.workspaceNames
+        messagesBySessionID = AgentFeedFixture.messagesBySessionID.mapValues { messages in
+            Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        }
+        terminalBlocksBySessionID = AgentFeedFixture.terminalBlocksBySessionID.mapValues { blocks in
+            Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
+        }
         streamingBySessionID = [:]
-        stateBySessionID = [AgentFeedFixture.sessionID: AgentFeedFixture.descriptor.state]
+        initialHistoryCompletedSessionIDs = Set(AgentFeedFixture.descriptors.map(\.id))
+        stateBySessionID = Dictionary(uniqueKeysWithValues: AgentFeedFixture.descriptors.map { ($0.id, $0.state) })
         rebuildEntries()
     }
 
@@ -203,6 +206,7 @@ final class AgentFeedStore {
     }
 
     func answer(optionIndex: Int, in sessionID: String, messageID: String? = nil) async {
+        guard optionIndex >= 0 else { return }
         guard let source else {
             guard isFixture else { return }
             answerFixture(optionIndex: optionIndex, sessionID: sessionID, messageID: messageID)
@@ -269,6 +273,7 @@ final class AgentFeedStore {
         let updatedKind: ChatMessageKind?
         switch pending.kind {
         case .permissionRequest(let request):
+            guard optionIndex <= 1 else { return }
             updatedKind = .permissionRequest(ChatPermissionRequest(
                 title: request.title,
                 subject: request.subject,
@@ -324,6 +329,11 @@ final class AgentFeedStore {
     ) {
         let sessionID = descriptor.id
         let task = Task { [weak self] in
+            // Subscribe before fetching history. AsyncStream buffers frames
+            // while the RPC is in flight, so a fast agent turn cannot fall
+            // into a history/follow gap.
+            let stream = await source.events(sessionID: sessionID)
+            guard !Task.isCancelled else { return }
             do {
                 let page = try await source.history(
                     sessionID: sessionID,
@@ -334,17 +344,22 @@ final class AgentFeedStore {
                 self?.apply(history: page, for: descriptor, generation: generation)
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.record(error: error, generation: generation)
+                self?.record(error: error, sessionID: sessionID, generation: generation)
             }
 
             guard !Task.isCancelled else { return }
-            let stream = await source.events(sessionID: sessionID)
             for await event in stream {
                 guard !Task.isCancelled else { return }
                 self?.apply(event: event, sessionID: sessionID, generation: generation)
             }
+            self?.subscriptionFinished(sessionID: sessionID, generation: generation)
         }
         eventTasks[sessionID] = task
+    }
+
+    private func subscriptionFinished(sessionID: String, generation: UInt64) {
+        guard generation == self.generation else { return }
+        eventTasks.removeValue(forKey: sessionID)
     }
 
     private func apply(
@@ -353,15 +368,16 @@ final class AgentFeedStore {
         generation: UInt64
     ) {
         guard generation == self.generation else { return }
-        messagesBySessionID[descriptor.id] = Dictionary(
-            uniqueKeysWithValues: history.messages.map { ($0.id, $0) }
-        )
+        var messages = messagesBySessionID[descriptor.id] ?? [:]
+        for message in history.messages { messages[message.id] = message }
+        messagesBySessionID[descriptor.id] = messages
         if let blocks = history.terminalBlocks {
-            terminalBlocksBySessionID[descriptor.id] = Dictionary(
-                uniqueKeysWithValues: blocks.map { ($0.id, $0) }
-            )
+            var terminalBlocks = terminalBlocksBySessionID[descriptor.id] ?? [:]
+            for block in blocks { terminalBlocks[block.id] = block }
+            terminalBlocksBySessionID[descriptor.id] = terminalBlocks
         }
-        isLoading = eventTasks.count < sessions.count
+        initialHistoryCompletedSessionIDs.insert(descriptor.id)
+        isLoading = !Set(sessions.map(\.id)).isSubset(of: initialHistoryCompletedSessionIDs)
         rebuildEntries()
     }
 
@@ -374,7 +390,14 @@ final class AgentFeedStore {
         switch event {
         case .appended(let messages), .updated(let messages):
             var values = messagesBySessionID[sessionID] ?? [:]
-            for message in messages { values[message.id] = message }
+            for message in messages {
+                values[message.id] = message
+                if message.role == .agent, case .prose = message.kind {
+                    // The host's authoritative transcript supersedes the
+                    // transient screen scrape as soon as it lands.
+                    streamingBySessionID[sessionID] = nil
+                }
+            }
             messagesBySessionID[sessionID] = values
         case .stateChanged(let state):
             stateBySessionID[sessionID] = state
@@ -401,13 +424,14 @@ final class AgentFeedStore {
         case .unknown:
             break
         }
-        isLoading = false
+        isLoading = !Set(sessions.map(\.id)).isSubset(of: initialHistoryCompletedSessionIDs)
         rebuildEntries()
     }
 
-    private func record(error: any Error, generation: UInt64) {
+    private func record(error: any Error, sessionID: String, generation: UInt64) {
         guard generation == self.generation else { return }
-        isLoading = false
+        initialHistoryCompletedSessionIDs.insert(sessionID)
+        isLoading = !Set(sessions.map(\.id)).isSubset(of: initialHistoryCompletedSessionIDs)
         lastError = error.localizedDescription
         rebuildEntries()
     }

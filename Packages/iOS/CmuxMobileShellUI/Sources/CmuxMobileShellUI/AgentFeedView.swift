@@ -46,7 +46,9 @@ struct AgentFeedView: View {
     var body: some View {
         VStack(spacing: 0) {
             feedHeader
-            if store.entries.isEmpty, !store.isLoading {
+            if store.isLoading, store.entries.isEmpty {
+                loadingState
+            } else if filteredEntries.isEmpty {
                 emptyState
             } else {
                 timeline
@@ -165,8 +167,12 @@ struct AgentFeedView: View {
                         onInspect: { detail in
                             selectedDetail = detail
                         },
-                        onOpenWorkspace: { onOpenWorkspace(entry) },
-                        onOpenTerminal: { onOpenTerminal(entry) }
+                        onOpenWorkspace: entry.workspaceID == nil
+                            ? nil
+                            : { onOpenWorkspace(entry) },
+                        onOpenTerminal: entry.workspaceID == nil || entry.terminalID == nil
+                            ? nil
+                            : { onOpenTerminal(entry) }
                     )
                     .padding(.horizontal, 14)
                 }
@@ -199,6 +205,22 @@ struct AgentFeedView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.large)
+                .tint(variantAccent)
+            Text(L10n.string(
+                "mobile.feed.loading",
+                defaultValue: "Loading agent activity…"
+            ))
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("AgentFeedLoading")
     }
 
     private var composer: some View {
@@ -288,8 +310,8 @@ private struct AgentFeedCard: View {
     let onInterrupt: () -> Void
     let onReply: () -> Void
     let onInspect: (AgentFeedDetail) -> Void
-    let onOpenWorkspace: () -> Void
-    let onOpenTerminal: () -> Void
+    let onOpenWorkspace: (() -> Void)?
+    let onOpenTerminal: (() -> Void)?
 
     var body: some View {
         switch variant {
@@ -435,8 +457,8 @@ private struct AgentFeedPrimitiveView: View {
     let onInterrupt: () -> Void
     let onReply: () -> Void
     let onInspect: (AgentFeedDetail) -> Void
-    let onOpenWorkspace: () -> Void
-    let onOpenTerminal: () -> Void
+    let onOpenWorkspace: (() -> Void)?
+    let onOpenTerminal: (() -> Void)?
 
     var body: some View {
         switch entry.content {
@@ -457,11 +479,14 @@ private struct AgentFeedPrimitiveView: View {
                 actionRow(copyText: prose.text)
             }
         case .thought(let thought):
-            disclosureRow(
-                title: L10n.string("mobile.feed.primitive.thought", defaultValue: "Thought"),
-                symbol: "brain.head.profile",
-                text: thought.text
-            )
+            VStack(alignment: .leading, spacing: 9) {
+                disclosureRow(
+                    title: L10n.string("mobile.feed.primitive.thought", defaultValue: "Thought"),
+                    symbol: "brain.head.profile",
+                    text: thought.text
+                )
+                actionRow(copyText: thought.text)
+            }
         case .toolUse(let tool):
             VStack(alignment: .leading, spacing: 8) {
                 Label(tool.toolName, systemImage: "wrench.and.screwdriver")
@@ -474,13 +499,15 @@ private struct AgentFeedPrimitiveView: View {
                     primitiveButton("mobile.feed.action.inspect", fallback: "Inspect", symbol: "arrow.up.right.square") {
                         onInspect(AgentFeedDetail(title: tool.toolName, body: [tool.inputDetail, tool.output].compactMap { $0 }.joined(separator: "\n\n")))
                     }
-                    if let path = tool.referencedPaths?.first {
+                    if let path = tool.referencedPaths?.first,
+                       let onOpenWorkspace {
                         primitiveButton("mobile.feed.action.openWorkspace", fallback: "Open workspace", symbol: "rectangle.stack") {
                             onOpenWorkspace()
                         }
                         .accessibilityHint(Text(path))
                     }
                 }
+                actionRow(copyText: tool.output ?? tool.summary)
             }
         case .terminal(let terminal):
             VStack(alignment: .leading, spacing: 8) {
@@ -490,15 +517,13 @@ private struct AgentFeedPrimitiveView: View {
                     Text(output).font(.caption.monospaced()).lineLimit(8).textSelection(.enabled)
                 }
                 HStack {
-                    primitiveButton("mobile.feed.action.openTerminal", fallback: "Open terminal", symbol: "rectangle.split.3x1") {
-                        onOpenTerminal()
-                    }
-                    if let output = terminal.output {
-                        primitiveButton("mobile.feed.action.copy", fallback: "Copy", symbol: "doc.on.doc") {
-                            UIPasteboard.general.string = output
+                    if let onOpenTerminal {
+                        primitiveButton("mobile.feed.action.openTerminal", fallback: "Open terminal", symbol: "rectangle.split.3x1") {
+                            onOpenTerminal()
                         }
                     }
                 }
+                actionRow(copyText: [terminal.command, terminal.output].compactMap { $0 }.joined(separator: "\n"))
             }
         case .fileEdit(let edit):
             VStack(alignment: .leading, spacing: 8) {
@@ -513,6 +538,7 @@ private struct AgentFeedPrimitiveView: View {
                         onInspect(AgentFeedDetail(title: edit.filePath, body: edit.unifiedDiff ?? L10n.string("mobile.feed.diffUnavailable", defaultValue: "Diff unavailable")))
                     }
                 }
+                actionRow(copyText: edit.unifiedDiff ?? edit.filePath)
             }
         case .permissionRequest(let request):
             VStack(alignment: .leading, spacing: 9) {
@@ -527,12 +553,13 @@ private struct AgentFeedPrimitiveView: View {
                         primitiveButton("mobile.feed.action.deny", fallback: "Deny", symbol: "xmark") { onAnswer(1) }
                     }
                 }
+                actionRow(copyText: request.subject)
             }
         case .question(let question):
             VStack(alignment: .leading, spacing: 9) {
                 Label(question.prompt, systemImage: "questionmark.bubble")
                     .font(.subheadline.weight(.semibold))
-                ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
+                ForEach(Array(question.options.enumerated()), id: \.element.id) { index, option in
                     Button {
                         onAnswer(index)
                     } label: {
@@ -549,22 +576,33 @@ private struct AgentFeedPrimitiveView: View {
                     .buttonStyle(.plain)
                     .disabled(question.selectedOptionLabel != nil)
                 }
-                primitiveButton("mobile.feed.action.reply", fallback: "Reply", symbol: "arrow.turn.up.left") { onReply() }
+                actionRow(copyText: question.prompt)
             }
         case .status(let status):
-            Label(statusLabel(status), systemImage: statusSymbol(status))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-        case .attachment(let attachment):
-            Button {
-                onInspect(AgentFeedDetail(
-                    title: attachment.displayName ?? L10n.string("mobile.feed.attachment.title", defaultValue: "Attachment"),
-                    body: attachment.hostPath ?? L10n.string("mobile.feed.attachment.noPath", defaultValue: "Attachment metadata only")
-                ))
-            } label: {
-                Label(attachment.displayName ?? L10n.string("mobile.feed.attachment.file", defaultValue: "Attached file"), systemImage: attachment.media == .image ? "photo" : "paperclip")
+            VStack(alignment: .leading, spacing: 8) {
+                Label(statusLabel(status), systemImage: statusSymbol(status))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                if let detail = status.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                actionRow(copyText: status.detail ?? statusLabel(status))
             }
-            .buttonStyle(.bordered)
+        case .attachment(let attachment):
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    onInspect(AgentFeedDetail(
+                        title: attachment.displayName ?? L10n.string("mobile.feed.attachment.title", defaultValue: "Attachment"),
+                        body: attachment.hostPath ?? L10n.string("mobile.feed.attachment.noPath", defaultValue: "Attachment metadata only")
+                    ))
+                } label: {
+                    Label(attachment.displayName ?? L10n.string("mobile.feed.attachment.file", defaultValue: "Attached file"), systemImage: attachment.media == .image ? "photo" : "paperclip")
+                }
+                .buttonStyle(.bordered)
+                actionRow(copyText: attachment.hostPath ?? attachment.displayName)
+            }
         case .unsupported(let payload):
             VStack(alignment: .leading, spacing: 7) {
                 Label(L10n.string("mobile.feed.primitive.unsupported", defaultValue: "Unsupported coding event"), systemImage: "questionmark.square.dashed")
@@ -572,6 +610,7 @@ private struct AgentFeedPrimitiveView: View {
                 primitiveButton("mobile.feed.action.inspect", fallback: "Inspect", symbol: "arrow.up.right.square") {
                     onInspect(AgentFeedDetail(title: payload.rawType, body: L10n.string("mobile.feed.unsupportedBody", defaultValue: "This event came from a newer agent runtime.")))
                 }
+                actionRow(copyText: payload.rawType)
             }
         }
     }
@@ -584,9 +623,11 @@ private struct AgentFeedPrimitiveView: View {
                 Text(block.output).font(.caption.monospaced()).lineLimit(8).textSelection(.enabled)
             }
             HStack {
-                primitiveButton("mobile.feed.action.openTerminal", fallback: "Open terminal", symbol: "rectangle.split.3x1") { onOpenTerminal() }
-                primitiveButton("mobile.feed.action.copy", fallback: "Copy", symbol: "doc.on.doc") { UIPasteboard.general.string = block.output }
+                if let onOpenTerminal {
+                    primitiveButton("mobile.feed.action.openTerminal", fallback: "Open terminal", symbol: "rectangle.split.3x1") { onOpenTerminal() }
+                }
             }
+            actionRow(copyText: [block.command, block.output].filter { !$0.isEmpty }.joined(separator: "\n"))
         }
     }
 
@@ -628,12 +669,14 @@ private struct AgentFeedPrimitiveView: View {
         }
     }
 
-    private func actionRow(copyText: String) -> some View {
+    private func actionRow(copyText: String? = nil) -> some View {
         HStack {
             primitiveButton("mobile.feed.action.reply", fallback: "Reply", symbol: "arrow.turn.up.left") { onReply() }
-            primitiveButton("mobile.feed.action.copy", fallback: "Copy", symbol: "doc.on.doc") { UIPasteboard.general.string = copyText }
+            if let copyText, !copyText.isEmpty {
+                primitiveButton("mobile.feed.action.copy", fallback: "Copy", symbol: "doc.on.doc") { UIPasteboard.general.string = copyText }
+            }
             Spacer()
-            if entry.message?.role == .agent, case .working = entry.state {
+            if (entry.message?.role == .agent || entry.terminalBlock != nil), case .working = entry.state {
                 primitiveButton("mobile.feed.action.stop", fallback: "Stop", symbol: "stop.circle") { onInterrupt() }
             }
         }

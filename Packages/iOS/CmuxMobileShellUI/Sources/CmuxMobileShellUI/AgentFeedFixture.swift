@@ -5,21 +5,37 @@ import Foundation
 /// Stable content used by CMUX Labs and UI previews. It deliberately includes
 /// every wire primitive so a visual variant cannot hide an unsupported card.
 enum AgentFeedFixture {
-    static let referenceDate = Date(timeIntervalSince1970: 1_770_000_000)
+    static let referenceDate = Date(timeIntervalSince1970: 1_786_000_000)
     static let sessionID = "feed-lab-session"
-    static let workspaceID = "feed-lab-workspace"
     static let terminalID = "feed-lab-terminal"
+    static let finishedSessionID = "feed-lab-finished-session"
+    static let finishedTerminalID = "feed-lab-finished-terminal"
 
     static let descriptor = ChatSessionDescriptor(
         id: sessionID,
         agentKind: .codex,
         title: "Refactor the mobile shell",
-        workspaceID: workspaceID,
+        workspaceID: nil,
         terminalID: terminalID,
-        workingDirectory: "/Users/aziz/cmux",
+        workingDirectory: "cmux mobile",
         state: .needsInput(since: referenceDate.addingTimeInterval(600)),
         lastActivityAt: referenceDate.addingTimeInterval(720)
     )
+
+    /// A second agent keeps the lab honest about the cross-agent timeline and
+    /// gives the finished-turn state a real card beside the needs-input card.
+    static let finishedDescriptor = ChatSessionDescriptor(
+        id: finishedSessionID,
+        agentKind: .claude,
+        title: "Polish the release notes",
+        workspaceID: nil,
+        terminalID: finishedTerminalID,
+        workingDirectory: "release desk",
+        state: .idle,
+        lastActivityAt: referenceDate.addingTimeInterval(1_080)
+    )
+
+    static let descriptors: [ChatSessionDescriptor] = [descriptor, finishedDescriptor]
 
     static let messages: [ChatMessage] = [
         message(1, role: .user, kind: .prose(ChatProse(text: "Can you make the Feed feel like a first-class coding surface?"))),
@@ -71,6 +87,33 @@ enum AgentFeedFixture {
         message(11, role: .agent, kind: .unsupported(ChatUnsupportedPayload(rawType: "future_artifact")))
     ]
 
+    static let finishedMessages: [ChatMessage] = [
+        message(
+            1,
+            role: .user,
+            kind: .prose(ChatProse(text: "Tighten the release-note wording and check the final diff.")),
+            sessionID: finishedSessionID
+        ),
+        message(
+            2,
+            role: .agent,
+            kind: .prose(ChatProse(text: "The release notes are polished and the final diff is ready for your review.")),
+            sessionID: finishedSessionID
+        ),
+        message(
+            3,
+            role: .agent,
+            kind: .fileEdit(ChatFileEdit(
+                filePath: "CHANGELOG.md",
+                operation: .edit,
+                additions: 6,
+                deletions: 2,
+                unifiedDiff: "@@ -1,2 +1,6 @@\n+## Next\n+\n+- Feed variants documented"
+            )),
+            sessionID: finishedSessionID
+        ),
+    ]
+
     static let terminalBlocks: [TerminalCommandBlock] = [
         TerminalCommandBlock(
             id: 1,
@@ -81,49 +124,25 @@ enum AgentFeedFixture {
         )
     ]
 
-    static func entries() -> [AgentFeedEntry] {
-        let messageEntries = messages.map { message in
-            AgentFeedEntry(
-                id: "fixture-\(message.id)",
-                sessionID: sessionID,
-                workspaceID: workspaceID,
-                workspaceName: "cmux mobile",
-                terminalID: terminalID,
-                agentName: descriptor.agentKind.displayName,
-                sessionTitle: descriptor.title,
-                timestamp: message.timestamp,
-                state: descriptor.state,
-                content: .message(message),
-                requiresReply: message.id == "fixture-7" || message.id == "fixture-8",
-                isStreaming: false
-            )
-        }
-        let terminalEntries = terminalBlocks.map { block in
-            AgentFeedEntry(
-                id: "fixture-terminal-\(block.id)",
-                sessionID: sessionID,
-                workspaceID: workspaceID,
-                workspaceName: "cmux mobile",
-                terminalID: terminalID,
-                agentName: "Shell",
-                sessionTitle: "Terminal command log",
-                timestamp: referenceDate.addingTimeInterval(900),
-                state: .idle,
-                content: .terminalBlock(block),
-                requiresReply: false,
-                isStreaming: false
-            )
-        }
-        return messageEntries + terminalEntries
-    }
+    static let messagesBySessionID: [String: [ChatMessage]] = [
+        sessionID: messages,
+        finishedSessionID: finishedMessages,
+    ]
+
+    static let terminalBlocksBySessionID: [String: [TerminalCommandBlock]] = [
+        sessionID: terminalBlocks,
+    ]
+
+    static let workspaceNames: [String: String] = [:]
 
     private static func message(
         _ seq: Int,
         role: ChatRole,
-        kind: ChatMessageKind
+        kind: ChatMessageKind,
+        sessionID: String = Self.sessionID
     ) -> ChatMessage {
         ChatMessage(
-            id: "fixture-\(seq)",
+            id: "\(sessionID)-\(seq)",
             seq: seq,
             role: role,
             timestamp: referenceDate.addingTimeInterval(Double(seq) * 60),
