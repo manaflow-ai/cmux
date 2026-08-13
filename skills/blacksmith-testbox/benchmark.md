@@ -152,8 +152,18 @@ cleanup() {
     scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" PREVIEW
     preview_status=$?
     if (( preview_status == 75 )); then
-      preview_sha="$(sha256sum "$OUT/cleanup-preview.json" | awk '{print $1}')"
-      scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" "STOP:$preview_sha"
+      if command -v sha256sum >/dev/null; then
+        preview_sha="$(sha256sum "$OUT/cleanup-preview.json" | awk '{print $1}')"
+      elif command -v shasum >/dev/null; then
+        preview_sha="$(shasum -a 256 "$OUT/cleanup-preview.json" | awk '{print $1}')"
+      else
+        echo "no SHA-256 utility available for cleanup preview" >&2
+        cleanup_status=65
+        preview_sha=""
+      fi
+      if [[ -n "$preview_sha" ]]; then
+        scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" "STOP:$preview_sha"
+      fi
       cleanup_status=$?
     else
       cleanup_status="$preview_status"
@@ -329,7 +339,8 @@ run_stage() {
   # stage immediately, before starting another stage.
   : >"$OUT/$stage.download.log"
   for suffix in json time log; do
-    if ! blacksmith testbox download --id "$TBX" \
+    if ! ./scripts/blacksmith-bounded-command.sh 120 \
+      blacksmith testbox download --id "$TBX" \
       "testbox-benchmark/$stage.$suffix" "$OUT/raw/$stage.$suffix" \
       >>"$OUT/$stage.download.log" 2>&1; then
       download_status=1

@@ -213,7 +213,8 @@ run_stage() {
   # files, so a one-time download after all stages is insufficient.
   : >"$OUT/$stage.download.log"
   for suffix in json time log; do
-    if ! blacksmith testbox download --id "$TBX" \
+    if ! ./scripts/blacksmith-bounded-command.sh 120 \
+      blacksmith testbox download --id "$TBX" \
       "testbox-benchmark/$stage.$suffix" "$OUT/raw/$stage.$suffix" \
       >>"$OUT/$stage.download.log" 2>&1; then
       download_status=1
