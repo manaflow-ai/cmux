@@ -45,6 +45,8 @@ SWIFT_FRONTEND_WORKAROUND=0
 XCODEBUILD_STARTED=0
 XCODEBUILD_OUTPUT_VALID=0
 XCODEBUILD_CLEANED_OUTPUTS=0
+CAN_PUBLISH_RELOAD_STATE=1
+RELOAD_PUBLICATION_SKIP_REASON=""
 
 reload_socket_is_live() {
   local socket_path="$1"
@@ -59,13 +61,66 @@ reload_socket_is_live() {
   return 1
 }
 
-reload_cleanup_socket_with_lock() {
+reload_cleanup_tag_state_with_lock() {
   local socket_path="$1"
+  local slug="$2"
+  local marker_path="$3"
+  local legacy_marker_path="$4"
+  local tmp_marker="$5"
+  local pointer_path="$6"
   local lock_path="${socket_path}.lock"
   perl -MFcntl=:DEFAULT -MFcntl=:flock -MSocket -MErrno=EEXIST,ECONNREFUSED,ENOENT -e '
-    my ($socket_path, $lock_path) = @ARGV;
+    my ($socket_path, $lock_path, $slug, @discovery_paths) = @ARGV;
+    my $pointer_path = pop @discovery_paths;
     my $created_lock = 0;
     my $fh;
+
+    sub current_path_matches_handle {
+      my ($path, $before) = @_;
+      my @after = lstat($path);
+      return @after && $before->[0] == $after[0] && $before->[1] == $after[1];
+    }
+
+    sub unlink_created_lock {
+      my ($path, $handle_stat, $created) = @_;
+      unlink($path) if $created && current_path_matches_handle($path, $handle_stat);
+    }
+
+    sub read_owned_discovery_file {
+      my ($path) = @_;
+      sysopen(my $read_fh, $path, O_RDONLY | O_NOFOLLOW) or return;
+      my @identity = stat($read_fh);
+      unless (@identity && (($identity[2] & 0170000) == 0100000)
+          && $identity[4] == $< && $identity[3] == 1
+          && $identity[7] >= 0 && $identity[7] <= 4096) {
+        close($read_fh);
+        return;
+      }
+      my $value = "";
+      my $count = sysread($read_fh, $value, 4097);
+      close($read_fh);
+      return unless defined($count) && $count <= 4096;
+      $value =~ s/^\s+|\s+$//g;
+      return (\@identity, $value);
+    }
+
+    sub clear_matching_discovery_file {
+      my ($path, $expected, $is_suffix) = @_;
+      my ($before, $value) = read_owned_discovery_file($path);
+      return 1 unless $before;
+      my $matches = $is_suffix
+        ? length($value) >= length($expected) && substr($value, -length($expected)) eq $expected
+        : $value eq $expected;
+      return 1 unless $matches;
+
+      my ($after, $current) = read_owned_discovery_file($path);
+      return 0 unless $after && $before->[0] == $after->[0] && $before->[1] == $after->[1];
+      my $still_matches = $is_suffix
+        ? length($current) >= length($expected) && substr($current, -length($expected)) eq $expected
+        : $current eq $expected;
+      return 0 unless $still_matches;
+      return unlink($path) || $! == ENOENT;
+    }
 
     # Claim the lock inode before unlinking anything. If a replacement listener
     # follows the same protocol, either it owns this lock or we do; there is no
@@ -103,12 +158,7 @@ reload_cleanup_socket_with_lock() {
       }
     }
     if ($socket_live) {
-      if ($created_lock) {
-        my @current_lock_stat = lstat($lock_path);
-        unlink($lock_path) if @current_lock_stat
-            && $current_lock_stat[0] == $lock_stat[0]
-            && $current_lock_stat[1] == $lock_stat[1];
-      }
+      unlink_created_lock($lock_path, \@lock_stat, $created_lock);
       flock($fh, LOCK_UN);
       close($fh);
       exit 1;
@@ -120,7 +170,7 @@ reload_cleanup_socket_with_lock() {
     if (@socket_stat) {
       unless (($socket_stat[2] & 0170000) == 0140000 && $socket_stat[4] == $<
           && $socket_stat[3] == 1) {
-        unlink($lock_path) if $created_lock;
+        unlink_created_lock($lock_path, \@lock_stat, $created_lock);
         flock($fh, LOCK_UN);
         close($fh);
         exit 1;
@@ -134,6 +184,23 @@ reload_cleanup_socket_with_lock() {
           exit 1;
         };
       }
+    }
+
+    # Marker and pointer cleanup stays inside the same lock ownership window.
+    # A replacement listener cannot publish new state until every conditional
+    # removal has finished.
+    for my $marker (@discovery_paths) {
+      unless (clear_matching_discovery_file($marker, $socket_path, 0)) {
+        flock($fh, LOCK_UN);
+        close($fh);
+        exit 1;
+      }
+    }
+    my $cli_suffix = "/cmux DEV ${slug}.app/Contents/Resources/bin/cmux";
+    unless (clear_matching_discovery_file($pointer_path, $cli_suffix, 1)) {
+      flock($fh, LOCK_UN);
+      close($fh);
+      exit 1;
     }
 
     # Do not unlink a lock pathname that was replaced while we held the old
@@ -150,45 +217,7 @@ reload_cleanup_socket_with_lock() {
     flock($fh, LOCK_UN);
     close($fh);
     exit 0;
-  ' "$socket_path" "$lock_path" >/dev/null 2>&1
-}
-
-reload_clear_matching_marker() {
-  local marker_path="$1"
-  local socket_path="$2"
-  [[ -f "$marker_path" && ! -L "$marker_path" ]] || return 0
-  perl -MFcntl=:DEFAULT -e '
-    my ($path, $expected) = @ARGV;
-    sysopen(my $fh, $path, O_RDONLY | O_NOFOLLOW) or exit 0;
-    my @before = stat($fh);
-    exit 0 unless @before && (($before[2] & 0170000) == 0100000) && $before[4] == $< && $before[3] == 1;
-    local $/;
-    my $value = <$fh> // "";
-    $value =~ s/^\s+|\s+$//g;
-    exit 0 unless $value eq $expected;
-    my @after = lstat($path);
-    exit 0 unless @after && $before[0] == $after[0] && $before[1] == $after[1];
-    unlink($path) or exit($! == 2 ? 0 : 1);
-  ' "$marker_path" "$socket_path" >/dev/null 2>&1 || true
-}
-
-reload_clear_matching_pointer() {
-  local pointer_path="$1"
-  local expected_path="$2"
-  [[ -f "$pointer_path" && ! -L "$pointer_path" ]] || return 0
-  perl -MFcntl=:DEFAULT -e '
-    my ($path, $expected) = @ARGV;
-    sysopen(my $fh, $path, O_RDONLY | O_NOFOLLOW) or exit 0;
-    my @before = stat($fh);
-    exit 0 unless @before && (($before[2] & 0170000) == 0100000) && $before[4] == $< && $before[3] == 1;
-    local $/;
-    my $value = <$fh> // "";
-    $value =~ s/^\s+|\s+$//g;
-    exit 0 unless $value eq $expected;
-    my @after = lstat($path);
-    exit 0 unless @after && $before[0] == $after[0] && $before[1] == $after[1];
-    unlink($path) or exit($! == 2 ? 0 : 1);
-  ' "$pointer_path" "$expected_path" >/dev/null 2>&1 || true
+  ' "$socket_path" "$lock_path" "$slug" "$marker_path" "$legacy_marker_path" "$tmp_marker" "$pointer_path" >/dev/null 2>&1
 }
 
 cleanup_stale_tag_state() {
@@ -204,26 +233,22 @@ cleanup_stale_tag_state() {
   if reload_socket_is_live "$socket_path"; then
     return 1
   fi
-  reload_cleanup_socket_with_lock "$socket_path" || return 1
-  reload_clear_matching_marker "$marker_path" "$socket_path"
-  reload_clear_matching_marker "$legacy_marker_path" "$socket_path"
-  reload_clear_matching_marker "$tmp_marker" "$socket_path"
-
   local pointer_path="/tmp/cmux-last-cli-path"
-  local pointer_value=""
-  if [[ -f "$pointer_path" && ! -L "$pointer_path" ]]; then
-    pointer_value="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$pointer_path" 2>/dev/null || true)"
-    if [[ "$pointer_value" == *"/cmux DEV ${slug}.app/Contents/Resources/bin/cmux" ]]; then
-      reload_clear_matching_pointer "$pointer_path" "$pointer_value"
-    fi
-  fi
+  reload_cleanup_tag_state_with_lock \
+    "$socket_path" \
+    "$slug" \
+    "$marker_path" \
+    "$legacy_marker_path" \
+    "$tmp_marker" \
+    "$pointer_path"
 }
 
 cleanup_stale_cli_pointer_target() {
   local pointer_path="/tmp/cmux-last-cli-path"
   [[ -f "$pointer_path" && ! -L "$pointer_path" ]] || return 0
   local cli_path=""
-  cli_path="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$pointer_path" 2>/dev/null || true)"
+  cli_path="$(LC_ALL=C /usr/bin/head -c 4097 "$pointer_path" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' || true)"
+  (( ${#cli_path} <= 4096 )) || return 0
   [[ -n "$cli_path" ]] || return 0
   local bundle_path=""
   case "$cli_path" in
@@ -247,20 +272,46 @@ cleanup_stale_cli_pointer_target() {
   cleanup_stale_tag_state "$slug" "${socket_path:-/tmp/cmux-debug-${slug}.sock}"
 }
 
-wait_for_tag_instance_exit() {
-  local app_name="$1"
-  local attempts=0
-  # The app's termination path removes its lock/markers synchronously, but
-  # AppKit may take a few seconds to finish its terminate-later cleanup. Do not
-  # publish a replacement pointer while the old process can still erase it.
-  while pgrep -f "${app_name}.app/Contents/MacOS/${BASE_APP_NAME}" >/dev/null 2>&1; do
-    if (( attempts >= 100 )); then
-      return 1
-    fi
-    attempts=$((attempts + 1))
-    sleep 0.1
-  done
-  return 0
+wait_for_tag_socket_lock_release() {
+  local socket_path="$1"
+  local lock_path="${socket_path}.lock"
+  if ! command -v perl >/dev/null 2>&1; then
+    RELOAD_PUBLICATION_SKIP_REASON="socket lock wait unavailable because perl was not found"
+    return 1
+  fi
+
+  local wait_status=0
+  if perl -MFcntl=:DEFAULT -MFcntl=:flock -MErrno=ENOENT -e '
+    my ($lock_path) = @ARGV;
+    sysopen(my $fh, $lock_path, O_RDWR | O_NOFOLLOW) or exit($! == ENOENT ? 0 : 4);
+    my @before = stat($fh);
+    exit 3 unless @before && (($before[2] & 0170000) == 0100000)
+        && $before[4] == $< && $before[3] == 1;
+    $SIG{ALRM} = sub { exit 2 };
+    alarm 10;
+    flock($fh, LOCK_EX) or exit 4;
+    alarm 0;
+    my @after = lstat($lock_path);
+    # A clean app stop unlinks the lock pathname before releasing this inode.
+    # Absence therefore proves teardown completed; a different inode means a
+    # replacement instance claimed the tag and must block publication.
+    exit 3 if !@after && $! != ENOENT;
+    exit 3 if @after && ($before[0] != $after[0] || $before[1] != $after[1]);
+    flock($fh, LOCK_UN);
+    close($fh);
+    exit 0;
+  ' "$lock_path" >/dev/null 2>&1; then
+    return 0
+  else
+    wait_status=$?
+  fi
+
+  case "$wait_status" in
+    2) RELOAD_PUBLICATION_SKIP_REASON="timed out waiting for the previous tag socket lock to be released" ;;
+    3) RELOAD_PUBLICATION_SKIP_REASON="tag socket lock identity changed while waiting for teardown" ;;
+    *) RELOAD_PUBLICATION_SKIP_REASON="could not acquire the previous tag socket lock (status ${wait_status})" ;;
+  esac
+  return 1
 }
 
 should_skip_ghostty_cli_helper_zig_build() {
@@ -360,8 +411,10 @@ bundle_socket_path() {
 live_cli_bundle() {
   local cli_path="\$1"
   [[ -f "\$cli_path" && -x "\$cli_path" && "\$cli_path" != "\$0" ]] || return 1
-  local bundle_path="\$(cli_bundle_for_path "\$cli_path")" || return 1
-  local socket_path="\$(bundle_socket_path "\$bundle_path")" || return 1
+  local bundle_path=""
+  bundle_path="\$(cli_bundle_for_path "\$cli_path")" || return 1
+  local socket_path=""
+  socket_path="\$(bundle_socket_path "\$bundle_path")" || return 1
   socket_is_live "\$socket_path" || return 1
   printf '%s\\n' "\$bundle_path"
 }
@@ -386,10 +439,21 @@ if [[ -n "\$SOCKET_ARG" ]]; then
 fi
 if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
   # Inherited terminal identity is authoritative when the caller explicitly
-  # supplied a socket. For ambient calls, require the bundled instance to be
-  # live before delegating; otherwise continue to the reload pointer/stable
-  # fallback just like the pointer path below.
-  if [[ "\$HAS_EXPLICIT_SOCKET" == "1" ]] || live_cli_bundle "\$CMUX_BUNDLED_CLI_PATH" >/dev/null; then
+  # supplied a socket. For ambient calls, validate liveness only when the
+  # bundle carries reload-managed socket metadata; ordinary installed bundles
+  # delegate directly to their own CLI.
+  BUNDLED_APP_PATH=""
+  BUNDLED_SOCKET_PATH=""
+  if [[ "\$HAS_EXPLICIT_SOCKET" == "1" ]]; then
+    exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
+  elif BUNDLED_APP_PATH="\$(cli_bundle_for_path "\$CMUX_BUNDLED_CLI_PATH" 2>/dev/null)" &&
+       BUNDLED_SOCKET_PATH="\$(bundle_socket_path "\$BUNDLED_APP_PATH" 2>/dev/null)"; then
+    if socket_is_live "\$BUNDLED_SOCKET_PATH"; then
+      exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
+    fi
+  else
+    # Stable, nightly, staging, and other installed bundles need not carry the
+    # reload-managed socket metadata. Preserve their inherited CLI identity.
     exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
   fi
 fi
@@ -487,7 +551,8 @@ publish_reload_cli_path() {
 reload_write_discovery_file() {
   local target="$1"
   local value="$2"
-  local directory="$(dirname "$target")"
+  local directory=""
+  directory="$(dirname "$target")" || return 1
   local temporary=""
 
   # Discovery files are current-user state. Refuse symlinked or foreign-owned
@@ -993,6 +1058,8 @@ reload_finalize() {
     echo "CLI helpers:"
     if [[ "$NO_GLOBAL_CLI_LINKS" == "1" ]]; then
       echo "  preserved existing global cmux CLI links (--no-global-cli-links)"
+    elif [[ "${CAN_PUBLISH_RELOAD_STATE:-1}" -ne 1 ]]; then
+      echo "  not published: ${RELOAD_PUBLICATION_SKIP_REASON:-tag discovery ownership could not be verified}"
     else
       echo "  /tmp/cmux-cli ..."
       echo "  $HOME/.local/bin/cmux-dev ..."
@@ -1405,8 +1472,7 @@ if [[ -n "$TAG" ]]; then
   sleep 0.3
 fi
 
-CAN_PUBLISH_RELOAD_STATE=1
-if [[ -n "$TAG" ]] && ! wait_for_tag_instance_exit "$APP_NAME"; then
+if [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
   CAN_PUBLISH_RELOAD_STATE=0
 fi
 if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then
@@ -1417,6 +1483,7 @@ if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then
     # A replacement process may have reclaimed this tag while the old app was
     # terminating. Do not overwrite its discovery marker or ambient CLI pointer.
     CAN_PUBLISH_RELOAD_STATE=0
+    RELOAD_PUBLICATION_SKIP_REASON="tag socket stayed live or its lock is owned by a replacement instance"
   fi
 fi
 if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then

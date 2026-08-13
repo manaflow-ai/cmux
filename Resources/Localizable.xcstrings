@@ -53251,16 +53251,124 @@
     "cli.socket.error.discoveryFailed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على مقبس cmux نشط. المسارات التي تمت تجربتها:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije pronađen aktivan cmux priključak. Pokušane putanje:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der blev ikke fundet nogen aktiv cmux-socket. Forsøgte stier:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein aktiver cmux-Socket gefunden. Versuchte Pfade:"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No live cmux socket found. Tried:"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró ningún socket de cmux activo. Rutas probadas:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun socket cmux actif trouvé. Chemins essayés :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun socket cmux attivo trovato. Percorsi provati:"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "稼働中の cmux ソケットが見つかりません。試行したパス:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញសុកខិត cmux ដែលកំពុងដំណើរការ។ ផ្លូវដែលបានសាកល្បង៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 cmux 소켓을 찾을 수 없습니다. 시도한 경로:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ingen aktiv cmux-sokkel. Forsøkte stier:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono aktywnego gniazda cmux. Wypróbowane ścieżki:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum socket ativo do cmux foi encontrado. Caminhos tentados:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не найден активный сокет cmux. Проверенные пути:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบซ็อกเก็ต cmux ที่ใช้งานอยู่ พาธที่ลอง:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan bir cmux soketi bulunamadı. Denenen yollar:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не знайдено активного сокета cmux. Перевірені шляхи:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到活动的 cmux 套接字。已尝试的路径："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到作用中的 cmux 通訊端。已嘗試的路徑："
           }
         }
       }
@@ -53421,16 +53529,124 @@
     "cli.socket.notice.rerouted": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: المقبس الافتراضي %@ غير متاح؛ سيتم استخدام %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: zadani priključak %@ nije dostupan; koristi se %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: standardsocketen %@ er ikke tilgængelig; bruger %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: Standard-Socket %@ ist nicht verfügbar; %@ wird verwendet."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux: default socket %@ is unavailable; using %@."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: el socket predeterminado %@ no está disponible; se usará %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux : le socket par défaut %@ n’est pas disponible ; utilisation de %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: il socket predefinito %@ non è disponibile; verrà usato %@."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux: デフォルトソケット %@ は利用できないため、%@ を使用します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux៖ សុកខិតលំនាំដើម %@ មិនអាចប្រើបានទេ; កំពុងប្រើ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: 기본 소켓 %@을(를) 사용할 수 없어 %@을(를) 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: standardsokkelen %@ er utilgjengelig; bruker %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: domyślne gniazdo %@ jest niedostępne; używane jest %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: o socket padrão %@ não está disponível; usando %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: сокет по умолчанию %@ недоступен; используется %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: ซ็อกเก็ตเริ่มต้น %@ ไม่พร้อมใช้งาน กำลังใช้ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: varsayılan soket %@ kullanılamıyor; %@ kullanılıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: сокет за замовчуванням %@ недоступний; використовується %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux：默认套接字 %@ 不可用；将使用 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux：預設通訊端 %@ 無法使用；將使用 %@。"
           }
         }
       }

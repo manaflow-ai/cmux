@@ -3597,14 +3597,17 @@ struct CMUXCLI {
             socketPath: socketPath,
             processEnv: processEnv
         )
-        let socketResolution = CLISocketPathResolver.resolveDetailed(
-            requestedPath: socketPath,
-            source: socketPathSource,
+        let socketResolver = CLISocketPathResolver(
             environment: processEnv,
             bundleIdentifier: cliBundleIdentifier
         )
+        let socketResolution = socketResolver.resolve(
+            requestedPath: socketPath,
+            source: socketPathSource
+        )
         if !socketResolution.hasLiveSocket,
-           socketPathSource == .implicitDefault {
+           socketPathSource == .implicitDefault,
+           !commandCanLaunchAppWhenSocketUnavailable(command) {
             throw CLIError(message: socketResolution.failureMessage)
         }
         // Explicit paths are intentionally not second-guessed. Their selected
@@ -6033,6 +6036,19 @@ struct CMUXCLI {
             return false
         }
         return FileManager.default.fileExists(atPath: resolvePath(arg))
+    }
+
+    /// Commands whose existing client path deliberately launches cmux when no
+    /// listener is running. Keep these commands on their requested socket so
+    /// ``connectClient(launchIfNeeded:)`` or the restore-specific launcher can
+    /// complete the on-demand startup instead of discovery failing first.
+    private func commandCanLaunchAppWhenSocketUnavailable(_ command: String) -> Bool {
+        switch command {
+        case "settings", "shortcuts", "open", "diff", "restore-session", "feedback":
+            return true
+        default:
+            return false
+        }
     }
 
     /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.

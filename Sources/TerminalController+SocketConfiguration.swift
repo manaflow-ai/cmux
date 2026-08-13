@@ -25,13 +25,9 @@ extension TerminalController {
     ///
     /// - Parameter cleanupDiscoveryState: Set to `false` for an in-process
     ///   listener restart where the same app will publish fresh state.
-    func stop(cleanupDiscoveryState: Bool = true) {
+    func stop(cleanupDiscoveryState: Bool) {
         // Synchronous by contract: termination needs the unlink before exit.
-        let socketPath = socketServer.currentSocketPathForRemoteRestore()
-        socketServer.stop()
-        if cleanupDiscoveryState, let socketPath {
-            cleanupStoppedSocketState(socketPath)
-        }
+        socketServer.stop(cleanupDiscoveryState: cleanupDiscoveryState)
     }
 
     /// Reconciles the current resolved control-socket configuration with the live server.
@@ -62,12 +58,12 @@ extension TerminalController {
         if configuration.accessMode == .off {
             // Route every listener teardown through the app-owned cleanup seam so
             // a disabled listener cannot leave a tag lock or marker behind.
-            stop()
+            stop(cleanupDiscoveryState: true)
             socketServer.reconfigure(accessMode: .off)
         } else if pathChanged {
             // Rebinding is a teardown followed by a fresh publication. Remove
             // the old path's discovery state before the new listener writes it.
-            stop()
+            stop(cleanupDiscoveryState: true)
             startSocketTransport(
                 configuration,
                 socketPath: configuration.preferredSocketPath,

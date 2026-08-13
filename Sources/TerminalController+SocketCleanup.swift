@@ -4,29 +4,17 @@ import Darwin
 import Foundation
 
 extension TerminalController {
-    /// Removes only runtime discovery state proven to belong to the stopped listener.
+    /// Removes runtime discovery state while the listener still owns its path lock.
     ///
-    /// The transport lock and connect probe are the authority. Marker and reload
-    /// pointer files are never removed solely because they are old.
+    /// ``SocketControlServer`` invokes this callback after closing/unlinking its
+    /// listener and before releasing the lock. That lock-owned seam prevents a
+    /// replacement listener from publishing a marker between validation and removal.
     private func cleanupStoppedSocketState(_ socketPath: String) {
         guard !transport.pathAcceptsConnections(socketPath) else {
             return
         }
-        guard transport.removeSocketPathLockIfAvailable(for: socketPath) else {
-            return
-        }
-        guard !transport.pathAcceptsConnections(socketPath) else {
-            return
-        }
-
-        let bundleIdentifier = Bundle.main.bundleIdentifier
-        let environment = ProcessInfo.processInfo.environment
-        SocketControlSettings.clearLastSocketPathIfMatching(
-            socketPath,
-            bundleIdentifier: bundleIdentifier,
-            environment: environment
-        )
-        clearReloadCLIPathIfMatching(environment: environment)
+        socketPathMarkerStore.clearIfMatching(socketPath)
+        clearReloadCLIPathIfMatching(environment: ProcessInfo.processInfo.environment)
     }
 
     /// Clears the ambient reload pointer only when it still names this app's CLI.
@@ -37,7 +25,9 @@ extension TerminalController {
               (before.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
               before.st_uid == getuid(),
               before.st_nlink == 1,
-              let pointerContents = try? String(contentsOfFile: pointerPath, encoding: .utf8)
+              before.st_size >= 0,
+              before.st_size <= off_t(SocketPathMarkerStore.maximumMarkerBytes),
+              let pointerContents = boundedDiscoveryFileContents(at: pointerPath)
         else {
             return
         }
@@ -65,7 +55,9 @@ extension TerminalController {
         guard lstat(pointerPath, &after) == 0,
               before.st_dev == after.st_dev,
               before.st_ino == after.st_ino,
-              let currentContents = try? String(contentsOfFile: pointerPath, encoding: .utf8),
+              after.st_size >= 0,
+              after.st_size <= off_t(SocketPathMarkerStore.maximumMarkerBytes),
+              let currentContents = boundedDiscoveryFileContents(at: pointerPath),
               SocketControlSettings.pathsMatch(
                   currentContents.trimmingCharacters(in: .whitespacesAndNewlines),
                   pointer
@@ -74,5 +66,23 @@ extension TerminalController {
             return
         }
         try? FileManager.default.removeItem(atPath: pointerPath)
+    }
+
+    /// Reads one short discovery pointer without accepting an unbounded file.
+    private func boundedDiscoveryFileContents(at path: String) -> String? {
+        guard let handle = try? FileHandle(
+            forReadingFrom: URL(fileURLWithPath: path, isDirectory: false)
+        ) else {
+            return nil
+        }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(
+            upToCount: SocketPathMarkerStore.maximumMarkerBytes + 1
+        ),
+            data.count <= SocketPathMarkerStore.maximumMarkerBytes
+        else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 }

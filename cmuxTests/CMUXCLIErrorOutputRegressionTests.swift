@@ -1881,6 +1881,7 @@ import Testing
         // marker still advertises the dead socket.
         let markerDirectory = CmuxStateDirectory.url(homeDirectory: home)
         try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        try writeStableSocketMarker(home: home)
         let markerURL = markerDirectory.appendingPathComponent(
             "dev-\(tagSlug)-last-socket-path",
             isDirectory: false
@@ -1923,6 +1924,50 @@ import Testing
         )
     }
 
+    @Test func testAmbientTaggedCLIPrefersStableDefaultBeforeLiveLastSocketMarker() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-stable-before-marker-\(UUID().uuidString.lowercased())"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let stableSocketURL = try stableSocketURL(home: home)
+        let markerSocketPath = "/tmp/cmux-marker-live-\(UUID().uuidString.lowercased()).sock"
+        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "PONG STABLE")
+        defer { stableResponder.stop() }
+        let markerResponder = try UnixSocketResponder(path: markerSocketPath, response: "PONG MARKER")
+        defer { markerResponder.stop() }
+
+        let markerDirectory = CmuxStateDirectory.url(homeDirectory: home)
+        try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        let markerURL = markerDirectory.appendingPathComponent(
+            "dev-\(tagSlug)-last-socket-path",
+            isDirectory: false
+        )
+        try "\(markerSocketPath)\n".write(to: markerURL, atomically: true, encoding: .utf8)
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(stableResponder.receivedRequests == ["ping"])
+        #expect(markerResponder.receivedRequests.isEmpty)
+    }
+
     @Test func testAmbientTaggedCLIListsEveryDeadSocketCandidateOnFailure() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-ambient-all-dead-\(UUID().uuidString.lowercased())"
@@ -1942,6 +1987,7 @@ import Testing
         let stableSocketURL = try stableSocketURL(home: home)
         let markerDirectory = CmuxStateDirectory.url(homeDirectory: home)
         try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        try writeStableSocketMarker(home: home)
         let markerURL = markerDirectory.appendingPathComponent(
             "dev-\(tagSlug)-last-socket-path",
             isDirectory: false
@@ -1971,11 +2017,57 @@ import Testing
         XCTAssertTrue(result.stderr.contains(taggedSocketPath), result.diagnostics)
         XCTAssertTrue(result.stderr.contains(stableSocketURL.path), result.diagnostics)
         XCTAssertTrue(result.stderr.contains(markerSocketPath), result.diagnostics)
-        XCTAssertGreaterThanOrEqual(
-            result.stderr.split(separator: "\n", omittingEmptySubsequences: true).count,
-            4,
-            result.diagnostics
+        #expect(
+            result.stderr.split(separator: "\n", omittingEmptySubsequences: true).count >= 4,
+            Comment(rawValue: result.diagnostics)
         )
+    }
+
+    @Test func testLaunchCapableCommandsReachTheirDispatchPathWithoutLiveImplicitSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-launch-dispatch-\(UUID().uuidString.lowercased())"
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try writeStableSocketMarker(home: home)
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let cases: [(arguments: [String], expectedError: String)] = [
+            (["settings", "invalid-target"], "Unknown settings subcommand 'invalid-target'"),
+            (["shortcuts", "--invalid"], "shortcuts: unknown flag '--invalid'"),
+            (["open"], "open requires at least one path or URL"),
+            (["diff", "one.patch", "two.patch"], "diff accepts at most one patch file"),
+            (["restore-session", "--invalid"], "restore-session: unknown flag '--invalid'"),
+            (["feedback", "--invalid"], "feedback: unknown flag '--invalid'"),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: fakeCLIPath,
+                arguments: testCase.arguments,
+                environment: environment
+            )
+
+            #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+            #expect(result.status != 0, Comment(rawValue: result.diagnostics))
+            #expect(
+                result.stderr.contains(testCase.expectedError),
+                Comment(rawValue: result.diagnostics)
+            )
+            #expect(
+                !result.stderr.contains("No live cmux socket found"),
+                Comment(rawValue: result.diagnostics)
+            )
+        }
     }
 
     @Test func testExplicitStableSocketEnvironmentIsNeverReroutedByTaggedCLI() throws {

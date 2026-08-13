@@ -2,14 +2,15 @@ import Darwin
 import Foundation
 import CmuxSettings
 
-enum CLIExecutableLocator {
+nonisolated enum CLIExecutableLocator {
     static func currentExecutableURL() -> URL? {
         var size: UInt32 = 0
         _ = _NSGetExecutablePath(nil, &size)
         if size > 0 {
             var buffer = Array<CChar>(repeating: 0, count: Int(size))
             if _NSGetExecutablePath(&buffer, &size) == 0 {
-                return URL(fileURLWithPath: String(cString: buffer))
+                let pathBytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+                return URL(fileURLWithPath: String(decoding: pathBytes, as: UTF8.self))
                     .resolvingSymlinksInPath()
                     .standardizedFileURL
             }
@@ -73,14 +74,14 @@ enum CLIExecutableLocator {
     }
 }
 
-enum CLISocketPathSource: Equatable, Sendable {
+nonisolated enum CLISocketPathSource: Equatable, Sendable {
     case explicitFlag
     case environment
     case implicitDefault
 }
 
 /// The observable result of resolving an implicit CLI socket path.
-struct CLISocketPathResolution: Sendable {
+nonisolated struct CLISocketPathResolution: Sendable {
     let source: CLISocketPathSource
     let requestedPath: String
     let candidatePaths: [String]
@@ -121,7 +122,7 @@ struct CLISocketPathResolution: Sendable {
     }
 }
 
-enum CLISocketPathResolver {
+nonisolated struct CLISocketPathResolver {
     enum SocketPathEntry {
         case missing
         case socket(ownerUserID: uid_t)
@@ -134,6 +135,38 @@ enum CLISocketPathResolver {
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
+
+    private let environment: [String: String]
+    private let bundleIdentifier: String?
+    private let currentUserID: uid_t
+    private let inspectSocketPathEntry: (String) -> SocketPathEntry
+    private let socketAcceptsConnections: (String) -> Bool
+    private let fileManager: FileManager
+    private let stateDirectory: URL
+
+    /// Creates a resolver with explicit discovery inputs and filesystem probes.
+    ///
+    /// The inputs are captured once so command dispatch uses one deterministic
+    /// resolution pass and tests can provide an isolated probe implementation.
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Self.currentAppBundleIdentifier(),
+        currentUserID: uid_t = getuid(),
+        inspectSocketPathEntry: @escaping (String) -> SocketPathEntry = Self.inspectSocketPathEntry,
+        socketAcceptsConnections: @escaping (String) -> Bool = Self.socketAcceptsConnections,
+        fileManager: FileManager = .default,
+        stateDirectory: URL? = nil
+    ) {
+        self.environment = environment
+        self.bundleIdentifier = bundleIdentifier
+        self.currentUserID = currentUserID
+        self.inspectSocketPathEntry = inspectSocketPathEntry
+        self.socketAcceptsConnections = socketAcceptsConnections
+        self.fileManager = fileManager
+        self.stateDirectory = stateDirectory ?? CmuxStateDirectory.url(
+            homeDirectory: fileManager.homeDirectoryForCurrentUser
+        )
+    }
 
     static func defaultSocketPath(
         bundleIdentifier: String?,
@@ -157,6 +190,22 @@ enum CLISocketPathResolver {
         return stablePath ?? legacyDefaultSocketPath
     }
 
+    private var resolvedStableDefaultSocketPath: String {
+        stateDirectory.appendingPathComponent(Self.stableSocketFileName, isDirectory: false).path
+    }
+
+    private func resolvedDefaultSocketPath() -> String {
+        SocketPathMarkerFiles.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            isDebugBuild: false,
+            stableSocketPath: resolvedStableDefaultSocketPath,
+            debugSocketPath: Self.fallbackSocketPath,
+            nightlySocketPath: Self.nightlySocketPath,
+            stagingSocketPath: Self.stagingSocketPath
+        )
+    }
+
     private static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
         stableSocketDirectoryURL()?
             .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
@@ -178,40 +227,14 @@ enum CLISocketPathResolver {
         )
     }
 
-    static func resolve(
-        requestedPath: String,
-        source: CLISocketPathSource,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        bundleIdentifier: String? = currentAppBundleIdentifier(),
-        currentUserID: uid_t = getuid(),
-        inspectSocketPathEntry: (String) -> SocketPathEntry = inspectSocketPathEntry
-    ) -> String {
-        let resolution = resolveDetailed(
-            requestedPath: requestedPath,
-            source: source,
-            environment: environment,
-            bundleIdentifier: bundleIdentifier,
-            currentUserID: currentUserID,
-            inspectSocketPathEntry: inspectSocketPathEntry
-        )
-        // Keep the legacy convenience API safe for any caller that has not yet
-        // migrated to the observable result. A dead candidate must never be
-        // handed to SocketClient as if it had passed discovery.
-        return resolution.selectedPath ?? requestedPath
-    }
-
     /// Resolves a socket using one ordered, liveness-aware discovery pass.
     ///
     /// Explicit flag and environment paths are deliberately returned verbatim and are
     /// never probed or rerouted. Implicit discovery only selects a path after a real
     /// non-blocking connect succeeds; a stale socket file is never handed to the client.
-    static func resolveDetailed(
+    func resolve(
         requestedPath: String,
-        source: CLISocketPathSource,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        bundleIdentifier: String? = currentAppBundleIdentifier(),
-        currentUserID: uid_t = getuid(),
-        inspectSocketPathEntry: (String) -> SocketPathEntry = inspectSocketPathEntry
+        source: CLISocketPathSource
     ) -> CLISocketPathResolution {
         guard source == .implicitDefault else {
             return CLISocketPathResolution(
@@ -222,17 +245,9 @@ enum CLISocketPathResolver {
             )
         }
 
-        let candidates = dedupe(candidatePaths(
-            requestedPath: requestedPath,
-            environment: environment,
-            bundleIdentifier: bundleIdentifier
-        ))
+        let candidates = Self.dedupe(candidatePaths(requestedPath: requestedPath))
         let selectedPath = candidates.first { path in
-            canConnect(
-                to: path,
-                currentUserID: currentUserID,
-                inspectSocketPathEntry: inspectSocketPathEntry
-            )
+            canConnect(to: path)
         }
         return CLISocketPathResolution(
             source: source,
@@ -242,14 +257,10 @@ enum CLISocketPathResolver {
         )
     }
 
-    private static func candidatePaths(
-        requestedPath: String,
-        environment: [String: String],
-        bundleIdentifier: String?
-    ) -> [String] {
+    private func candidatePaths(requestedPath: String) -> [String] {
         var candidates: [String] = []
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
-        let ownDefaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
+        let ownDefaultPath = resolvedDefaultSocketPath()
 
         // Keep the current variant first. For a tagged debug CLI this is the
         // tag-specific socket; for the stable CLI it is the primary stable socket.
@@ -257,7 +268,7 @@ enum CLISocketPathResolver {
 
         // A dead dev socket must not strand ambient commands. The stable primary
         // socket is the deterministic machine-wide fallback before any marker.
-        candidates.append(stableDefaultSocketPath)
+        candidates.append(resolvedStableDefaultSocketPath)
 
         // Markers are an ordered list, not a single pointer: the state-directory
         // marker and its legacy /tmp mirror can disagree after a reload.
@@ -270,7 +281,7 @@ enum CLISocketPathResolver {
         // those markers too, in deterministic order, rather than treating one
         // variant's file as the entire discovery state.
         candidates.append(contentsOf: readLastSocketPaths(
-            bundleIdentifier: "com.cmuxterm.app",
+            bundleIdentifier: SocketPathMarkerFiles.stableBundleIdentifier,
             environment: [:]
         ))
 
@@ -287,7 +298,7 @@ enum CLISocketPathResolver {
         ) {
             candidates.append(requestedPath)
         }
-        if shouldDiscoverTaggedSockets(
+        if Self.shouldDiscoverTaggedSockets(
             variant: variant,
             bundleIdentifier: bundleIdentifier,
             environment: environment
@@ -297,7 +308,7 @@ enum CLISocketPathResolver {
         return candidates
     }
 
-    private static func shouldIncludeImplicitRequestedPath(
+    private func shouldIncludeImplicitRequestedPath(
         _ requestedPath: String,
         defaultPath: String,
         variant: SocketPathVariant
@@ -306,16 +317,25 @@ enum CLISocketPathResolver {
         case .stable:
             return true
         case .nightly, .staging, .dev:
-            return pathsMatch(requestedPath, defaultPath)
-                || !containsPath(stableImplicitDefaultPaths(), requestedPath)
+            return Self.pathsMatch(requestedPath, defaultPath)
+                || !Self.containsPath(resolvedStableImplicitDefaultPaths(), requestedPath)
         }
     }
 
-    private static func implicitFallbackCandidatePaths(for variant: SocketPathVariant) -> [String] {
+    private func implicitFallbackCandidatePaths(for variant: SocketPathVariant) -> [String] {
         switch variant {
         case .stable, .nightly, .staging, .dev:
-            return stableImplicitDefaultPaths()
+            return resolvedStableImplicitDefaultPaths()
         }
+    }
+
+    private func resolvedStableImplicitDefaultPaths() -> [String] {
+        Self.dedupe([
+            resolvedStableDefaultSocketPath,
+            Self.legacyDefaultSocketPath,
+            stateDirectory.appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false).path,
+            Self.legacyUserScopedStableSocketPath(currentUserID: currentUserID),
+        ])
     }
 
     private static func shouldDiscoverTaggedSockets(
@@ -335,27 +355,25 @@ enum CLISocketPathResolver {
         }
     }
 
-    private static func readLastSocketPaths(
+    private func readLastSocketPaths(
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
         let candidates = lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment)
         var values: [String] = []
         for candidate in candidates {
-            guard let data = try? String(contentsOfFile: candidate, encoding: .utf8) else {
-                continue
-            }
-            if let value = normalized(data) {
+            guard let contents = boundedMarkerContents(at: candidate) else { continue }
+            if let value = Self.normalized(contents) {
                 values.append(value)
             }
         }
         return values
     }
 
-    private static func discoverTaggedSockets(limit: Int) -> [String] {
+    private func discoverTaggedSockets(limit: Int) -> [String] {
         var discovered: [(path: String, mtime: TimeInterval)] = []
         for directory in socketDiscoveryDirectories() {
-            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
+            guard let entries = try? fileManager.contentsOfDirectory(atPath: directory) else {
                 continue
             }
             discovered.reserveCapacity(min(limit, discovered.count + entries.count))
@@ -366,7 +384,7 @@ enum CLISocketPathResolver {
                 var st = stat()
                 guard lstat(path, &st) == 0 else { continue }
                 guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if isKnownDefaultSocketPath(path) {
+                if Self.isKnownDefaultSocketPath(path) {
                     continue
                 }
                 let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
@@ -375,14 +393,10 @@ enum CLISocketPathResolver {
         }
 
         discovered.sort { $0.mtime > $1.mtime }
-        return dedupe(discovered.prefix(limit).map(\.path))
+        return Self.dedupe(discovered.prefix(limit).map(\.path))
     }
 
-    private static func isOwnedSocketFile(
-        _ path: String,
-        currentUserID: uid_t,
-        inspectSocketPathEntry: (String) -> SocketPathEntry
-    ) -> Bool {
+    private func isOwnedSocketFile(_ path: String) -> Bool {
         if case .socket(let ownerUserID) = inspectSocketPathEntry(path) {
             return ownerUserID == currentUserID
         }
@@ -403,18 +417,14 @@ enum CLISocketPathResolver {
         return .other(ownerUserID: st.st_uid)
     }
 
-    private static func canConnect(
-        to path: String,
-        currentUserID: uid_t,
-        inspectSocketPathEntry: (String) -> SocketPathEntry
-    ) -> Bool {
-        guard isOwnedSocketFile(
-            path,
-            currentUserID: currentUserID,
-            inspectSocketPathEntry: inspectSocketPathEntry
-        ) else {
+    private func canConnect(to path: String) -> Bool {
+        guard isOwnedSocketFile(path) else {
             return false
         }
+        return socketAcceptsConnections(path)
+    }
+
+    private static func socketAcceptsConnections(_ path: String) -> Bool {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { Darwin.close(fd) }
@@ -465,6 +475,30 @@ enum CLISocketPathResolver {
             }
         }
         return optionResult == 0 && socketError == 0
+    }
+
+    /// Reads at most one short socket marker without accepting unbounded input.
+    private func boundedMarkerContents(at path: String) -> String? {
+        var info = stat()
+        guard lstat(path, &info) == 0,
+              (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              info.st_uid == currentUserID,
+              info.st_nlink == 1,
+              info.st_size >= 0,
+              info.st_size <= off_t(SocketPathMarkerStore.maximumMarkerBytes)
+        else {
+            return nil
+        }
+
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: SocketPathMarkerStore.maximumMarkerBytes + 1),
+              data.count <= SocketPathMarkerStore.maximumMarkerBytes
+        else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func knownImplicitDefaultPaths(
@@ -543,14 +577,14 @@ enum CLISocketPathResolver {
         return dedupe(forms)
     }
 
-    private static func lastSocketPathFiles(
+    private func lastSocketPathFiles(
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
         SocketPathMarkerFiles.paths(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
-            directory: stableSocketDirectoryURL()
+            directory: stateDirectory
         )
     }
 
@@ -568,9 +602,9 @@ enum CLISocketPathResolver {
         }
 
 #if DEBUG
-        return "com.cmuxterm.app.debug"
+        return SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
 #else
-        return "com.cmuxterm.app"
+        return SocketPathMarkerFiles.stableBundleIdentifier
 #endif
     }
 
@@ -591,11 +625,10 @@ enum CLISocketPathResolver {
         CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
     }
 
-    private static func socketDiscoveryDirectories() -> [String] {
-        let stateSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
-        return dedupe([
+    private func socketDiscoveryDirectories() -> [String] {
+        Self.dedupe([
             "/tmp",
-            stateSocketDirectory,
+            stateDirectory.path,
         ])
     }
 

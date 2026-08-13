@@ -6,6 +6,7 @@
 // starts a build when run as a script); the assertions are entirely behavioral.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -50,8 +51,8 @@ function cleanEnvironment(home) {
   return environment;
 }
 
-function makeTaggedBundle(root, tag, output) {
-  const app = path.join(root, `cmux DEV ${tag}.app`);
+function makeBundle(root, appName, output) {
+  const app = path.join(root, `${appName}.app`);
   const cli = path.join(app, "Contents", "Resources", "bin", "cmux");
   fs.mkdirSync(path.dirname(cli), { recursive: true });
   fs.writeFileSync(
@@ -60,6 +61,10 @@ function makeTaggedBundle(root, tag, output) {
   );
   writeExecutable(cli, `#!/bin/sh\nprintf '%s\\n' '${output}'\n`);
   return cli;
+}
+
+function makeTaggedBundle(root, tag, output) {
+  return makeBundle(root, `cmux DEV ${tag}`, output);
 }
 
 function runShim(shim, environment, args = ["ping"]) {
@@ -91,14 +96,11 @@ test("reload shim skips a stale pointer target and falls through to stable CLI",
 
 test("reload shim delegates to a pointer target only while its socket is live", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-live-"));
-  const socketPath = "/tmp/cmux-debug-shim-live.sock";
+  const tag = `shim-live-${crypto.randomUUID()}`;
+  const socketPath = `/tmp/cmux-debug-${tag}.sock`;
   let server;
   try {
-    try {
-      fs.unlinkSync(socketPath);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
+    try { fs.unlinkSync(socketPath); } catch {}
     server = net.createServer((connection) => {
       connection.on("data", () => connection.end());
     });
@@ -108,7 +110,7 @@ test("reload shim delegates to a pointer target only while its socket is live", 
     const pointer = path.join(root, "last-cli-path");
     const shim = path.join(root, "cmux");
     const fallback = path.join(root, "stable-cmux");
-    const taggedCLI = makeTaggedBundle(root, "shim-live", "tagged");
+    const taggedCLI = makeTaggedBundle(root, tag, "tagged");
     writeExecutable(fallback, "#!/bin/sh\nprintf 'stable\\n'\n");
     fs.writeFileSync(pointer, `${taggedCLI}\n`, { mode: 0o600 });
     generateShim(shim, fallback, pointer);
@@ -121,11 +123,7 @@ test("reload shim delegates to a pointer target only while its socket is live", 
       server.close();
       await once(server, "close");
     }
-    try {
-      fs.unlinkSync(socketPath);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
+    try { fs.unlinkSync(socketPath); } catch {}
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -152,16 +150,53 @@ test("reload shim does not let an explicit socket use a stale pointer", () => {
   }
 });
 
+test("reload shim preserves a non-reload-managed bundled CLI", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-bundled-"));
+  try {
+    const pointer = path.join(root, "last-cli-path");
+    const shim = path.join(root, "cmux");
+    const fallback = path.join(root, "stable-cmux");
+    const bundledCLI = makeBundle(root, "cmux NIGHTLY", "nightly");
+    writeExecutable(fallback, "#!/bin/sh\nprintf 'stable\\n'\n");
+    generateShim(shim, fallback, pointer);
+
+    const environment = cleanEnvironment(root);
+    environment.CMUX_BUNDLED_CLI_PATH = bundledCLI;
+    const result = runShim(shim, environment);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "nightly");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reload shim falls through when a reload-managed bundled CLI is dead", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-bundled-dead-"));
+  try {
+    const pointer = path.join(root, "last-cli-path");
+    const shim = path.join(root, "cmux");
+    const fallback = path.join(root, "stable-cmux");
+    const bundledCLI = makeTaggedBundle(root, `shim-dead-${crypto.randomUUID()}`, "tagged");
+    writeExecutable(fallback, "#!/bin/sh\nprintf 'stable\\n'\n");
+    generateShim(shim, fallback, pointer);
+
+    const environment = cleanEnvironment(root);
+    environment.CMUX_BUNDLED_CLI_PATH = bundledCLI;
+    const result = runShim(shim, environment);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "stable");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("reload shim keeps an explicit --socket pinned even when the pointer target is live", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-shim-explicit-flag-"));
-  const socketPath = "/tmp/cmux-debug-shim-explicit-live.sock";
+  const tag = `shim-explicit-live-${crypto.randomUUID()}`;
+  const socketPath = `/tmp/cmux-debug-${tag}.sock`;
   let server;
   try {
-    try {
-      fs.unlinkSync(socketPath);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
+    try { fs.unlinkSync(socketPath); } catch {}
     server = net.createServer((connection) => {
       connection.on("data", () => connection.end());
     });
@@ -171,7 +206,7 @@ test("reload shim keeps an explicit --socket pinned even when the pointer target
     const pointer = path.join(root, "last-cli-path");
     const shim = path.join(root, "cmux");
     const fallback = path.join(root, "stable-cmux");
-    const taggedCLI = makeTaggedBundle(root, "shim-explicit-live", "tagged");
+    const taggedCLI = makeTaggedBundle(root, tag, "tagged");
     writeExecutable(fallback, "#!/bin/sh\nprintf 'stable:%s\\n' \"$2\"\n");
     fs.writeFileSync(pointer, `${taggedCLI}\n`, { mode: 0o600 });
     generateShim(shim, fallback, pointer);
@@ -186,11 +221,7 @@ test("reload shim keeps an explicit --socket pinned even when the pointer target
       server.close();
       await once(server, "close");
     }
-    try {
-      fs.unlinkSync(socketPath);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
+    try { fs.unlinkSync(socketPath); } catch {}
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

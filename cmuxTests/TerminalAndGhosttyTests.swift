@@ -6344,8 +6344,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testStartPreservesRefusedSocketFileWhenLockHasNoReusableMarker() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
@@ -6376,8 +6376,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testStartReclaimsTaggedRefusedSocketFileWithoutReusableLockMarker() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = "/tmp/cmux-debug-reclaim-\(UUID().uuidString.lowercased()).sock"
         let listenerFD = try bindUnixSocket(at: path)
@@ -6398,9 +6398,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
     @MainActor
-    func testStartReclaimsRefusedSocketFileWhenReusableLockExists() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+    func testCleanStopRemovesReusableLockBeforeAnotherSocketClaimsPath() throws {
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         TerminalController.shared.start(
@@ -6410,14 +6410,15 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
         XCTAssertTrue(transport.pathAcceptsConnections(path))
 
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path + ".lock"))
         let listenerFD = try bindUnixSocket(at: path)
         Darwin.close(listenerFD)
         defer {
             unlink(path)
             unlink(path + ".lock")
         }
-        XCTAssertTrue(transport.pathCanBeReclaimedForStartup(path))
+        XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
 
         TerminalController.shared.start(
             tabManager: TabManager(),
@@ -6425,13 +6426,13 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertTrue(transport.pathAcceptsConnections(path))
+        XCTAssertFalse(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
     func testStartRejectsSymlinkedSocketPathLockWithoutTouchingTarget() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         let lockPath = path + ".lock"
@@ -6459,8 +6460,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testReservedStartupSocketPathFeedsActivePathBeforeListenerStarts() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let reservedPath = "/tmp/cmux-reserved-startup-\(UUID().uuidString).sock"
         defer {
@@ -6486,8 +6487,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testActiveSocketPathPreservesRunningFallbackPathForSettingsRestart() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let fallbackPath = makeTempSocketPath()
         TerminalController.shared.start(
@@ -6517,8 +6518,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testReserveStartupSocketPathDoesNotCreateLockWhileListenerRuns() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let activePath = makeTempSocketPath()
         let reservedPath = makeTempSocketPath()

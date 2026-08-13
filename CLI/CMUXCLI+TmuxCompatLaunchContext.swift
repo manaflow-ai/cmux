@@ -31,11 +31,13 @@ extension CMUXCLI {
         } else {
             source = .implicitDefault
         }
-        let resolution = CLISocketPathResolver.resolveDetailed(
-            requestedPath: requestedSocketPath,
-            source: source,
+        let resolver = CLISocketPathResolver(
             environment: processEnvironment,
             bundleIdentifier: bundleIdentifier
+        )
+        let resolution = resolver.resolve(
+            requestedPath: requestedSocketPath,
+            source: source
         )
         guard resolution.hasLiveSocket else {
             throw CLIError(message: resolution.failureMessage)
