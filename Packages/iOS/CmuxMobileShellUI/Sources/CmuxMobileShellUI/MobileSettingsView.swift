@@ -811,9 +811,9 @@ private struct MobileSettingsDiagnosticsSection: View {
 
     var body: some View {
         Section {
-            if let url = AppLog.defaultAppLogFileURL,
-               FileManager.default.fileExists(atPath: url.path) {
-                ShareLink(item: url) {
+            let appURLs = AppLog.appLogFileURLs
+            if !appURLs.isEmpty {
+                ShareLink(items: appURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareAppLog",
@@ -827,9 +827,9 @@ private struct MobileSettingsDiagnosticsSection: View {
                     diagnosticLog?.recordAppEvent(.appDiagnosticsShared)
                 })
             }
-            if let url = AppLog.defaultNetworkLogFileURL,
-               FileManager.default.fileExists(atPath: url.path) {
-                ShareLink(item: url) {
+            let networkURLs = AppLog.networkLogFileURLs
+            if !networkURLs.isEmpty {
+                ShareLink(items: networkURLs) {
                     Label(
                         L10n.string(
                             "mobile.settings.diagnostics.shareNetworkLog",
