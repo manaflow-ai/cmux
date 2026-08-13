@@ -226,18 +226,6 @@ public struct IrohNetworkingSection: View {
                 Image(systemName: policySymbol)
                     .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
             }
-            SettingsCardDivider()
-            IrohRelayOnlyRow(
-                isEnabled: model.snapshot.pathPreference == .relayOnly,
-                isMutating: model.isMutating,
-                setEnabled: { model.setPathPreference($0 ? .relayOnly : .automatic) }
-            )
-            SettingsCardDivider()
-            IrohNeverUseRelaysRow(
-                isEnabled: model.snapshot.pathPreference == .neverUseRelays,
-                isMutating: model.isMutating,
-                setEnabled: { model.setPathPreference($0 ? .neverUseRelays : .automatic) }
-            )
             IrohDiagnosticsReportRows(
                 report: model.diagnosticReport,
                 exportText: model.diagnosticExportText,
@@ -620,11 +608,6 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.superseded",
                 defaultValue: "Replaced by a Newer Attempt"
             )
-        case .some(.routeGated):
-            String(
-                localized: "settings.networking.diagnostics.failure.routeGated",
-                defaultValue: "Connection Attempt Held"
-            )
         case .some(.payloadTooLarge):
             DiagnosticEventPresentation().displayName(.payloadTooLarge)
         case .some(.resourceLimitReached):
@@ -639,70 +622,6 @@ private struct IrohDiagnosticsReportRows: View {
             String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")
         case .some(.unknown):
             String(localized: "settings.networking.diagnostics.failure.unknown", defaultValue: "Unknown")
-        }
-    }
-}
-
-private struct IrohRelayOnlyRow: View {
-    let isEnabled: Bool
-    let isMutating: Bool
-    let setEnabled: @MainActor @Sendable (Bool) -> Void
-
-    var body: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:relayOnly",
-            String(
-                localized: "settings.networking.relayOnly",
-                defaultValue: "Relay Only"
-            ),
-            subtitle: String(
-                localized: "settings.networking.relayOnly.subtitle",
-                defaultValue: "Keeps Iroh connections to this Mac on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
-            )
-        ) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { isEnabled },
-                    set: { newValue in setEnabled(newValue) }
-                )
-            )
-            .labelsHidden()
-            .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohRelayOnly")
-        }
-    }
-}
-
-private struct IrohNeverUseRelaysRow: View {
-    let isEnabled: Bool
-    let isMutating: Bool
-    let setEnabled: @MainActor @Sendable (Bool) -> Void
-
-    var body: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:neverUseRelays",
-            String(
-                localized: "settings.networking.neverUseRelays",
-                defaultValue: "Never Use Relays"
-            ),
-            subtitle: String(
-                localized: "settings.networking.neverUseRelays.subtitle",
-                defaultValue: "Requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
-            )
-        ) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { isEnabled },
-                    set: { newValue in setEnabled(newValue) }
-                )
-            )
-            .labelsHidden()
-            .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohNeverUseRelays")
         }
     }
 }

@@ -117,6 +117,9 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
     #expect(pairingDecoded.macDeviceID.isEmpty)
     #expect(pairingDecoded.macDisplayName == nil)
     #expect(pairingDecoded.macUserID == nil)
+    // Endpoint-only v3 codes intentionally omit compatibility metadata. Keep
+    // that absence distinguishable from an explicitly incompatible version.
+    #expect(pairingDecoded.macPairingCompatibilityVersion == nil)
     #expect(pairingDecoded.macAppVersion == nil)
     #expect(pairingDecoded.macAppBuild == nil)
     #expect(pairingDecoded.expiresAt == nil)
