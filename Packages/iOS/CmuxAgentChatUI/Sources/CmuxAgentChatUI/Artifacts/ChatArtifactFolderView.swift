@@ -9,6 +9,11 @@ import AppKit
 #endif
 
 struct ChatArtifactFolderView: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     let path: String
     let scope: ChatArtifactViewerScope
     let onDone: () -> Void
@@ -18,7 +23,7 @@ struct ChatArtifactFolderView: View {
 
     var body: some View {
         content
-            .task(id: path) {
+            .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
                 await load()
             }
     }
@@ -165,6 +170,11 @@ struct ChatArtifactFolderView: View {
 }
 
 private struct ChatArtifactFolderThumbnail: View {
+    private struct LoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     let path: String
     let entry: ChatArtifactDirectoryEntry
 
@@ -183,7 +193,8 @@ private struct ChatArtifactFolderThumbnail: View {
         .frame(width: 34, height: 34)
         .background(.quaternary, in: .rect(cornerRadius: 6))
         .clipShape(.rect(cornerRadius: 6))
-        .task(id: path) {
+        .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
+            thumbnailData = nil
             guard entry.kind == .image, loader.supportsArtifacts else { return }
             thumbnailData = try? await loader.thumbnail(path: path, maxDimension: 96).data
         }

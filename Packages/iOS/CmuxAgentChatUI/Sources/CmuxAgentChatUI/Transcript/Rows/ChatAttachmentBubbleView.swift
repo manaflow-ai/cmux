@@ -10,6 +10,11 @@ import AppKit
 /// An outgoing attachment bubble: a photo glyph plus the attachment's
 /// display name, with the host-side path when known.
 public struct ChatAttachmentBubbleView: View {
+    private struct ThumbnailLoadIdentity: Hashable {
+        let path: String
+        let sourceIdentity: String?
+    }
+
     private let attachment: ChatAttachment
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
@@ -23,6 +28,7 @@ public struct ChatAttachmentBubbleView: View {
     @State private var thumbnailData: Data?
     @State private var thumbnailFailed = false
     @State private var thumbnailPath: String?
+    @State private var thumbnailSourceIdentity: String?
     @State private var fallbackSelection: ChatArtifactPathSelection?
 
     /// Creates an attachment bubble.
@@ -89,7 +95,10 @@ public struct ChatAttachmentBubbleView: View {
             .accessibilityLabel(Text(verbatim: displayName))
             .accessibilityValue(Text(verbatim: hostPath))
             .accessibilityIdentifier("ChatAttachmentButton")
-            .task(id: hostPath) {
+            .task(id: ThumbnailLoadIdentity(
+                path: hostPath,
+                sourceIdentity: artifactLoader.sourceIdentity
+            )) {
                 await loadThumbnail(path: hostPath)
             }
         } else {
@@ -206,8 +215,9 @@ public struct ChatAttachmentBubbleView: View {
     }
 
     private func loadThumbnail(path: String) async {
-        if thumbnailPath != path {
+        if thumbnailPath != path || thumbnailSourceIdentity != artifactLoader.sourceIdentity {
             thumbnailPath = path
+            thumbnailSourceIdentity = artifactLoader.sourceIdentity
             thumbnailData = nil
             thumbnailFailed = false
         }
