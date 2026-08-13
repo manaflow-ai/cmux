@@ -689,6 +689,18 @@ REPORT_WAITER_PID=""
 if [[ -n "$REPORT_OUTPUT" ]]; then
   mkdir -p "$(dirname "$REPORT_OUTPUT")"
   cp "$REPORT_PATH" "$REPORT_OUTPUT"
+
+  # Preserve the Mac's privacy-safe transport ring beside the iOS verdict.
+  # The host owns admission and stream lifetime, so an iOS-only report cannot
+  # distinguish a control-session exit from a client-side RPC failure.
+  # Diagnostic capture is best-effort and must never replace the gate verdict.
+  HOST_DIAGNOSTIC_OUTPUT="${REPORT_OUTPUT%.json}-mac.cmuxdiag"
+  if ! CMUX_TAG="$TAG" "$SCRIPT_DIR/cmux-debug-cli.sh" iroh-diag \
+    > "$HOST_DIAGNOSTIC_OUTPUT"
+  then
+    rm -f "$HOST_DIAGNOSTIC_OUTPUT"
+    echo "warning: Mac Iroh diagnostic capture failed" >&2
+  fi
 fi
 
 REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" EXPECTED_SCENARIO="$GATE_SCENARIO" /usr/bin/python3 <<'PY'
