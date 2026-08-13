@@ -54424,121 +54424,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] أعلن SSH البعيد عن عنوان غير صالح؛ سيتم استخدام حل العنوان المحلي لـ Mosh."
+            "value": "[cmux] أعلن SSH البعيد عن عنوان غير صالح؛ سيتم تحديد عنوان Mosh عبر اتصال SSH."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Udaljeni SSH je prijavio neupotrebljivu adresu; koristi se lokalno razrješenje Mosh adrese."
+            "value": "[cmux] Udaljeni SSH je prijavio neupotrebljivu adresu; Mosh adresa se određuje kroz SSH vezu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Fjern-SSH annoncerede en ugyldig adresse; bruger lokal Mosh-adresseopløsning."
+            "value": "[cmux] Fjern-SSH annoncerede en ugyldig adresse; Mosh-adressen findes via SSH-forbindelsen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Der Remote-SSH-Dienst meldete eine unbrauchbare Adresse; lokale Mosh-Adressauflösung wird verwendet."
+            "value": "[cmux] Der Remote-SSH-Dienst meldete eine unbrauchbare Adresse; die Mosh-Adresse wird über die SSH-Verbindung ermittelt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Remote SSH advertised an unusable address; using local Mosh address resolution."
+            "value": "[cmux] Remote SSH advertised an unusable address; resolving the Mosh address through the SSH connection."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] El SSH remoto anunció una dirección no utilizable; se usará la resolución local de direcciones de Mosh."
+            "value": "[cmux] El SSH remoto anunció una dirección no utilizable; la dirección de Mosh se resolverá a través de la conexión SSH."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Le SSH distant a annoncé une adresse inutilisable ; résolution locale de l’adresse Mosh utilisée."
+            "value": "[cmux] Le SSH distant a annoncé une adresse inutilisable ; l’adresse Mosh est résolue via la connexion SSH."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] SSH remoto ha annunciato un indirizzo inutilizzabile; viene usata la risoluzione locale dell’indirizzo Mosh."
+            "value": "[cmux] SSH remoto ha annunciato un indirizzo inutilizzabile; l’indirizzo Mosh viene risolto tramite la connessione SSH."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] リモート SSH が使用できないアドレスを通知したため、ローカルで Mosh のアドレスを解決します。"
+            "value": "[cmux] リモート SSH が使用できないアドレスを通知したため、SSH 接続経由で Mosh のアドレスを解決します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] SSH ពីចម្ងាយបានប្រកាសអាសយដ្ឋានដែលមិនអាចប្រើបាន ដូច្នេះប្រើការដោះស្រាយអាសយដ្ឋាន Mosh ក្នុងម៉ាស៊ីន។"
+            "value": "[cmux] SSH ពីចម្ងាយបានប្រកាសអាសយដ្ឋានដែលមិនអាចប្រើបាន ដូច្នេះដោះស្រាយអាសយដ្ឋាន Mosh តាមរយៈការតភ្ជាប់ SSH។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] 원격 SSH가 사용할 수 없는 주소를 알렸습니다. 로컬 Mosh 주소 확인을 사용합니다."
+            "value": "[cmux] 원격 SSH가 사용할 수 없는 주소를 알렸습니다. SSH 연결을 통해 Mosh 주소를 확인합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Ekstern SSH oppga en ubrukelig adresse; bruker lokal Mosh-adresseoppløsning."
+            "value": "[cmux] Ekstern SSH oppga en ubrukelig adresse; Mosh-adressen løses via SSH-forbindelsen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Zdalny SSH ogłosił nieużyteczny adres; używane jest lokalne rozwiązywanie adresu Mosh."
+            "value": "[cmux] Zdalny SSH ogłosił nieużyteczny adres; adres Mosh jest ustalany przez połączenie SSH."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] O SSH remoto anunciou um endereço inutilizável; usando a resolução local de endereço do Mosh."
+            "value": "[cmux] O SSH remoto anunciou um endereço inutilizável; resolvendo o endereço do Mosh pela conexão SSH."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Удалённый SSH сообщил непригодный адрес; используется локальное определение адреса Mosh."
+            "value": "[cmux] Удалённый SSH сообщил непригодный адрес; адрес Mosh определяется через SSH-подключение."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] SSH ระยะไกลแจ้งที่อยู่ที่ใช้ไม่ได้ จึงใช้การค้นหาที่อยู่ Mosh ในเครื่อง"
+            "value": "[cmux] SSH ระยะไกลแจ้งที่อยู่ที่ใช้ไม่ได้ จึงค้นหาที่อยู่ Mosh ผ่านการเชื่อมต่อ SSH"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Uzak SSH kullanılamayan bir adres bildirdi; yerel Mosh adres çözümlemesi kullanılıyor."
+            "value": "[cmux] Uzak SSH kullanılamayan bir adres bildirdi; Mosh adresi SSH bağlantısı üzerinden çözümleniyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Віддалений SSH повідомив непридатну адресу; використовується локальне визначення адреси Mosh."
+            "value": "[cmux] Віддалений SSH повідомив непридатну адресу; адреса Mosh визначається через SSH-з’єднання."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] 远程 SSH 宣布的地址不可用；将使用本地 Mosh 地址解析。"
+            "value": "[cmux] 远程 SSH 宣布的地址不可用；将通过 SSH 连接解析 Mosh 地址。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] 遠端 SSH 回報的位址無法使用；將使用本機 Mosh 位址解析。"
+            "value": "[cmux] 遠端 SSH 回報的位址無法使用；將透過 SSH 連線解析 Mosh 位址。"
           }
         }
       }

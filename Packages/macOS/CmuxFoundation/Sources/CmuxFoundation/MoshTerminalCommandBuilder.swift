@@ -32,7 +32,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
     ///   - destination: SSH destination or host alias.
     ///   - remoteCommandArguments: Optional command argv launched by `mosh-server`.
     ///   - remoteRelayPort: Optional remote relay whose presence enables authoritative lifecycle attempt registration.
-    ///   - remoteIPMode: Address-discovery mode passed to Mosh; remote mode falls back to local resolution when SSH advertises an unusable address.
+    ///   - remoteIPMode: Address-discovery mode passed to Mosh; remote mode falls back to SSH proxy resolution when SSH advertises an unusable address.
     ///   - preparationShellScript: Optional local preparation run before capability checks.
     ///   - managementReadyShellScript: Optional local callback run after SSH preparation succeeds and before Mosh starts.
     ///   - sshFallbackCommand: Complete local SSH terminal command used when Mosh is unavailable.
@@ -41,7 +41,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
     ///   - remoteMoshMissingMessage: User-facing message printed when `mosh-server` is absent remotely.
     ///   - remoteMoshProbeFailedMessage: User-facing message printed when the remote capability probe fails.
     ///   - remoteBootstrapInstallFailedMessage: User-facing message printed when bootstrap staging fails.
-    ///   - remoteMoshAddressFallbackMessage: User-facing message printed when local address resolution is selected automatically.
+    ///   - remoteMoshAddressFallbackMessage: User-facing message printed when SSH proxy address resolution is selected automatically.
     public init(
         capabilityProbeSSHArguments: [String],
         sessionSSHArguments: [String],
@@ -178,34 +178,37 @@ public struct MoshTerminalCommandBuilder: Sendable {
             "fi",
         ]
         if remoteIPMode == .remote {
+            // Mosh parses SSH_CONNECTION as four space-separated fields with
+            // numeric ports and uses only the server address for its UDP
+            // session, so validate exactly that shape and no more. When the
+            // advertised address is unusable (empty, malformed, wildcard, or
+            // loopback, which is what a port-forwarded SSH alias reports),
+            // fall back to Mosh's proxy resolution: unlike local mode it
+            // honors SSH aliases without requiring DNS on the destination.
             script += [
                 "cmux_mosh_ssh_connection_probe_status=0",
                 "cmux_mosh_ssh_connection_probe=\"$(\(remoteSSHConnectionProbe) 2>/dev/null)\" || cmux_mosh_ssh_connection_probe_status=$?",
                 "case \"$cmux_mosh_ssh_connection_probe\" in *__CMUX_SSH_CONNECTION__*) cmux_mosh_ssh_connection=\"${cmux_mosh_ssh_connection_probe##*__CMUX_SSH_CONNECTION__}\" ;; *) cmux_mosh_ssh_connection= ;; esac",
-                "if [ \"$cmux_mosh_ssh_connection_probe_status\" -ne 0 ]; then",
-                "  cmux_mosh_address_fallback=1",
-                "elif [ -z \"$cmux_mosh_ssh_connection\" ]; then",
+                "if [ \"$cmux_mosh_ssh_connection_probe_status\" -ne 0 ] || [ -z \"$cmux_mosh_ssh_connection\" ]; then",
                 "  cmux_mosh_address_fallback=1",
                 "else",
-                "  cmux_mosh_ssh_peer_ip=\"${cmux_mosh_ssh_connection%% *}\"",
-                "  cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection#* }\"",
-                "  cmux_mosh_ssh_peer_port=\"${cmux_mosh_ssh_connection_tail%% *}\"",
-                "  cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection_tail#* }\"",
-                "  cmux_mosh_ssh_server_ip=\"${cmux_mosh_ssh_connection_tail%% *}\"",
-                "  cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection_tail#* }\"",
-                "  cmux_mosh_ssh_server_port=\"${cmux_mosh_ssh_connection_tail%% *}\"",
-                "  if [ -z \"$cmux_mosh_ssh_peer_ip\" ] || [ -z \"$cmux_mosh_ssh_server_ip\" ]; then",
-                "    cmux_mosh_address_fallback=1",
-                "  else",
-                "    case \"$cmux_mosh_ssh_peer_ip\" in 0.0.0.0|::|::0|*[!0-9A-Fa-f:.]*) cmux_mosh_address_fallback=1 ;; esac",
-                "    case \"$cmux_mosh_ssh_server_ip\" in 0.0.0.0|::|::0|*[!0-9A-Fa-f:.]*) cmux_mosh_address_fallback=1 ;; esac",
-                "    case \"$cmux_mosh_ssh_peer_port\" in ''|*[!0-9]*) cmux_mosh_address_fallback=1 ;; esac",
-                "    case \"$cmux_mosh_ssh_server_port\" in ''|*[!0-9]*) cmux_mosh_address_fallback=1 ;; esac",
-                "    if [ \"$cmux_mosh_ssh_peer_port\" = 0 ] || [ \"$cmux_mosh_ssh_server_port\" = 0 ]; then cmux_mosh_address_fallback=1; fi",
-                "  fi",
+                "  case \"$cmux_mosh_ssh_connection\" in",
+                "    *' '*' '*' '*)",
+                "      cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection#* }\"",
+                "      cmux_mosh_ssh_peer_port=\"${cmux_mosh_ssh_connection_tail%% *}\"",
+                "      cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection_tail#* }\"",
+                "      cmux_mosh_ssh_server_ip=\"${cmux_mosh_ssh_connection_tail%% *}\"",
+                "      cmux_mosh_ssh_connection_tail=\"${cmux_mosh_ssh_connection_tail#* }\"",
+                "      cmux_mosh_ssh_server_port=\"${cmux_mosh_ssh_connection_tail%% *}\"",
+                "      case \"$cmux_mosh_ssh_peer_port\" in ''|*[!0-9]*) cmux_mosh_address_fallback=1 ;; esac",
+                "      case \"$cmux_mosh_ssh_server_port\" in ''|*[!0-9]*) cmux_mosh_address_fallback=1 ;; esac",
+                "      case \"$cmux_mosh_ssh_server_ip\" in ''|0.0.0.0|::|::0|::1|127.*) cmux_mosh_address_fallback=1 ;; *[!0-9A-Fa-f:.]*) cmux_mosh_address_fallback=1 ;; esac",
+                "      ;;",
+                "    *) cmux_mosh_address_fallback=1 ;;",
+                "  esac",
                 "fi",
-                "if [ \"$cmux_mosh_address_fallback\" -eq 1 ]; then cmux_mosh_remote_ip_mode=local; fi",
-                "unset cmux_mosh_ssh_connection_probe_status cmux_mosh_ssh_connection_probe cmux_mosh_ssh_connection cmux_mosh_ssh_peer_ip cmux_mosh_ssh_peer_port cmux_mosh_ssh_connection_tail cmux_mosh_ssh_server_ip cmux_mosh_ssh_server_port",
+                "if [ \"$cmux_mosh_address_fallback\" -eq 1 ]; then cmux_mosh_remote_ip_mode=proxy; fi",
+                "unset cmux_mosh_ssh_connection_probe_status cmux_mosh_ssh_connection_probe cmux_mosh_ssh_connection cmux_mosh_ssh_peer_port cmux_mosh_ssh_connection_tail cmux_mosh_ssh_server_ip cmux_mosh_ssh_server_port",
             ]
         }
         script += [

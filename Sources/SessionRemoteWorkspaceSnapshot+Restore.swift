@@ -443,7 +443,7 @@ extension SessionRemoteWorkspaceSnapshot {
             ),
             remoteMoshAddressFallbackMessage: String(
                 localized: "cli.ssh.mosh.addressFallback",
-                defaultValue: "[cmux] Remote SSH advertised an unusable address; using local Mosh address resolution."
+                defaultValue: "[cmux] Remote SSH advertised an unusable address; resolving the Mosh address through the SSH connection."
             )
         ).command()
     }
