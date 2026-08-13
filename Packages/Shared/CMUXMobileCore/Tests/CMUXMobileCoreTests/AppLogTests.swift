@@ -40,7 +40,11 @@ import Testing
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.background.rawValue
         ))
-        try await waitForProcessed(log, 3)
+        log.ingest(DiagnosticEvent(
+            .appFeatureAction,
+            a: DiagnosticAppEventKind.workspaceOpenSucceeded.rawValue
+        ))
+        try await waitForProcessed(log, 4)
         await log.flushForTesting()
 
         let app = try contents(of: appURL)
@@ -49,6 +53,8 @@ import Testing
         #expect(!network.contains("Simulator"))
         #expect(network.contains("dial") || network.contains("Dial"))
         #expect(!app.contains("dial") && !app.contains("Dial"))
+        #expect(app.contains("workspaceOpenSucceeded"))
+        #expect(!network.contains("workspaceOpenSucceeded"))
         // Cross-cutting context lands in both files.
         let appLifecycleInApp = app.contains("lifecycle") || app.contains("Lifecycle")
         let appLifecycleInNetwork = network.contains("lifecycle") || network.contains("Lifecycle")
@@ -177,6 +183,7 @@ import Testing
         #expect(DiagnosticEventCode.simulatorInputLifecycle.appLogDomain == .app)
         #expect(DiagnosticEventCode.browserStreamLifecycle.appLogDomain == .app)
         #expect(DiagnosticEventCode.composerViewAppear.appLogDomain == .app)
+        #expect(DiagnosticEventCode.appFeatureAction.appLogDomain == .app)
         #expect(DiagnosticEventCode.appLifecycleChanged.appLogDomain == .both)
         #expect(DiagnosticEventCode.reachabilityChanged.appLogDomain == .both)
     }

@@ -276,6 +276,23 @@
         }
       }
     },
+    "diagnostics.event.appFeatureAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App feature event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ機能イベント"
+          }
+        }
+      }
+    },
     "diagnostics.event.appLifecycleChanged": {
       "extractionState": "manual",
       "localizations": {
@@ -1330,6 +1347,23 @@
         }
       }
     },
+    "diagnostics.failure.payloadTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Payload too large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイロードが大きすぎます"
+          }
+        }
+      }
+    },
     "diagnostics.failure.permissionDenied": {
       "extractionState": "manual",
       "localizations": {
@@ -1377,6 +1411,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロトコル違反"
+          }
+        }
+      }
+    },
+    "diagnostics.failure.resourceLimitReached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resource limit reached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソース上限に達しました"
           }
         }
       }
@@ -1581,6 +1632,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンポーザー表示中"
+          }
+        }
+      }
+    },
+    "diagnostics.field.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Count"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "件数"
           }
         }
       }
@@ -2074,6 +2142,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "トリガー"
+          }
+        }
+      }
+    },
+    "diagnostics.field.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "値"
           }
         }
       }
@@ -3661,6 +3746,23 @@
         }
       }
     },
+    "diagnostics.unknown.appEvent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown app event (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なアプリイベント（%lld）"
+          }
+        }
+      }
+    },
     "diagnostics.unknown.simulatorStreamState": {
       "extractionState": "manual",
       "localizations": {
@@ -3912,6 +4014,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "停止済み"
+          }
+        }
+      }
+    },
+    "diagnostics.simulator.stream.stopFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止失敗"
           }
         }
       }
@@ -5017,6 +5136,193 @@
           "stringUnit": {
             "state": "translated",
             "value": "Y"
+          }
+        }
+      }
+    },
+    "diagnostics.failure.attachmentCountLimitReached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment count limit reached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル数の上限に達しました"
+          }
+        }
+      }
+    },
+    "diagnostics.failure.attachmentAggregateSizeLimitReached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment size limit reached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルの合計サイズ上限に達しました"
+          }
+        }
+      }
+    },
+    "diagnostics.failure.localStateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local state unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル状態を利用できません"
+          }
+        }
+      }
+    },
+    "diagnostics.field.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクション"
+          }
+        }
+      }
+    },
+    "diagnostics.field.tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ"
+          }
+        }
+      }
+    },
+    "diagnostics.field.scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scope"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲"
+          }
+        }
+      }
+    },
+    "diagnostics.field.change": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更"
+          }
+        }
+      }
+    },
+    "diagnostics.field.route": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "経路"
+          }
+        }
+      }
+    },
+    "diagnostics.field.style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スタイル"
+          }
+        }
+      }
+    },
+    "diagnostics.field.reason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reason"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "理由"
+          }
+        }
+      }
+    },
+    "diagnostics.unknown.payload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown value (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な値（%lld）"
           }
         }
       }

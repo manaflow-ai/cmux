@@ -40,7 +40,7 @@ struct MobileRootPresentationState: Equatable {
     enum Presentation: Equatable {
         case autoConnectMigrationIntroduction
         case settings
-        case connectionSettings
+        case computers
         case pairing(PairingPresentation)
         case child(ChildPresentation)
         case dismissingChild(
@@ -52,10 +52,12 @@ struct MobileRootPresentationState: Equatable {
     /// Every presentation mutation accepted by the root coordinator.
     enum Action: Equatable {
         case presentAutoConnectMigrationIfIdle
-        case continueWithAutoConnect
-        case openConnectionSettings
+        case useAutoConnect
+        case setUpTailscale(hasUsableAuthorization: Bool)
         case presentSettings
         case dismissSettings(presentAutoConnectMigration: Bool)
+        case presentComputers
+        case dismissComputers
         case presentPairing(PairingPresentation)
         case presentChild(ChildPresentation)
         case dismissChild(ChildPresentation)
@@ -70,6 +72,8 @@ struct MobileRootPresentationState: Equatable {
     enum Effect: Equatable {
         case none
         case acknowledgeAutoConnectMigration
+        case useAutoConnect
+        case setUpTailscale
         case finishPairing
         case retryAutoConnectMigration
     }
@@ -85,7 +89,10 @@ struct MobileRootPresentationState: Equatable {
     /// Whether the root SwiftUI sheet host should be presented.
     var isRootSheetPresented: Bool {
         switch presentation {
-        case .autoConnectMigrationIntroduction, .settings, .connectionSettings, .pairing:
+        case .autoConnectMigrationIntroduction,
+             .settings,
+             .computers,
+             .pairing:
             true
         case .child, .dismissingChild, nil:
             false
@@ -110,15 +117,17 @@ struct MobileRootPresentationState: Equatable {
             presentation = .autoConnectMigrationIntroduction
             return .none
 
-        case .continueWithAutoConnect:
+        case .useAutoConnect:
             guard presentation == .autoConnectMigrationIntroduction else { return .none }
             presentation = nil
-            return .acknowledgeAutoConnectMigration
+            return .useAutoConnect
 
-        case .openConnectionSettings:
+        case let .setUpTailscale(hasUsableAuthorization):
             guard presentation == .autoConnectMigrationIntroduction else { return .none }
-            presentation = .connectionSettings
-            return .acknowledgeAutoConnectMigration
+            presentation = hasUsableAuthorization
+                ? nil
+                : .pairing(.scanner(entry: .autoConnectMigration))
+            return .setUpTailscale
 
         case .presentSettings:
             guard presentation == nil else { return .none }
@@ -126,13 +135,23 @@ struct MobileRootPresentationState: Equatable {
             return .none
 
         case let .dismissSettings(presentAutoConnectMigration):
-            guard presentation == .settings || presentation == .connectionSettings else {
+            guard presentation == .settings else {
                 return .none
             }
             presentation = presentAutoConnectMigration
                 ? .autoConnectMigrationIntroduction
                 : nil
             return .none
+
+        case .presentComputers:
+            guard presentation == nil else { return .none }
+            presentation = .computers
+            return .none
+
+        case .dismissComputers:
+            guard presentation == .computers else { return .none }
+            presentation = nil
+            return .retryAutoConnectMigration
 
         case let .presentPairing(pairingPresentation):
             switch presentation {
@@ -201,7 +220,7 @@ struct MobileRootPresentationState: Equatable {
             case .pairing:
                 presentation = nil
                 return .finishPairing
-            case .settings, .connectionSettings:
+            case .settings, .computers:
                 presentation = nil
                 return .none
             case .child, .dismissingChild, nil:

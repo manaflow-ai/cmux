@@ -242,6 +242,21 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// ``DiagnosticSimulatorOwnershipState``, and `b` is the previous state
     /// when known.
     case simulatorOwnershipChanged = 64
+
+    // MARK: App-wide feature observability
+
+    /// One privacy-safe iOS feature boundary event. `a` is
+    /// ``DiagnosticAppEventKind``; `b`, when present, is a
+    /// ``DiagnosticFailureKind``; `c`, when present, is a bounded count or
+    /// magnitude documented by that event kind; `ms`, when present, is elapsed
+    /// time; and `surface`, when present, is a process-local correlation handle.
+    ///
+    /// This is the app-wide vocabulary for user actions and feature outcomes
+    /// that do not belong to the transport, browser-frame, or Simulator hot
+    /// paths. Event kinds are fixed enums, never caller-provided strings, so the
+    /// durable Release log cannot capture terminal contents, credentials,
+    /// account identifiers, file paths, URLs, workspace titles, or error text.
+    case appFeatureAction = 65
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.
@@ -264,5 +279,11 @@ public extension DiagnosticEventCode {
         default:
             false
         }
+    }
+
+    /// Whether this event belongs to app-wide iOS feature observability rather
+    /// than the network or frame-stream planes.
+    var isAppFeatureDiagnosticEvent: Bool {
+        self == .appFeatureAction
     }
 }

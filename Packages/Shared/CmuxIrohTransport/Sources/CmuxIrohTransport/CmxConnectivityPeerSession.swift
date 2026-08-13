@@ -95,18 +95,44 @@ actor CmxConnectivityPeerSession {
         ownerID: UUID
     ) async throws -> any CmxConnectivitySession {
         try requirePeer(request)
-        try await reserveControlOwner(
-            ownerID: ownerID,
-            purpose: request.sessionPurpose
-        )
         do {
-            return try await connectedSession(
-                for: request,
-                preservesControlOwnerOnClosed: true
-            )
+            return try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                try await reserveControlOwner(
+                    ownerID: ownerID,
+                    purpose: request.sessionPurpose
+                )
+                try Task.checkCancellation()
+                let session = try await connectedSession(
+                    for: request,
+                    preservesControlOwnerOnClosed: true
+                )
+                // The dial can finish while the caller's cancellation
+                // handler is waiting to release the owner. Do not hand a
+                // newly installed session back to that cancelled caller; the
+                // catch path below will synchronously retire its ownership.
+                try Task.checkCancellation()
+                return session
+            } onCancel: {
+                // `pendingConnection` is an unstructured, peer-owned dial. A
+                // cancelled RPC owner cannot rely on cancellation propagating
+                // through `Task.value`, so explicitly release the control
+                // reservation. The actor then retires the exact physical dial.
+                Task { [weak self] in
+                    await self?.releaseControl(
+                        ownerID: ownerID,
+                        reason: .controlOwnerReleased,
+                        failure: .cancelled
+                    )
+                }
+            }
         } catch {
             if controlOwner?.id == ownerID {
-                releaseControlOwner(ownerID: ownerID)
+                await releaseControl(
+                    ownerID: ownerID,
+                    reason: .controlOwnerReleased,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
             }
             throw error
         }
@@ -118,7 +144,13 @@ actor CmxConnectivityPeerSession {
         failure: DiagnosticFailureKind = .none
     ) async {
         guard controlOwner?.id == ownerID else { return }
-        lifecycleRevision &+= 1
+        if pendingConnection != nil {
+            // The control owner is the only authority allowed to publish this
+            // pending connection. Invalidate its captured revision before
+            // cancellation so even a completion racing this release is closed
+            // instead of installed without an owner.
+            lifecycleRevision &+= 1
+        }
         let retiredPending = await retirePendingConnection()
         await closeActiveConnection(
             releasesControlOwner: true,

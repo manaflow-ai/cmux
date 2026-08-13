@@ -90,8 +90,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         )
         var merged = [candidate]
         merged.append(contentsOf: retained.filter {
-            $0.binding.deviceID != targetBinding.deviceID
-                && $0.binding.endpointID != targetBinding.endpointID
+            $0.binding.endpointID != targetBinding.endpointID
                 && $0.binding.bindingID != targetBinding.bindingID
         })
         let record = CmxIrohStoredClientPolicyRecord(

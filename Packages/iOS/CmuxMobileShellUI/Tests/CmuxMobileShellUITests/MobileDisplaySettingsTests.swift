@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileCore
 import Testing
 @testable import CmuxMobileShellUI
 
@@ -10,6 +11,28 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         return defaults
+    }
+
+    @Test func recordsMutationsMadeOutsideTheSettingsView() async throws {
+        let defaults = try makeDefaults("diagnosticMutations")
+        let log = DiagnosticLog(capacity: 8)
+        let settings = MobileDisplaySettings(defaults: defaults, diagnosticLog: log)
+
+        settings.showAltScreenNotice = false
+        settings.workspacePreviewLineCount = 1
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 2, clock.now < deadline {
+            await Task.yield()
+        }
+        #expect(await log.processedCount() >= 2)
+        let events = await log.snapshot().events
+        #expect(events.map(\.a) == [
+            DiagnosticAppEventKind.displayAltScreenNoticeChanged.rawValue,
+            DiagnosticAppEventKind.displayWorkspacePreviewLinesChanged.rawValue,
+        ])
+        #expect(events.map(\.c) == [0, 1])
     }
 
     @Test func previewLineCountDefaultsToTwoWithoutAWrite() throws {
