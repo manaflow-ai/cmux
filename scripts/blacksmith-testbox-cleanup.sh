@@ -2,24 +2,24 @@
 set -euo pipefail
 
 if [[ $# -ne 4 ]]; then
-  echo "usage: $0 <testbox-id> <evidence-directory> <confirmation-token> <operator-confirmation>" >&2
+  echo "usage: $0 <testbox-id> <evidence-directory> <ownership-token> <PREVIEW|STOP:preview-sha>" >&2
   exit 64
 fi
 
 testbox_id="$1"
 evidence_dir="$2"
-confirmation_token="$3"
+ownership_token="$3"
 operator_confirmation="$4"
-if [[ "$operator_confirmation" != "STOP" ]]; then
-  echo "refusing destructive cleanup without explicit STOP confirmation" >&2
-  exit 64
-fi
 if [[ ! "$testbox_id" =~ ^tbx_[A-Za-z0-9_-]+$ ]]; then
   echo "invalid Testbox ID: $testbox_id" >&2
   exit 64
 fi
-if [[ ! "$confirmation_token" =~ ^[0-9a-f]{32}$ ]]; then
-  echo "confirmation token must be a 32-character lowercase hex value" >&2
+if [[ ! "$ownership_token" =~ ^[0-9a-f]{32}$ ]]; then
+  echo "ownership token must be a 32-character lowercase hex value" >&2
+  exit 64
+fi
+if [[ "$operator_confirmation" != "PREVIEW" && ! "$operator_confirmation" =~ ^STOP:[0-9a-f]{64}$ ]]; then
+  echo "confirmation must be PREVIEW or STOP:<64-character preview SHA>" >&2
   exit 64
 fi
 
@@ -29,7 +29,7 @@ if [[ ! -s "$receipt_path" ]]; then
   echo "refusing cleanup without the warmup ownership receipt: $receipt_path" >&2
   exit 65
 fi
-python3 - "$receipt_path" "$testbox_id" "$confirmation_token" <<'PY'
+python3 - "$receipt_path" "$testbox_id" "$ownership_token" <<'PY'
 import json
 import pathlib
 import sys
@@ -42,7 +42,7 @@ except (OSError, json.JSONDecodeError) as error:
 if receipt.get("testbox_id") != expected_id:
     raise SystemExit("cleanup ID does not match the warmup ownership receipt")
 if receipt.get("confirmation_token") != expected_token:
-    raise SystemExit("cleanup confirmation token does not match the warmup ownership receipt")
+    raise SystemExit("ownership token does not match the warmup ownership receipt")
 for field in ("workflow", "job", "source_ref", "source_sha", "source_tree_sha", "ghostty_gitlink_sha"):
     if not receipt.get(field):
         raise SystemExit(f"warmup ownership receipt is missing {field}")
@@ -68,6 +68,81 @@ import sys
 print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["source_ref"])
 PY
 )"
+receipt_source_sha="$(python3 - "$receipt_path" <<'PY'
+import json
+import pathlib
+import sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["source_sha"])
+PY
+)"
+receipt_source_tree_sha="$(python3 - "$receipt_path" <<'PY'
+import json
+import pathlib
+import sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["source_tree_sha"])
+PY
+)"
+receipt_ghostty_sha="$(python3 - "$receipt_path" <<'PY'
+import json
+import pathlib
+import sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["ghostty_gitlink_sha"])
+PY
+)"
+
+# Parse either the table emitted by `list/status --id` or a summary response.
+# The parser validates context only for a row containing this exact ID. It does
+# not rely on fixed whitespace columns, because queued rows may have an empty IP.
+parse_cli_output() {
+  local log_path="$1"
+  python3 - "$log_path" "$testbox_id" "$receipt_workflow" "$receipt_job" "$receipt_ref" <<'PY'
+import pathlib
+import re
+import sys
+
+path, expected_id, expected_workflow, expected_job, expected_ref = sys.argv[1:]
+text = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
+for line in text.splitlines():
+    fields = line.split()
+    if not fields or fields[0] != expected_id:
+        continue
+    if len(fields) < 2:
+        raise SystemExit(66)
+    status = fields[1].lower()
+    for index, field in enumerate(fields[2:], start=2):
+        if field == expected_workflow:
+            if fields[index + 1:index + 3] != [expected_job, expected_ref]:
+                raise SystemExit(66)
+            break
+    print(status)
+    raise SystemExit(0)
+
+# Some CLI versions use a summary such as `[tbx_...] Status: ready`.
+if re.search(rf"\b{re.escape(expected_id)}\b", text):
+    match = re.search(r"\bstatus\s*:?\s*([A-Za-z_]+)", text, re.IGNORECASE)
+    if match:
+        print(match.group(1).lower())
+        raise SystemExit(0)
+raise SystemExit(3)
+PY
+}
+
+is_terminal() {
+  case "$1" in
+    completed|stopped|cancelled|failed|terminated|hydration_failed) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+is_active() {
+  case "$1" in
+    ready|running|hydrating|in_progress|queued) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+is_known_absence() {
+  grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+404|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$1"
+}
+
 inventory_log="$evidence_dir/list-before-stop.log"
 set +e
 blacksmith testbox list --all >"$inventory_log" 2>&1
@@ -78,134 +153,144 @@ if (( inventory_status != 0 )); then
   exit "$inventory_status"
 fi
 
-# The CLI has emitted both table-shaped and summary-shaped `status --id`
-# responses over time. Extract state without treating either response as an
-# ownership table. Ownership context comes only from the exact ID row in the
-# successful inventory preview below.
-status_from_log() {
-  local log_path="$1"
-  local value
-  value="$(awk -v id="$testbox_id" '$1 == id { print tolower($2); exit }' "$log_path")"
-  if [[ -z "$value" ]]; then
-    value="$(awk '{
-      for (i = 1; i <= NF; i++) {
-        token = tolower($i)
-        if (token == "status:" && i < NF) {
-          print tolower($(i + 1))
-          exit
-        }
-        if (token ~ /^status:/) {
-          sub(/^status:/, "", token)
-          if (token != "") {
-            print token
-            exit
-          }
-        }
-      }
-    }' "$log_path")"
-  fi
-  printf '%s' "$value"
-}
-
-inventory_row="$(awk -v id="$testbox_id" '$1 == id { print; exit }' "$inventory_log")"
-pre_status_log="$evidence_dir/status-before-stop.log"
+inventory_row_present=0
 set +e
-blacksmith testbox status --id "$testbox_id" >"$pre_status_log" 2>&1
-pre_status=$?
+parse_cli_output "$inventory_log" >/dev/null
+inventory_parse_status=$?
 set -e
-skip_stop=0
-if [[ -n "$inventory_row" ]]; then
-  # `list --all` is ID STATUS IP WORKFLOW JOB REF ...; compare this exact row
-  # to the warmup receipt before any destructive operation.
-  pre_workflow="$(awk '{print $4}' <<<"$inventory_row")"
-  pre_job="$(awk '{print $5}' <<<"$inventory_row")"
-  pre_ref="$(awk '{print $6}' <<<"$inventory_row")"
-  if [[ "$pre_workflow" != "$receipt_workflow" || "$pre_job" != "$receipt_job" || "$pre_ref" != "$receipt_ref" ]]; then
-    echo "owned Testbox context differs from the warmup receipt; refusing cleanup" >&2
-    exit 66
-  fi
-fi
-if (( pre_status == 0 )); then
-  pre_status_value="$(status_from_log "$pre_status_log")"
-  case "$pre_status_value" in
-    completed|stopped|cancelled|failed|terminated|hydration_failed)
-      skip_stop=1
-      ;;
-    ready|running|hydrating|in_progress|queued)
-      [[ -n "$inventory_row" ]] || {
-        echo "owned Testbox is active but absent from inventory; refusing cleanup" >&2
-        exit 66
-      }
-      ;;
-    *)
-      echo "could not parse status for owned Testbox $testbox_id; refusing cleanup" >&2
-      exit 66
-      ;;
+case "$inventory_parse_status" in
+  0) inventory_row_present=1 ;;
+  3) : ;;
+  66) echo "inventory ownership context differs from the warmup receipt; refusing cleanup" >&2; exit 66 ;;
+  *) echo "could not parse the Testbox inventory; refusing cleanup" >&2; exit "$inventory_parse_status" ;;
+esac
+
+status_log="$evidence_dir/status-before-stop.log"
+set +e
+blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
+status_command_status=$?
+set -e
+status_value=""
+status_absent=0
+if (( status_command_status == 0 )); then
+  set +e
+  status_value="$(parse_cli_output "$status_log")"
+  status_parse_status=$?
+  set -e
+  case "$status_parse_status" in
+    0) ;;
+    3) echo "status omitted the owned Testbox $testbox_id; refusing cleanup" >&2; exit 66 ;;
+    66) echo "status ownership context differs from the warmup receipt; refusing cleanup" >&2; exit 66 ;;
+    *) echo "could not parse status for owned Testbox $testbox_id; refusing cleanup" >&2; exit "$status_parse_status" ;;
   esac
-elif grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_status_log"; then
-  # An ID-specific terminal/not-found response proves there is nothing to stop.
-  skip_stop=1
+elif is_known_absence "$status_log"; then
+  status_absent=1
 else
   echo "failed to inspect owned Testbox $testbox_id before cleanup; refusing stop" >&2
-  exit "$pre_status"
+  exit "$status_command_status"
+fi
+
+if (( status_absent == 0 )) && is_active "$status_value" && (( inventory_row_present == 0 )); then
+  echo "owned Testbox is active but absent from the inventory; refusing cleanup" >&2
+  exit 66
+fi
+if (( status_absent == 0 )) && ! is_active "$status_value" && ! is_terminal "$status_value"; then
+  echo "unknown status for owned Testbox $testbox_id; refusing cleanup" >&2
+  exit 66
+fi
+
+preview_path="$evidence_dir/cleanup-preview.json"
+python3 - "$preview_path" "$testbox_id" "${status_value:-absent}" "$inventory_row_present" "$receipt_workflow" "$receipt_job" "$receipt_ref" "$receipt_source_sha" "$receipt_source_tree_sha" "$receipt_ghostty_sha" <<'PY'
+import json
+import pathlib
+import sys
+
+(path, testbox_id, status, inventory_present, workflow, job, ref,
+ source_sha, source_tree_sha, ghostty_sha) = sys.argv[1:]
+payload = {
+    "schema": 1,
+    "testbox_id": testbox_id,
+    "status": status,
+    "inventory_row_present": bool(int(inventory_present)),
+    "workflow": workflow,
+    "job": job,
+    "source_ref": ref,
+    "source_sha": source_sha,
+    "source_tree_sha": source_tree_sha,
+    "ghostty_gitlink_sha": ghostty_sha,
+}
+out = pathlib.Path(path)
+out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+out.chmod(0o600)
+PY
+preview_sha="$(sha256sum "$preview_path" | awk '{print $1}')"
+printf 'Testbox cleanup preview: id=%s status=%s inventory_row=%s workflow=%s job=%s ref=%s\n' \
+  "$testbox_id" "${status_value:-absent}" "$inventory_row_present" "$receipt_workflow" "$receipt_job" "$receipt_ref"
+printf 'Preview SHA: %s\n' "$preview_sha"
+if [[ "$operator_confirmation" == "PREVIEW" ]]; then
+  echo "Review the preview, then rerun with the same token and STOP:$preview_sha to authorize stop." >&2
+  exit 75
+fi
+expected_preview_sha="${operator_confirmation#STOP:}"
+if [[ "$expected_preview_sha" != "$preview_sha" ]]; then
+  echo "current cleanup preview differs from the supplied confirmation; refusing stop" >&2
+  exit 67
 fi
 
 stop_log="$evidence_dir/stop.log"
-status_log="$evidence_dir/status-after-stop.log"
 list_log="$evidence_dir/list-after-stop.log"
 cleanup_status=0
 poll_deadline=$((SECONDS + 120))
 poll_attempt=0
-
-if (( skip_stop == 1 )); then
+if (( status_absent == 1 )) || is_terminal "$status_value"; then
   printf 'Testbox %s is already terminal or absent; no stop request needed\n' "$testbox_id" >"$stop_log"
-  stop_status=0
 else
   set +e
   blacksmith testbox stop --id "$testbox_id" >"$stop_log" 2>&1
   stop_status=$?
   set -e
-fi
-if (( stop_status != 0 )); then
-  # A completed or already-absent Testbox can race the explicit stop call.
-  # Tolerate only the documented terminal/not-found response, never an
-  # arbitrary stop failure.
-  if grep -Eiq '(already[[:space:]]+(stopped|completed)|hydration_failed|not found|HTTP[[:space:]]+404)' "$stop_log"; then
-    printf 'stop already reached a terminal state for %s; continuing\n' "$testbox_id" >&2
-  else
-    echo "failed to stop Testbox $testbox_id; see $stop_log" >&2
-    cleanup_status=$stop_status
+  if (( stop_status != 0 )); then
+    if is_known_absence "$stop_log"; then
+      printf 'stop reached a known terminal or absent state for %s; continuing\n' "$testbox_id" >&2
+    else
+      echo "failed to stop Testbox $testbox_id; see $stop_log" >&2
+      cleanup_status=$stop_status
+    fi
   fi
 fi
 
-# Status is diagnostic. The authoritative cleanup check below parses the
-# specific ID in `list --all`; terminal rows are accepted because --all may
-# retain completed boxes, while active rows remain failures.
+# Poll the ID-specific endpoint until cancellation propagates. Never treat a
+# different row in the global inventory as proof that this ID is terminal.
 while :; do
   poll_attempt=$((poll_attempt + 1))
   : >"$status_log"
   set +e
   blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
-  status_status=$?
+  status_command_status=$?
   set -e
-  terminal=0
-  if (( status_status == 0 )); then
-    status_value="$(status_from_log "$status_log")"
-    case "$status_value" in
-      completed|stopped|cancelled|failed|terminated|hydration_failed) terminal=1 ;;
-      ready|running|hydrating|in_progress|queued) ;;
-      *)
-        grep -Eiq 'status:[[:space:]]*(completed|stopped|cancelled|failed|terminated|hydration_failed)' "$status_log" && terminal=1
-        ;;
-    esac
-  elif grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$status_log"; then
-    terminal=1
-  else
-    echo "failed to inspect Testbox $testbox_id; see $status_log" >&2
-    (( cleanup_status == 0 )) && cleanup_status=$status_status
+  if (( status_command_status == 0 )); then
+    set +e
+    status_value="$(parse_cli_output "$status_log")"
+    status_parse_status=$?
+    set -e
+    if (( status_parse_status != 0 )); then
+      echo "could not parse post-stop status for $testbox_id; see $status_log" >&2
+      (( cleanup_status == 0 )) && cleanup_status=66
+      break
+    fi
+    if is_terminal "$status_value"; then
+      break
+    fi
+    if ! is_active "$status_value"; then
+      echo "unknown post-stop status for $testbox_id; see $status_log" >&2
+      (( cleanup_status == 0 )) && cleanup_status=66
+      break
+    fi
+  elif is_known_absence "$status_log"; then
     break
-  fi
-  if (( terminal == 1 )); then
+  else
+    echo "failed to inspect Testbox $testbox_id after cleanup; see $status_log" >&2
+    (( cleanup_status == 0 )) && cleanup_status=$status_command_status
     break
   fi
   if (( SECONDS >= poll_deadline )); then
@@ -225,21 +310,28 @@ if (( list_status != 0 )); then
   echo "failed to list Testboxes after stopping $testbox_id; see $list_log" >&2
   (( cleanup_status == 0 )) && cleanup_status=$list_status
 else
-  listed_status="$(awk -v id="$testbox_id" '$1 == id { print tolower($2); exit }' "$list_log")"
-  case "$listed_status" in
-    "")
-      # The CLI may remove terminal boxes from the inventory immediately.
+  set +e
+  listed_status="$(parse_cli_output "$list_log")"
+  listed_parse_status=$?
+  set -e
+  case "$listed_parse_status" in
+    0)
+      if is_active "$listed_status"; then
+        echo "Testbox $testbox_id is still active after cleanup; see $list_log" >&2
+        (( cleanup_status == 0 )) && cleanup_status=1
+      elif ! is_terminal "$listed_status"; then
+        echo "unknown status for Testbox $testbox_id in inventory: $listed_status" >&2
+        (( cleanup_status == 0 )) && cleanup_status=66
+      fi
       ;;
-    completed|stopped|cancelled|failed|terminated|hydration_failed)
-      # --all is the full inventory, so a terminal row is safe and expected.
-      ;;
-    ready|running|hydrating|in_progress|queued)
-      echo "Testbox $testbox_id is still active after cleanup; see $list_log" >&2
-      (( cleanup_status == 0 )) && cleanup_status=1
+    3) ;;
+    66)
+      echo "Testbox $testbox_id ownership changed in final inventory; see $list_log" >&2
+      (( cleanup_status == 0 )) && cleanup_status=66
       ;;
     *)
-      echo "unknown status for Testbox $testbox_id in inventory: $listed_status" >&2
-      (( cleanup_status == 0 )) && cleanup_status=1
+      echo "could not parse final Testbox inventory; see $list_log" >&2
+      (( cleanup_status == 0 )) && cleanup_status=$listed_parse_status
       ;;
   esac
 fi
