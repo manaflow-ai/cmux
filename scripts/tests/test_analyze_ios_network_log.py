@@ -108,6 +108,27 @@ class AnalyzerTests(unittest.TestCase):
         )
         self.assertEqual(result["network_reachability"], {"Online": 1})
 
+    def test_normalizes_no_route_found_from_a_leg_only_failure(self):
+        result = analyzer.analyze(
+            [
+                "2026-08-12T10:00:00.000Z Direct dial plan assembled (Peer: 9, Public paths: 1, Private fallback paths: 0, Public relay URLs: 0)",
+                "2026-08-12T10:00:05.000Z Direct dial leg failed (Peer: 9, Leg: Public paths, Failure: No route found)",
+            ]
+        )
+        self.assertEqual(result["phase_failures"], {"Public paths/no_route": 1})
+        self.assertEqual(result["route_policy"]["assessment"], "no_public_relay")
+
+    def test_handles_iso_offsets_and_explicit_duration_units(self):
+        result = analyzer.analyze(
+            [
+                "2026-08-12T10:00:00.000+02:00 Transport dial started (Transport: Iroh, Attempt: 4)",
+                "2026-08-12T08:00:00.250Z Transport connected (Transport: Iroh, Duration: 250 milliseconds, Attempt: 4)",
+                "2026-08-12T08:00:00.300Z Iroh route discovery succeeded (Duration: 1.5 seconds)",
+            ]
+        )
+        self.assertEqual(result["connected_latency_ms"], [250.0])
+        self.assertEqual(result["discovery_durations_ms"], [1500.0])
+
 
 if __name__ == "__main__":
     unittest.main()
