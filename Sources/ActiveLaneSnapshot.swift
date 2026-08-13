@@ -104,36 +104,65 @@ enum ActiveLaneSnapshot {
         let registered: String?
     }
 
-    /// The lanes running right now, from the live tmux session list.
+    /// A live tmux session and the directory it was started in.
+    typealias LiveSession = (session: String, directory: String)
+
+    /// Expand `~` and resolve symlinks, so two spellings of one directory compare equal.
+    static func canonical(_ path: String) -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        return URL(fileURLWithPath: expanded).resolvingSymlinksInPath().path
+    }
+
+    /// The lanes running right now, matched to workspaces by directory.
     ///
-    /// Registration alone is not enough to find them. `cmux set-tmux-session` exists but
-    /// nothing calls it today, so `ownedTmuxSession` is nil in practice and a snapshot
-    /// built on it is always empty. The reattach path has the same problem and solves it
-    /// by *deriving* each workspace's session name and intersecting with the live list —
-    /// that is the signal used here, with registration preferred when it is present.
+    /// Three signals, in descending order of trust:
     ///
-    /// Carries the caveat `TmuxSessionReaper.sessionName` documents: a lane started with
-    /// an explicit word suffix (`claude-remote -n boards`) derives to a different name and
-    /// will not be seen until something registers it.
-    static func lanes(from candidates: [Candidate], live: Set<String>) -> [Lane] {
+    /// 1. **Registration.** `claude-remote` calls `cmux set-tmux-session` with the real
+    ///    name, so when it is present it is exactly right. It is cleared on every app
+    ///    restart, which is why it cannot be the only signal.
+    /// 2. **Session directory.** `tmux` reports where each session started, and that maps
+    ///    back to a workspace unambiguously. This is the one that carries the load.
+    /// 3. **Derived name.** Last resort, for a session whose directory has since moved.
+    ///
+    /// Deriving cannot be the primary signal: the sidebar instance index need not match
+    /// the one in the session name — a workspace at index 56 owns a session called plain
+    /// `azdevops` — and an explicit lane word (`claude-remote -n boards`) never appears in
+    /// the workspace at all. Both cases resolve correctly by directory.
+    static func lanes(from candidates: [Candidate], live: [LiveSession]) -> [Lane] {
+        let names = Set(live.map(\.session))
+        var byDirectory: [String: [String]] = [:]
+        for entry in live {
+            byDirectory[canonical(entry.directory), default: []].append(entry.session)
+        }
+
         var lanes: [Lane] = []
         var claimed: Set<String> = []
+
+        func take(_ session: String?) -> String? {
+            guard let session, !session.isEmpty, !claimed.contains(session) else { return nil }
+            claimed.insert(session)
+            return session
+        }
+
         for candidate in candidates {
-            let session: String?
-            if let registered = candidate.registered, !registered.isEmpty {
-                session = registered
-            } else {
+            var resolved: String?
+            if let registered = candidate.registered, names.contains(registered) {
+                resolved = take(registered)
+            }
+            if resolved == nil {
+                let directory = canonical(candidate.directory)
+                resolved = take(byDirectory[directory]?.first { !claimed.contains($0) })
+            }
+            if resolved == nil {
                 let derived = TmuxSessionReaper.sessionName(
                     directory: candidate.directory,
                     instanceIndex: candidate.instanceIndex
                 )
-                session = live.contains(derived) ? derived : nil
+                resolved = take(names.contains(derived) ? derived : nil)
             }
-            // One workspace per session, so two workspaces sharing a directory and
-            // instance cannot both record — and later both rebuild onto the same session.
-            guard let session, !session.isEmpty, claimed.insert(session).inserted else {
-                continue
-            }
+            // One workspace per session: two workspaces on the same directory must not
+            // both record, or both would later rebuild onto the same session.
+            guard let session = resolved else { continue }
             lanes.append(
                 Lane(
                     workspace: candidate.workspace,

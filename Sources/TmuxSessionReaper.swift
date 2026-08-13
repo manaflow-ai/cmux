@@ -43,6 +43,31 @@ enum TmuxSessionReaper {
             .filter { !$0.isEmpty }
     }
 
+    /// Every live session with the directory it was started in.
+    ///
+    /// The directory is the only dependable link back to a workspace. A session's *name*
+    /// is chosen by the wrapper and cannot be recomputed from the workspace: the instance
+    /// index in the sidebar need not match the one in the name (a workspace at index 56
+    /// routinely owns a session called plain `azdevops`), and an explicit lane word does
+    /// not appear in the workspace at all. `session_path` sidesteps both.
+    static func liveSessionsWithPaths() -> [(session: String, directory: String)] {
+        guard let tmuxPath else { return [] }
+        guard let output = run(
+            tmuxPath,
+            ["list-sessions", "-F", "#{session_name}\t#{session_path}"]
+        ) else {
+            return []
+        }
+        return output.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 1)
+            guard parts.count == 2 else { return nil }
+            let session = parts[0].trimmingCharacters(in: .whitespaces)
+            let directory = parts[1].trimmingCharacters(in: .whitespaces)
+            guard !session.isEmpty, !directory.isEmpty else { return nil }
+            return (session, directory)
+        }
+    }
+
     /// Lowercase, with spaces and dots folded to hyphens.
     ///
     /// Mirrors `slugify()` in `claude-remote` (`tr '[:upper:]' '[:lower:]' | tr ' .' '-'`).
