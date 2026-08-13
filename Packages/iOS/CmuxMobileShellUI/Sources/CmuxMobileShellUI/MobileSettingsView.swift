@@ -351,19 +351,6 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
 
                     NavigationLink {
-                        TaskComposerModelPickerLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.modelPickerLab",
-                                defaultValue: "New Task Model Lab"
-                            ),
-                            systemImage: "cpu"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsModelPickerLab")
-
-                    NavigationLink {
                         AgentFeedVariantLabView()
                     } label: {
                         Label(
