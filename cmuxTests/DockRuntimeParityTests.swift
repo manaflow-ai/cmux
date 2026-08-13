@@ -64,7 +64,7 @@ private extension DockSplitStore {
                 inPane: pane
             )
         )
-        surfaceIdToPanelId[tabID] = panel.id
+        bindSurface(tabID, toPanelId: panel.id)
         installAttentionRouting(for: panel)
         return pane
     }
@@ -90,13 +90,71 @@ struct DockRuntimeParityTests {
                 inPane: paneID
             )
         )
+        // Seed only the stale forward alias; the live tab must remain the
+        // authoritative reverse mapping for this fixture.
         dock.surfaceIdToPanelId[staleAliasID] = panel.id
 
         #expect(dock.bonsplitController.closeTab(staleAliasID))
 
         #expect(dock.panel(for: liveTabID) === panel)
+        #expect(dock.surfaceId(forPanelId: panel.id) == liveTabID)
         #expect(dock.surfaceIdToPanelId[staleAliasID] == nil)
         #expect(panel.closeCount == 0)
+    }
+
+    @Test("Dock pane ownership follows split, close, and implicit move closure")
+    func dockPaneOwnershipFollowsBonsplitLifecycle() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let otherDock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+
+        #expect(dock.containsPane(rootPane.id))
+        #expect(!otherDock.containsPane(rootPane.id))
+        #expect(DockSplitStore.liveStore(containingPane: rootPane.id) === dock)
+
+        let closingTab = Bonsplit.Tab(title: "Closing tab")
+        let closedPane = try #require(
+            dock.bonsplitController.splitPane(
+                rootPane,
+                orientation: .horizontal,
+                withTab: closingTab
+            )
+        )
+        #expect(dock.containsPane(closedPane.id))
+        #expect(DockSplitStore.liveStore(containingPane: closedPane.id) === dock)
+
+        #expect(dock.bonsplitController.closeTab(closingTab.id))
+        #expect(!dock.containsPane(closedPane.id))
+        #expect(DockSplitStore.liveStore(containingPane: closedPane.id) == nil)
+
+        let explicitlyClosedPane = try #require(
+            dock.bonsplitController.splitPane(
+                rootPane,
+                orientation: .horizontal,
+                withTab: Bonsplit.Tab(title: "Explicitly closed pane")
+            )
+        )
+        #expect(dock.bonsplitController.closePane(explicitlyClosedPane))
+        #expect(!dock.containsPane(explicitlyClosedPane.id))
+
+        let movingTab = try #require(
+            dock.bonsplitController.createTab(
+                title: "Moving tab",
+                inPane: rootPane
+            )
+        )
+        let destinationPane = try #require(
+            dock.bonsplitController.splitPane(
+                rootPane,
+                orientation: .vertical,
+                withTab: Bonsplit.Tab(title: "Destination tab")
+            )
+        )
+        #expect(dock.bonsplitController.moveTab(movingTab, toPane: destinationPane))
+
+        #expect(!dock.containsPane(rootPane.id))
+        #expect(dock.containsPane(destinationPane.id))
+        #expect(DockSplitStore.liveStore(containingPane: destinationPane.id) === dock)
     }
 
     private func socketEnvelope(

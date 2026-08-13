@@ -25,6 +25,12 @@ struct DeviceTreeView: View {
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
+    /// Live app routes dismiss through the root modal owner. Standalone hosts
+    /// leave this nil and retain the environment dismissal fallback.
+    var dismissAction: (() -> Void)? = nil
+    /// Called after a successful Forget operation. The root host uses this to
+    /// dismiss the Computers sheet when the final saved computer is gone.
+    var didForgetComputer: (() -> Void)? = nil
     /// Message for the always-visible failure alert shown when a Forget cannot be
     /// completed. An alert, not a toast, so the error still surfaces when the
     /// Toasts beta flag is off.
@@ -92,7 +98,7 @@ struct DeviceTreeView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
-                        dismiss()
+                        dismissScreen()
                     }
                     .accessibilityIdentifier("MobileDeviceTreeDone")
                 }
@@ -154,16 +160,31 @@ struct DeviceTreeView: View {
     /// the top-left toolbar button and the end-of-list row.
     private func addComputer() {
         showAddDevice?()
-        dismiss()
+        dismissScreen()
+    }
+
+    private func dismissScreen() {
+        if let dismissAction {
+            dismissAction()
+        } else {
+            dismiss()
+        }
     }
 
     @ViewBuilder
     private var emptySection: some View {
         Section {
-            Text(L10n.string(
-                "mobile.computers.empty",
-                defaultValue: "No computers yet. Add one to see its workspaces here."
-            ))
+            Text(
+                showAddDevice != nil
+                    ? L10n.string(
+                        "mobile.computers.empty",
+                        defaultValue: "No computers yet. Add one to see its workspaces here."
+                    )
+                    : L10n.string(
+                        "mobile.devices.emptyDescription",
+                        defaultValue: "Sign in to cmux on your computer with this account and it appears here automatically."
+                    )
+            )
             .foregroundStyle(.secondary)
         }
     }
@@ -189,6 +210,8 @@ struct DeviceTreeView: View {
                 "mobile.computers.forget.failureMessage",
                 defaultValue: "It's still signed in. Check your connection and try again."
             )
+        } else {
+            didForgetComputer?()
         }
     }
 

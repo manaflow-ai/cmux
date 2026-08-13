@@ -15,6 +15,15 @@ struct CmuxWorkerEntrypoint {
 
     /// Runs the requested worker instead of continuing normal app startup.
     func runIfRequested() {
+        if arguments.contains(
+            TerminalPastePreparationWorkerClient.workerModeArgument
+        ) {
+            exit(
+                TerminalPastePreparationWorker().run(
+                    arguments: arguments
+                )
+            )
+        }
         if arguments.contains(SimulatorWorkerClient.workerModeArgument) {
             runSimulatorWorker()
         }

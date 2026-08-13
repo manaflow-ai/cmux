@@ -192,7 +192,7 @@ struct ChatArtifactViewerPager: View {
             prepareSave: { path in
                 Task { await model.prepareSave(for: path, loader: loader) }
             },
-            toggleSearch: model.toggleSearch,
+            toggleSearch: { path in model.toggleSearch(for: path, loader: loader) },
             toggleGoToLine: model.toggleGoToLine,
             requestTop: model.requestTop,
             requestBottom: model.requestBottom,
@@ -219,12 +219,15 @@ struct ChatArtifactViewerPager: View {
         case .copyImage:
             guard case .image(let data) = snapshot.state else { return }
             UIPasteboard.general.image = UIImage(data: data)
+            loader.recordDiagnostic(.artifactCopied)
             toasts.present(.copied())
         case .copyContents:
             UIPasteboard.general.string = snapshot.renderedText
+            loader.recordDiagnostic(.artifactCopied)
             toasts.present(.copied())
         case .copyPath:
             UIPasteboard.general.string = snapshot.path
+            loader.recordDiagnostic(.artifactCopied)
             toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
         }
     }

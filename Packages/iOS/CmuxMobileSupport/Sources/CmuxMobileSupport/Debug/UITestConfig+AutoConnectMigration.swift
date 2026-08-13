@@ -9,6 +9,26 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
         case ineligible
     }
 
+    /// A connection-method value already persisted by the upgraded install.
+    public enum PersistedConnectionMethod: String, Equatable, Sendable {
+        /// The built-in encrypted transport was selected.
+        case automatic
+        /// Tailscale-only transport was selected.
+        case tailscale
+        /// An unrecognized future or corrupt raw value was persisted.
+        case unknown
+    }
+
+    /// A resolution persisted by the prior v1 introduction.
+    public enum LegacyResolution: String, Equatable, Sendable {
+        /// The prior introduction had not been resolved.
+        case pending
+        /// The install did not qualify for the prior introduction.
+        case ineligible
+        /// The prior introduction was explicitly resolved.
+        case acknowledged
+    }
+
     /// A real modal host that should own presentation before migration checks.
     public enum InitialModalHost: String, Equatable, Sendable {
         case rootPairing = "root-pairing"
@@ -34,6 +54,10 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
     public let initialModalHost: InitialModalHost?
     /// The launch prerequisite held unavailable until the next fixture launch.
     public let readinessGate: ReadinessGate?
+    /// The connection method present before the corrected migration snapshots.
+    public let persistedConnectionMethod: PersistedConnectionMethod?
+    /// The v1 introduction outcome present before the corrected migration snapshots.
+    public let legacyResolution: LegacyResolution?
     /// Whether this launch exposes a leaf viewport probe for XCUITest geometry.
     public let showsLayoutProbe: Bool
 
@@ -79,6 +103,30 @@ public struct AutoConnectMigrationUITestConfiguration: Equatable, Sendable {
             self.readinessGate = readinessGate
         } else {
             self.readinessGate = nil
+        }
+        if let rawPersistedConnectionMethod = environment[
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_PERSISTED_METHOD"
+        ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawPersistedConnectionMethod.isEmpty {
+            guard let persistedConnectionMethod = PersistedConnectionMethod(
+                rawValue: rawPersistedConnectionMethod
+            ) else {
+                return nil
+            }
+            self.persistedConnectionMethod = persistedConnectionMethod
+        } else {
+            self.persistedConnectionMethod = nil
+        }
+        if let rawLegacyResolution = environment[
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_V1_RESOLUTION"
+        ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawLegacyResolution.isEmpty {
+            guard let legacyResolution = LegacyResolution(rawValue: rawLegacyResolution) else {
+                return nil
+            }
+            self.legacyResolution = legacyResolution
+        } else {
+            self.legacyResolution = nil
         }
         self.showsLayoutProbe =
             environment["CMUX_UITEST_AUTOCONNECT_MIGRATION_LAYOUT_PROBES"]?

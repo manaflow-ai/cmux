@@ -15,6 +15,7 @@ import UIKit
 /// service; this wrapper only bridges the stream to a SwiftUI callback.
 struct QRCodeScannerView: UIViewControllerRepresentable {
     let onCode: (String) -> Void
+    var onUnavailable: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onCode: onCode)
@@ -26,7 +27,8 @@ struct QRCodeScannerView: UIViewControllerRepresentable {
         return QRCodeCaptureController(
             stream: stream,
             accepts: MobilePairingScannerPolicy.acceptsCode,
-            unavailableText: L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable")
+            unavailableText: L10n.string("mobile.pairing.cameraUnavailable", defaultValue: "Camera Unavailable"),
+            onUnavailable: onUnavailable
         )
     }
 

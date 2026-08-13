@@ -1454,7 +1454,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_process_identity_uses_start_time_after_a_parenthesized_name() {
-        let stat = "12 (name with ) marker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 4242";
+        let stat = "12 (name with ) marker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 4242";
         assert_eq!(
             linux_process_identity_from_stat(12, stat),
             Some(ProcessIdentity { pid: 12, started: 4242 })

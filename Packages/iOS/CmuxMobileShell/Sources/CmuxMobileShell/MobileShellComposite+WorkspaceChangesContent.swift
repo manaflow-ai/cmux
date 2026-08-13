@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import CmuxAgentChat
 public import CmuxMobileChanges
 internal import CmuxMobileDiagnostics
@@ -113,20 +114,39 @@ extension MobileShellComposite {
         revision: WorkspaceChangesFileRevision,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)? = nil
     ) async throws -> Data {
-        let statResponse = try await workspaceChangesFileStatResponse(
-            workspaceID: workspaceID,
-            path: path,
-            revision: revision
-        )
-        return try await workspaceChangesContentChunks(
-            workspaceID: workspaceID,
-            path: path,
-            revision: revision,
-            expectedFingerprint: statResponse.contentFingerprint,
-            collectsData: true,
-            progress: progress,
-            onChunk: { _ in }
-        )
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.artifactDownloadStarted, correlationID: workspaceID)
+        do {
+            let statResponse = try await workspaceChangesFileStatResponse(
+                workspaceID: workspaceID,
+                path: path,
+                revision: revision
+            )
+            let data = try await workspaceChangesContentChunks(
+                workspaceID: workspaceID,
+                path: path,
+                revision: revision,
+                expectedFingerprint: statResponse.contentFingerprint,
+                collectsData: true,
+                progress: progress,
+                onChunk: { _ in }
+            )
+            recordAppEvent(
+                .artifactDownloadSucceeded,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                count: data.count
+            )
+            return data
+        } catch {
+            recordAppEvent(
+                .artifactDownloadFailed,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
     }
 
     /// Creates a path-scoped loader for current working-tree text lines.
@@ -229,20 +249,37 @@ extension MobileShellComposite {
         revision: WorkspaceChangesFileRevision,
         onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
-        let statResponse = try await workspaceChangesFileStatResponse(
-            workspaceID: workspaceID,
-            path: path,
-            revision: revision
-        )
-        _ = try await workspaceChangesContentChunks(
-            workspaceID: workspaceID,
-            path: path,
-            revision: revision,
-            expectedFingerprint: statResponse.contentFingerprint,
-            collectsData: false,
-            progress: nil,
-            onChunk: onChunk
-        )
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(.artifactDownloadStarted, correlationID: workspaceID)
+        do {
+            let statResponse = try await workspaceChangesFileStatResponse(
+                workspaceID: workspaceID,
+                path: path,
+                revision: revision
+            )
+            _ = try await workspaceChangesContentChunks(
+                workspaceID: workspaceID,
+                path: path,
+                revision: revision,
+                expectedFingerprint: statResponse.contentFingerprint,
+                collectsData: false,
+                progress: nil,
+                onChunk: onChunk
+            )
+            recordAppEvent(
+                .artifactDownloadSucceeded,
+                correlationID: workspaceID,
+                startedAt: startedAt
+            )
+        } catch {
+            recordAppEvent(
+                .artifactDownloadFailed,
+                correlationID: workspaceID,
+                startedAt: startedAt,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
     }
 
     private func workspaceChangesContentCall<T: Decodable & Sendable>(

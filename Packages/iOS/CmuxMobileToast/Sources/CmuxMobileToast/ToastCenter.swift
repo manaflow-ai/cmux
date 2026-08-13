@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+public import CMUXMobileCore
 
 #if canImport(UIKit)
 internal import UIKit
@@ -34,8 +35,9 @@ public final class ToastCenter {
         didSet {
             guard oldValue != isEnabled else { return }
             defaults.set(isEnabled, forKey: Self.enabledDefaultsKey)
+            diagnosticLog?.recordAppEvent(.toastFeatureChanged, count: isEnabled ? 1 : 0)
             if !isEnabled {
-                dismissAll()
+                dismissAll(reason: .featureDisabled)
             }
         }
     }
@@ -43,6 +45,7 @@ public final class ToastCenter {
     public static let enabledDefaultsKey = "cmux.toasts.betaEnabled"
 
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let diagnosticLog: DiagnosticLog?
 
     /// Toasts waiting behind the visible one, oldest first. Capped: a burst
     /// of notices drops the oldest queued toast rather than backing up into
@@ -66,10 +69,12 @@ public final class ToastCenter {
 
     public init(
         clock: any Clock<Duration> = ContinuousClock(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.clock = clock
         self.defaults = defaults
+        self.diagnosticLog = diagnosticLog
         var enabled = defaults.bool(forKey: Self.enabledDefaultsKey)
         #if DEBUG
         // The env-gated gallery harness exists to exercise toasts; a dark
@@ -93,11 +98,23 @@ public final class ToastCenter {
     /// and queues (FIFO, capped) otherwise. Dropped while ``isEnabled`` is
     /// false (the beta flag is off).
     public func present(_ toast: Toast) {
-        guard isEnabled else { return }
+        guard isEnabled else {
+            recordToastEvent(
+                .toastDropped,
+                toast: toast,
+                detail: .toastStyle(diagnosticStyle(toast))
+            )
+            return
+        }
         if let current = presented, current.toast.coalescingKey == toast.coalescingKey {
             presented = Presented(
                 toast: toast.adoptingIdentity(of: current.toast),
                 bumpCount: current.bumpCount + 1
+            )
+            recordToastEvent(
+                .toastCoalesced,
+                toast: current.toast,
+                detail: .toastStyle(diagnosticStyle(toast))
             )
             restartAutoDismiss()
             return
@@ -105,10 +122,29 @@ public final class ToastCenter {
         if presented != nil || advanceTask != nil {
             if let index = queue.firstIndex(where: { $0.coalescingKey == toast.coalescingKey }) {
                 queue[index] = toast.adoptingIdentity(of: queue[index])
+                recordToastEvent(
+                    .toastCoalesced,
+                    toast: queue[index],
+                    detail: .toastStyle(diagnosticStyle(toast))
+                )
             } else {
                 queue.append(toast)
+                recordToastEvent(
+                    .toastQueued,
+                    toast: toast,
+                    detail: .toastStyle(diagnosticStyle(toast))
+                )
                 if queue.count > Self.queueLimit {
-                    queue.removeFirst(queue.count - Self.queueLimit)
+                    let overflow = queue.count - Self.queueLimit
+                    let dropped = queue.prefix(overflow)
+                    for droppedToast in dropped {
+                        recordToastEvent(
+                            .toastDropped,
+                            toast: droppedToast,
+                            detail: .toastStyle(diagnosticStyle(droppedToast))
+                        )
+                    }
+                    queue.removeFirst(overflow)
                 }
             }
             return
@@ -121,15 +157,20 @@ public final class ToastCenter {
     public func dismiss(_ id: Toast.ID) {
         if presented?.toast.id == id {
             dismissCurrent()
-        } else {
-            queue.removeAll { $0.id == id }
+        } else if let index = queue.firstIndex(where: { $0.id == id }) {
+            let toast = queue.remove(at: index)
+            recordToastDismissed(toast, reason: .removedFromQueue)
         }
     }
 
     /// Dismiss any toast carrying `coalescingKey`, visible or queued. Used when
     /// the condition a persistent/status toast describes stops being true.
     public func dismiss(coalescingKey: String) {
+        let removed = queue.filter { $0.coalescingKey == coalescingKey }
         queue.removeAll { $0.coalescingKey == coalescingKey }
+        for toast in removed {
+            recordToastDismissed(toast, reason: .removedFromQueue)
+        }
         if presented?.toast.coalescingKey == coalescingKey {
             dismissCurrent()
         }
@@ -138,7 +179,12 @@ public final class ToastCenter {
     /// Dismiss the visible toast and advance to the next queued one after a
     /// short gap.
     public func dismissCurrent() {
-        guard presented != nil else { return }
+        dismissCurrent(reason: .caller)
+    }
+
+    private func dismissCurrent(reason: DiagnosticToastDismissReason) {
+        guard let toast = presented?.toast else { return }
+        recordToastDismissed(toast, reason: reason)
         cancelAutoDismiss()
         presented = nil
         interactionHolds = 0
@@ -148,6 +194,16 @@ public final class ToastCenter {
     /// Drop everything, including queued toasts. For hard context switches
     /// such as sign-out.
     public func dismissAll() {
+        dismissAll(reason: .dismissAll)
+    }
+
+    private func dismissAll(reason: DiagnosticToastDismissReason) {
+        if let toast = presented?.toast {
+            recordToastDismissed(toast, reason: reason)
+        }
+        for toast in queue {
+            recordToastDismissed(toast, reason: reason)
+        }
         cancelAutoDismiss()
         advanceTask?.cancel()
         advanceTask = nil
@@ -163,6 +219,11 @@ public final class ToastCenter {
     public func beginInteraction(for toastID: Toast.ID) {
         guard presented?.toast.id == toastID else { return }
         interactionHolds += 1
+        diagnosticLog?.recordAppEvent(
+            .toastInteractionStarted,
+            correlationID: toastID.uuidString,
+            count: interactionHolds
+        )
         cancelAutoDismiss()
     }
 
@@ -172,6 +233,11 @@ public final class ToastCenter {
     public func endInteraction(for toastID: Toast.ID) {
         guard presented?.toast.id == toastID, interactionHolds > 0 else { return }
         interactionHolds -= 1
+        diagnosticLog?.recordAppEvent(
+            .toastInteractionEnded,
+            correlationID: toastID.uuidString,
+            count: interactionHolds
+        )
         if interactionHolds == 0 {
             restartAutoDismiss()
         }
@@ -182,6 +248,11 @@ public final class ToastCenter {
         // is per-toast, so a fresh presentation always starts unheld.
         interactionHolds = 0
         presented = Presented(toast: toast, bumpCount: 0)
+        recordToastEvent(
+            .toastPresented,
+            toast: toast,
+            detail: .toastStyle(diagnosticStyle(toast))
+        )
         restartAutoDismiss()
     }
 
@@ -206,7 +277,7 @@ public final class ToastCenter {
 
     private func autoDismissFired(toastID: UUID) {
         guard presented?.toast.id == toastID else { return }
-        dismissCurrent()
+        dismissCurrent(reason: .automatic)
     }
 
     private func scheduleAdvance() {
@@ -226,5 +297,37 @@ public final class ToastCenter {
         advanceTask = nil
         guard presented == nil, !queue.isEmpty else { return }
         show(queue.removeFirst())
+    }
+
+    private func recordToastEvent(
+        _ kind: DiagnosticAppEventKind,
+        toast: Toast,
+        detail: DiagnosticAppEventDetail
+    ) {
+        diagnosticLog?.recordAppEvent(
+            kind,
+            correlationID: toast.id.uuidString,
+            detail: detail
+        )
+    }
+
+    private func recordToastDismissed(
+        _ toast: Toast,
+        reason: DiagnosticToastDismissReason
+    ) {
+        recordToastEvent(
+            .toastDismissed,
+            toast: toast,
+            detail: .toastDismissReason(reason)
+        )
+    }
+
+    private func diagnosticStyle(_ toast: Toast) -> DiagnosticToastStyle {
+        switch toast.style {
+        case .info: .info
+        case .success: .success
+        case .warning: .warning
+        case .failure: .failure
+        }
     }
 }
