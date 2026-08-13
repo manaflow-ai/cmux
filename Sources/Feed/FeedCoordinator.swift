@@ -30,6 +30,10 @@ final class FeedCoordinator: @unchecked Sendable {
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
     @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
+    /// Live in-process routes belong to the Feed coordinator lifecycle. Hook
+    /// sessions remain file-backed and are resolved separately off-main.
+    @MainActor private var registeredTargets: [String: FeedJumpResolver.Target] = [:]
+    @MainActor private var registeredTextSenders: [String: FeedRegisteredTextSender] = [:]
 
     /// The bounded notification-center boundary. `install(store:)` injects it;
     /// the shared store's service covers the pre-install window.
@@ -42,6 +46,10 @@ final class FeedCoordinator: @unchecked Sendable {
     /// handler signals the semaphore after filling the slot.
     private let waiterLock = NSLock()
     private var waiters: [String: PendingWaiter] = [:]
+    /// Monotonic snapshot revision used by authenticated mobile clients to
+    /// repair missed invalidations. Guarded by `waiterLock` with the waiter
+    /// table so a resolution and its revision are one ordered mutation.
+    private var mobileRevision: UInt64 = 0
 
     /// One kqueue-backed DispatchSource per distinct agent PID we've
     /// ever seen. The kernel fires `.exit` the instant the process
@@ -83,6 +91,8 @@ final class FeedCoordinator: @unchecked Sendable {
         userNotificationCenter: (any UserNotificationCenterServing)? = nil
     ) {
         self.store = store
+        registeredTargets.removeAll()
+        registeredTextSenders.removeAll()
         // Resolved here rather than as a default argument: default-argument
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
@@ -113,7 +123,22 @@ final class FeedCoordinator: @unchecked Sendable {
         src.setEventHandler { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
+                let requestIDs = self.store?.items.compactMap { item -> String? in
+                    guard item.status.isPending, item.ppid == ppid else { return nil }
+                    switch item.payload {
+                    case .permissionRequest(let requestID, _, _, _),
+                         .exitPlan(let requestID, _, _),
+                         .question(let requestID, _):
+                        return requestID
+                    default:
+                        return nil
+                    }
+                } ?? []
+                for requestID in requestIDs {
+                    self.invalidateBlockingRequest(requestId: requestID)
+                }
                 self.store?.expireItems(forPpid: ppid)
+                self.publishMobileChange()
                 self.pidWatchers[ppid]?.cancel()
                 self.pidWatchers.removeValue(forKey: ppid)
             }
@@ -144,6 +169,7 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
         store.ingest(event)
+        publishMobileChange()
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -250,7 +276,7 @@ final class FeedCoordinator: @unchecked Sendable {
 
         // Resolve before entering the global delivery lane so hook-session disk
         // I/O for one agent cannot stall otherwise unrelated Feed ingress.
-        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
+        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event)
             ? Self.resolveAttentionTarget(event: event)
             : nil
         let semaphore = DispatchSemaphore(value: 0)
@@ -478,13 +504,39 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Called by the `feed.*.reply` handlers. Marks the corresponding
     /// item resolved on the main-actor store and wakes any waiter.
-    func deliverReply(requestId: String, decision: WorkstreamDecision) {
+    @discardableResult
+    func deliverReply(requestId: String, decision: WorkstreamDecision) -> MobileReplyOutcome {
+        deliverReply(
+            requestId: requestId,
+            itemId: nil,
+            decision: decision,
+            requiresLiveWaiter: false
+        )
+    }
+
+    private func deliverReply(
+        requestId: String,
+        itemId: UUID?,
+        decision: WorkstreamDecision,
+        requiresLiveWaiter: Bool
+    ) -> MobileReplyOutcome {
         waiterLock.lock()
-        let attentionTarget = waiters[requestId]?.attentionTarget
-        if let waiter = waiters[requestId] {
-            waiter.decision = decision
-            waiter.semaphore.signal()
+        let waiter = waiters[requestId]
+        if requiresLiveWaiter, waiter == nil {
+            waiterLock.unlock()
+            return .notFound
         }
+        if waiter?.invalidated == true {
+            waiterLock.unlock()
+            return .expired
+        }
+        if waiter?.decision != nil {
+            waiterLock.unlock()
+            return .alreadyResolved
+        }
+        let attentionTarget = waiter?.attentionTarget
+        waiter?.decision = decision
+        waiter?.semaphore.signal()
         waiterLock.unlock()
 
         // The user decided: conclude the needs-input overlay so the agent's
@@ -492,29 +544,354 @@ final class FeedCoordinator: @unchecked Sendable {
         // decision on the same panel keeps it lit until it too concludes).
         concludeAttentionOnMain(attentionTarget)
 
-        let resolve: @Sendable () -> Void = { [requestId, decision] in
+        let resolve: @Sendable () -> Void = { [requestId, itemId, decision] in
             MainActor.assumeIsolated {
                 let store = FeedCoordinator.shared.store
                 guard let store else { return }
-                if let itemId = Self.findItemId(for: requestId, in: store.items) {
-                    store.markResolved(itemId, decision: decision)
+                if let resolvedItemId = itemId ?? Self.findItemId(for: requestId, in: store.items) {
+                    store.markResolved(resolvedItemId, decision: decision)
                 }
+                FeedCoordinator.shared.publishMobileChange()
+                FeedCoordinator.shared.cancelNotification(requestId: requestId)
             }
         }
         if Thread.isMainThread {
             resolve()
         } else {
+            precondition(!requiresLiveWaiter, "Mobile replies must resolve on the main actor")
             DispatchQueue.main.async(execute: resolve)
         }
+        return .delivered
+    }
 
-        cancelNotification(requestId: requestId)
+    enum MobileReplyOutcome: String, Sendable {
+        case delivered
+        case alreadyResolved = "already_resolved"
+        case expired
+        case invalidAction = "invalid_action"
+        case notFound = "not_found"
+    }
+
+    /// Resolves exactly one immutable feed item. Both ids must match the same
+    /// pending card, preventing identical request ids in other sessions or Mac
+    /// connections from crossing the action boundary.
+    @MainActor
+    func deliverMobileReply(
+        itemId: UUID,
+        requestId: String,
+        workspaceId: String,
+        surfaceId: String,
+        decision: WorkstreamDecision
+    ) -> MobileReplyOutcome {
+        guard let item = snapshot(pendingOnly: false).first(where: { $0.id == itemId }) else {
+            return .notFound
+        }
+        switch item.status {
+        case .expired:
+            return .expired
+        case .resolved:
+            return .alreadyResolved
+        case .telemetry:
+            return .notFound
+        case .pending:
+            break
+        }
+        guard item.workspaceId.map({ $0 == workspaceId }) ?? true,
+              item.surfaceId.map({ $0 == surfaceId }) ?? true,
+              let target = target(for: item.workstreamId),
+              target.workspaceId == workspaceId,
+              target.surfaceId == surfaceId else {
+            return .notFound
+        }
+        guard Self.mobileDecisionIsValid(decision, for: item, requestId: requestId) else {
+            return .invalidAction
+        }
+        return deliverReply(
+            requestId: requestId,
+            itemId: itemId,
+            decision: decision,
+            requiresLiveWaiter: true
+        )
+    }
+
+    private static func mobileDecisionIsValid(
+        _ decision: WorkstreamDecision,
+        for item: WorkstreamItem,
+        requestId: String
+    ) -> Bool {
+        switch (item.payload, decision) {
+        case let (.permissionRequest(itemRequestId, _, toolInput, _), .permission(mode)):
+            guard itemRequestId == requestId else { return false }
+            let sourceIsKnown = item.sourceRawValue.map { $0 == item.source.rawValue } ?? true
+            guard sourceIsKnown || mode == .deny else { return false }
+            switch mode {
+            case .deny: return true
+            case .once: return FeedPermissionActionPolicy.supportsOncePermissionMode(source: item.source, toolInputJSON: toolInput)
+            case .always: return FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: item.source, toolInputJSON: toolInput)
+            case .persistent: return FeedPermissionActionPolicy.supportsPersistentPermissionMode(source: item.source, toolInputJSON: toolInput)
+            case .all: return FeedPermissionActionPolicy.supportsAllPermissionMode(source: item.source, toolInputJSON: toolInput)
+            case .bypass: return FeedPermissionActionPolicy.supportsBypassPermissions(source: item.source)
+            }
+        case let (.exitPlan(itemRequestId, _, _), .exitPlan(_, _)):
+            return itemRequestId == requestId
+        case let (.question(itemRequestId, questions), .question(selections)):
+            return itemRequestId == requestId
+                && Self.questionSelectionsAreValid(selections, questions: questions)
+        case let (.question(itemRequestId, questions), .form(action, selections)):
+            guard itemRequestId == requestId else { return false }
+            switch action {
+            case .accept:
+                return Self.questionSelectionsAreValid(selections, questions: questions)
+            case .decline, .cancel:
+                return selections.isEmpty
+            }
+        default:
+            return false
+        }
+    }
+
+    private static func questionSelectionsAreValid(
+        _ selections: [String],
+        questions: [WorkstreamQuestionPrompt]
+    ) -> Bool {
+        guard !questions.isEmpty else { return false }
+        let answers = Dictionary(grouping: selections.compactMap { selection -> (String, String)? in
+            guard let separator = selection.firstIndex(of: "=") else { return nil }
+            return (String(selection[..<separator]), String(selection[selection.index(after: separator)...]))
+        }, by: { $0.0 })
+        guard answers.values.reduce(0, { $0 + $1.count }) == selections.count else { return false }
+        let questionIDs = Set(questions.map(\.id))
+        guard Set(answers.keys).isSubset(of: questionIDs) else { return false }
+        return questions.allSatisfy { question in
+            let values = answers[question.id, default: []].map { $0.1 }
+            if values.isEmpty {
+                return question.required == false
+                    && (question.minSelections ?? 0) == 0
+            }
+            guard question.multiSelect || values.count == 1 else { return false }
+            if let minimum = question.minSelections, values.count < minimum { return false }
+            if let maximum = question.maxSelections, values.count > maximum { return false }
+            let optionIDs = Set(question.options.map(\.id))
+            switch question.inputType {
+            case .text, .secret, .email, .date, .dateTime:
+                return values.allSatisfy { value in
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty,
+                          question.minLength.map({ trimmed.count >= $0 }) ?? true,
+                          question.maxLength.map({ trimmed.count <= $0 }) ?? true else { return false }
+                    switch question.inputType {
+                    case .email: return Self.validEmail(trimmed)
+                    case .date: return Self.validISODate(trimmed)
+                    case .dateTime: return ISO8601DateFormatter().date(from: trimmed) != nil
+                    default: return true
+                    }
+                }
+            case .number, .integer:
+                return values.allSatisfy { value in
+                    guard let number = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+                          number.isFinite,
+                          question.inputType != .integer || number.rounded(.towardZero) == number,
+                          question.minimum.map({ number >= $0 }) ?? true,
+                          question.maximum.map({ number <= $0 }) ?? true else { return false }
+                    return true
+                }
+            case .url:
+                return values.allSatisfy { value in
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard question.minLength.map({ trimmed.count >= $0 }) ?? true,
+                          question.maxLength.map({ trimmed.count <= $0 }) ?? true,
+                          let url = URL(string: trimmed),
+                          let scheme = url.scheme else { return false }
+                    return !scheme.isEmpty
+                }
+            case .boolean:
+                return values.allSatisfy {
+                    ["1", "0", "yes", "no", "true", "false", "y", "n", "on", "off"]
+                        .contains($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                }
+            case .external:
+                return false
+            default:
+                return values.allSatisfy {
+                    optionIDs.contains($0)
+                        || ($0.hasPrefix("other:") && $0.count > 6 && question.allowsOther != false)
+                }
+            }
+        }
+    }
+
+    private static func validEmail(_ value: String) -> Bool {
+        let pieces = value.split(separator: "@", omittingEmptySubsequences: false)
+        return pieces.count == 2
+            && !pieces[0].isEmpty
+            && !pieces[1].isEmpty
+            && !value.contains(where: \.isWhitespace)
+    }
+
+    private static func validISODate(_ value: String) -> Bool {
+        let pieces = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard value.count == 10,
+              pieces.count == 3,
+              pieces[0].count == 4,
+              pieces[1].count == 2,
+              pieces[2].count == 2,
+              let year = Int(pieces[0]),
+              let month = Int(pieces[1]),
+              let day = Int(pieces[2]) else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(from: DateComponents(year: year, month: month, day: day)) != nil
+    }
+
+    /// Revision paired with `snapshot`; callers use it as the reconciliation
+    /// cursor for revision-only mobile invalidations.
+    func mobileSnapshot(pendingOnly: Bool) -> (revision: UInt64, items: [WorkstreamItem]) {
+        waiterLock.lock()
+        let revision = mobileRevision
+        waiterLock.unlock()
+        return (revision, snapshot(pendingOnly: pendingOnly))
+    }
+
+    /// Returns one stable page from persisted Feed history for authenticated mobile clients.
+    @MainActor
+    func mobileHistoryPage(endingBefore cursor: String?, limit: Int) async throws
+        -> (revision: UInt64, page: WorkstreamStore.HistoryPage)
+    {
+        guard let store else { throw WorkstreamHistoryError.invalidCursor }
+        let revision = waiterLock.withLock { mobileRevision }
+        return (revision, try await store.historyPage(endingBefore: cursor, limit: limit))
+    }
+
+    /// Returns the current route without changing focus. Mobile list rows pin
+    /// this target so later selection changes cannot reroute an action.
+    @MainActor
+    func target(for workstreamId: String) -> FeedJumpResolver.Target? {
+        guard let parsed = FeedJumpResolver.parse(workstreamId) else { return nil }
+        if let target = registeredTargets[workstreamId] { return target }
+        return FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId)
+    }
+
+    /// Installs one live route for an in-process coding-agent session.
+    @MainActor
+    func registerTarget(
+        agent: String,
+        sessionId: String,
+        target: FeedJumpResolver.Target,
+        textSender: (@MainActor (String) async -> Bool)? = nil
+    ) {
+        let workstreamId = "\(agent)-\(sessionId)"
+        registeredTargets[workstreamId] = target
+        registeredTextSenders[workstreamId] = textSender.map(FeedRegisteredTextSender.init)
+    }
+
+    /// Removes one live route without disturbing a replacement registered by
+    /// a newer session owner.
+    @MainActor
+    func unregisterTarget(
+        agent: String,
+        sessionId: String,
+        expected target: FeedJumpResolver.Target? = nil
+    ) {
+        let workstreamId = "\(agent)-\(sessionId)"
+        if target == nil || registeredTargets[workstreamId] == target {
+            registeredTargets.removeValue(forKey: workstreamId)
+            registeredTextSenders.removeValue(forKey: workstreamId)
+        }
+    }
+
+    /// Returns only in-process routes. Persisted hook routes are loaded on a
+    /// detached worker and merged by the caller so history encoding stays off
+    /// the main actor.
+    @MainActor
+    func registeredTargets(for workstreamIds: [String]) -> [String: FeedJumpResolver.Target] {
+        workstreamIds.reduce(into: [:]) { result, workstreamId in
+            if let target = registeredTargets[workstreamId] {
+                result[workstreamId] = target
+            }
+        }
+    }
+
+    @MainActor
+    private func sendRegisteredText(workstreamId: String, text: String) async -> Bool? {
+        await registeredTextSenders[workstreamId]?.send(text)
+    }
+
+    /// Accepts one ordinary reply only when the caller's immutable target is
+    /// still the authoritative route for this workstream.
+    @MainActor
+    func sendTextToTarget(
+        workstreamId: String,
+        itemId: UUID,
+        workspaceId: String,
+        surfaceId: String,
+        text: String
+    ) async -> Bool {
+        guard let store,
+              let item = store.items.first(where: { $0.id == itemId }),
+              item.workstreamId == workstreamId,
+              item.workspaceId.map({ $0 == workspaceId }) ?? true,
+              item.surfaceId.map({ $0 == surfaceId }) ?? true,
+              item.status == .telemetry,
+              Self.isTurnCompletion(item),
+              store.canAppendUserReply(to: itemId, text: text) else {
+            return false
+        }
+        guard let target = target(for: workstreamId),
+              target.workspaceId == workspaceId,
+              target.surfaceId == surfaceId,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        let directDelivery = await sendRegisteredText(
+            workstreamId: workstreamId,
+            text: text
+        )
+        if directDelivery == false { return false }
+        if directDelivery == nil {
+            FeedJumpResolver.sendText(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                text: text
+            )
+        }
+        guard store.appendUserReply(to: itemId, text: text) else { return false }
+        publishMobileChange()
+        return true
+    }
+
+    @MainActor
+    private func publishMobileChange() {
+        waiterLock.lock()
+        mobileRevision &+= 1
+        let revision = mobileRevision
+        waiterLock.unlock()
+        MobileHostService.emitEvent(
+            topic: "workstream.feed.changed",
+            payload: ["revision": revision]
+        )
     }
 
     fileprivate func isAwaitingDecision(requestId: String) -> Bool {
         waiterLock.lock()
         defer { waiterLock.unlock() }
         guard let waiter = waiters[requestId] else { return false }
-        return waiter.decision == nil
+        return waiter.decision == nil && !waiter.invalidated
+    }
+
+    /// Wakes a blocking request that the originating agent invalidated before
+    /// the user answered. The ingest path owns expiry and mobile publication,
+    /// so stale controls become disabled through the same authoritative state
+    /// transition as a timeout.
+    func invalidateBlockingRequest(requestId: String) {
+        waiterLock.lock()
+        let waiter = waiters[requestId]
+        guard let waiter, waiter.decision == nil, !waiter.invalidated else {
+            waiterLock.unlock()
+            return
+        }
+        waiter.invalidated = true
+        waiter.semaphore.signal()
+        waiterLock.unlock()
     }
 
     private static func findItemId(
@@ -536,11 +913,21 @@ final class FeedCoordinator: @unchecked Sendable {
         return nil
     }
 
+    private static func isTurnCompletion(_ item: WorkstreamItem) -> Bool {
+        switch item.payload {
+        case .stop, .sessionEnd:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func expireTimedOutItem(_ itemId: UUID?) {
         guard let itemId else { return }
         let expire: @Sendable () -> Void = { [itemId] in
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store?.markExpired(itemId)
+                FeedCoordinator.shared.publishMobileChange()
             }
         }
         if Thread.isMainThread {
@@ -580,6 +967,34 @@ extension FeedCoordinator {
         default:
             return false
         }
+    }
+
+    static func isBlockingDecisionEvent(_ event: WorkstreamEvent) -> Bool {
+        if isBlockingDecisionEvent(event.hookEventName) { return true }
+        guard let raw = event.rawHookEventName else { return false }
+        let normalized = raw.unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+            .lowercased()
+        return [
+            "askuserquestion",
+            "askuserconfirmation",
+            "booleanquestion",
+            "questionasked",
+            "questionv2asked",
+            "elicitation",
+            "elicitationrequest",
+            "mcpelicitation",
+            "mcpserverelicitationrequest",
+            "requestuserinput",
+            "userinputrequest",
+            "inputrequest",
+            "toolrequestuserinput",
+            "itemtoolrequestuserinput",
+            "question",
+            "askuser",
+        ].contains(normalized)
     }
 
     /// Maps a feed `source` (agent id) to the agent-lifecycle status key the
@@ -642,7 +1057,7 @@ extension FeedCoordinator {
         resolved: (ownerId: UUID, surfaceId: UUID?)?,
         tabManager: TabManager?
     ) -> FeedAttentionTarget? {
-        guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
+        guard Self.isBlockingDecisionEvent(event) else { return nil }
 
         #if DEBUG
         if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
@@ -851,7 +1266,8 @@ extension FeedCoordinator {
     /// and the owning window UUID for window-Dock surfaces. Prefer that live
     /// value so a stale hook-session map cannot redirect attention; fall back
     /// to the session store only when the event omits a parseable owner. A
-    /// stored surface is trusted only when its stored owner also matches.
+    /// surface carried by the event wins; a stored surface is trusted only
+    /// when its stored owner also matches.
     private static func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (ownerId: UUID, surfaceId: UUID?)? {
@@ -866,13 +1282,17 @@ extension FeedCoordinator {
         let eventOwnerId = event.workspaceId.flatMap {
             UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        let eventSurfaceId = event.surfaceId.flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
 
         guard let ownerId = eventOwnerId ?? sessionMatch?.ownerId else {
             return nil
         }
         // Only trust the session store's surface if it belongs to the owner
         // we're actually targeting.
-        let surfaceId = (sessionMatch?.ownerId == ownerId) ? sessionMatch?.surfaceId : nil
+        let surfaceId = eventSurfaceId
+            ?? ((sessionMatch?.ownerId == ownerId) ? sessionMatch?.surfaceId : nil)
         return (ownerId, surfaceId)
     }
 
@@ -892,6 +1312,7 @@ private final class AttentionOverlayState {
 private final class PendingWaiter: @unchecked Sendable {
     let semaphore: DispatchSemaphore
     var decision: WorkstreamDecision?
+    var invalidated = false
     /// The attention overlay target for this decision, if one was surfaced.
     /// Set inside the ingest `main.sync` (before the card can render and a
     /// reply can fire) and read when the decision concludes, so the
@@ -951,11 +1372,9 @@ extension FeedCoordinator {
     ///
     /// Actual focus (workspace.select + surface.focus) is scheduled via
     /// `FeedJumpResolver.focusIfPossible` on the main actor.
+    @MainActor
     func resolvePossibleSurface(for workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId) else {
-            return false
-        }
-        return FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId) != nil
+        target(for: workstreamId) != nil
     }
 
     /// Fires a best-effort focus for the given `workstreamId`. Returns
@@ -964,11 +1383,7 @@ extension FeedCoordinator {
     /// touch AppKit state.
     @MainActor
     func focusIfPossible(workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
+        guard let target = target(for: workstreamId) else { return false }
         FeedJumpResolver.focus(workspaceId: target.workspaceId, surfaceId: target.surfaceId)
         return true
     }
@@ -980,11 +1395,7 @@ extension FeedCoordinator {
     @MainActor
     @discardableResult
     func sendTextToWorkstream(workstreamId: String, text: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
+        guard let target = target(for: workstreamId) else { return false }
         FeedJumpResolver.sendText(
             workspaceId: target.workspaceId,
             surfaceId: target.surfaceId,
@@ -998,7 +1409,7 @@ extension FeedCoordinator {
 /// to map a feed `workstream_id` back to a cmux `(workspaceId, surfaceId)` pair.
 /// The schema is the same one written by `cmux <agent>-hook session-start`.
 enum FeedJumpResolver {
-    struct Target: Equatable {
+    struct Target: Equatable, Sendable {
         let workspaceId: String
         let surfaceId: String
     }
@@ -1012,13 +1423,31 @@ enum FeedJumpResolver {
     }
 
     static func lookup(agent: String, sessionId: String) -> Target? {
+        return sessions(agent: agent)[sessionId]
+    }
+
+    static func targets(for workstreamIds: [String]) -> [String: Target] {
+        let parsed = workstreamIds.compactMap { workstreamId in
+            parse(workstreamId).map { (workstreamId, $0.agent, $0.sessionId) }
+        }
+        let sessionsByAgent = Dictionary(uniqueKeysWithValues: Set(parsed.map { $0.1 }).map { agent in
+            (agent, sessions(agent: agent))
+        })
+        return parsed.reduce(into: [:]) { result, entry in
+            if let target = sessionsByAgent[entry.1]?[entry.2] {
+                result[entry.0] = target
+            }
+        }
+    }
+
+    private static func sessions(agent: String) -> [String: Target] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let file = home
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
         guard let data = try? Data(contentsOf: file),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
+        else { return [:] }
         // Stores have a consistent shape: top-level `sessions` dict keyed
         // by sessionId. Tolerate older flat layouts too.
         let sessions: [String: Any]
@@ -1027,12 +1456,13 @@ enum FeedJumpResolver {
         } else {
             sessions = root
         }
-        guard let entry = sessions[sessionId] as? [String: Any],
-              let workspaceId = entry["workspaceId"] as? String,
-              let surfaceId = entry["surfaceId"] as? String,
-              !workspaceId.isEmpty, !surfaceId.isEmpty
-        else { return nil }
-        return Target(workspaceId: workspaceId, surfaceId: surfaceId)
+        return sessions.reduce(into: [:]) { result, pair in
+            guard let entry = pair.value as? [String: Any],
+                  let workspaceId = entry["workspaceId"] as? String,
+                  let surfaceId = entry["surfaceId"] as? String,
+                  !workspaceId.isEmpty, !surfaceId.isEmpty else { return }
+            result[pair.key] = Target(workspaceId: workspaceId, surfaceId: surfaceId)
+        }
     }
 
     /// Dispatches a workspace-select + surface-focus intent. Posts
@@ -1065,6 +1495,14 @@ enum FeedJumpResolver {
                 "text": text,
             ]
         )
+    }
+}
+
+private final class FeedRegisteredTextSender: @unchecked Sendable {
+    let send: @MainActor (String) async -> Bool
+
+    init(send: @escaping @MainActor (String) async -> Bool) {
+        self.send = send
     }
 }
 
@@ -1109,6 +1547,16 @@ private extension FeedCoordinator {
             let title: String
             let body: String
             switch event.hookEventName {
+            case .notification where Self.isBlockingDecisionEvent(event):
+                categoryId = "CMUXFeedQuestion"
+                title = String(
+                    localized: "feed.notification.question.title",
+                    defaultValue: "\(event.source.capitalized) question"
+                )
+                body = String(
+                    localized: "feed.notification.question.body",
+                    defaultValue: "Agent is asking a question"
+                )
             case .permissionRequest:
                 categoryId = Self.permissionNotificationCategoryId(for: event)
                 title = String(
@@ -1639,6 +2087,12 @@ enum FeedSocketEncoding {
             return dict
         case .question(let selections):
             return ["kind": "question", "selections": selections]
+        case .form(let action, let selections):
+            return [
+                "kind": "form",
+                "action": action.rawValue,
+                "selections": selections,
+            ]
         }
     }
 
@@ -1666,6 +2120,30 @@ enum FeedSocketEncoding {
             "id": question.id,
             "multi_select": question.multiSelect,
         ]
+        if let inputType = question.inputType {
+            dict["input_type"] = inputType.rawValue
+        }
+        if let allowsOther = question.allowsOther {
+            dict["allows_other"] = allowsOther
+        }
+        if let required = question.required {
+            dict["required"] = required
+        }
+        if let defaultValue = question.defaultValue {
+            dict["default_value"] = defaultValue
+        }
+        if let placeholder = question.placeholder {
+            assignLimitedText(placeholder, key: "placeholder", to: &dict, limit: secondaryTextLimit)
+        }
+        if let externalURL = question.externalURL {
+            assignLimitedText(externalURL, key: "external_url", to: &dict, limit: secondaryTextLimit)
+        }
+        if let minimum = question.minimum { dict["minimum"] = minimum }
+        if let maximum = question.maximum { dict["maximum"] = maximum }
+        if let minLength = question.minLength { dict["min_length"] = minLength }
+        if let maxLength = question.maxLength { dict["max_length"] = maxLength }
+        if let minSelections = question.minSelections { dict["min_selections"] = minSelections }
+        if let maxSelections = question.maxSelections { dict["max_selections"] = maxSelections }
         if let header = question.header {
             assignLimitedText(header, key: "header", to: &dict, limit: secondaryTextLimit)
         }
@@ -1688,13 +2166,34 @@ enum FeedSocketEncoding {
         var dict: [String: Any] = [
             "id": item.id.uuidString,
             "workstream_id": item.workstreamId,
-            "source": item.source.rawValue,
+            "source": item.sourceRawValue ?? item.source.rawValue,
             "kind": item.kind.rawValue,
             "created_at": isoFormatter.string(from: item.createdAt),
             "updated_at": isoFormatter.string(from: item.updatedAt),
         ]
         if let cwd = item.cwd { dict["cwd"] = cwd }
         if let title = item.title { dict["title"] = title }
+        // Completed-turn cards are useful only when the user can see what the
+        // agent last said. Keep this bounded and separate from raw tool
+        // payloads so the mobile cache can retain the answer without exposing
+        // command input or failed output.
+        let carriesCompletedTurnAnswer: Bool = {
+            switch item.payload {
+            case .stop, .sessionEnd:
+                return true
+            default:
+                return false
+            }
+        }()
+        if carriesCompletedTurnAnswer,
+           let lastAssistantMessage = item.context?.assistantPreamble {
+            assignLimitedText(
+                lastAssistantMessage,
+                key: "last_assistant_message",
+                to: &dict,
+                limit: primaryTextLimit
+            )
+        }
         switch item.status {
         case .pending:
             dict["status"] = "pending"
@@ -1719,6 +2218,26 @@ enum FeedSocketEncoding {
                 dict["tool_input_capabilities"] = capabilityJSON
             }
             assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
+            dict["tool_input_summary"] = safeToolInputSummary(toolInputJSON)
+            var modes: [String] = []
+            let sourceIsKnown = item.sourceRawValue.map { $0 == item.source.rawValue } ?? true
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsOncePermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
+                modes.append(WorkstreamPermissionMode.once.rawValue)
+            }
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
+                modes.append(WorkstreamPermissionMode.always.rawValue)
+            }
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsPersistentPermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
+                modes.append(WorkstreamPermissionMode.persistent.rawValue)
+            }
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsAllPermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
+                modes.append(WorkstreamPermissionMode.all.rawValue)
+            }
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsBypassPermissions(source: item.source) {
+                modes.append(WorkstreamPermissionMode.bypass.rawValue)
+            }
+            modes.append(WorkstreamPermissionMode.deny.rawValue)
+            dict["supported_modes"] = modes
             if let pattern { dict["pattern"] = pattern }
         case .exitPlan(let requestId, let plan, let defaultMode):
             dict["request_id"] = requestId
@@ -1729,6 +2248,18 @@ enum FeedSocketEncoding {
             dict["default_mode"] = defaultMode.rawValue
         case .question(let requestId, let questions):
             dict["request_id"] = requestId
+            let interactionKind = Self.questionInteractionKind(questions)
+            if let interactionKind {
+                dict["interaction_kind"] = interactionKind
+                switch interactionKind {
+                case "boolean":
+                    dict["kind"] = "boolean"
+                case "form":
+                    dict["kind"] = "form"
+                default:
+                    break
+                }
+            }
             dict["questions"] = questions.map(questionDict)
             if let firstQuestion = questions.first {
                 assignLimitedText(firstQuestion.prompt, key: "question_prompt", to: &dict)
@@ -1743,6 +2274,28 @@ enum FeedSocketEncoding {
                     }
                     return optionDict
                 }
+            }
+            if let firstQuestion = questions.first,
+               firstQuestion.inputType == .boolean {
+                dict["boolean_prompt"] = firstQuestion.prompt
+                dict["boolean_yes_label"] = firstQuestion.options.first?.label ?? String(
+                    localized: "feed.question.boolean.yes",
+                    defaultValue: "Yes"
+                )
+                dict["boolean_no_label"] = firstQuestion.options.dropFirst().first?.label ?? String(
+                    localized: "feed.question.boolean.no",
+                    defaultValue: "No"
+                )
+                if let defaultValue = firstQuestion.defaultValue,
+                   let boolValue = Self.decodeBool(defaultValue) {
+                    dict["boolean_default"] = boolValue
+                }
+            }
+            if let title = questions.first?.header, interactionKind == "form" {
+                assignLimitedText(title, key: "form_title", to: &dict, limit: secondaryTextLimit)
+            }
+            if let formURL = questions.compactMap(\.externalURL).first {
+                assignLimitedText(formURL, key: "form_url", to: &dict, limit: secondaryTextLimit)
             }
         case .toolUse(let toolName, let toolInputJSON):
             dict["tool_name"] = toolName
@@ -1767,5 +2320,48 @@ enum FeedSocketEncoding {
             }
         }
         return dict
+    }
+
+    private static func questionInteractionKind(_ questions: [WorkstreamQuestionPrompt]) -> String? {
+        guard !questions.isEmpty else { return nil }
+        if questions.allSatisfy({ $0.inputType == .boolean }) { return "boolean" }
+        // The form wire action carries one value per field. Keep any
+        // multi-select schema on the question channel, which preserves every
+        // selected value while still rendering text and boolean fields inline.
+        if questions.contains(where: { $0.multiSelect }) { return nil }
+        if questions.contains(where: {
+            $0.inputType == .text
+                || $0.inputType == .number
+                || $0.inputType == .integer
+                || $0.inputType == .url
+                || $0.inputType == .email
+                || $0.inputType == .date
+                || $0.inputType == .dateTime
+                || $0.inputType == .secret
+                || $0.inputType == .external
+        }) {
+            return "form"
+        }
+        if questions.contains(where: { $0.inputType == .choice && $0.required != nil }) { return "form" }
+        return nil
+    }
+
+    private static func decodeBool(_ value: String) -> Bool? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "y", "on": return true
+        case "0", "false", "no", "n", "off": return false
+        default: return nil
+        }
+    }
+
+    /// Redacts values while retaining the field names a user needs to
+    /// understand the shape of a permission request.
+    private static func safeToolInputSummary(_ json: String) -> String {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any] else {
+            return ""
+        }
+        return dictionary.keys.sorted().map { "\($0): …" }.joined(separator: ", ")
     }
 }

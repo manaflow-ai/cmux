@@ -204,6 +204,41 @@
         "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
       }
     },
+    "feed.question.boolean.no": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "いいえ" } }
+      }
+    },
+    "feed.question.boolean.yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Yes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "はい" } }
+      }
+    },
+    "feed.form.accepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accepted" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認済み" } }
+      }
+    },
+    "feed.form.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancelled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル済み" } }
+      }
+    },
+    "feed.form.declined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Declined" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拒否済み" } }
+      }
+    },
     "terminal.notification.action.reply": {
       "extractionState": "manual",
       "localizations": {
@@ -6630,6 +6665,41 @@
             "value": "Editing"
           }
         }
+      }
+    },
+    "agentSession.codex.error.inputParametersMalformed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Codex input parameters were malformed."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Codex 入力パラメータが不正です。"}}
+      }
+    },
+    "agentSession.codex.error.inputResponseEncoding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Codex input response could not be encoded."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Codex 入力の応答をエンコードできませんでした。"}}
+      }
+    },
+    "agentSession.codex.error.inputResponseNotObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Codex input response was not a JSON object."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Codex 入力の応答が JSON オブジェクトではありません。"}}
+      }
+    },
+    "agentSession.codex.error.inputTargetUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Codex input target is unavailable."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Codex 入力の対象を利用できません。"}}
+      }
+    },
+    "agentSession.codex.input.continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Continue"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "続行"}}
       }
     },
     "agentSession.codex.error.invalidJSON": {
@@ -116179,6 +116249,40 @@
         }
       }
     },
+    "feed.permission.persistent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always Allow"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に許可"
+          }
+        }
+      }
+    },
+    "feed.permission.session": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow for Session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション中は許可"
+          }
+        }
+      }
+    },
     "feed.permission.bypass": {
       "extractionState": "manual",
       "localizations": {
@@ -116243,6 +116347,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "常に"
+          }
+        }
+      }
+    },
+    "feed.permission.mode.persistent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remembered"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に許可"
           }
         }
       }

@@ -86,6 +86,20 @@ struct FeedCoordinatorTests {
         #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexSession))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexSession))
 
+        let codexMCPApproval = #"""
+        {"app_server_method":"mcpServer/elicitation/request","available_decisions":["accept","decline"],"metadata":{"codex_approval_kind":"mcp_tool_call","persist":["session","always"]}}
+        """#
+        #expect(FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: codexMCPApproval))
+        #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexMCPApproval))
+        #expect(FeedPermissionActionPolicy.supportsPersistentPermissionMode(source: .codex, toolInputJSON: codexMCPApproval))
+        #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexMCPApproval))
+
+        let malformedMCPPersistence = #"""
+        {"app_server_method":"mcpServer/elicitation/request","available_decisions":["accept","decline"],"metadata":{"codex_approval_kind":"mcp_tool_call","persist":["session",7]}}
+        """#
+        #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: malformedMCPPersistence))
+        #expect(!FeedPermissionActionPolicy.supportsPersistentPermissionMode(source: .codex, toolInputJSON: malformedMCPPersistence))
+
         let truncatedCodexToolInput = #"{"app_server_method":"item/commandExecution/requestApproval","available_decisions":["accept"]"#
         #expect(!FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
         #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
@@ -153,6 +167,61 @@ struct FeedCoordinatorTests {
         #expect(FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
         #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
         #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
+    }
+
+    @Test func mobileFeedEncodingPreservesFutureSourceAndRedactsPermissionValues() throws {
+        let item = WorkstreamItem(
+            workstreamId: "future-session",
+            source: .claude,
+            sourceRawValue: "future-agent",
+            kind: .permissionRequest,
+            payload: .permissionRequest(
+                requestId: "request-future",
+                toolName: "Deploy",
+                toolInputJSON: #"{"token":"secret","region":"us-west-2"}"#,
+                pattern: nil
+            )
+        )
+
+        let dict = FeedSocketEncoding.itemDict(item)
+
+        #expect(dict["source"] as? String == "future-agent")
+        #expect(dict["tool_input_summary"] as? String == "region: …, token: …")
+        #expect(!(try #require(dict["tool_input_summary"] as? String)).contains("secret"))
+        #expect(dict["supported_modes"] as? [String] == ["deny"])
+    }
+
+    @Test func mobileFeedEncodingCarriesCompletedTurnAnswer() throws {
+        let item = WorkstreamItem(
+            workstreamId: "completed-turn",
+            source: .codex,
+            kind: .stop,
+            payload: .stop(reason: nil),
+            context: WorkstreamContext(
+                assistantPreamble: "The implementation is ready for your next instruction."
+            )
+        )
+
+        let dict = FeedSocketEncoding.itemDict(item)
+
+        #expect(
+            dict["last_assistant_message"] as? String
+                == "The implementation is ready for your next instruction."
+        )
+    }
+
+    @Test func mobileFeedEncodingDoesNotRepeatAnswerOnToolRows() throws {
+        let item = WorkstreamItem(
+            workstreamId: "tool-row",
+            source: .codex,
+            kind: .toolUse,
+            payload: .toolUse(toolName: "shell", toolInputJSON: "{}"),
+            context: WorkstreamContext(assistantPreamble: "A previous turn is complete.")
+        )
+
+        let dict = FeedSocketEncoding.itemDict(item)
+
+        #expect(dict["last_assistant_message"] == nil)
     }
 
     @Test func codexAppServerApprovalBuildsActionableFeedEvent() throws {
@@ -465,6 +534,45 @@ struct FeedCoordinatorTests {
         }
         guard case .expired = status else {
             Issue.record("timed-out hook item should be expired")
+            return
+        }
+    }
+
+    @Test func originatingAgentInvalidationExpiresPendingQuestionImmediately() async {
+        defer { Self.resetFeedCoordinatorTestHooks() }
+        let requestID = "codex-session-input-stale"
+
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestID in
+                guard ingestedRequestID == requestID else { return }
+                FeedCoordinator.shared.invalidateBlockingRequest(requestId: ingestedRequestID)
+            }
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .notification,
+            rawHookEventName: "item/tool/requestUserInput",
+            source: "codex",
+            toolInputJSON: #"{"questions":[{"id":"mode","question":"Choose","options":[{"label":"Fast","description":""}]}]}"#,
+            requestId: requestID
+        )
+        let done = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 5)
+            done.signal()
+        }
+
+        #expect(done.wait(timeout: .now() + 2) == .success)
+        guard case .timedOut = resultBox.value else {
+            Issue.record("invalidated request should stop waiting without a decision")
+            return
+        }
+        let status = await MainActor.run { FeedCoordinator.shared.store.items.first?.status }
+        guard case .expired = status else {
+            Issue.record("invalidated question should be visibly expired")
             return
         }
     }

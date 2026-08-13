@@ -1,5 +1,18 @@
 import Foundation
 
+struct CodexAppServerUserInputRequest: Sendable {
+    let rpcID: String
+    let method: String
+    let paramsJSON: String
+    let isBlocking: Bool
+    let autoResolutionMilliseconds: Int?
+}
+
+enum CodexAppServerUserInputResolution: Sendable {
+    case result(json: String)
+    case error(code: Int, message: String)
+}
+
 @MainActor
 final class CodexAppServerSession {
     typealias DataWriter = (Data) async throws -> Void
@@ -7,6 +20,10 @@ final class CodexAppServerSession {
     typealias ActivitySink = (_ activity: [String: Any]) -> Void
     typealias TurnCompleteSink = () -> Void
     typealias FailureSink = (_ details: String?) -> Void
+    typealias UserInputHandler = (
+        _ request: CodexAppServerUserInputRequest
+    ) async -> CodexAppServerUserInputResolution
+    typealias UserInputResolvedSink = (_ rpcID: String) -> Void
 
     private static let maxQueuedInputCount = 1
     private static let maxQueuedInputBytes = 64 * 1024
@@ -17,6 +34,8 @@ final class CodexAppServerSession {
     private let activitySink: ActivitySink
     private let turnCompleteSink: TurnCompleteSink
     private let failureSink: FailureSink
+    private let userInputHandler: UserInputHandler?
+    private let userInputResolvedSink: UserInputResolvedSink
     private var nextRequestID = 1
     private var initializeRequestID: Int?
     private var didInitialize = false
@@ -28,6 +47,9 @@ final class CodexAppServerSession {
     private var activePermissionMode: AgentSessionPermissionMode = .standard
     private var isTurnInFlight = false
     private var turnStartRequestIDs: Set<Int> = []
+    private var activeUserInputRequestIDs: Set<String> = []
+    private var resolvedServerRequestIDs: Set<String> = []
+    private var userInputTasks: [String: Task<Void, Never>] = [:]
 
     init(
         workingDirectory: String?,
@@ -35,7 +57,9 @@ final class CodexAppServerSession {
         outputSink: @escaping OutputSink,
         activitySink: @escaping ActivitySink = { _ in },
         turnCompleteSink: @escaping TurnCompleteSink = {},
-        failureSink: @escaping FailureSink = { _ in }
+        failureSink: @escaping FailureSink = { _ in },
+        userInputHandler: UserInputHandler? = nil,
+        userInputResolvedSink: @escaping UserInputResolvedSink = { _ in }
     ) {
         self.workingDirectory = workingDirectory
         self.writeData = writeData
@@ -43,6 +67,8 @@ final class CodexAppServerSession {
         self.activitySink = activitySink
         self.turnCompleteSink = turnCompleteSink
         self.failureSink = failureSink
+        self.userInputHandler = userInputHandler
+        self.userInputResolvedSink = userInputResolvedSink
     }
 
     func start() async throws {
@@ -56,7 +82,9 @@ final class CodexAppServerSession {
                 ],
                 "capabilities": [
                     "experimentalApi": true,
-                    "requestAttestation": false
+                    "requestAttestation": false,
+                    "mcpServerOpenaiFormElicitation": true,
+                    "extensions": ["openai/form": [String: Any]()]
                 ]
             ]
         )
@@ -220,6 +248,13 @@ final class CodexAppServerSession {
         case "turn/completed", "turn/complete", "turn/finished", "turn/end", "turn/ended",
              "turn/stopped", "turn/failed", "turn/canceled", "turn/cancelled":
             completeTurn()
+        case "serverRequest/resolved":
+            guard let rawRequestID = params?["requestId"],
+                  let requestID = Self.rpcIDString(from: rawRequestID),
+                  activeUserInputRequestIDs.remove(requestID) != nil else { break }
+            resolvedServerRequestIDs.insert(requestID)
+            userInputTasks.removeValue(forKey: requestID)?.cancel()
+            userInputResolvedSink(requestID)
         case "item/commandExecution/outputDelta":
             guard let itemID = params?["itemId"] as? String else { break }
             emitActivity(
@@ -433,6 +468,13 @@ final class CodexAppServerSession {
 
     private func handleServerRequest(_ object: [String: Any], method: String) {
         guard let id = object["id"] else { return }
+        if method == "item/tool/requestUserInput"
+            || method == "mcpServer/elicitation/request"
+            || (userInputHandler != nil && CodexTeamsApprovalBridge.isApprovalMethod(method))
+        {
+            handleUserInputRequest(object, method: method, id: id)
+            return
+        }
         let result: [String: Any]
         switch method {
         case "item/commandExecution/requestApproval":
@@ -473,6 +515,94 @@ final class CodexAppServerSession {
             } catch {
                 emitCodexRPCFailure(error)
             }
+        }
+    }
+
+    private func handleUserInputRequest(
+        _ object: [String: Any],
+        method: String,
+        id: Any
+    ) {
+        guard let userInputHandler,
+              let rpcID = Self.rpcIDString(from: id),
+              let params = object["params"] as? [String: Any],
+              JSONSerialization.isValidJSONObject(params),
+              let data = try? JSONSerialization.data(withJSONObject: params, options: []),
+              let paramsJSON = String(data: data, encoding: .utf8) else {
+            Task { @MainActor in
+                do {
+                    try await sendErrorResponse(
+                        id: id,
+                        code: -32601,
+                        message: String(
+                            localized: "agentSession.codex.error.unsupportedServerRequest",
+                            defaultValue: "Request from Codex app-server is not supported: %@"
+                        ).replacingOccurrences(of: "%@", with: method)
+                    )
+                } catch {
+                    emitCodexRPCFailure(error)
+                }
+            }
+            return
+        }
+
+        let autoResolutionMilliseconds = Self.integerValue(params["autoResolutionMs"])
+            ?? Self.integerValue(params["auto_resolution_ms"])
+        let request = CodexAppServerUserInputRequest(
+            rpcID: rpcID,
+            method: method,
+            paramsJSON: paramsJSON,
+            isBlocking: Self.boolValue(params["isBlocking"]) ?? true,
+            autoResolutionMilliseconds: autoResolutionMilliseconds
+        )
+        activeUserInputRequestIDs.insert(rpcID)
+        userInputTasks[rpcID] = Task { @MainActor in
+            let resolution = await userInputHandler(request)
+            defer {
+                activeUserInputRequestIDs.remove(rpcID)
+                resolvedServerRequestIDs.remove(rpcID)
+                userInputTasks.removeValue(forKey: rpcID)
+            }
+            guard !Task.isCancelled,
+                  !resolvedServerRequestIDs.contains(rpcID) else { return }
+            do {
+                switch resolution {
+                case .result(let json):
+                    guard let data = json.data(using: .utf8),
+                          let result = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    else {
+                        try await sendErrorResponse(
+                            id: id,
+                            code: -32603,
+                            message: String(
+                                localized: "agentSession.codex.error.inputResponseNotObject",
+                                defaultValue: "Codex input response was not a JSON object."
+                            )
+                        )
+                        return
+                    }
+                    try await sendJSONObject(["id": id, "result": result])
+                case .error(let code, let message):
+                    try await sendErrorResponse(id: id, code: code, message: message)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                emitCodexRPCFailure(error)
+            }
+        }
+    }
+
+    /// Invalidates every response-bearing server request owned by this
+    /// session. The sink wakes Feed waiters before task cancellation releases
+    /// the app-server session, so process exit cannot strand a seven-day wait.
+    func cancelPendingUserInputRequests() {
+        let requestIDs = activeUserInputRequestIDs
+        activeUserInputRequestIDs.removeAll()
+        for requestID in requestIDs {
+            resolvedServerRequestIDs.insert(requestID)
+            userInputTasks.removeValue(forKey: requestID)?.cancel()
+            userInputResolvedSink(requestID)
         }
     }
 
@@ -638,6 +768,33 @@ final class CodexAppServerSession {
         if let value = value as? Int { return value }
         if let value = value as? String { return Int(value) }
         if let value = value as? NSNumber { return value.intValue }
+        return nil
+    }
+
+    private static func rpcIDString(from value: Any) -> String? {
+        if let value = value as? String, !value.isEmpty { return value }
+        if let value = value as? NSNumber { return value.stringValue }
+        if let value = value as? Int { return String(value) }
+        return nil
+    }
+
+    private static func integerValue(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool? {
+        if let value = value as? Bool { return value }
+        if let value = value as? NSNumber { return value.boolValue }
+        if let value = value as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes": return true
+            case "0", "false", "no": return false
+            default: return nil
+            }
+        }
         return nil
     }
 

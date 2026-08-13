@@ -731,12 +731,18 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.events.probe":
             return false
         case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
-             "notification.feed.mark_all_read":
+             "notification.feed.mark_all_read", "workstream.feed.list":
             // Feed authority is the authenticated account/peer connection, not
             // a workspace-selection ticket. Omit an irrelevant scoped attach
             // token so legacy pairings cannot accidentally narrow the global
             // feed; Stack auth is still attached to every TCP request.
             return true
+        case "workstream.feed.action", "workstream.feed.reply":
+            return !ticketCoverage.ticketCoversTerminalRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         case "mobile.browser.list", "mobile.browser.create":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,

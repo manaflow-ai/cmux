@@ -28,6 +28,119 @@ struct WorkstreamStoreTests {
         }
     }
 
+    @Test("Resolved elicitation history redacts secret answers")
+    func resolvedSecretAnswerIsRedacted() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "s-secret",
+            hookEventName: .askUserQuestion,
+            source: "codex",
+            toolInputJSON: #"{"fields":[{"id":"name","prompt":"Name","input_type":"text"},{"id":"token","prompt":"Token","input_type":"secret"}]}"#,
+            requestId: "r-secret"
+        ))
+        let itemID = store.items[0].id
+
+        store.markResolved(
+            itemID,
+            decision: .question(selections: ["name=cmux", "token=top-secret"])
+        )
+
+        guard case .resolved(.question(let selections), _) = store.items[0].status else {
+            Issue.record("expected resolved question")
+            return
+        }
+        #expect(selections == ["name=cmux", "token=<provided>"])
+    }
+
+    @Test("Appending a completed-turn reply creates authoritative user activity")
+    func appendCompletedTurnReply() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "s-reply",
+            hookEventName: .stop,
+            source: "claude",
+            toolInputJSON: #"{"reason":"waiting"}"#
+        ))
+        let stopID = store.items[0].id
+
+        #expect(store.appendUserReply(to: stopID, text: "Continue with tests"))
+        #expect(store.items.count == 2)
+        #expect(store.items.last?.kind == .userPrompt)
+        if case .userPrompt(let text) = store.items.last?.payload {
+            #expect(text == "Continue with tests")
+        } else {
+            Issue.record("expected synthetic user prompt")
+        }
+        #expect(!store.appendUserReply(to: stopID, text: "Duplicate"))
+    }
+
+    @Test("Stop hooks retain the final assistant message in carried context")
+    func stopCarriesFinalAssistantMessage() throws {
+        let data = Data(#"{"session_id":"s-final","hook_event_name":"Stop","_source":"codex","last_assistant_message":"The patch is ready for review."}"#.utf8)
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        let store = WorkstreamStore(ringCapacity: 10)
+
+        store.ingest(event)
+
+        #expect(store.items.first?.context?.assistantPreamble == "The patch is ready for review.")
+    }
+
+    @Test("Session-end hooks retain an explicit final assistant message")
+    func sessionEndCarriesFinalAssistantMessage() throws {
+        let data = Data(#"{"session_id":"s-session-end","hook_event_name":"SessionEnd","_source":"opencode","extra":{"assistant_response":"The session is complete."}}"#.utf8)
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        let store = WorkstreamStore(ringCapacity: 10)
+
+        store.ingest(event)
+
+        #expect(store.items.first?.context?.assistantPreamble == "The session is complete.")
+    }
+
+    @Test("Session-end event context is treated as the final response")
+    func sessionEndContextCarriesFinalAssistantMessage() throws {
+        let data = Data(#"{"session_id":"s-session-context","hook_event_name":"SessionEnd","_source":"opencode","context":{"assistantPreamble":"Closed cleanly."}}"#.utf8)
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
+        let store = WorkstreamStore(ringCapacity: 10)
+
+        store.ingest(event)
+
+        #expect(store.items.first?.context?.assistantPreamble == "Closed cleanly.")
+    }
+
+    @Test("A stop without an explicit answer does not reuse an older assistant preamble")
+    func stopWithoutFinalAnswerDoesNotClaimOldPreamble() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "s-no-final",
+            hookEventName: .notification,
+            source: "codex",
+            context: WorkstreamContext(assistantPreamble: "I am starting the work.")
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "s-no-final",
+            hookEventName: .stop,
+            source: "codex",
+            toolInputJSON: #"{"reason":"waiting"}"#
+        ))
+
+        #expect(store.items.last?.context?.assistantPreamble == nil)
+    }
+
+    @Test("Unknown major lifecycle events remain chronological telemetry")
+    func unknownLifecycleTelemetry() throws {
+        let store = WorkstreamStore(ringCapacity: 10)
+        let eventData = Data(#"{"session_id":"s-future","hook_event_name":"TaskCompleted","_source":"codex","tool_name":"apply_patch","tool_input":{"ok":true}}"#.utf8)
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: eventData)
+        store.ingest(event)
+        #expect(store.items.count == 1)
+        #expect(store.items[0].kind == .toolResult)
+        if case .toolResult(let toolName, _, _) = store.items[0].payload {
+            #expect(toolName == "apply_patch")
+        } else {
+            Issue.record("expected tool result telemetry")
+        }
+    }
+
     @Test("Ring buffer evicts oldest items past capacity")
     func ringEviction() {
         let store = WorkstreamStore(ringCapacity: 3)
@@ -62,6 +175,7 @@ struct WorkstreamStoreTests {
         )
         await store.start()
         #expect(store.items.map(\.workstreamId) == ["s3", "s4"])
+        #expect(store.items.allSatisfy { !$0.status.isPending })
         #expect(store.hasMorePersistedItems)
 
         await store.loadOlderItems()
@@ -71,6 +185,185 @@ struct WorkstreamStoreTests {
         await store.loadOlderItems()
         #expect(store.items.map(\.workstreamId) == ["s0", "s1", "s2", "s3", "s4"])
         #expect(!store.hasMorePersistedItems)
+    }
+
+    @Test("restored pending items stay expired across older and mobile history pages")
+    func restoredPendingHistoryExpires() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-restored-pending-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        for index in 0..<5 {
+            try await persistence.append(WorkstreamItem(
+                workstreamId: "session-\(index)",
+                source: .claude,
+                kind: .permissionRequest,
+                payload: .permissionRequest(
+                    requestId: "request-\(index)",
+                    toolName: "Bash",
+                    toolInputJSON: "{}",
+                    pattern: nil
+                )
+            ))
+        }
+
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            initialLoadLimit: 2,
+            historyPageSize: 2
+        )
+        await store.start()
+        await store.loadOlderItems()
+        let mobilePage = try await store.historyPage(endingBefore: nil, limit: 5)
+
+        #expect(store.items.allSatisfy { !$0.status.isPending })
+        #expect(mobilePage.items.allSatisfy { !$0.status.isPending })
+    }
+
+    @Test("mobile history pages persisted rows by stable item cursor")
+    func mobilePersistedHistoryPages() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mobile-page-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        var ids: [UUID] = []
+        for index in 0..<650 {
+            let id = UUID()
+            ids.append(id)
+            try await persistence.append(WorkstreamItem(
+                id: id,
+                workstreamId: "session-\(index)",
+                source: .codex,
+                kind: .assistantMessage,
+                workspaceId: "workspace-\(index)",
+                surfaceId: "surface-\(index)",
+                payload: .assistantMessage(text: "event \(index)")
+            ))
+        }
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 2_000)
+        let readsBefore = await persistence.loadPageCallCount
+
+        let first = try await store.historyPage(endingBefore: nil, limit: 300)
+        let second = try await store.historyPage(endingBefore: first.nextCursor, limit: 300)
+        let third = try await store.historyPage(endingBefore: second.nextCursor, limit: 300)
+
+        #expect(first.items.map(\.id) == Array(ids[350..<650]))
+        #expect(second.items.map(\.id) == Array(ids[50..<350]))
+        #expect(third.items.map(\.id) == Array(ids[0..<50]))
+        #expect(Set(first.items.map(\.id)).isDisjoint(with: second.items.map(\.id)))
+        #expect(Set(second.items.map(\.id)).isDisjoint(with: third.items.map(\.id)))
+        #expect(first.hasMore && second.hasMore && !third.hasMore)
+        #expect(first.items.first?.workspaceId == "workspace-350")
+        #expect(first.items.first?.surfaceId == "surface-350")
+        let readsAfter = await persistence.loadPageCallCount
+        #expect(readsAfter - readsBefore == 3)
+    }
+
+    @Test("mobile persisted history rejects a cursor whose offset names another row")
+    func mobilePersistedHistoryRejectsTamperedOffset() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mobile-cursor-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        for index in 0..<4 {
+            try await persistence.append(WorkstreamItem(
+                workstreamId: "session-\(index)",
+                source: .codex,
+                kind: .assistantMessage,
+                payload: .assistantMessage(text: "event \(index)")
+            ))
+        }
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        let first = try await store.historyPage(endingBefore: nil, limit: 2)
+        let cursor = try #require(first.nextCursor)
+        let data = try #require(Data(base64Encoded: cursor))
+        let raw = try #require(String(data: data, encoding: .utf8))
+        let parts = raw.split(separator: ":", omittingEmptySubsequences: false)
+        let tampered = Data("p1:0:\(parts[2])".utf8).base64EncodedString()
+
+        await #expect(throws: WorkstreamHistoryError.invalidCursor) {
+            try await store.historyPage(endingBefore: tampered, limit: 2)
+        }
+    }
+
+    @Test("mobile first page includes newly ingested rows")
+    func mobileHistoryIncludesLiveTail() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mobile-live-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "persisted",
+            source: .codex,
+            kind: .assistantMessage,
+            payload: .assistantMessage(text: "persisted")
+        ))
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await store.start()
+        store.ingest(WorkstreamEvent(
+            sessionId: "live",
+            hookEventName: .notification,
+            source: "codex"
+        ))
+
+        let page = try await store.historyPage(endingBefore: nil, limit: 10)
+
+        #expect(page.items.map(\.workstreamId) == ["persisted", "live"])
+    }
+
+    @Test("mobile history drains one ordered persistence writer before paging a burst")
+    func mobileHistoryDrainsBoundedPersistenceBurst() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mobile-burst-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let gate = PersistenceAppendGate()
+        let persistence = WorkstreamPersistence(fileURL: tmp, beforeAppend: { await gate.wait() })
+        let store = WorkstreamStore(persistence: persistence, ringCapacity: 1_000)
+        for index in 0..<650 {
+            store.ingest(WorkstreamEvent(
+                sessionId: "burst-\(index)",
+                hookEventName: .notification,
+                source: "codex"
+            ))
+        }
+        let acceptedIDs = store.items.map(\.id)
+        #expect(store.activePersistenceDrainCount == 1)
+
+        let firstTask = Task { try await store.historyPage(endingBefore: nil, limit: 300) }
+        await gate.release()
+        let first = try await firstTask.value
+        let second = try await store.historyPage(endingBefore: first.nextCursor, limit: 300)
+        let third = try await store.historyPage(endingBefore: second.nextCursor, limit: 300)
+
+        #expect(first.items.map(\.id) == Array(acceptedIDs[350..<650]))
+        #expect(second.items.map(\.id) == Array(acceptedIDs[50..<350]))
+        #expect(third.items.map(\.id) == Array(acceptedIDs[0..<50]))
+        #expect(first.hasMore && second.hasMore && !third.hasMore)
+        #expect(store.activePersistenceDrainCount == 0)
+    }
+
+    @Test("mobile in-memory history rejects a cursor invalidated by ring eviction")
+    func mobileInMemoryHistoryRejectsEvictedCursor() async throws {
+        let store = WorkstreamStore(ringCapacity: 4)
+        for index in 0..<4 {
+            store.ingest(WorkstreamEvent(
+                sessionId: "session-\(index)",
+                hookEventName: .notification,
+                source: "codex"
+            ))
+        }
+        let first = try await store.historyPage(endingBefore: nil, limit: 2)
+        let cursor = try #require(first.nextCursor)
+        store.ingest(WorkstreamEvent(
+            sessionId: "session-4",
+            hookEventName: .notification,
+            source: "codex"
+        ))
+
+        await #expect(throws: WorkstreamHistoryError.invalidCursor) {
+            try await store.historyPage(endingBefore: cursor, limit: 2)
+        }
     }
 
     @Test("expireAbandonedItems expires items whose agent PID is dead")
@@ -319,6 +612,23 @@ struct WorkstreamStoreTests {
         #expect(item.context?.planSummary == "Show the new feed UI.")
         #expect(item.context?.allowedPrompts.first?.tool == "Bash")
         #expect(item.context?.allowedPrompts.first?.prompt == "run reload.sh --tag feedctx")
+    }
+}
+
+private actor PersistenceAppendGate {
+    private var isReleased = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func release() {
+        isReleased = true
+        let current = waiters
+        waiters.removeAll()
+        current.forEach { $0.resume() }
     }
 }
 

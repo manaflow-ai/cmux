@@ -2,7 +2,12 @@ import Foundation
 import CMUXAgentLaunch
 
 enum FeedPermissionActionPolicy {
-    private typealias CodexPermissionCapabilities = (supportsOnce: Bool, supportsAlways: Bool, supportsAll: Bool)
+    private typealias CodexPermissionCapabilities = (
+        supportsOnce: Bool,
+        supportsAlways: Bool,
+        supportsPersistent: Bool,
+        supportsAll: Bool
+    )
 
     static func supportsPersistentPermissionModes(source: WorkstreamSource) -> Bool {
         source != .hermesAgent
@@ -19,6 +24,11 @@ enum FeedPermissionActionPolicy {
         return codexCapabilities(toolInputJSON: toolInputJSON).supportsAlways
     }
 
+    static func supportsPersistentPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
+        guard source == .codex else { return false }
+        return codexCapabilities(toolInputJSON: toolInputJSON).supportsPersistent
+    }
+
     static func supportsAllPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
         guard supportsPersistentPermissionModes(source: source) else { return false }
         guard source == .codex else { return true }
@@ -26,7 +36,7 @@ enum FeedPermissionActionPolicy {
     }
 
     static func supportsBypassPermissions(source: WorkstreamSource) -> Bool {
-        source != .codex && source != .claude && source != .hermesAgent
+        return source != .codex && source != .claude && source != .hermesAgent
     }
 
     static func codexCapabilityToolInputJSON(source: WorkstreamSource, toolInputJSON: String) -> String? {
@@ -48,6 +58,9 @@ enum FeedPermissionActionPolicy {
         if let decisions = codexAvailableDecisions(in: object) {
             snapshot["available_decisions"] = decisions.sorted()
         }
+        if let persistScopes = codexMCPPersistScopes(in: object) {
+            snapshot["mcp_persist"] = persistScopes.sorted()
+        }
         if let amendment = object["proposed_execpolicy_amendment"],
            !(amendment is NSNull) {
             snapshot["proposed_execpolicy_amendment"] = true
@@ -65,12 +78,22 @@ enum FeedPermissionActionPolicy {
 
     private static func codexCapabilities(toolInputJSON: String?) -> CodexPermissionCapabilities {
         guard let toolInputJSON else {
-            return (supportsOnce: true, supportsAlways: true, supportsAll: true)
+            return (
+                supportsOnce: true,
+                supportsAlways: true,
+                supportsPersistent: false,
+                supportsAll: true
+            )
         }
         guard let data = toolInputJSON.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else {
-            return (supportsOnce: false, supportsAlways: false, supportsAll: false)
+            return (
+                supportsOnce: false,
+                supportsAlways: false,
+                supportsPersistent: false,
+                supportsAll: false
+            )
         }
 
         let method = object["app_server_method"] as? String
@@ -78,31 +101,74 @@ enum FeedPermissionActionPolicy {
         let acceptsOnce = decisions?.contains("accept") ?? true
         let acceptsSession = decisions?.contains("acceptForSession") ?? true
         switch method {
+        case "mcpServer/elicitation/request":
+            let persistScopes = codexMCPPersistScopes(in: object) ?? []
+            return (
+                supportsOnce: acceptsOnce,
+                supportsAlways: persistScopes.contains("session"),
+                supportsPersistent: persistScopes.contains("always"),
+                supportsAll: false
+            )
         case "item/permissions/requestApproval":
             return (
                 supportsOnce: true,
                 supportsAlways: true,
+                supportsPersistent: false,
                 supportsAll: true
             )
         case "item/commandExecution/requestApproval":
             return (
                 supportsOnce: acceptsOnce,
                 supportsAlways: acceptsSession,
+                supportsPersistent: false,
                 supportsAll: codexSupportsAmendmentDecision(object: object, decisions: decisions)
             )
         case "item/fileChange/requestApproval":
             return (
                 supportsOnce: acceptsOnce,
                 supportsAlways: acceptsSession,
+                supportsPersistent: false,
                 supportsAll: false
             )
         default:
             return (
                 supportsOnce: acceptsOnce,
                 supportsAlways: acceptsSession,
+                supportsPersistent: false,
                 supportsAll: false
             )
         }
+    }
+
+    /// Codex advertises MCP approval persistence on elicitation metadata. A
+    /// malformed value is preserved as an empty set so clients fail closed.
+    private static func codexMCPPersistScopes(in object: [String: Any]) -> Set<String>? {
+        let raw: Any?
+        if let normalized = object["mcp_persist"] {
+            raw = normalized
+        } else if let metadata = object["metadata"] as? [String: Any],
+                  let persist = metadata["persist"] {
+            raw = persist
+        } else if let metadata = object["_meta"] as? [String: Any],
+                  let persist = metadata["persist"] {
+            raw = persist
+        } else if let metadata = object["meta"] as? [String: Any],
+                  let persist = metadata["persist"] {
+            raw = persist
+        } else {
+            raw = nil
+        }
+        guard let raw else { return nil }
+        let values: [String]
+        if let value = raw as? String {
+            values = [value]
+        } else if let array = raw as? [Any] {
+            values = array.compactMap { $0 as? String }
+            guard values.count == array.count else { return [] }
+        } else {
+            return []
+        }
+        return Set(values.filter { $0 == "session" || $0 == "always" })
     }
 
     private static func codexSupportsAmendmentDecision(object: [String: Any], decisions: Set<String>?) -> Bool {

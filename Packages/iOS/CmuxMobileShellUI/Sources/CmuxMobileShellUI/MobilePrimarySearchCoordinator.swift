@@ -212,7 +212,7 @@ extension MobilePrimaryTab {
             .workspaces
         case .notifications:
             .notifications
-        case .search:
+        case .feed, .search:
             nil
         }
     }

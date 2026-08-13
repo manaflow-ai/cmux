@@ -33,6 +33,7 @@ struct WorkstreamItemTests {
             id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
             workstreamId: "codex-42",
             source: .codex,
+            sourceRawValue: "future-codex",
             kind: .permissionRequest,
             payload: .permissionRequest(
                 requestId: "req-7",

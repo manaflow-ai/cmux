@@ -359,4 +359,41 @@ struct FeedEventClassificationTests {
         #expect(attentionCommand("claude", "PermissionRequest", tool: "Bash") == nil)
         #expect(attentionCommand("totally-new-agent", "PermissionRequest", tool: "Bash") == nil)
     }
+
+    /// Every catalog-backed agent accepts the common structured-input names.
+    /// The event spelling is normalized only after the source has opted into
+    /// cmux's hook catalog, so an unrelated future executable cannot block on
+    /// a guessed question protocol.
+    @Test func registeredAgentsExposeStructuredQuestionPrimitives() {
+        let sources = [
+            "claude", "codex", "opencode", "grok", "pi", "omp", "campfire", "amp",
+            "cursor", "gemini", "kiro", "antigravity", "rovodev", "hermes-agent",
+            "copilot", "codebuddy", "factory", "qoder", "kimi",
+        ]
+        let events = [
+            "AskUserQuestion", "ask_user_confirmation", "item/tool/requestUserInput",
+            "mcp-elicitation", "userInputRequest",
+        ]
+        for source in sources {
+            for event in events {
+                let result = classify(source, event)
+                #expect(result.actionable == true)
+                #expect(result.name == "AskUserQuestion")
+            }
+        }
+    }
+
+    @Test func sourceAliasesShareTheirRegisteredQuestionContract() {
+        #expect(classify("Claude-Code", "askUserQuestion").actionable == true)
+        #expect(classify("cursor-agent", "request_user_input").actionable == true)
+        #expect(classify("agy", "elicitationRequest").actionable == true)
+        #expect(classify("rovo", "boolean-question").actionable == true)
+    }
+
+    @Test func unknownSourceQuestionNamesRemainTelemetryOnly() {
+        let result = classify("future-agent", "requestUserInput", tool: "shell")
+        #expect(result.actionable == false)
+        #expect(result.name == "PreToolUse")
+        #expect(result.notifiesNativeApprovalPrompt == false)
+    }
 }

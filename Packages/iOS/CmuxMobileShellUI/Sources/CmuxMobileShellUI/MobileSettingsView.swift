@@ -26,6 +26,7 @@ struct MobileSettingsView: View {
         MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.irohSettingsController) private var irohSettingsController
+    @Environment(\.agentFeedLocalizer) private var agentFeedLocalizer
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
@@ -38,6 +39,12 @@ struct MobileSettingsView: View {
     /// Lets the root modal coordinator advance directly to queued content.
     var dismissAction: (() -> Void)? = nil
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
+    @AppStorage(MobileAgentFeedDesign.storageKey) private var agentFeedDesignRawValue =
+        MobileAgentFeedDesign.timeline.rawValue
+
+    private var agentFeedDesign: MobileAgentFeedDesign {
+        MobileAgentFeedDesign(rawValue: agentFeedDesignRawValue) ?? .timeline
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -261,6 +268,33 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsToastsEnabled")
+                }
+
+                Section {
+                    Picker(
+                        L10n.string(
+                            "mobile.settings.cmuxLabs.feedDesign",
+                            defaultValue: "Feed Design"
+                        ),
+                        selection: $agentFeedDesignRawValue
+                    ) {
+                        ForEach(MobileAgentFeedDesign.allCases) { design in
+                            Text(design.title(using: agentFeedLocalizer))
+                                .tag(design.rawValue)
+                                .accessibilityIdentifier(
+                                    "MobileSettingsAgentFeedDesignOption-\(design.rawValue)"
+                                )
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsAgentFeedDesign")
+                    .accessibilityValue(agentFeedDesign.title(using: agentFeedLocalizer))
+                } header: {
+                    Text(L10n.string("mobile.settings.cmuxLabs", defaultValue: "CMUX Labs"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.cmuxLabs.feedDesign.footer",
+                        defaultValue: "Switch between five agent Feed designs. Notifications stay separate."
+                    ))
                 }
 
                 #if DEBUG

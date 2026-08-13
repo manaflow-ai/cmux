@@ -1380,6 +1380,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "feed.invalidate":
+            return v2Result(id: request.id, v2FeedInvalidate(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -2734,6 +2736,7 @@ class TerminalController {
             "feed.permission.reply",
             "feed.question.reply",
             "feed.exit_plan.reply",
+            "feed.invalidate",
             "feed.jump",
             "feed.list",
             "surface.list",
@@ -6097,6 +6100,19 @@ class TerminalController {
             decision: .question(selections: selections)
         )
         return .ok(["delivered": true])
+    }
+
+    private nonisolated func v2FeedInvalidate(params: [String: Any]) -> V2CallResult {
+        guard let requestId = params["request_id"] as? String,
+              !requestId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.invalidate requires request_id",
+                data: nil
+            )
+        }
+        FeedCoordinator.shared.invalidateBlockingRequest(requestId: requestId)
+        return .ok(["invalidated": true])
     }
 
     private nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
@@ -14422,6 +14438,12 @@ class TerminalController {
             result = v2MobileNotificationFeedMarkUnread(params: request.params)
         case "notification.feed.mark_all_read":
             result = v2MobileNotificationFeedMarkAllRead(params: request.params)
+        case "workstream.feed.list":
+            result = await v2MobileWorkstreamFeedList(params: request.params)
+        case "workstream.feed.action":
+            result = v2MobileWorkstreamFeedAction(params: request.params)
+        case "workstream.feed.reply":
+            result = await v2MobileWorkstreamFeedReply(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         case "mobile.sync.fetch":
@@ -14441,6 +14463,166 @@ class TerminalController {
             ])
         }
         return mobileHostResult(result)
+    }
+
+    /// Authenticated, authoritative coding-agent Feed snapshot for iOS.
+    private func v2MobileWorkstreamFeedList(params: [String: Any]) async -> V2CallResult {
+        let cursor = params["cursor"] as? String
+        let history: (revision: UInt64, page: WorkstreamStore.HistoryPage)
+        do {
+            history = try await FeedCoordinator.shared.mobileHistoryPage(
+                endingBefore: cursor,
+                limit: WorkstreamDefaultHistoryPageSize
+            )
+        } catch WorkstreamHistoryError.invalidCursor {
+            return .err(code: "invalid_params", message: "Unknown Feed history cursor", data: nil)
+        } catch {
+            return .err(code: "internal_error", message: "Unable to load Feed history", data: nil)
+        }
+        let workstreamIds = history.page.items.map(\.workstreamId)
+        let persistedTargets = await Task.detached(priority: .utility) {
+            FeedJumpResolver.targets(for: workstreamIds)
+        }.value
+        let liveTargets = persistedTargets.merging(
+            FeedCoordinator.shared.registeredTargets(for: workstreamIds),
+            uniquingKeysWith: { _, registered in registered }
+        )
+        let items = history.page.items.map { item -> [String: Any] in
+            var payload = FeedSocketEncoding.itemDict(item)
+            let liveTarget = liveTargets[item.workstreamId]
+            if let workspaceID = liveTarget?.workspaceId ?? item.workspaceId {
+                payload["workspace_id"] = workspaceID
+            }
+            if let surfaceID = liveTarget?.surfaceId ?? item.surfaceId {
+                payload["surface_id"] = surfaceID
+            }
+            // Mobile history must never carry the raw output of a failed
+            // tool. The desktop socket retains it for local diagnostics, but
+            // the authenticated phone response is a durable privacy boundary.
+            if payload["tool_result_is_error"] as? Bool == true {
+                payload["tool_result"] = nil
+            }
+            return payload
+        }
+        var response: [String: Any] = [
+            "revision": history.revision,
+            "items": items,
+            "has_more": history.page.hasMore,
+        ]
+        if let nextCursor = history.page.nextCursor { response["next_cursor"] = nextCursor }
+        return .ok(response)
+    }
+
+    /// Resolves one exact pending item. The item id and request id must name the
+    /// same card; this fails closed for stale, expired, or already-resolved UI.
+    private func v2MobileWorkstreamFeedAction(params: [String: Any]) -> V2CallResult {
+        guard let itemRaw = params["item_id"] as? String,
+              let itemId = UUID(uuidString: itemRaw),
+              let requestId = params["request_id"] as? String,
+              let workspaceId = params["workspace_id"] as? String,
+              let surfaceId = params["surface_id"] as? String,
+              let kind = params["kind"] as? String else {
+            return .err(code: "invalid_params", message: "Missing feed action identity", data: nil)
+        }
+        let decision: WorkstreamDecision
+        switch kind {
+        case "permission":
+            guard let raw = params["mode"] as? String,
+                  let mode = WorkstreamPermissionMode(rawValue: raw) else {
+                return .err(code: "invalid_params", message: "Invalid permission mode", data: nil)
+            }
+            decision = .permission(mode)
+        case "exit_plan":
+            guard let raw = params["mode"] as? String,
+                  let mode = WorkstreamExitPlanMode(rawValue: raw) else {
+                return .err(code: "invalid_params", message: "Invalid plan mode", data: nil)
+            }
+            decision = .exitPlan(mode, feedback: params["feedback"] as? String)
+        case "question":
+            guard let selections = params["selections"] as? [String] else {
+                return .err(code: "invalid_params", message: "Missing question selections", data: nil)
+            }
+            decision = .question(selections: selections)
+        case "boolean", "confirmation", "approval":
+            guard let value = params["value"] as? Bool else {
+                return .err(code: "invalid_params", message: "Missing boolean value", data: nil)
+            }
+            let question = FeedCoordinator.shared
+                .snapshot(pendingOnly: false)
+                .first(where: { $0.id == itemId })
+                .flatMap { item in
+                    if case .question(_, let questions) = item.payload {
+                        return questions.first
+                    }
+                    return nil
+                }
+            let questionID = question?.id ?? "q0"
+            let optionID = value
+                ? (question?.options.first?.id ?? "yes")
+                : (question?.options.dropFirst().first?.id ?? "no")
+            decision = .question(selections: ["\(questionID)=\(optionID)"])
+        case "form", "elicitation":
+            guard let action = WorkstreamFormAction(
+                rawValue: (params["action"] as? String) ?? WorkstreamFormAction.accept.rawValue
+            ) else {
+                return .err(code: "invalid_params", message: "Invalid form action", data: nil)
+            }
+            let selections: [String]
+            if let encoded = params["selections"] as? [String] {
+                selections = encoded
+            } else if let values = params["values"] as? [String: String] {
+                selections = values
+                    .sorted { $0.key < $1.key }
+                    .map { "\($0.key)=\($0.value)" }
+            } else {
+                selections = []
+            }
+            guard action == .accept || selections.isEmpty else {
+                return .err(code: "invalid_params", message: "Non-accept form actions cannot include values", data: nil)
+            }
+            decision = .form(action: action, selections: selections)
+        default:
+            return .err(code: "invalid_params", message: "Unknown feed action", data: nil)
+        }
+        let outcome = FeedCoordinator.shared.deliverMobileReply(
+            itemId: itemId,
+            requestId: requestId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            decision: decision
+        )
+        guard outcome == .delivered else {
+            return .err(code: outcome.rawValue, message: "Feed item is no longer actionable", data: nil)
+        }
+        return .ok(["status": outcome.rawValue])
+    }
+
+    /// Sends one acknowledged ordinary turn reply to a pinned route.
+    private func v2MobileWorkstreamFeedReply(params: [String: Any]) async -> V2CallResult {
+        guard let itemRaw = params["item_id"] as? String,
+              let itemId = UUID(uuidString: itemRaw),
+              let workstreamId = params["workstream_id"] as? String,
+              let workspaceId = params["workspace_id"] as? String,
+              let surfaceId = params["surface_id"] as? String,
+              let text = params["text"] as? String,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .err(code: "invalid_params", message: "Missing feed reply target or text", data: nil)
+        }
+        guard await FeedCoordinator.shared.sendTextToTarget(
+            workstreamId: workstreamId,
+            itemId: itemId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            text: text
+        ) else {
+            return .err(code: "target_unavailable", message: "Agent target moved or is unavailable", data: nil)
+        }
+        return .ok([
+            "status": "acknowledged",
+            "workstream_id": workstreamId,
+            "workspace_id": workspaceId,
+            "surface_id": surfaceId,
+        ])
     }
 
     /// Privileged agent feedback sink (the Mac↔phone feedback loop).

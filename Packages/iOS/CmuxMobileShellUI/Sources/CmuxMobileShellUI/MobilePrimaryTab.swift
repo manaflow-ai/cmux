@@ -3,6 +3,7 @@
 enum MobilePrimaryTab: Hashable {
     case workspaces
     case notifications
+    case feed
     case search
 }
 #endif

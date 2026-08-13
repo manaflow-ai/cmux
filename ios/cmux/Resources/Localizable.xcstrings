@@ -7447,6 +7447,40 @@
         }
       }
     },
+    "mobile.settings.cmuxLabs.feedDesign": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed Design"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードのデザイン"
+          }
+        }
+      }
+    },
+    "mobile.settings.cmuxLabs.feedDesign.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch between five agent Feed designs. Notifications stay separate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5つのエージェントフィードデザインを切り替えます。通知は別に表示されます。"
+          }
+        }
+      }
+    },
     "mobile.settings.developer": {
       "extractionState": "manual",
       "localizations": {

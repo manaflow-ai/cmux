@@ -10,28 +10,43 @@ import Foundation
 /// load runs once per process at launch.
 public actor WorkstreamPersistence {
     public struct Page: Sendable, Equatable {
+        /// Decoded items in oldest-first order.
         public let items: [WorkstreamItem]
+        /// Whether the log contains rows before this page.
         public let hasMoreBefore: Bool
+        /// Byte offset of the first selected JSONL row.
         public let startOffset: UInt64?
+        /// Byte offsets corresponding one-to-one with decoded `items`.
+        public let itemStartOffsets: [UInt64]
 
+        /// Creates a persisted-history page.
         public init(
             items: [WorkstreamItem],
             hasMoreBefore: Bool,
-            startOffset: UInt64?
+            startOffset: UInt64?,
+            itemStartOffsets: [UInt64] = []
         ) {
             self.items = items
             self.hasMoreBefore = hasMoreBefore
             self.startOffset = startOffset
+            self.itemStartOffsets = itemStartOffsets
         }
     }
 
     private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let beforeAppend: (@Sendable () async -> Void)?
     private var handle: FileHandle?
+    private(set) var loadPageCallCount = 0
 
     public init(fileURL: URL) {
+        self.init(fileURL: fileURL, beforeAppend: nil)
+    }
+
+    init(fileURL: URL, beforeAppend: (@Sendable () async -> Void)?) {
         self.fileURL = fileURL
+        self.beforeAppend = beforeAppend
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         self.encoder = enc
@@ -50,7 +65,8 @@ public actor WorkstreamPersistence {
 
     /// Appends a single item as a JSON line. Creates the file and parent
     /// directory lazily on first write.
-    public func append(_ item: WorkstreamItem) throws {
+    public func append(_ item: WorkstreamItem) async throws {
+        await beforeAppend?()
         let data = try encoder.encode(item.redactedForPersistence())
         var line = data
         line.append(0x0A) // "\n"
@@ -73,6 +89,7 @@ public actor WorkstreamPersistence {
         endingBefore endOffset: UInt64? = nil,
         limit: Int
     ) throws -> Page {
+        loadPageCallCount += 1
         guard limit > 0 else {
             return Page(items: [], hasMoreBefore: false, startOffset: nil)
         }
@@ -110,11 +127,13 @@ public actor WorkstreamPersistence {
         }
         let selectedRanges = lineRanges.suffix(limit)
         var out: [WorkstreamItem] = []
+        var outOffsets: [UInt64] = []
         out.reserveCapacity(selectedRanges.count)
         for lineRange in selectedRanges {
             let slice = tail.subdata(in: lineRange.range)
             if let item = try? decoder.decode(WorkstreamItem.self, from: slice) {
                 out.append(item)
+                outOffsets.append(lineRange.startOffset)
             }
             // Malformed lines are dropped silently; the audit log is
             // append-only and we don't want a corrupt row to block startup.
@@ -123,8 +142,41 @@ public actor WorkstreamPersistence {
         return Page(
             items: out,
             hasMoreBefore: (startOffset ?? 0) > 0,
-            startOffset: startOffset
+            startOffset: startOffset,
+            itemStartOffsets: outOffsets
         )
+    }
+
+    /// Returns the persisted item's identity when `startOffset` points at the
+    /// beginning of a valid JSONL row. The lookup seeks directly to the row,
+    /// so cursor validation is independent of the number of persisted items.
+    func itemID(startingAt startOffset: UInt64) throws -> UUID? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        let fh = try FileHandle(forReadingFrom: fileURL)
+        defer { try? fh.close() }
+        let fileSize = try fh.seekToEnd()
+        guard startOffset < fileSize else { return nil }
+
+        if startOffset > 0 {
+            try fh.seek(toOffset: startOffset - 1)
+            guard try fh.read(upToCount: 1)?.first == 0x0A else { return nil }
+        }
+
+        try fh.seek(toOffset: startOffset)
+        var row = Data()
+        let chunkSize = 64 * 1024
+        while let chunk = try fh.read(upToCount: chunkSize), !chunk.isEmpty {
+            if let newline = chunk.firstIndex(of: 0x0A) {
+                row.append(chunk.prefix(upTo: newline))
+                break
+            }
+            row.append(chunk)
+        }
+        guard !row.isEmpty,
+              let item = try? decoder.decode(WorkstreamItem.self, from: row) else {
+            return nil
+        }
+        return item.id
     }
 
     /// Truncates the JSONL file. Used by `cmux feed clear`.

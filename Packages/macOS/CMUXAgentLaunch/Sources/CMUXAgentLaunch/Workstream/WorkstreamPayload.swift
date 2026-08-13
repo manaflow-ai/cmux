@@ -5,6 +5,9 @@ import Foundation
 public enum WorkstreamPermissionMode: String, Codable, Sendable, Equatable, CaseIterable {
     case once
     case always
+    /// Persist this exact approval across agent sessions when the provider
+    /// advertises a durable approval primitive.
+    case persistent
     case all
     case bypass
     case deny
@@ -35,6 +38,26 @@ public struct WorkstreamQuestionOption: Codable, Sendable, Equatable {
     }
 }
 
+/// The editor primitive represented by one Feed question.  Keeping this
+/// metadata on the existing question envelope lets newer agents expose
+/// booleans and elicitation forms without introducing a second reply
+/// transport.  Unknown values decode as `nil` and remain inspectable.
+public enum WorkstreamQuestionInputType: String, Codable, Sendable, Equatable {
+    case choice
+    case boolean
+    case text
+    case number
+    case integer
+    case url
+    case email
+    case date
+    case dateTime
+    case secret
+    /// A URL-mode elicitation completed outside cmux. The Feed exposes the
+    /// trusted HTTP(S) link and waits for the agent to resolve the request.
+    case external
+}
+
 /// One prompt inside a `.question` payload. Claude Code's
 /// `AskUserQuestion` tool can include several questions in a single
 /// call, so a payload carries an array of these.
@@ -46,19 +69,62 @@ public struct WorkstreamQuestionPrompt: Codable, Sendable, Equatable, Identifiab
     public let prompt: String
     public let multiSelect: Bool
     public let options: [WorkstreamQuestionOption]
+    /// Whether a free-form "Other" answer is accepted. Legacy Claude
+    /// questions omit this field and keep the historical free-form control.
+    public let allowsOther: Bool?
+    /// Optional input primitive. Existing question payloads leave this nil.
+    public let inputType: WorkstreamQuestionInputType?
+    /// Whether a form field must have a value before submission.
+    public let required: Bool?
+    public let defaultValue: String?
+    public let placeholder: String?
+    /// MCP elicitation URL forms can be opened in the owning Agent surface.
+    public let externalURL: String?
+    /// Restricted JSON Schema constraints preserved end to end so both the
+    /// phone and authoritative Mac validate the same response.
+    public let minimum: Double?
+    public let maximum: Double?
+    public let minLength: Int?
+    public let maxLength: Int?
+    public let minSelections: Int?
+    public let maxSelections: Int?
 
     public init(
         id: String,
         header: String? = nil,
         prompt: String,
         multiSelect: Bool,
-        options: [WorkstreamQuestionOption]
+        options: [WorkstreamQuestionOption],
+        allowsOther: Bool? = nil,
+        inputType: WorkstreamQuestionInputType? = nil,
+        required: Bool? = nil,
+        defaultValue: String? = nil,
+        placeholder: String? = nil,
+        externalURL: String? = nil,
+        minimum: Double? = nil,
+        maximum: Double? = nil,
+        minLength: Int? = nil,
+        maxLength: Int? = nil,
+        minSelections: Int? = nil,
+        maxSelections: Int? = nil
     ) {
         self.id = id
         self.header = header
         self.prompt = prompt
         self.multiSelect = multiSelect
         self.options = options
+        self.allowsOther = allowsOther
+        self.inputType = inputType
+        self.required = required
+        self.defaultValue = defaultValue
+        self.placeholder = placeholder
+        self.externalURL = externalURL
+        self.minimum = minimum
+        self.maximum = maximum
+        self.minLength = minLength
+        self.maxLength = maxLength
+        self.minSelections = minSelections
+        self.maxSelections = maxSelections
     }
 }
 

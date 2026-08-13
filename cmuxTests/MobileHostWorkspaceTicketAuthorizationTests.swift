@@ -360,6 +360,9 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
                 params: ["topics": ["notification.feed.changed"]],
                 auth: nil
             ),
+            MobileHostRPCRequest(id: "agent-feed-list", method: "workstream.feed.list", params: [:], auth: nil),
+            MobileHostRPCRequest(id: "agent-feed-action", method: "workstream.feed.action", params: [:], auth: nil),
+            MobileHostRPCRequest(id: "agent-feed-reply", method: "workstream.feed.reply", params: [:], auth: nil),
         ]
 
         for request in requests {

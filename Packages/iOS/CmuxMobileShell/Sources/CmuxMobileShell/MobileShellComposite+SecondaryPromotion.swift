@@ -72,7 +72,7 @@ extension MobileShellComposite {
                 return
             }
             connection.client.retire()
-            Task { await connection.client.disconnect() }
+            await connection.client.disconnect()
             return
         }
         await installControlConnection(from: connection)
@@ -86,7 +86,7 @@ extension MobileShellComposite {
             removeControlCapability(ifMatching: connection)
             removeFocusedConnection(ifMatching: connection)
             connection.client.retire()
-            Task { await connection.client.disconnect() }
+            await connection.client.disconnect()
             return
         }
         let existing = secondaryMacSubscriptions[connection.ownerKey]
@@ -647,6 +647,7 @@ extension MobileShellComposite {
                     removeNotificationFeedSnapshot(
                         macDeviceID: previousForegroundID
                     )
+                    removeAgentFeedSnapshot(ownerKey: previousForegroundID)
                 }
             } else {
                 removeControlCapability(
@@ -667,7 +668,7 @@ extension MobileShellComposite {
             // to demote. Retire synchronously before replacing `remoteClient`;
             // the asynchronous close removes all of their server registrations.
             unregisteredPreviousClient.retire()
-            Task { await unregisteredPreviousClient.disconnect() }
+            await unregisteredPreviousClient.disconnect()
         }
         let liveConnectionGeneration = adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
@@ -677,7 +678,14 @@ extension MobileShellComposite {
         // and a sibling switch must not reuse the old build's device-keyed
         // revision floor.
         removeNotificationFeedSnapshot(macDeviceID: ownerKey.pairingID)
+        removeAgentFeedSnapshot(ownerKey: ownerKey.pairingID)
         resetForegroundNotificationFeedIfInstanceChanged(
+            previousDeviceID: previousForegroundID,
+            previousTag: previousForegroundTag,
+            newDeviceID: macID,
+            newTag: activeMacInstanceTag
+        )
+        resetForegroundAgentFeedIfInstanceChanged(
             previousDeviceID: previousForegroundID,
             previousTag: previousForegroundTag,
             newDeviceID: macID,

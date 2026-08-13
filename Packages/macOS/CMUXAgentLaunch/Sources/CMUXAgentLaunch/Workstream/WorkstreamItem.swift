@@ -1,5 +1,11 @@
 import Foundation
 
+public enum WorkstreamFormAction: String, Codable, Sendable, Equatable {
+    case accept
+    case decline
+    case cancel
+}
+
 /// The user's decision on a resolved actionable item.
 public enum WorkstreamDecision: Codable, Sendable, Equatable {
     case permission(WorkstreamPermissionMode)
@@ -9,6 +15,9 @@ public enum WorkstreamDecision: Codable, Sendable, Equatable {
     /// rather than proceeding.
     case exitPlan(WorkstreamExitPlanMode, feedback: String? = nil)
     case question(selections: [String])
+    /// Explicit form lifecycle actions used by MCP elicitation. Accept carries
+    /// the submitted field selections; decline and cancel carry none.
+    case form(action: WorkstreamFormAction, selections: [String])
 }
 
 /// Lifecycle state of a `WorkstreamItem`.
@@ -35,11 +44,19 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
     public let id: UUID
     public let workstreamId: String
     public let source: WorkstreamSource
+    /// Original source tag from the hook wire frame. This preserves future
+    /// agents that this build does not yet know instead of relabeling them as
+    /// Claude when the item is forwarded to another client.
+    public let sourceRawValue: String?
     public let kind: WorkstreamKind
     public let createdAt: Date
     public var updatedAt: Date
     public var cwd: String?
     public var title: String?
+    /// Exact workspace route captured when the event entered Feed.
+    public var workspaceId: String?
+    /// Exact surface route captured when the event entered Feed.
+    public var surfaceId: String?
     public var status: WorkstreamStatus
     public var payload: WorkstreamPayload
     public var context: WorkstreamContext?
@@ -54,11 +71,14 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         id: UUID = UUID(),
         workstreamId: String,
         source: WorkstreamSource,
+        sourceRawValue: String? = nil,
         kind: WorkstreamKind,
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
         cwd: String? = nil,
         title: String? = nil,
+        workspaceId: String? = nil,
+        surfaceId: String? = nil,
         status: WorkstreamStatus? = nil,
         payload: WorkstreamPayload,
         context: WorkstreamContext? = nil,
@@ -67,11 +87,14 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.id = id
         self.workstreamId = workstreamId
         self.source = source
+        self.sourceRawValue = sourceRawValue
         self.kind = kind
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
         self.cwd = cwd
         self.title = title
+        self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
         let resolvedStatus = status ?? (kind.isActionable ? .pending : .telemetry)
         self.status = kind.isActionable ? resolvedStatus : .telemetry
         self.payload = payload

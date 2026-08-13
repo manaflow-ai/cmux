@@ -148,6 +148,19 @@ struct WorkstreamEventTests {
         #expect(encodedFuture["count"] as? Int == 2)
     }
 
+    @Test("Unknown hook names stay visible and round-trip unchanged")
+    func unknownHookNameRoundTrip() throws {
+        let json = """
+        {"session_id":"s","hook_event_name":"PostToolUseFailure","_source":"codex","tool_input":{"error":"nope"}}
+        """.data(using: .utf8)!
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: json)
+        #expect(event.hookEventName == .notification)
+        #expect(event.rawHookEventName == "PostToolUseFailure")
+        let encoded = try JSONEncoder().encode(event)
+        let object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["hook_event_name"] as? String == "PostToolUseFailure")
+    }
+
     @Test("Non-JSON tool input re-encodes as a string")
     func encodesRawToolInputString() throws {
         let event = WorkstreamEvent(
