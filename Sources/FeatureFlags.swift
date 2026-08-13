@@ -60,6 +60,7 @@ final class CmuxFeatureFlags {
     private nonisolated static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
+    private static let mobileTerminalFilesChipDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -107,6 +108,24 @@ final class CmuxFeatureFlags {
             defaultValue: "Serves workspace diffs to paired phones: the iOS changes chip, toolbar button, and Changes sheet."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
+    )
+
+    // FLAG(key: mobile-terminal-files-chip-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2027-02-01, defaultWhenUnavailable: true)
+    // Controls the fully integrated terminal Files chip on iOS. The enabled
+    // fallback preserves the shipping behavior when PostHog is unavailable;
+    // a remote false value is the emergency kill switch.
+    static let mobileTerminalFilesChipFlag = CmuxFeatureFlagDefinition(
+        key: "mobile-terminal-files-chip-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileTerminalFilesChip.title",
+            defaultValue: "Mobile terminal Files chip"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileTerminalFilesChip.description",
+            defaultValue: "Shows the Files chip over iOS terminals and runs its visible-path count scan."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileTerminalFilesChipDefault
     )
 
     // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
@@ -250,6 +269,8 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.appKitSidebarListFlag,
 
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
+
+            CmuxFeatureFlags.mobileTerminalFilesChipFlag,
         ]
     }()
 
@@ -291,6 +312,10 @@ final class CmuxFeatureFlags {
 
     var isMobileWorkspaceChangesEnabled: Bool {
         effectiveValue(for: Self.mobileWorkspaceChangesFlag)
+    }
+
+    var isMobileTerminalFilesChipEnabled: Bool {
+        effectiveValue(for: Self.mobileTerminalFilesChipFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host

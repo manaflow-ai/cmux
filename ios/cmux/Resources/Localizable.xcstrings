@@ -8263,23 +8263,6 @@
         }
       }
     },
-    "mobile.settings.terminalFilesChip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal Files Chip"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのファイルチップ"
-          }
-        }
-      }
-    },
     "mobile.settings.taskComposer": {
       "extractionState": "manual",
       "localizations": {

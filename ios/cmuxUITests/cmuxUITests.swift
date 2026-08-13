@@ -3744,6 +3744,27 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsDoesNotExposeTerminalFilesChipAsBetaToggle() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let toastsToggle = app.switches["MobileSettingsToastsEnabled"]
+        for _ in 0..<6 where !toastsToggle.exists || !toastsToggle.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(toastsToggle.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.switches["MobileSettingsTaskComposer"].exists)
+        XCTAssertFalse(app.switches["MobileSettingsTerminalFilesChip"].exists)
+    }
+
+    @MainActor
     func testNotificationFeedPreviewSupportsTriageInteractions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
