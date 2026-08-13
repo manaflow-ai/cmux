@@ -110,6 +110,8 @@ cd "$REPO_ROOT"
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/iroh-release-gate-targets.sh
+source "$SCRIPT_DIR/lib/iroh-release-gate-targets.sh"
 cmux_attach_validate_dev_tag "$TAG"
 
 ACTIVE_BUILD_WRAPPER_PID=""
@@ -453,6 +455,8 @@ xcrun simctl boot "$SIMULATOR_ID"
 xcrun simctl bootstatus "$SIMULATOR_ID" -b
 
 if [[ "$SKIP_BUILD" -ne 1 ]]; then
+  iroh_release_gate_set_ios_reload_args \
+    "$TAG" "$SIMULATOR_NAME" "$SIMULATOR_ID" "$PRODUCTION"
   if [[ "$PRODUCTION" -eq 1 ]]; then
     run_build_with_heartbeat Mac env \
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
@@ -467,12 +471,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
-      ./ios/scripts/reload.sh \
-        --tag "$TAG" \
-        --simulator "$SIMULATOR_NAME" \
-        --simulator-id "$SIMULATOR_ID" \
-        --prod-auth \
-        --no-launch
+      ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   else
     run_build_with_heartbeat Mac env \
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
@@ -484,11 +483,7 @@ if [[ "$SKIP_BUILD" -ne 1 ]]; then
       CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
       CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
       CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
-      ./ios/scripts/reload.sh \
-        --tag "$TAG" \
-        --simulator "$SIMULATOR_NAME" \
-        --simulator-id "$SIMULATOR_ID" \
-        --no-launch
+      ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   fi
 else
   [[ -d "$IOS_APP" ]] || { echo "error: tagged iOS app is missing: $IOS_APP" >&2; exit 1; }
