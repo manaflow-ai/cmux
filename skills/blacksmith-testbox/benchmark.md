@@ -120,6 +120,8 @@ WORKFLOW=.github/workflows/ci-workflow-guard-tests-testbox.yml
 JOB=cmux-tui-rust
 OUT="$PWD/.cmux-scratch/blacksmith-testbox-$SOURCE_SHA"
 TBX=""
+warmup_testbox_id=""
+cleanup_token=""
 before_list_status=125
 mkdir -p "$OUT/raw"
 cleanup() {
@@ -127,28 +129,24 @@ cleanup() {
   local cleanup_status=0
   local after_list_status=125
   trap - EXIT
-  if [[ -n "$TBX" ]]; then
+  if [[ -n "$TBX" && -n "$cleanup_token" ]]; then
     set +e
-    scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT"
+    scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token"
     cleanup_status=$?
     set -e
   else
-    # If warmup failed before printing its ID, stop only a uniquely correlated
-    # new box. Never stop an arbitrary active box from a shared organization.
+    # Without the CLI receipt there is no proof that a newly listed box belongs
+    # to this invocation. Report inventory, but never stop another operator's box.
     set +e
     blacksmith testbox list --all >"$OUT/list-after-warmup-failure.log" 2>&1
     after_list_status=$?
     set -e
-    if (( before_list_status == 0 && after_list_status == 0 )); then
-      set +e
-      scripts/blacksmith-testbox-recover-warmup.sh \
-        "$OUT/list-before-warmup.log" "$OUT/list-after-warmup-failure.log" \
-        "$WORKFLOW" "$JOB" "$SOURCE_REF" "$OUT"
-      cleanup_status=$?
-      set -e
+    if (( after_list_status != 0 )); then
+      cleanup_status="$after_list_status"
+      echo "could not capture post-failure Testbox inventory" >&2
     else
       cleanup_status=1
-      echo "could not reconcile a failed warmup because inventory capture failed" >&2
+      echo "warmup returned no owned Testbox receipt; no automatic stop was attempted" >&2
     fi
   fi
   if (( result == 0 && cleanup_status != 0 )); then
@@ -180,7 +178,7 @@ warmup_status=$?
 set -e
 cat "$OUT/warmup.log"
 set +e
-TBX="$(python3 - "$OUT/warmup.log" <<'PY'
+warmup_testbox_id="$(python3 - "$OUT/warmup.log" <<'PY'
 import re
 import sys
 
@@ -193,13 +191,48 @@ PY
 )"
 parse_status=$?
 set -e
-if (( warmup_status != 0 )); then
-  exit "$warmup_status"
-fi
 if (( parse_status != 0 )); then
   exit "$parse_status"
 fi
+umask 077
+set +e
+cleanup_token="$(python3 - "$OUT/testbox-receipt.json" "$warmup_testbox_id" "$WORKFLOW" "$JOB" "$SOURCE_REF" "$SOURCE_SHA" "$SOURCE_TREE_SHA" "$GHOSTTY_SHA" <<'PY'
+import datetime as dt
+import json
+import pathlib
+import secrets
+import sys
+
+path, testbox_id, workflow, job, source_ref, source_sha, source_tree, ghostty_sha = sys.argv[1:]
+token = secrets.token_hex(16)
+path = pathlib.Path(path)
+path.write_text(json.dumps({
+    "schema": 1,
+    "testbox_id": testbox_id,
+    "workflow": workflow,
+    "job": job,
+    "source_ref": source_ref,
+    "source_sha": source_sha,
+    "source_tree_sha": source_tree,
+    "ghostty_gitlink_sha": ghostty_sha,
+    "confirmation_token": token,
+    "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+path.chmod(0o600)
+print(token)
+PY
+)"
+receipt_status=$?
+set -e
+if (( receipt_status != 0 )); then
+  echo "could not create the warmup ownership receipt" >&2
+  exit "$receipt_status"
+fi
+TBX="$warmup_testbox_id"
 printf 'Testbox ID: %s\n' "$TBX" | tee "$OUT/testbox-id.txt"
+if (( warmup_status != 0 )); then
+  exit "$warmup_status"
+fi
 set +e
 blacksmith testbox status --id "$TBX" --wait --wait-timeout 15m \
   >"$OUT/status-ready.log" 2>&1
@@ -229,7 +262,10 @@ the identity transcripts. The helper verifies the Testbox VM marker, claimed
 Testbox ID, source commit/tree, Ghostty gitlink/checkout, and clean status before
 it invokes Cargo, then repeats those checks after the build. Keep the setup
 artifact URL or download it into `$OUT`; it records runner/toolchain/Ghostty
-identity independently of the stage helper.
+identity independently of the stage helper. A successful setup copies the same
+JSON to `/tmp/.testbox/cmux-tui-rust-setup-identity.json`; the stage helper
+rejects a missing or mismatched marker, so failed hydration cannot be
+benchmarked.
 
 ## Three remote build timings
 
@@ -339,18 +375,24 @@ fail-safe helper, which preserves an already-completed 409 but fails on other
 stop/status/list errors and verifies this exact Testbox ID is no longer active:
 
 ```bash
-scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT"
+cleanup_token="${cleanup_token:-}"
+[[ "$cleanup_token" =~ ^[0-9a-f]{32}$ ]] || {
+  echo "use the confirmation token emitted by the warmup receipt" >&2
+  exit 64
+}
+scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token"
 ```
 
 A shell `EXIT` trap should call that helper while preserving the benchmark
-status. The benchmark captures a pre-warmup inventory. If warmup fails before
-printing an ID, `scripts/blacksmith-testbox-recover-warmup.sh` compares the
-before/after inventories and invokes cleanup only for exactly one new box
-matching this workflow, job, and branch. Ambiguous or missing matches are
-reported without stopping an unrelated box. Keep both inventories and their
-command statuses. Keep warmup/status/identity transcripts, every stage run and
-download transcript, raw JSON/time/log files, runner catalog, setup identity
-artifact, cleanup logs, and the final source manifest in the separate
+status. Warmup writes `testbox-receipt.json` and a confirmation token bound to
+the exact returned ID; cleanup refuses a mismatched ID or token. If warmup
+fails before returning an ID, retain before/after inventories but do not
+automatically stop a box, because an inventory diff cannot prove ownership
+across concurrent operators. Reconcile that orphan manually through the
+Blacksmith control plane. Keep both inventories and their command statuses,
+plus warmup/status/identity transcripts, every stage run and download
+transcript, raw JSON/time/log files, runner catalog, setup identity artifact,
+cleanup logs, the receipt, and the final source manifest in the separate
 `.cmux-scratch/` directory. Never store credentials, private keys, or
 `/tmp/.testbox/auth_token`.
 

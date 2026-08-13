@@ -73,6 +73,39 @@ if [[ ! "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:sp
   exit 65
 fi
 expected_tree_sha="$(git rev-parse "${expected_source_sha}^{tree}")"
+setup_identity_path="$state_dir/cmux-tui-rust-setup-identity.json"
+if [[ ! -s "$setup_identity_path" ]]; then
+  echo "refusing to run without a successful Testbox setup identity marker" >&2
+  exit 65
+fi
+verify_setup_identity() {
+  python3 - "$setup_identity_path" "$expected_source_sha" "$expected_tree_sha" "$expected_ghostty_sha" "$testbox_id" <<'PY'
+import json
+import pathlib
+import sys
+
+path, expected_source, expected_tree, expected_ghostty, expected_testbox = sys.argv[1:]
+record = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+source = record.get("source", {})
+testbox = record.get("testbox", {})
+errors = []
+if source.get("commit_sha") != expected_source:
+    errors.append("setup source commit mismatch")
+if source.get("tree_sha") != expected_tree:
+    errors.append("setup source tree mismatch")
+if source.get("ghostty_gitlink_sha") != expected_ghostty:
+    errors.append("setup Ghostty gitlink mismatch")
+if source.get("ghostty_head_sha") != expected_ghostty:
+    errors.append("setup Ghostty checkout mismatch")
+if testbox.get("id") != expected_testbox:
+    errors.append("setup Testbox ID mismatch")
+if errors:
+    for error in errors:
+        print(error, file=sys.stderr)
+    raise SystemExit(66)
+PY
+}
+verify_setup_identity
 
 benchmark_dir="$repo_root/testbox-benchmark"
 command -v flock >/dev/null || {

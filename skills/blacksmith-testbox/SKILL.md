@@ -166,8 +166,10 @@ checks after the build. Keep the setup artifact URL or download it into `$OUT`;
 it records runner/toolchain/Ghostty identity independently of the stage helper.
 The setup JSON contains the workflow run, source ref/SHA/tree, Ghostty gitlink
 and checkout SHA, runner label/architecture/CPU identity, and pinned
-Rust/Zig/toolchain-file metadata. Never print or download
-`/tmp/.testbox/auth_token`.
+Rust/Zig/toolchain-file metadata. A successful setup also copies that JSON to
+`/tmp/.testbox/cmux-tui-rust-setup-identity.json`; the stage helper refuses a
+missing or mismatched marker, so a failed hydration cannot be benchmarked.
+Never print or download `/tmp/.testbox/auth_token`.
 
 ## Remote benchmark stages
 
@@ -282,10 +284,16 @@ log, the setup artifact, and the source manifest in the separate
 ## Fail-safe cleanup
 
 Always download before cleanup. Use the checked-in cleanup helper rather than
-ignoring errors with `|| true`:
+ignoring errors with `|| true`. Pass the confirmation token generated with the
+warmup receipt; never print it:
 
 ```bash
-scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT"
+CLEANUP_TOKEN="${CLEANUP_TOKEN:-}"
+[[ "$CLEANUP_TOKEN" =~ ^[0-9a-f]{32}$ ]] || {
+  echo "use the confirmation token emitted by the warmup receipt" >&2
+  exit 64
+}
+scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$CLEANUP_TOKEN"
 ```
 
 It records stop, post-stop status, and `list --all` output; verifies that the
@@ -293,12 +301,12 @@ specific Testbox ID is terminal or absent from the active inventory; and
 accepts only the known race where stop returns a 409 saying the box is already
 stopped or completed. Other stop, status, or list failures remain failures.
 Put it in an `EXIT` trap that preserves the benchmark's original exit status
-unless cleanup itself fails. The detailed benchmark captures a pre-warmup
-inventory and uses `scripts/blacksmith-testbox-recover-warmup.sh` when warmup
-fails before printing an ID. That recovery path stops a box only when the
-before/after inventory has exactly one new match for the workflow, job, and
-branch; ambiguous or missing matches are reported without stopping an
-unrelated box.
+unless cleanup itself fails. The detailed benchmark writes a receipt and
+confirmation token for the exact ID returned by warmup; cleanup refuses an ID
+or token that is not bound to that receipt. If warmup fails before returning an
+ID, retain before/after inventory but do not automatically stop a box, because
+an inventory diff cannot prove ownership across concurrent operators. Reconcile
+that orphan manually through the Blacksmith control plane.
 
 ## Timing interpretation
 

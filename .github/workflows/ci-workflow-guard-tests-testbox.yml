@@ -300,7 +300,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # Always hand control back to Testbox. Warmup is setup-only: all actual
+      - name: Mark Testbox setup ready
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker=/tmp/.testbox/cmux-tui-rust-setup-identity.json
+          test -d /tmp/.testbox
+          install -m 600 testbox-benchmark/setup-identity.json "$marker"
+          test -s "$marker"
+
+      # Always hand control back to Testbox. The pinned action receives the
+      # final job status and reports hydration_failed, rather than ready, when
+      # any setup step failed. The setup marker is a second guard for CLI runs.
       # Rust builds are issued later with `blacksmith testbox run`.
       - name: Run Testbox
         uses: useblacksmith/run-testbox@5ca05834db1d3813554d1dd109e5f2087a8d7cbc # v2
