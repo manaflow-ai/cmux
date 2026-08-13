@@ -22,6 +22,73 @@ final class ActiveLaneSnapshotTests: XCTestCase {
         )
     }
 
+    private func candidate(
+        _ workspace: UUID = UUID(),
+        title: String = "Orchard",
+        directory: String = "~/Developer/GitHub/orchard",
+        instanceIndex: Int = 1,
+        registered: String? = nil
+    ) -> ActiveLaneSnapshot.Candidate {
+        ActiveLaneSnapshot.Candidate(
+            workspace: workspace,
+            title: title,
+            directory: directory,
+            instanceIndex: instanceIndex,
+            registered: registered
+        )
+    }
+
+    // MARK: - Capture
+
+    /// The regression that made the first cut of this feature useless: nothing calls
+    /// `cmux set-tmux-session`, so a capture keyed on registration alone found nothing
+    /// even with a live session sitting right there.
+    func testLanesFindsAWorkspaceWithNoRegistrationByDerivingItsSessionName() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [candidate(registered: nil)],
+            live: ["orchard"]
+        )
+        XCTAssertEqual(lanes.map(\.session), ["orchard"])
+    }
+
+    func testLanesIgnoresWorkspacesWithNoLiveSession() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [candidate(directory: "~/Developer/Personal", title: "Personal")],
+            live: ["orchard"]
+        )
+        XCTAssertTrue(lanes.isEmpty)
+    }
+
+    func testLanesPrefersAnExplicitRegistrationOverTheDerivedName() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [candidate(registered: "orchard-boards")],
+            live: ["orchard"]
+        )
+        XCTAssertEqual(lanes.map(\.session), ["orchard-boards"])
+    }
+
+    func testLanesDerivesTheInstanceSuffixForDuplicateWorkspaces() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [candidate(directory: "~/Developer/AzDevOps", instanceIndex: 2)],
+            live: ["azdevops-2"]
+        )
+        XCTAssertEqual(lanes.map(\.session), ["azdevops-2"])
+    }
+
+    /// Two workspaces on the same directory and instance would otherwise both record,
+    /// then both rebuild onto one session.
+    func testLanesRecordsOneWorkspacePerSession() {
+        let lanes = ActiveLaneSnapshot.lanes(
+            from: [candidate(), candidate()],
+            live: ["orchard"]
+        )
+        XCTAssertEqual(lanes.count, 1)
+    }
+
+    func testLanesIsEmptyWhenNoTmuxServerIsRunning() {
+        XCTAssertTrue(ActiveLaneSnapshot.lanes(from: [candidate()], live: []).isEmpty)
+    }
+
     // MARK: - Selection
 
     func testRestorableKeepsRecordedLanesThatAreOpenAndUnattached() {

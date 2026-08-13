@@ -92,6 +92,60 @@ enum ActiveLaneSnapshot {
         }
     }
 
+    // MARK: - Capture
+
+    /// One workspace considered for the snapshot, reduced to what the policy needs.
+    struct Candidate: Equatable {
+        let workspace: UUID
+        let title: String
+        let directory: String
+        let instanceIndex: Int
+        /// `Workspace.ownedTmuxSession` — whatever the wrapper registered, if anything.
+        let registered: String?
+    }
+
+    /// The lanes running right now, from the live tmux session list.
+    ///
+    /// Registration alone is not enough to find them. `cmux set-tmux-session` exists but
+    /// nothing calls it today, so `ownedTmuxSession` is nil in practice and a snapshot
+    /// built on it is always empty. The reattach path has the same problem and solves it
+    /// by *deriving* each workspace's session name and intersecting with the live list —
+    /// that is the signal used here, with registration preferred when it is present.
+    ///
+    /// Carries the caveat `TmuxSessionReaper.sessionName` documents: a lane started with
+    /// an explicit word suffix (`claude-remote -n boards`) derives to a different name and
+    /// will not be seen until something registers it.
+    static func lanes(from candidates: [Candidate], live: Set<String>) -> [Lane] {
+        var lanes: [Lane] = []
+        var claimed: Set<String> = []
+        for candidate in candidates {
+            let session: String?
+            if let registered = candidate.registered, !registered.isEmpty {
+                session = registered
+            } else {
+                let derived = TmuxSessionReaper.sessionName(
+                    directory: candidate.directory,
+                    instanceIndex: candidate.instanceIndex
+                )
+                session = live.contains(derived) ? derived : nil
+            }
+            // One workspace per session, so two workspaces sharing a directory and
+            // instance cannot both record — and later both rebuild onto the same session.
+            guard let session, !session.isEmpty, claimed.insert(session).inserted else {
+                continue
+            }
+            lanes.append(
+                Lane(
+                    workspace: candidate.workspace,
+                    session: session,
+                    directory: candidate.directory,
+                    title: candidate.title
+                )
+            )
+        }
+        return lanes
+    }
+
     // MARK: - Selection
 
     /// The lanes worth offering to restore.

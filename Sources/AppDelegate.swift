@@ -2407,6 +2407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     /// Last lane set written by `recordActiveLaneSnapshot`, to skip redundant writes.
     private var lastRecordedLanes: [ActiveLaneSnapshot.Lane]?
+    private var laneSnapshotTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private let sessionPersistenceQueue = DispatchQueue(
@@ -3006,6 +3007,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         recordActiveLaneSnapshot()
+        stopLaneSnapshotTimer()
         stopSessionAutosaveTimer()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
@@ -3036,6 +3038,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
+        startLaneSnapshotTimerIfNeeded()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
@@ -4599,6 +4602,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timer.resume()
     }
 
+    /// Capture the live lane set on its own slow cadence.
+    ///
+    /// Separate from the autosave timer because capture shells out to `tmux list-sessions`,
+    /// which has no business on a path that runs while the user is typing. Thirty seconds
+    /// is well inside the window that matters: the snapshot only has to be current as of
+    /// the last unclean shutdown, and a clean quit writes one directly.
+    private func startLaneSnapshotTimerIfNeeded() {
+        guard laneSnapshotTimer == nil else { return }
+        let env = ProcessInfo.processInfo.environment
+        guard !isRunningUnderXCTest(env) else { return }
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 30, repeating: 30, leeway: .seconds(5))
+        timer.setEventHandler { [weak self] in
+            guard let self, !self.isTerminatingApp else { return }
+            self.recordActiveLaneSnapshot()
+        }
+        laneSnapshotTimer = timer
+        timer.resume()
+    }
+
+    private func stopLaneSnapshotTimer() {
+        laneSnapshotTimer?.cancel()
+        laneSnapshotTimer = nil
+    }
+
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
@@ -4821,9 +4850,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func runSessionAutosaveTick(source: String) {
         guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
-        // Ahead of the typing quiet period: a no-op unless a lane opened or closed, and
-        // the whole point is to have this on disk before an unclean shutdown.
-        recordActiveLaneSnapshot()
         guard !sessionAutosaveTickInFlight else { return }
         if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
 #if DEBUG
@@ -5290,25 +5316,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // MARK: - Restore after a reboot
 
-    /// Every workspace that currently has an agent lane registered, across all windows.
+    /// Every workspace that currently has an agent lane, across all windows.
+    ///
+    /// Resolved against the live tmux session list rather than registration alone: see
+    /// `ActiveLaneSnapshot.lanes(from:live:)` for why registration is not usable on its own.
     func currentActiveLanes() -> [ActiveLaneSnapshot.Lane] {
-        var lanes: [ActiveLaneSnapshot.Lane] = []
+        var candidates: [ActiveLaneSnapshot.Candidate] = []
         var seen: Set<UUID> = []
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
-                guard let session = workspace.ownedTmuxSession, !session.isEmpty else { continue }
                 guard seen.insert(workspace.id).inserted else { continue }
-                lanes.append(
-                    ActiveLaneSnapshot.Lane(
+                candidates.append(
+                    ActiveLaneSnapshot.Candidate(
                         workspace: workspace.id,
-                        session: session,
+                        title: workspace.title,
                         directory: workspace.currentDirectory,
-                        title: workspace.title
+                        instanceIndex: workspace.instanceIndex,
+                        registered: workspace.ownedTmuxSession
                     )
                 )
             }
         }
-        return lanes
+        guard !candidates.isEmpty else { return [] }
+        return ActiveLaneSnapshot.lanes(
+            from: candidates,
+            live: Set(TmuxSessionReaper.liveSessions())
+        )
     }
 
     /// Persist the current lane set, so a restart can offer to bring it back.
@@ -5336,15 +5369,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let snapshot = ActiveLaneSnapshot.read() else { return [] }
 
         var workspacesById: [UUID: Workspace] = [:]
-        var attached: Set<UUID> = []
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
                 workspacesById[workspace.id] = workspace
-                if let session = workspace.ownedTmuxSession, !session.isEmpty {
-                    attached.insert(workspace.id)
-                }
             }
         }
+        // Same signal as capture, so a workspace whose lane is already running is never
+        // offered — which is what keeps the command idempotent.
+        let attached = Set(currentActiveLanes().map(\.workspace))
 
         let lanes = ActiveLaneSnapshot.restorable(
             snapshot: snapshot,
