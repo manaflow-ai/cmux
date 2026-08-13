@@ -6044,7 +6044,7 @@ struct CMUXCLI {
     /// complete the on-demand startup instead of discovery failing first.
     private func commandCanLaunchAppWhenSocketUnavailable(_ command: String) -> Bool {
         switch command {
-        case "settings", "shortcuts", "open", "diff", "restore-session", "feedback":
+        case "settings", "shortcuts", "open", "diff", "restore", "restore-session", "feedback":
             return true
         default:
             return false

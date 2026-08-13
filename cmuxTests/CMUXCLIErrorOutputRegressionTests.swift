@@ -117,11 +117,8 @@ import Testing
         environment["PATH"] = "\(binURL.path):/usr/bin:/bin"
         environment["HOME"] = home.path
         environment["CFFIXED_USER_HOME"] = home.path
-        // The CLI resolves its socket before it dispatches the command, so even a
-        // `--help` run walks the candidate list — which means reading the machine-wide
-        // marker file and connecting to any `cmux-debug-*.sock` it finds in /tmp. A
-        // per-run path nothing listens on is not one of the implicit defaults, so the
-        // CLI takes it as given and never goes looking.
+        // Pin this no-socket command to a per-run path so the fixture cannot use
+        // any ambient discovery marker from the host machine.
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-agent-teams-help-\(UUID().uuidString.prefix(8)).sock"
 
         for (command, provider) in [("claude-teams", "claude"), ("codex-teams", "codex")] {
@@ -2046,6 +2043,7 @@ import Testing
             (["shortcuts", "--invalid"], "shortcuts: unknown flag '--invalid'"),
             (["open"], "open requires at least one path or URL"),
             (["diff", "one.patch", "two.patch"], "diff accepts at most one patch file"),
+            (["restore", "codex", UUID().uuidString.lowercased()], "restore: cmux is still opening."),
             (["restore-session", "--invalid"], "restore-session: unknown flag '--invalid'"),
             (["feedback", "--invalid"], "feedback: unknown flag '--invalid'"),
         ]
@@ -2068,6 +2066,30 @@ import Testing
                 Comment(rawValue: result.diagnostics)
             )
         }
+    }
+
+    @Test func testImplicitDiscoveryDoesNotConsiderUnmarkedTaggedSockets() throws {
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let unrelatedSocketPath = "/tmp/cmux-debug-unrelated-\(UUID().uuidString.lowercased()).sock"
+        let responder = try UnixSocketResponder(path: unrelatedSocketPath, response: "PONG UNRELATED")
+        defer { responder.stop() }
+
+        let resolver = CLISocketPathResolver(
+            environment: [:],
+            bundleIdentifier: SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier,
+            currentUserID: getuid(),
+            socketAcceptsConnections: { $0 == unrelatedSocketPath },
+            stateDirectory: CmuxStateDirectory.url(homeDirectory: home)
+        )
+        let resolution = resolver.resolve(
+            requestedPath: "/tmp/cmux-debug.sock",
+            source: .implicitDefault
+        )
+
+        #expect(!resolution.candidatePaths.contains(unrelatedSocketPath))
+        #expect(resolution.selectedPath != unrelatedSocketPath)
+        #expect(responder.receivedRequests.isEmpty)
     }
 
     @Test func testExplicitStableSocketEnvironmentIsNeverReroutedByTaggedCLI() throws {
