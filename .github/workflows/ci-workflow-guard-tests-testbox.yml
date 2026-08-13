@@ -334,18 +334,10 @@ jobs:
           install -m 600 testbox-benchmark/setup-identity.json "$marker"
           test -s "$marker"
 
-      # Always hand control back to Testbox. The pinned action receives the
-      # final job status and reports hydration_failed, rather than ready, when
-      # any setup step failed. The setup marker is a second guard for CLI runs.
-      # Rust builds are issued later with `blacksmith testbox run`.
-      - name: Run Testbox
-        uses: useblacksmith/run-testbox@3f60ff9ceb2c10c3feefa87dc0c6490cffae059d # v2 + hydration-failure reporting
-        if: always()
-
-      # run-testbox publishes ready best-effort. Only a successful, bounded
-      # acknowledgement allows a maintainer to consume this box. This check
-      # runs after the keepalive action only for observability, so it must not
-      # advertise readiness itself or require the auth token in branch code.
+      # run-testbox publishes ready best-effort and then keeps the VM alive.
+      # Publish and acknowledge readiness before entering that blocking action;
+      # if this bounded check fails, the always-run action sees a failed job and
+      # reports hydration_failed instead of advertising an unusable box.
       - name: Verify Testbox readiness acknowledgement
         if: success()
         env:
@@ -390,3 +382,11 @@ jobs:
           echo "::error::Testbox ready acknowledgement failed after bounded retries" >&2
           cat "$RUNNER_TEMP"/testbox-ready-phone-home-*.err >&2 || true
           exit 1
+
+      # Always hand control back to Testbox. The pinned action receives the
+      # final job status and reports hydration_failed, rather than ready, when
+      # any setup or readiness step failed. Rust builds are issued later with
+      # `blacksmith testbox run`.
+      - name: Run Testbox
+        uses: useblacksmith/run-testbox@3f60ff9ceb2c10c3feefa87dc0c6490cffae059d # v2 + hydration-failure reporting
+        if: always()
