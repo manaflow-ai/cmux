@@ -3396,6 +3396,51 @@ struct CMUXCLI {
         return true
     }
 
+    private func localizedCoderouterAliases() -> String {
+        let defaultValue = "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)"
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.aliases",
+            defaultValue: "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.aliases",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterNotFound() -> String {
+        let defaultValue = "Required CLI not found. Install the command and retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.error.notFound",
+            defaultValue: "Required CLI not found. Install the command and retry.",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.error.notFound",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterLaunchFailed() -> String {
+        let defaultValue = "Could not start the required CLI. Check the installation and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.error.launchFailed",
+            defaultValue: "Could not start the required CLI. Check the installation and try again.",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.error.launchFailed",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
     /// Run the separately installed CodeRouter CLI without routing through the
     /// cmux socket. Replace this process after resolving the executable so
     /// stdin/stdout/stderr, signals, and the child exit status retain their
@@ -3408,10 +3453,7 @@ struct CMUXCLI {
             .compactMap({ resolveExecutableInPath($0) })
             .first else {
             throw CLIError(
-                message: CMUXDiffViewerLocalization.string(
-                    "cli.coderouter.error.notFound",
-                    defaultValue: "Required CLI not found. Install the command and retry."
-                ),
+                message: localizedCoderouterNotFound(),
                 exitCode: 127
             )
         }
@@ -3451,10 +3493,7 @@ struct CMUXCLI {
                 + "errno=\(executionError) error=\(errorText)"
         )
         throw CLIError(
-            message: CMUXDiffViewerLocalization.string(
-                "cli.coderouter.error.launchFailed",
-                defaultValue: "Could not start the required CLI. Check the installation and try again."
-            ),
+            message: localizedCoderouterLaunchFailed(),
             exitCode: 127
         )
     }
@@ -36789,7 +36828,7 @@ export default CMUXSessionRestore;
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
-          \(CMUXDiffViewerLocalization.string("cli.coderouter.aliases", defaultValue: "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)"))
+          \(localizedCoderouterAliases())
           vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]

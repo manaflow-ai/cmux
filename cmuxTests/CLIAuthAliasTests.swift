@@ -302,6 +302,32 @@ struct CLICoderouterAliasTests {
         )
     }
 
+    @Test("localizes the alias help entry")
+    func aliasHelpUsesRequestedLocalization() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+        let result = runCLI(
+            cliPath: cliPath,
+            arguments: ["--help"],
+            environment: [
+                "AppleLanguages": "(ja)",
+                "AppleLocale": "ja_JP",
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(
+            result.stdout.contains("インストール済み CodeRouter CLI のエイリアス"),
+            Comment(rawValue: result.stdout)
+        )
+        #expect(
+            !result.stdout.contains("aliases for the installed CodeRouter CLI"),
+            Comment(rawValue: result.stdout)
+        )
+    }
+
     @Test("does not leak cmux control environment to the child")
     func childEnvironmentExcludesCmuxControlValues() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
@@ -453,8 +479,8 @@ struct CLICoderouterAliasTests {
             childEnvironment.removeValue(forKey: key)
         }
         childEnvironment.merge(environment) { _, newValue in newValue }
-        childEnvironment["AppleLanguages"] = "(en)"
-        childEnvironment["AppleLocale"] = "en_US"
+        childEnvironment["AppleLanguages"] = childEnvironment["AppleLanguages"] ?? "(en)"
+        childEnvironment["AppleLocale"] = childEnvironment["AppleLocale"] ?? "en_US"
         process.environment = childEnvironment
 
         let stdoutPipe = Pipe()
