@@ -66,6 +66,9 @@ export class RelaySigningError extends Data.TaggedError("RelaySigningError")<{
   readonly cause: unknown;
 }> {}
 
+const MAX_AUTH_ERROR_METADATA_NODES = 64;
+const MAX_AUTH_ERROR_METADATA_DEPTH = 8;
+
 /**
  * Convert an auth-provider failure into a coarse, retry-safe relay error.
  * Stack's SDK wraps upstream throttles in AggregateError/RetryError objects,
@@ -83,14 +86,23 @@ export function relayAuthenticationError(cause: unknown): RelayAuthenticationErr
 
 function hasRateLimitSignal(
   value: unknown,
-  seen = new Set<object>(),
+  state: {
+    readonly seen: Set<object>;
+    count: number;
+  } = { seen: new Set<object>(), count: 0 },
+  depth = 0,
 ): boolean {
+  if (depth > MAX_AUTH_ERROR_METADATA_DEPTH) return false;
   if (typeof value === "string") {
     return /rate[\s_-]?limit(?:ed|ing)?/i.test(value);
   }
   if (!value || typeof value !== "object") return false;
-  if (seen.has(value)) return false;
-  seen.add(value);
+  if (
+    state.count >= MAX_AUTH_ERROR_METADATA_NODES ||
+    state.seen.has(value)
+  ) return false;
+  state.seen.add(value);
+  state.count += 1;
 
   const candidate = value as {
     readonly message?: unknown;
@@ -99,13 +111,13 @@ function hasRateLimitSignal(
     readonly cause?: unknown;
     readonly errors?: unknown;
   };
-  return hasRateLimitSignal(candidate.message, seen) ||
-    hasRateLimitSignal(candidate.name, seen) ||
-    hasRateLimitSignal(candidate.code, seen) ||
-    hasRateLimitSignal(candidate.cause, seen) ||
-    (Array.isArray(candidate.errors) && candidate.errors.some((error) =>
-      hasRateLimitSignal(error, seen)
-    ));
+  return hasRateLimitSignal(candidate.message, state, depth + 1) ||
+    hasRateLimitSignal(candidate.name, state, depth + 1) ||
+    hasRateLimitSignal(candidate.code, state, depth + 1) ||
+    hasRateLimitSignal(candidate.cause, state, depth + 1) ||
+    (Array.isArray(candidate.errors) && candidate.errors
+      .slice(0, MAX_AUTH_ERROR_METADATA_NODES)
+      .some((error) => hasRateLimitSignal(error, state, depth + 1)));
 }
 
 export type RelayServiceError =
