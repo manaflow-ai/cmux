@@ -28,6 +28,7 @@ struct AgentFeedView: View {
     @State private var planFeedback: [MobileAgentFeedItemID: String] = [:]
     @State private var questionSelections: [MobileAgentFeedItemID: [String: Set<String>]] = [:]
     @State private var otherAnswers: [MobileAgentFeedItemID: [String: String]] = [:]
+    @State private var formValues: [MobileAgentFeedItemID: [String: String]] = [:]
     @State private var renderedItems: [MobileAgentFeedItem]?
     @State private var pendingViewportAnchor: MobileAgentFeedItemID?
     @State private var heldViewportAnchor: MobileAgentFeedItemID?
@@ -73,6 +74,7 @@ struct AgentFeedView: View {
                                     planFeedback: planFeedback[item.id] ?? "",
                                     questionSelections: questionSelections[item.id] ?? [:],
                                     otherAnswers: otherAnswers[item.id] ?? [:],
+                                    formValues: formValues[item.id] ?? [:],
                                     actions: AgentFeedRowActions(
                                         setExpanded: { setExpanded($0, id: item.id) },
                                         setDraft: { actions.setDraft(item.id, $0) },
@@ -82,6 +84,9 @@ struct AgentFeedView: View {
                                         },
                                         setOtherAnswer: { question, value in
                                             otherAnswers[item.id, default: [:]][question] = value
+                                        },
+                                        setFormValue: { field, value in
+                                            formValues[item.id, default: [:]][field] = value
                                         },
                                         reply: { actions.reply(item) },
                                         decide: { actions.decide(item, $0) },

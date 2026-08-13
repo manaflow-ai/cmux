@@ -17,6 +17,8 @@ private extension WorkstreamPermissionMode {
             return String(localized: "feed.permission.mode.once", defaultValue: "once")
         case .always:
             return String(localized: "feed.permission.mode.always", defaultValue: "always")
+        case .persistent:
+            return String(localized: "feed.permission.mode.persistent", defaultValue: "remembered")
         case .all:
             return String(localized: "feed.permission.mode.all", defaultValue: "all tools")
         case .bypass:
@@ -1313,6 +1315,17 @@ struct FeedItemRow: View, Equatable {
             return "\(submitted) · \(m.displayLabel)"
         case .question:
             return submitted
+        case .form(let action, _):
+            let label: String
+            switch action {
+            case .accept:
+                label = String(localized: "feed.form.accepted", defaultValue: "Accepted")
+            case .decline:
+                label = String(localized: "feed.form.declined", defaultValue: "Declined")
+            case .cancel:
+                label = String(localized: "feed.form.cancelled", defaultValue: "Cancelled")
+            }
+            return "\(submitted) · \(label)"
         }
     }
 
@@ -1457,12 +1470,25 @@ private struct PermissionActionArea: View {
                         source: source,
                         toolInputJSON: toolInputJSON
                     ) {
-                        FeedButton(label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
+                        FeedButton(label: source == .codex
+                            ? String(localized: "feed.permission.session", defaultValue: "Allow for Session")
+                            : String(localized: "feed.permission.always", defaultValue: "Always Allow"),
                                    kind: .primary, size: .medium, fullWidth: true) {
                             onActionRow()
                             onApprove(.always)
                         }
                             .accessibilityIdentifier("FeedPermissionAlwaysAllowButton")
+                    }
+                    if FeedPermissionActionPolicy.supportsPersistentPermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
+                        FeedButton(label: String(localized: "feed.permission.persistent", defaultValue: "Always Allow"),
+                                   kind: .primary, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.persistent)
+                        }
+                            .accessibilityIdentifier("FeedPermissionPersistentAllowButton")
                     }
                     if FeedPermissionActionPolicy.supportsAllPermissionMode(
                         source: source,

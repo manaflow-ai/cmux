@@ -196,6 +196,10 @@ public struct AgentFeedPreviewView: View {
         case .permission(let mode): decision = .permission(mode: mode)
         case .exitPlan(let mode, let feedback): decision = .exitPlan(mode: mode, feedback: feedback)
         case .question(let selections): decision = .question(selections: selections)
+        case .boolean(let value):
+            decision = .question(selections: ["q0=\(value ? "yes" : "no")"])
+        case .form(let action, let selections):
+            decision = .form(action: action, selections: selections)
         }
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         let wire = item.wire

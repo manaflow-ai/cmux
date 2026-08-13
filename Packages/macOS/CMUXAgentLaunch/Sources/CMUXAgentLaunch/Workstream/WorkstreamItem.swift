@@ -1,5 +1,11 @@
 import Foundation
 
+public enum WorkstreamFormAction: String, Codable, Sendable, Equatable {
+    case accept
+    case decline
+    case cancel
+}
+
 /// The user's decision on a resolved actionable item.
 public enum WorkstreamDecision: Codable, Sendable, Equatable {
     case permission(WorkstreamPermissionMode)
@@ -9,6 +15,9 @@ public enum WorkstreamDecision: Codable, Sendable, Equatable {
     /// rather than proceeding.
     case exitPlan(WorkstreamExitPlanMode, feedback: String? = nil)
     case question(selections: [String])
+    /// Explicit form lifecycle actions used by MCP elicitation. Accept carries
+    /// the submitted field selections; decline and cancel carry none.
+    case form(action: WorkstreamFormAction, selections: [String])
 }
 
 /// Lifecycle state of a `WorkstreamItem`.

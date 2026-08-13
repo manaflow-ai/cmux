@@ -10,6 +10,8 @@ enum AgentFeedPreviewScenario: String, CaseIterable {
     case permission
     case plan
     case questions
+    case boolean
+    case form
     case toolError = "tool-error"
     case expired
     case offline
@@ -53,7 +55,7 @@ struct AgentFeedPreviewConfiguration {
         case .empty:
             return Self(scenario: scenario, items: [], status: .loading, filter: .needsInput, hostEventCount: 0)
         case .mixed, .accessibility:
-            return Self(scenario: scenario, items: mixedItems, status: .ready, filter: .allActivity, hostEventCount: 12)
+            return Self(scenario: scenario, items: mixedItems, status: .ready, filter: .allActivity, hostEventCount: 14)
         case .japanese:
             return Self(scenario: scenario, items: japaneseItems, status: .ready, filter: .allActivity, hostEventCount: 1)
         case .newActivity:
@@ -66,6 +68,10 @@ struct AgentFeedPreviewConfiguration {
             return one(scenario, item: planItem)
         case .questions:
             return one(scenario, item: questionItem)
+        case .boolean:
+            return one(scenario, item: booleanItem)
+        case .form:
+            return one(scenario, item: formItem)
         case .toolError:
             return one(scenario, item: toolErrorItem, filter: .allActivity)
         case .expired:
@@ -100,7 +106,7 @@ struct AgentFeedPreviewConfiguration {
             requestID: "permission-101",
             toolName: "Bash",
             safeInput: "command: …, timeout: …",
-            supportedModes: ["once", "always", "deny"]
+            supportedModes: ["once", "always", "persistent", "deny"]
         )
     )
 
@@ -179,6 +185,65 @@ struct AgentFeedPreviewConfiguration {
         macIndex: 2
     )
 
+    static let booleanItem = item(
+        id: 112,
+        source: "grok",
+        kind: "boolean",
+        title: "Grok is waiting for confirmation",
+        payload: .boolean(
+            requestID: "boolean-112",
+            prompt: "Continue with the proposed change?",
+            yesLabel: "Continue",
+            noLabel: "Stop",
+            defaultValue: true
+        ),
+        macIndex: 6
+    )
+
+    static let formItem = item(
+        id: 113,
+        source: "cursor",
+        kind: "form",
+        title: "Cursor needs project details",
+        payload: .form(
+            requestID: "form-113",
+            title: "Project details",
+            fields: [
+                .init(
+                    id: "environment",
+                    prompt: "Environment",
+                    multiSelect: false,
+                    options: [
+                        .init(id: "staging", label: "Staging"),
+                        .init(id: "production", label: "Production"),
+                    ],
+                    inputType: "choice",
+                    required: true
+                ),
+                .init(
+                    id: "ticket",
+                    prompt: "Tracking URL",
+                    multiSelect: false,
+                    options: [],
+                    inputType: "url",
+                    required: false,
+                    placeholder: "https://…"
+                ),
+                .init(
+                    id: "approved",
+                    prompt: "Approved for deployment",
+                    multiSelect: false,
+                    options: [],
+                    inputType: "boolean",
+                    required: true,
+                    defaultValue: "true"
+                ),
+            ],
+            externalURL: "https://example.com/form"
+        ),
+        macIndex: 7
+    )
+
     static let replyItem = item(
         id: 104,
         source: "opencode",
@@ -249,7 +314,7 @@ struct AgentFeedPreviewConfiguration {
     ]
 
     static var mixedItems: [MobileAgentFeedItem] {
-        [permissionItem, planItem, questionItem, replyItem, toolErrorItem, expiredItem]
+        [permissionItem, planItem, questionItem, booleanItem, formItem, replyItem, toolErrorItem, expiredItem]
             + (6..<12).map { index in
                 item(
                     id: 200 + index,

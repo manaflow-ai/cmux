@@ -10,7 +10,7 @@ import Foundation
 ///
 /// Only the MAIN-ACTOR feed methods move here. The worker-lane feed methods
 /// (`feed.push`, `feed.permission.reply`, `feed.question.reply`,
-/// `feed.exit_plan.reply`) stay on the app-side socket-worker path.
+/// `feed.exit_plan.reply`, `feed.invalidate`) stay on the app-side socket-worker path.
 extension TerminalController: ControlFeedContext {
     func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool {
         FeedCoordinator.shared.resolvePossibleSurface(for: workstreamID)

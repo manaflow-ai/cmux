@@ -10,6 +10,10 @@ import Foundation
 public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let sessionId: String
     public let hookEventName: HookEventName
+    /// Original discriminator when a newer agent sends an event this build
+    /// does not know yet. The typed enum falls back to `.notification` so the
+    /// event remains visible instead of being rejected at the socket boundary.
+    public let rawHookEventName: String?
     public let source: String
     public let workspaceId: String?
     public let surfaceId: String?
@@ -28,6 +32,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public init(
         sessionId: String,
         hookEventName: HookEventName,
+        rawHookEventName: String? = nil,
         source: String,
         workspaceId: String? = nil,
         surfaceId: String? = nil,
@@ -44,6 +49,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     ) {
         self.sessionId = sessionId
         self.hookEventName = hookEventName
+        self.rawHookEventName = rawHookEventName
         self.source = source
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
@@ -103,7 +109,14 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.sessionId = try c.decode(String.self, forKey: .sessionId)
-        self.hookEventName = try c.decode(HookEventName.self, forKey: .hookEventName)
+        let rawHookEventName = try c.decode(String.self, forKey: .hookEventName)
+        if let knownHookEventName = HookEventName(rawValue: rawHookEventName) {
+            self.hookEventName = knownHookEventName
+            self.rawHookEventName = nil
+        } else {
+            self.hookEventName = .notification
+            self.rawHookEventName = rawHookEventName
+        }
         self.source = try c.decode(String.self, forKey: .source)
         self.workspaceId = try c.decodeIfPresent(String.self, forKey: .workspaceId)
         self.surfaceId = try c.decodeIfPresent(String.self, forKey: .surfaceId)
@@ -136,7 +149,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(sessionId, forKey: .sessionId)
-        try c.encode(hookEventName, forKey: .hookEventName)
+        try c.encode(rawHookEventName ?? hookEventName.rawValue, forKey: .hookEventName)
         try c.encode(source, forKey: .source)
         try c.encodeIfPresent(workspaceId, forKey: .workspaceId)
         try c.encodeIfPresent(surfaceId, forKey: .surfaceId)

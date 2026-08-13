@@ -117,6 +117,20 @@ final class FeedCoordinator: @unchecked Sendable {
         src.setEventHandler { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
+                let requestIDs = self.store?.items.compactMap { item -> String? in
+                    guard item.status.isPending, item.ppid == ppid else { return nil }
+                    switch item.payload {
+                    case .permissionRequest(let requestID, _, _, _),
+                         .exitPlan(let requestID, _, _),
+                         .question(let requestID, _):
+                        return requestID
+                    default:
+                        return nil
+                    }
+                } ?? []
+                for requestID in requestIDs {
+                    self.invalidateBlockingRequest(requestId: requestID)
+                }
                 self.store?.expireItems(forPpid: ppid)
                 self.publishMobileChange()
                 self.pidWatchers[ppid]?.cancel()
@@ -256,7 +270,7 @@ final class FeedCoordinator: @unchecked Sendable {
 
         // Resolve before entering the global delivery lane so hook-session disk
         // I/O for one agent cannot stall otherwise unrelated Feed ingress.
-        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
+        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event)
             ? Self.resolveAttentionTarget(event: event)
             : nil
         let semaphore = DispatchSemaphore(value: 0)
@@ -506,6 +520,10 @@ final class FeedCoordinator: @unchecked Sendable {
             waiterLock.unlock()
             return .notFound
         }
+        if waiter?.invalidated == true {
+            waiterLock.unlock()
+            return .expired
+        }
         if waiter?.decision != nil {
             waiterLock.unlock()
             return .alreadyResolved
@@ -611,28 +629,119 @@ final class FeedCoordinator: @unchecked Sendable {
             case .deny: return true
             case .once: return FeedPermissionActionPolicy.supportsOncePermissionMode(source: item.source, toolInputJSON: toolInput)
             case .always: return FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: item.source, toolInputJSON: toolInput)
+            case .persistent: return FeedPermissionActionPolicy.supportsPersistentPermissionMode(source: item.source, toolInputJSON: toolInput)
             case .all: return FeedPermissionActionPolicy.supportsAllPermissionMode(source: item.source, toolInputJSON: toolInput)
             case .bypass: return FeedPermissionActionPolicy.supportsBypassPermissions(source: item.source)
             }
         case let (.exitPlan(itemRequestId, _, _), .exitPlan(_, _)):
             return itemRequestId == requestId
         case let (.question(itemRequestId, questions), .question(selections)):
-            guard itemRequestId == requestId, !questions.isEmpty else { return false }
-            let answers = Dictionary(grouping: selections.compactMap { selection -> (String, String)? in
-                guard let separator = selection.firstIndex(of: "=") else { return nil }
-                return (String(selection[..<separator]), String(selection[selection.index(after: separator)...]))
-            }, by: { $0.0 })
-            guard answers.values.reduce(0, { $0 + $1.count }) == selections.count else { return false }
-            guard Set(answers.keys) == Set(questions.map(\.id)) else { return false }
-            return questions.allSatisfy { question in
-                let values = answers[question.id, default: []].map { $0.1 }
-                guard !values.isEmpty, question.multiSelect || values.count == 1 else { return false }
-                let optionIDs = Set(question.options.map(\.id))
-                return values.allSatisfy { optionIDs.contains($0) || ($0.hasPrefix("other:") && $0.count > 6) }
+            return itemRequestId == requestId
+                && Self.questionSelectionsAreValid(selections, questions: questions)
+        case let (.question(itemRequestId, questions), .form(action, selections)):
+            guard itemRequestId == requestId else { return false }
+            switch action {
+            case .accept:
+                return Self.questionSelectionsAreValid(selections, questions: questions)
+            case .decline, .cancel:
+                return selections.isEmpty
             }
         default:
             return false
         }
+    }
+
+    private static func questionSelectionsAreValid(
+        _ selections: [String],
+        questions: [WorkstreamQuestionPrompt]
+    ) -> Bool {
+        guard !questions.isEmpty else { return false }
+        let answers = Dictionary(grouping: selections.compactMap { selection -> (String, String)? in
+            guard let separator = selection.firstIndex(of: "=") else { return nil }
+            return (String(selection[..<separator]), String(selection[selection.index(after: separator)...]))
+        }, by: { $0.0 })
+        guard answers.values.reduce(0, { $0 + $1.count }) == selections.count else { return false }
+        let questionIDs = Set(questions.map(\.id))
+        guard Set(answers.keys).isSubset(of: questionIDs) else { return false }
+        return questions.allSatisfy { question in
+            let values = answers[question.id, default: []].map { $0.1 }
+            if values.isEmpty {
+                return question.required == false
+                    && (question.minSelections ?? 0) == 0
+            }
+            guard question.multiSelect || values.count == 1 else { return false }
+            if let minimum = question.minSelections, values.count < minimum { return false }
+            if let maximum = question.maxSelections, values.count > maximum { return false }
+            let optionIDs = Set(question.options.map(\.id))
+            switch question.inputType {
+            case .text, .secret, .email, .date, .dateTime:
+                return values.allSatisfy { value in
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty,
+                          question.minLength.map({ trimmed.count >= $0 }) ?? true,
+                          question.maxLength.map({ trimmed.count <= $0 }) ?? true else { return false }
+                    switch question.inputType {
+                    case .email: return Self.validEmail(trimmed)
+                    case .date: return Self.validISODate(trimmed)
+                    case .dateTime: return ISO8601DateFormatter().date(from: trimmed) != nil
+                    default: return true
+                    }
+                }
+            case .number, .integer:
+                return values.allSatisfy { value in
+                    guard let number = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+                          number.isFinite,
+                          question.inputType != .integer || number.rounded(.towardZero) == number,
+                          question.minimum.map({ number >= $0 }) ?? true,
+                          question.maximum.map({ number <= $0 }) ?? true else { return false }
+                    return true
+                }
+            case .url:
+                return values.allSatisfy { value in
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard question.minLength.map({ trimmed.count >= $0 }) ?? true,
+                          question.maxLength.map({ trimmed.count <= $0 }) ?? true,
+                          let url = URL(string: trimmed),
+                          let scheme = url.scheme else { return false }
+                    return !scheme.isEmpty
+                }
+            case .boolean:
+                return values.allSatisfy {
+                    ["1", "0", "yes", "no", "true", "false", "y", "n", "on", "off"]
+                        .contains($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                }
+            case .external:
+                return false
+            default:
+                return values.allSatisfy {
+                    optionIDs.contains($0)
+                        || ($0.hasPrefix("other:") && $0.count > 6 && question.allowsOther != false)
+                }
+            }
+        }
+    }
+
+    private static func validEmail(_ value: String) -> Bool {
+        let pieces = value.split(separator: "@", omittingEmptySubsequences: false)
+        return pieces.count == 2
+            && !pieces[0].isEmpty
+            && !pieces[1].isEmpty
+            && !value.contains(where: \.isWhitespace)
+    }
+
+    private static func validISODate(_ value: String) -> Bool {
+        let pieces = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard value.count == 10,
+              pieces.count == 3,
+              pieces[0].count == 4,
+              pieces[1].count == 2,
+              pieces[2].count == 2,
+              let year = Int(pieces[0]),
+              let month = Int(pieces[1]),
+              let day = Int(pieces[2]) else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(from: DateComponents(year: year, month: month, day: day)) != nil
     }
 
     /// Revision paired with `snapshot`; callers use it as the reconciliation
@@ -666,21 +775,41 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func sendTextToTarget(
         workstreamId: String,
+        itemId: UUID,
         workspaceId: String,
         surfaceId: String,
         text: String
-    ) -> Bool {
+    ) async -> Bool {
+        guard let store,
+              let item = store.items.first(where: { $0.id == itemId }),
+              item.workstreamId == workstreamId,
+              item.workspaceId.map({ $0 == workspaceId }) ?? true,
+              item.surfaceId.map({ $0 == surfaceId }) ?? true,
+              item.status == .telemetry,
+              Self.isTurnCompletion(item),
+              store.canAppendUserReply(to: itemId, text: text) else {
+            return false
+        }
         guard let target = target(for: workstreamId),
               target.workspaceId == workspaceId,
               target.surfaceId == surfaceId,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
-        FeedJumpResolver.sendText(
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
+        let directDelivery = await FeedJumpResolver.sendRegisteredText(
+            workstreamId: workstreamId,
             text: text
         )
+        if directDelivery == false { return false }
+        if directDelivery == nil {
+            FeedJumpResolver.sendText(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                text: text
+            )
+        }
+        guard store.appendUserReply(to: itemId, text: text) else { return false }
+        publishMobileChange()
         return true
     }
 
@@ -700,7 +829,23 @@ final class FeedCoordinator: @unchecked Sendable {
         waiterLock.lock()
         defer { waiterLock.unlock() }
         guard let waiter = waiters[requestId] else { return false }
-        return waiter.decision == nil
+        return waiter.decision == nil && !waiter.invalidated
+    }
+
+    /// Wakes a blocking request that the originating agent invalidated before
+    /// the user answered. The ingest path owns expiry and mobile publication,
+    /// so stale controls become disabled through the same authoritative state
+    /// transition as a timeout.
+    func invalidateBlockingRequest(requestId: String) {
+        waiterLock.lock()
+        let waiter = waiters[requestId]
+        guard let waiter, waiter.decision == nil, !waiter.invalidated else {
+            waiterLock.unlock()
+            return
+        }
+        waiter.invalidated = true
+        waiter.semaphore.signal()
+        waiterLock.unlock()
     }
 
     private static func findItemId(
@@ -720,6 +865,15 @@ final class FeedCoordinator: @unchecked Sendable {
             }
         }
         return nil
+    }
+
+    private static func isTurnCompletion(_ item: WorkstreamItem) -> Bool {
+        switch item.payload {
+        case .stop, .sessionEnd:
+            return true
+        default:
+            return false
+        }
     }
 
     private func expireTimedOutItem(_ itemId: UUID?) {
@@ -767,6 +921,34 @@ extension FeedCoordinator {
         default:
             return false
         }
+    }
+
+    static func isBlockingDecisionEvent(_ event: WorkstreamEvent) -> Bool {
+        if isBlockingDecisionEvent(event.hookEventName) { return true }
+        guard let raw = event.rawHookEventName else { return false }
+        let normalized = raw.unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+            .lowercased()
+        return [
+            "askuserquestion",
+            "askuserconfirmation",
+            "booleanquestion",
+            "questionasked",
+            "questionv2asked",
+            "elicitation",
+            "elicitationrequest",
+            "mcpelicitation",
+            "mcpserverelicitationrequest",
+            "requestuserinput",
+            "userinputrequest",
+            "inputrequest",
+            "toolrequestuserinput",
+            "itemtoolrequestuserinput",
+            "question",
+            "askuser",
+        ].contains(normalized)
     }
 
     /// Maps a feed `source` (agent id) to the agent-lifecycle status key the
@@ -829,7 +1011,7 @@ extension FeedCoordinator {
         resolved: (ownerId: UUID, surfaceId: UUID?)?,
         tabManager: TabManager?
     ) -> FeedAttentionTarget? {
-        guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
+        guard Self.isBlockingDecisionEvent(event) else { return nil }
 
         #if DEBUG
         if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
@@ -1079,6 +1261,7 @@ private final class AttentionOverlayState {
 private final class PendingWaiter: @unchecked Sendable {
     let semaphore: DispatchSemaphore
     var decision: WorkstreamDecision?
+    var invalidated = false
     /// The attention overlay target for this decision, if one was surfaced.
     /// Set inside the ingest `main.sync` (before the card can render and a
     /// reply can fire) and read when the decision concludes, so the
@@ -1185,10 +1368,14 @@ extension FeedCoordinator {
 /// to map a feed `workstream_id` back to a cmux `(workspaceId, surfaceId)` pair.
 /// The schema is the same one written by `cmux <agent>-hook session-start`.
 enum FeedJumpResolver {
-    struct Target: Equatable {
+    struct Target: Equatable, Sendable {
         let workspaceId: String
         let surfaceId: String
     }
+
+    private static let registeredTargetsLock = NSLock()
+    private static var registeredTargets: [String: Target] = [:]
+    private static var registeredTextSenders: [String: FeedRegisteredTextSender] = [:]
 
     static func parse(_ workstreamId: String) -> (agent: String, sessionId: String)? {
         guard let dash = workstreamId.firstIndex(of: "-") else { return nil }
@@ -1199,18 +1386,58 @@ enum FeedJumpResolver {
     }
 
     static func lookup(agent: String, sessionId: String) -> Target? {
-        sessions(agent: agent)[sessionId]
+        let key = "\(agent)-\(sessionId)"
+        registeredTargetsLock.lock()
+        let registered = registeredTargets[key]
+        registeredTargetsLock.unlock()
+        if let registered { return registered }
+        return sessions(agent: agent)[sessionId]
+    }
+
+    /// Registers a live non-hook agent session so Feed actions can route to
+    /// panels created by cmux's built-in agent runner. Hook-backed sessions
+    /// continue to resolve from their persisted session maps.
+    @MainActor
+    static func register(
+        agent: String,
+        sessionId: String,
+        target: Target,
+        textSender: (@MainActor (String) async -> Bool)? = nil
+    ) {
+        let key = "\(agent)-\(sessionId)"
+        registeredTargetsLock.lock()
+        registeredTargets[key] = target
+        registeredTextSenders[key] = textSender.map(FeedRegisteredTextSender.init)
+        registeredTargetsLock.unlock()
+    }
+
+    @MainActor
+    static func unregister(agent: String, sessionId: String, expected target: Target? = nil) {
+        let key = "\(agent)-\(sessionId)"
+        registeredTargetsLock.lock()
+        if target == nil || registeredTargets[key] == target {
+            registeredTargets.removeValue(forKey: key)
+            registeredTextSenders.removeValue(forKey: key)
+        }
+        registeredTargetsLock.unlock()
+    }
+
+    @MainActor
+    static func sendRegisteredText(workstreamId: String, text: String) async -> Bool? {
+        guard let parsed = parse(workstreamId) else { return nil }
+        let key = "\(parsed.agent)-\(parsed.sessionId)"
+        registeredTargetsLock.lock()
+        let sender = registeredTextSenders[key]
+        registeredTargetsLock.unlock()
+        return await sender?.send(text)
     }
 
     static func targets(for workstreamIds: [String]) -> [String: Target] {
         let parsed = workstreamIds.compactMap { workstreamId in
             parse(workstreamId).map { (workstreamId, $0.agent, $0.sessionId) }
         }
-        let sessionsByAgent = Dictionary(
-            uniqueKeysWithValues: Set(parsed.map { $0.1 }).map { ($0, sessions(agent: $0)) }
-        )
         return parsed.reduce(into: [:]) { result, entry in
-            if let target = sessionsByAgent[entry.1]?[entry.2] {
+            if let target = lookup(agent: entry.1, sessionId: entry.2) {
                 result[entry.0] = target
             }
         }
@@ -1274,6 +1501,14 @@ enum FeedJumpResolver {
     }
 }
 
+private final class FeedRegisteredTextSender: @unchecked Sendable {
+    let send: @MainActor (String) async -> Bool
+
+    init(send: @escaping @MainActor (String) async -> Bool) {
+        self.send = send
+    }
+}
+
 extension Notification.Name {
     static let feedRequestFocus = Notification.Name("cmux.feedRequestFocus")
     static let feedRequestSendText = Notification.Name("cmux.feedRequestSendText")
@@ -1315,6 +1550,16 @@ private extension FeedCoordinator {
             let title: String
             let body: String
             switch event.hookEventName {
+            case .notification where Self.isBlockingDecisionEvent(event):
+                categoryId = "CMUXFeedQuestion"
+                title = String(
+                    localized: "feed.notification.question.title",
+                    defaultValue: "\(event.source.capitalized) question"
+                )
+                body = String(
+                    localized: "feed.notification.question.body",
+                    defaultValue: "Agent is asking a question"
+                )
             case .permissionRequest:
                 categoryId = Self.permissionNotificationCategoryId(for: event)
                 title = String(
@@ -1845,6 +2090,12 @@ enum FeedSocketEncoding {
             return dict
         case .question(let selections):
             return ["kind": "question", "selections": selections]
+        case .form(let action, let selections):
+            return [
+                "kind": "form",
+                "action": action.rawValue,
+                "selections": selections,
+            ]
         }
     }
 
@@ -1872,6 +2123,30 @@ enum FeedSocketEncoding {
             "id": question.id,
             "multi_select": question.multiSelect,
         ]
+        if let inputType = question.inputType {
+            dict["input_type"] = inputType.rawValue
+        }
+        if let allowsOther = question.allowsOther {
+            dict["allows_other"] = allowsOther
+        }
+        if let required = question.required {
+            dict["required"] = required
+        }
+        if let defaultValue = question.defaultValue {
+            dict["default_value"] = defaultValue
+        }
+        if let placeholder = question.placeholder {
+            assignLimitedText(placeholder, key: "placeholder", to: &dict, limit: secondaryTextLimit)
+        }
+        if let externalURL = question.externalURL {
+            assignLimitedText(externalURL, key: "external_url", to: &dict, limit: secondaryTextLimit)
+        }
+        if let minimum = question.minimum { dict["minimum"] = minimum }
+        if let maximum = question.maximum { dict["maximum"] = maximum }
+        if let minLength = question.minLength { dict["min_length"] = minLength }
+        if let maxLength = question.maxLength { dict["max_length"] = maxLength }
+        if let minSelections = question.minSelections { dict["min_selections"] = minSelections }
+        if let maxSelections = question.maxSelections { dict["max_selections"] = maxSelections }
         if let header = question.header {
             assignLimitedText(header, key: "header", to: &dict, limit: secondaryTextLimit)
         }
@@ -1934,6 +2209,9 @@ enum FeedSocketEncoding {
             if sourceIsKnown, FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
                 modes.append(WorkstreamPermissionMode.always.rawValue)
             }
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsPersistentPermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
+                modes.append(WorkstreamPermissionMode.persistent.rawValue)
+            }
             if sourceIsKnown, FeedPermissionActionPolicy.supportsAllPermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
                 modes.append(WorkstreamPermissionMode.all.rawValue)
             }
@@ -1952,6 +2230,18 @@ enum FeedSocketEncoding {
             dict["default_mode"] = defaultMode.rawValue
         case .question(let requestId, let questions):
             dict["request_id"] = requestId
+            let interactionKind = Self.questionInteractionKind(questions)
+            if let interactionKind {
+                dict["interaction_kind"] = interactionKind
+                switch interactionKind {
+                case "boolean":
+                    dict["kind"] = "boolean"
+                case "form":
+                    dict["kind"] = "form"
+                default:
+                    break
+                }
+            }
             dict["questions"] = questions.map(questionDict)
             if let firstQuestion = questions.first {
                 assignLimitedText(firstQuestion.prompt, key: "question_prompt", to: &dict)
@@ -1966,6 +2256,28 @@ enum FeedSocketEncoding {
                     }
                     return optionDict
                 }
+            }
+            if let firstQuestion = questions.first,
+               firstQuestion.inputType == .boolean {
+                dict["boolean_prompt"] = firstQuestion.prompt
+                dict["boolean_yes_label"] = firstQuestion.options.first?.label ?? String(
+                    localized: "feed.question.boolean.yes",
+                    defaultValue: "Yes"
+                )
+                dict["boolean_no_label"] = firstQuestion.options.dropFirst().first?.label ?? String(
+                    localized: "feed.question.boolean.no",
+                    defaultValue: "No"
+                )
+                if let defaultValue = firstQuestion.defaultValue,
+                   let boolValue = Self.decodeBool(defaultValue) {
+                    dict["boolean_default"] = boolValue
+                }
+            }
+            if let title = questions.first?.header, interactionKind == "form" {
+                assignLimitedText(title, key: "form_title", to: &dict, limit: secondaryTextLimit)
+            }
+            if let formURL = questions.compactMap(\.externalURL).first {
+                assignLimitedText(formURL, key: "form_url", to: &dict, limit: secondaryTextLimit)
             }
         case .toolUse(let toolName, let toolInputJSON):
             dict["tool_name"] = toolName
@@ -1990,6 +2302,38 @@ enum FeedSocketEncoding {
             }
         }
         return dict
+    }
+
+    private static func questionInteractionKind(_ questions: [WorkstreamQuestionPrompt]) -> String? {
+        guard !questions.isEmpty else { return nil }
+        if questions.allSatisfy({ $0.inputType == .boolean }) { return "boolean" }
+        // The form wire action carries one value per field. Keep any
+        // multi-select schema on the question channel, which preserves every
+        // selected value while still rendering text and boolean fields inline.
+        if questions.contains(where: { $0.multiSelect }) { return nil }
+        if questions.contains(where: {
+            $0.inputType == .text
+                || $0.inputType == .number
+                || $0.inputType == .integer
+                || $0.inputType == .url
+                || $0.inputType == .email
+                || $0.inputType == .date
+                || $0.inputType == .dateTime
+                || $0.inputType == .secret
+                || $0.inputType == .external
+        }) {
+            return "form"
+        }
+        if questions.contains(where: { $0.inputType == .choice && $0.required != nil }) { return "form" }
+        return nil
+    }
+
+    private static func decodeBool(_ value: String) -> Bool? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "y", "on": return true
+        case "0", "false", "no", "n", "off": return false
+        default: return nil
+        }
     }
 
     /// Redacts values while retaining the field names a user needs to

@@ -139,6 +139,243 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testCodexMcpElicitationSchemaSupportFailsClosed() {
+        expectTrue(AgentSessionProcessStore.mcpElicitationIsSupported([
+            "mode": "openai/form",
+            "requestedSchema": [
+                "type": "object",
+                "properties": [
+                    "target": ["type": "string", "enum": ["iOS", "macOS"]],
+                    "confirm": ["type": "boolean"],
+                    "count": ["type": "integer", "minimum": 1, "maximum": 5],
+                    "named": [
+                        "type": "string",
+                        "oneOf": [
+                            ["const": "a", "title": "Alpha"],
+                            ["const": "b", "title": "Beta"],
+                        ],
+                    ],
+                    "tags": [
+                        "type": "array",
+                        "items": [
+                            "anyOf": [
+                                ["const": "a", "title": "Alpha"],
+                                ["const": "b", "title": "Beta"],
+                            ],
+                        ],
+                        "minItems": 1,
+                        "maxItems": 2,
+                    ],
+                ],
+            ],
+        ]))
+        expectTrue(AgentSessionProcessStore.mcpElicitationIsSupported([
+            "mode": "url",
+            "url": "https://example.com/approve",
+        ]))
+        expectFalse(AgentSessionProcessStore.mcpElicitationIsSupported([
+            "mode": "openai/form",
+            "requestedSchema": [
+                "type": "object",
+                "properties": ["nested": ["type": "object"]],
+            ],
+        ]))
+        expectFalse(AgentSessionProcessStore.mcpElicitationIsSupported([
+            "mode": "url",
+            "url": "javascript:alert(1)",
+        ]))
+        expectFalse(AgentSessionProcessStore.mcpElicitationIsSupported([
+            "mode": "form",
+            "requestedSchema": [
+                "type": "object",
+                "properties": ["bad": ["type": "string", "minLength": 5, "maxLength": 2]],
+            ],
+        ]))
+    }
+
+    @Test
+    func testCodexMcpToolApprovalUsesPermissionDecisions() throws {
+        let params: [String: Any] = [
+            "message": "Allow the tool?",
+            "_meta": ["codex_approval_kind": "mcp_tool_call"],
+        ]
+        expectTrue(AgentSessionProcessStore.isMCPToolApproval(params))
+
+        let accepted = AgentSessionProcessStore.codexResolution(
+            .init(result: .resolved(itemId: nil, decision: .permission(.once)), authoritativeEvent: nil),
+            method: "mcpServer/elicitation/request",
+            params: params
+        )
+        guard case .result(let acceptedJSON) = accepted else {
+            Issue.record("expected an accepted MCP approval response")
+            return
+        }
+        let acceptedObject = try #require(
+            JSONSerialization.jsonObject(with: Data(acceptedJSON.utf8)) as? [String: Any]
+        )
+        expectEqual(acceptedObject["action"] as? String, "accept")
+        #expect(acceptedObject["content"] is [String: Any])
+
+        for (mode, scope) in [
+            (WorkstreamPermissionMode.always, "session"),
+            (.persistent, "always"),
+        ] {
+            let resolution = AgentSessionProcessStore.codexResolution(
+                .init(result: .resolved(itemId: nil, decision: .permission(mode)), authoritativeEvent: nil),
+                method: "mcpServer/elicitation/request",
+                params: params
+            )
+            guard case .result(let json) = resolution,
+                  let object = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
+                Issue.record("expected a persistent MCP approval response")
+                continue
+            }
+            expectEqual(object["action"] as? String, "accept")
+            expectEqual((object["_meta"] as? [String: Any])?["persist"] as? String, scope)
+        }
+
+        let denied = AgentSessionProcessStore.codexResolution(
+            .init(result: .resolved(itemId: nil, decision: .permission(.deny)), authoritativeEvent: nil),
+            method: "mcpServer/elicitation/request",
+            params: params
+        )
+        guard case .result(let deniedJSON) = denied else {
+            Issue.record("expected a declined MCP approval response")
+            return
+        }
+        let deniedObject = try #require(
+            JSONSerialization.jsonObject(with: Data(deniedJSON.utf8)) as? [String: Any]
+        )
+        expectEqual(deniedObject["action"] as? String, "decline")
+        #expect(deniedObject["content"] is NSNull)
+    }
+
+    @Test
+    func testCodexMcpFormResolutionPreservesSchemaTypesAndEnumValues() throws {
+        let params: [String: Any] = [
+            "requestedSchema": [
+                "type": "object",
+                "properties": [
+                    "confirm": ["type": "boolean"],
+                    "count": ["type": "integer"],
+                    "ratio": ["type": "number"],
+                    "target": ["type": "string", "enum": ["iOS", "macOS"]],
+                    "tags": [
+                        "type": "array",
+                        "items": ["type": "string", "enum": ["fast", "safe"]],
+                    ],
+                ],
+            ],
+        ]
+        let resolution = AgentSessionProcessStore.codexResolution(
+            .init(
+                result: .resolved(
+                    itemId: nil,
+                    decision: .question(selections: [
+                        "confirm=true",
+                        "count=3",
+                        "ratio=1.5",
+                        "target=opt1",
+                        "tags=opt0",
+                        "tags=opt1",
+                    ])
+                ),
+                authoritativeEvent: nil
+            ),
+            method: "mcpServer/elicitation/request",
+            params: params
+        )
+
+        guard case .result(let json) = resolution else {
+            Issue.record("expected an accepted MCP form response")
+            return
+        }
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+        )
+        expectEqual(object["action"] as? String, "accept")
+        let content = try #require(object["content"] as? [String: Any])
+        expectEqual(content["confirm"] as? Bool, true)
+        expectEqual(content["count"] as? Int, 3)
+        expectEqual(content["ratio"] as? Double, 1.5)
+        expectEqual(content["target"] as? String, "macOS")
+        expectEqual(content["tags"] as? [String], ["fast", "safe"])
+    }
+
+    @Test
+    func testCodexMcpTitledEnumsAndExplicitFormActions() throws {
+        let params: [String: Any] = [
+            "requestedSchema": [
+                "type": "object",
+                "properties": [
+                    "target": [
+                        "type": "string",
+                        "oneOf": [
+                            ["const": "ios", "title": "iOS"],
+                            ["const": "mac", "title": "macOS"],
+                        ],
+                    ],
+                    "tags": [
+                        "type": "array",
+                        "items": [
+                            "anyOf": [
+                                ["const": "fast", "title": "Fast"],
+                                ["const": "safe", "title": "Safe"],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        let accepted = AgentSessionProcessStore.codexResolution(
+            .init(
+                result: .resolved(
+                    itemId: nil,
+                    decision: .form(
+                        action: .accept,
+                        selections: ["target=mac", "tags=fast", "tags=safe"]
+                    )
+                ),
+                authoritativeEvent: nil
+            ),
+            method: "mcpServer/elicitation/request",
+            params: params
+        )
+        guard case .result(let acceptedJSON) = accepted else {
+            Issue.record("expected an accepted MCP form response")
+            return
+        }
+        let acceptedObject = try #require(
+            JSONSerialization.jsonObject(with: Data(acceptedJSON.utf8)) as? [String: Any]
+        )
+        expectEqual(acceptedObject["action"] as? String, "accept")
+        let content = try #require(acceptedObject["content"] as? [String: Any])
+        expectEqual(content["target"] as? String, "mac")
+        expectEqual(content["tags"] as? [String], ["fast", "safe"])
+
+        for action in [WorkstreamFormAction.decline, .cancel] {
+            let resolution = AgentSessionProcessStore.codexResolution(
+                .init(
+                    result: .resolved(
+                        itemId: nil,
+                        decision: .form(action: action, selections: [])
+                    ),
+                    authoritativeEvent: nil
+                ),
+                method: "mcpServer/elicitation/request",
+                params: params
+            )
+            guard case .result(let json) = resolution,
+                  let object = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
+                Issue.record("expected an explicit MCP form response")
+                continue
+            }
+            expectEqual(object["action"] as? String, action.rawValue)
+            #expect(object["content"] is NSNull)
+        }
+    }
+
+    @Test
     func testOpenCodeEventTextAccumulatorEmitsAssistantTextDeltasAfterRoleAndPartAreKnown() {
         var accumulator = OpenCodeEventTextAccumulator()
 
@@ -730,7 +967,13 @@ struct CodexAppServerSessionTests {
         )
 
         try await session.start()
-        expectEqual(jsonLine(sentLines[0])["method"] as? String, "initialize")
+        let initialize = jsonLine(sentLines[0])
+        expectEqual(initialize["method"] as? String, "initialize")
+        let initializeParams = try #require(initialize["params"] as? [String: Any])
+        let capabilities = try #require(initializeParams["capabilities"] as? [String: Any])
+        expectEqual(capabilities["mcpServerOpenaiFormElicitation"] as? Bool, true)
+        let extensions = try #require(capabilities["extensions"] as? [String: Any])
+        #expect(extensions["openai/form"] is [String: Any])
 
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
@@ -991,6 +1234,95 @@ struct CodexAppServerSessionTests {
         let fullAccessPermissions = try #require(fullAccessPermissionResult["permissions"] as? [String: Any])
         let networkPermissions = try #require(fullAccessPermissions["network"] as? [String: Any])
         expectEqual(networkPermissions["enabled"] as? Bool, true)
+    }
+
+    @Test
+    func testAppServerUserInputRequestsUseTheFeedResolutionHandler() async throws {
+        var sentLines: [String] = []
+        var receivedRequest: CodexAppServerUserInputRequest?
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in },
+            userInputHandler: { request in
+                receivedRequest = request
+                return .result(json: #"{"answers":{"mode":{"answers":["Fast"]}}}"#)
+            }
+        )
+
+        session.consumeStdout(
+            #"{"id":"input-1","method":"item/tool/requestUserInput","params":{"threadId":"thread-1","questions":[{"id":"mode","question":"Choose","options":[{"label":"Fast"}]}],"isBlocking":false,"autoResolutionMs":4500}}"#
+                + "\n"
+        )
+        for _ in 0..<3 { await Task.yield() }
+
+        let request = try #require(receivedRequest)
+        expectEqual(request.rpcID, "input-1")
+        expectEqual(request.method, "item/tool/requestUserInput")
+        expectEqual(request.isBlocking, false)
+        expectEqual(request.autoResolutionMilliseconds, 4500)
+        let response = try #require(sentLines.first.flatMap(jsonLine(_:))["result"] as? [String: Any])
+        let answers = try #require(response["answers"] as? [String: Any])
+        let mode = try #require(answers["mode"] as? [String: Any])
+        expectEqual(mode["answers"] as? [String], ["Fast"])
+    }
+
+    @Test
+    func testMCPElicitationRequestsPreserveBidirectionalMethodAndResult() async throws {
+        var sentLines: [String] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in },
+            userInputHandler: { request in
+                expectEqual(request.method, "mcpServer/elicitation/request")
+                return .result(json: #"{"action":"accept","content":{"branch":"main"}}"#)
+            }
+        )
+
+        session.consumeStdout(
+            #"{"id":9,"method":"mcpServer/elicitation/request","params":{"message":"Choose a branch","requestedSchema":{"type":"object","properties":{"branch":{"type":"string"}}}}}"#
+                + "\n"
+        )
+        for _ in 0..<3 { await Task.yield() }
+
+        let response = try #require(sentLines.first.flatMap(jsonLine(_:)))
+        expectEqual(response["id"] as? Int, 9)
+        expectEqual((response["result"] as? [String: Any])?["action"] as? String, "accept")
+    }
+
+    @Test
+    func testResolvedServerRequestInvalidatesPendingFeedInputWithoutLateResponse() async throws {
+        var sentLines: [String] = []
+        var resolvedRequestIDs: [String] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in },
+            userInputHandler: { _ in
+                .result(json: #"{"answers":{}}"#)
+            },
+            userInputResolvedSink: { resolvedRequestIDs.append($0) }
+        )
+
+        session.consumeStdout(
+            #"{"id":"input-stale","method":"item/tool/requestUserInput","params":{"questions":[],"isBlocking":true}}"#
+                + "\n"
+        )
+        session.consumeStdout(
+            #"{"method":"serverRequest/resolved","params":{"threadId":"thread-1","requestId":"input-stale"}}"#
+                + "\n"
+        )
+        for _ in 0..<3 { await Task.yield() }
+
+        expectEqual(resolvedRequestIDs, ["input-stale"])
+        expectTrue(sentLines.isEmpty)
     }
 
     @Test

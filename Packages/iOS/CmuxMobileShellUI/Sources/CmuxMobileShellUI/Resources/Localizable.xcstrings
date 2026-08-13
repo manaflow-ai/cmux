@@ -1446,6 +1446,20 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "解決済み: %@" } }
       }
     },
+    "mobile.agentFeed.card.secretProvided" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Provided" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "入力済み" } }
+      }
+    },
+    "mobile.agentFeed.card.noResponse" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No response. The agent stopped waiting." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "応答がありません。エージェントは待機を終了しました。" } }
+      }
+    },
     "mobile.agentFeed.card.routeUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1606,6 +1620,20 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "常に許可" } }
       }
     },
+    "mobile.agentFeed.permission.persistent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Always Allow" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "常に許可" } }
+      }
+    },
+    "mobile.agentFeed.permission.session" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow for Session" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッション中は許可" } }
+      }
+    },
     "mobile.agentFeed.permission.bypass" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1676,6 +1704,20 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "この質問を表示できません。エージェントを開いて回答してください。" } }
       }
     },
+    "mobile.agentFeed.boolean.no" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "いいえ" } }
+      }
+    },
+    "mobile.agentFeed.boolean.yes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Yes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "はい" } }
+      }
+    },
     "mobile.agentFeed.question.other" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1688,6 +1730,76 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Submit Answers" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "回答を送信" } }
+      }
+    },
+    "mobile.agentFeed.form.boolean" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "有効にする" } }
+      }
+    },
+    "mobile.agentFeed.form.accepted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Accepted" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "承認済み" } }
+      }
+    },
+    "mobile.agentFeed.form.cancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
+      }
+    },
+    "mobile.agentFeed.form.cancelled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancelled" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル済み" } }
+      }
+    },
+    "mobile.agentFeed.form.decline" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Decline" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "拒否" } }
+      }
+    },
+    "mobile.agentFeed.form.declined" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Declined" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "拒否済み" } }
+      }
+    },
+    "mobile.agentFeed.form.malformed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This form could not be displayed. Open the agent to respond." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このフォームを表示できません。エージェントを開いて回答してください。" } }
+      }
+    },
+    "mobile.agentFeed.form.open" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open form" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォームを開く" } }
+      }
+    },
+    "mobile.agentFeed.form.submit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Submit Form" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォームを送信" } }
+      }
+    },
+    "mobile.agentFeed.form.value" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Value" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "値" } }
       }
     },
     "mobile.agentFeed.reply.placeholder" : {
@@ -1718,11 +1830,46 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "Codex" } }
       }
     },
+    "mobile.agentFeed.source.amp" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Amp" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Amp" } }
+      }
+    },
+    "mobile.agentFeed.source.antigravity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Antigravity" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Antigravity" } }
+      }
+    },
+    "mobile.agentFeed.source.codebuddy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "CodeBuddy" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "CodeBuddy" } }
+      }
+    },
+    "mobile.agentFeed.source.copilot" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copilot" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Copilot" } }
+      }
+    },
     "mobile.agentFeed.source.gemini" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Gemini" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "Gemini" } }
+      }
+    },
+    "mobile.agentFeed.source.grok" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Grok" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Grok" } }
       }
     },
     "mobile.agentFeed.source.hermes" : {
@@ -1737,6 +1884,48 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "OpenCode" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "OpenCode" } }
+      }
+    },
+    "mobile.agentFeed.source.cursor" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cursor" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Cursor" } }
+      }
+    },
+    "mobile.agentFeed.source.factory" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Factory" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Factory" } }
+      }
+    },
+    "mobile.agentFeed.source.kimi" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Kimi Code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Kimi Code" } }
+      }
+    },
+    "mobile.agentFeed.source.kiro" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Kiro" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Kiro" } }
+      }
+    },
+    "mobile.agentFeed.source.qoder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Qoder" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Qoder" } }
+      }
+    },
+    "mobile.agentFeed.source.rovodev" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Rovo Dev" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Rovo Dev" } }
       }
     },
     "mobile.agentFeed.source.other" : {
@@ -1786,6 +1975,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Sending…" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信中…" } }
+      }
+    },
+    "mobile.agentFeed.status.reconciling" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sent. Waiting for agent." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "送信済み。エージェントを待機中です。" } }
       }
     },
     "mobile.agentFeed.status.syncing" : {

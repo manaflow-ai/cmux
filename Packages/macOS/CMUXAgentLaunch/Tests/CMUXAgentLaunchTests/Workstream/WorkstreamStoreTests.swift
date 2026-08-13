@@ -28,6 +28,67 @@ struct WorkstreamStoreTests {
         }
     }
 
+    @Test("Resolved elicitation history redacts secret answers")
+    func resolvedSecretAnswerIsRedacted() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "s-secret",
+            hookEventName: .askUserQuestion,
+            source: "codex",
+            toolInputJSON: #"{"fields":[{"id":"name","prompt":"Name","input_type":"text"},{"id":"token","prompt":"Token","input_type":"secret"}]}"#,
+            requestId: "r-secret"
+        ))
+        let itemID = store.items[0].id
+
+        store.markResolved(
+            itemID,
+            decision: .question(selections: ["name=cmux", "token=top-secret"])
+        )
+
+        guard case .resolved(.question(let selections), _) = store.items[0].status else {
+            Issue.record("expected resolved question")
+            return
+        }
+        #expect(selections == ["name=cmux", "token=<provided>"])
+    }
+
+    @Test("Appending a completed-turn reply creates authoritative user activity")
+    func appendCompletedTurnReply() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "s-reply",
+            hookEventName: .stop,
+            source: "claude",
+            toolInputJSON: #"{"reason":"waiting"}"#
+        ))
+        let stopID = store.items[0].id
+
+        #expect(store.appendUserReply(to: stopID, text: "Continue with tests"))
+        #expect(store.items.count == 2)
+        #expect(store.items.last?.kind == .userPrompt)
+        if case .userPrompt(let text) = store.items.last?.payload {
+            #expect(text == "Continue with tests")
+        } else {
+            Issue.record("expected synthetic user prompt")
+        }
+        #expect(!store.appendUserReply(to: stopID, text: "Duplicate"))
+    }
+
+    @Test("Unknown major lifecycle events remain chronological telemetry")
+    func unknownLifecycleTelemetry() throws {
+        let store = WorkstreamStore(ringCapacity: 10)
+        let eventData = Data(#"{"session_id":"s-future","hook_event_name":"TaskCompleted","_source":"codex","tool_name":"apply_patch","tool_input":{"ok":true}}"#.utf8)
+        let event = try JSONDecoder().decode(WorkstreamEvent.self, from: eventData)
+        store.ingest(event)
+        #expect(store.items.count == 1)
+        #expect(store.items[0].kind == .toolResult)
+        if case .toolResult(let toolName, _, _) = store.items[0].payload {
+            #expect(toolName == "apply_patch")
+        } else {
+            Issue.record("expected tool result telemetry")
+        }
+    }
+
     @Test("Ring buffer evicts oldest items past capacity")
     func ringEviction() {
         let store = WorkstreamStore(ringCapacity: 3)

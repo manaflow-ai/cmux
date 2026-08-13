@@ -186,19 +186,39 @@ public final class WorkstreamStore {
         }
         let page = try await persistence.loadPage(endingBefore: endOffset, limit: boundedLimit)
         let currentByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-        let restoredItems = expiringRestoredPendingItems(page.items)
-        let pageItems = restoredItems.map { currentByID[$0.id] ?? $0 }
-        let nextCursor = page.hasMoreBefore
-            ? pageItems.first.flatMap { item in
-                page.itemStartOffsets.first.map {
-                    Self.historyCursor(version: "p1", position: $0, itemID: item.id)
-                }
+        var pageItems = expiringRestoredPendingItems(page.items)
+            .map { currentByID[$0.id] ?? $0 }
+        var droppedPersistedItems = false
+        if cursor == nil {
+            let persistedIDs = Set(pageItems.map(\.id))
+            let liveTailStart = page.items.last
+                .flatMap { persisted in items.firstIndex(where: { $0.id == persisted.id }) }
+                .map { items.index(after: $0) }
+                ?? items.startIndex
+            let liveCandidates = items[liveTailStart...].filter { !persistedIDs.contains($0.id) }
+            let liveLimit = pageItems.isEmpty ? boundedLimit : max(0, boundedLimit - 1)
+            let liveTail = liveCandidates.suffix(liveLimit)
+            pageItems.append(contentsOf: liveTail)
+            if pageItems.count > boundedLimit {
+                let overflow = pageItems.count - boundedLimit
+                droppedPersistedItems = overflow > 0 && !page.items.isEmpty
+                pageItems.removeFirst(overflow)
+            }
+        }
+        let firstPersisted = pageItems.first.flatMap { first in
+            page.items.firstIndex(where: { $0.id == first.id }).flatMap { index in
+                page.itemStartOffsets.indices.contains(index) ? page.itemStartOffsets[index] : nil
+            }.map { (first, $0) }
+        }
+        let nextCursor = (page.hasMoreBefore || droppedPersistedItems)
+            ? firstPersisted.map { item, offset in
+                Self.historyCursor(version: "p1", position: offset, itemID: item.id)
             }
             : nil
         return HistoryPage(
             items: pageItems,
             nextCursor: nextCursor,
-            hasMore: page.hasMoreBefore
+            hasMore: nextCursor != nil
         )
     }
 
@@ -255,7 +275,10 @@ public final class WorkstreamStore {
         guard let idx = items.firstIndex(where: { $0.id == itemId }) else { return }
         guard items[idx].status.isPending else { return }
         let now = clock()
-        items[idx].status = .resolved(decision, at: now)
+        items[idx].status = .resolved(
+            Self.decisionForHistory(decision, payload: items[idx].payload),
+            at: now
+        )
         items[idx].updatedAt = now
     }
 
@@ -266,6 +289,50 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .expired(at: now)
         items[idx].updatedAt = now
+    }
+
+    /// Appends a user reply after a completed turn. The synthetic user-prompt
+    /// row is authoritative for mobile Feed filtering: once it exists, the
+    /// preceding stop/session-end row is historical and cannot be submitted
+    /// again. The exact item identity and route are validated by the caller.
+    public func canAppendUserReply(to itemId: UUID, text: String) -> Bool {
+        guard let sourceIndex = items.firstIndex(where: { $0.id == itemId }),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return isTurnCompletion(items[sourceIndex])
+            && items.lastIndex(where: { $0.workstreamId == items[sourceIndex].workstreamId }) == sourceIndex
+    }
+
+    @discardableResult
+    public func appendUserReply(to itemId: UUID, text: String) -> Bool {
+        guard canAppendUserReply(to: itemId, text: text),
+              let sourceIndex = items.firstIndex(where: { $0.id == itemId }) else { return false }
+        let source = items[sourceIndex]
+        let now = clock()
+        let reply = WorkstreamItem(
+            workstreamId: source.workstreamId,
+            source: source.source,
+            sourceRawValue: source.sourceRawValue,
+            kind: .userPrompt,
+            createdAt: now,
+            updatedAt: now,
+            cwd: source.cwd,
+            title: source.title,
+            workspaceId: source.workspaceId,
+            surfaceId: source.surfaceId,
+            status: .telemetry,
+            payload: .userPrompt(text: text),
+            context: source.context,
+            ppid: source.ppid
+        )
+        insert(reply)
+        updateContextIndex(with: reply)
+        if let persistence {
+            pendingPersistenceItems.append(reply)
+            startPersistenceDrainIfNeeded(persistence: persistence)
+        }
+        return true
     }
 
     /// Marks every still-pending item created before `threshold` as
@@ -353,6 +420,56 @@ public final class WorkstreamStore {
         )
     }
 
+    private func isTurnCompletion(_ item: WorkstreamItem) -> Bool {
+        switch item.payload {
+        case .stop, .sessionEnd:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Feed keeps resolved choices visible, but secret elicitation values must
+    /// never enter history or the phone cache. The blocking waiter retains the
+    /// original decision independently, so the originating agent still gets
+    /// the exact submitted value.
+    private static func decisionForHistory(
+        _ decision: WorkstreamDecision,
+        payload: WorkstreamPayload
+    ) -> WorkstreamDecision {
+        let selections: [String]
+        let formAction: WorkstreamFormAction?
+        switch decision {
+        case .question(let values):
+            selections = values
+            formAction = nil
+        case .form(let action, let values):
+            selections = values
+            formAction = action
+        default:
+            return decision
+        }
+        guard case .question(_, let questions) = payload else {
+            return decision
+        }
+        let secretIDs = Set(
+            questions.lazy
+                .filter { $0.inputType == .secret }
+                .map(\.id)
+        )
+        guard !secretIDs.isEmpty else { return decision }
+        let safeSelections = selections.map { selection in
+            guard let separator = selection.firstIndex(of: "=") else { return selection }
+            let fieldID = String(selection[..<separator])
+            guard secretIDs.contains(fieldID) else { return selection }
+            return "\(fieldID)=<provided>"
+        }
+        if let formAction {
+            return .form(action: formAction, selections: safeSelections)
+        }
+        return .question(selections: safeSelections)
+    }
+
     /// Marks every pending item with `ppid` as `.expired`. Meant to
     /// be called from a kqueue/DispatchSource process-exit handler
     /// so the exact moment an agent dies, its pending cards close.
@@ -405,6 +522,21 @@ public final class WorkstreamStore {
         source: WorkstreamSource
     ) -> (WorkstreamKind, WorkstreamPayload) {
         let toolInput = event.toolInputJSON ?? "{}"
+        if let rawEvent = event.rawHookEventName,
+           Self.isQuestionEvent(rawEvent) {
+            let parsed = WorkstreamQuestionPrompt.parse(toolInputJSON: event.toolInputJSON)
+            return (
+                .question,
+                .question(
+                    requestId: event.requestId ?? event.sessionId,
+                    questions: parsed
+                )
+            )
+        }
+        if let rawEvent = event.rawHookEventName,
+           let telemetry = Self.unknownTelemetry(rawEvent, event: event, toolInput: toolInput) {
+            return telemetry
+        }
         switch event.hookEventName {
         case .permissionRequest:
             return (
@@ -470,8 +602,81 @@ public final class WorkstreamStore {
         case .todoWrite:
             return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
         case .notification:
-            return (.toolResult, .toolResult(toolName: "notification", resultJSON: toolInput, isError: false))
+            return (
+                .toolResult,
+                .toolResult(
+                    toolName: event.rawHookEventName ?? "notification",
+                    resultJSON: toolInput,
+                    isError: event.isError ?? false
+                )
+            )
         }
+    }
+
+    private static func isQuestionEvent(_ rawEvent: String) -> Bool {
+        let normalized = rawEvent.unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+            .lowercased()
+        return [
+            "askuserquestion",
+            "askuserconfirmation",
+            "booleanquestion",
+            "questionasked",
+            "questionv2asked",
+            "elicitation",
+            "elicitationrequest",
+            "mcpelicitation",
+            "mcpserverelicitationrequest",
+            "requestuserinput",
+            "userinputrequest",
+            "inputrequest",
+            "toolrequestuserinput",
+            "itemtoolrequestuserinput",
+            "question",
+            "askuser",
+        ].contains(normalized)
+    }
+
+    private static func unknownTelemetry(
+        _ rawEvent: String,
+        event: WorkstreamEvent,
+        toolInput: String
+    ) -> (WorkstreamKind, WorkstreamPayload)? {
+        let normalized = rawEvent
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "/", with: "")
+            .lowercased()
+        let toolName = event.toolName ?? rawEvent
+        if normalized.contains("failure") || normalized.contains("error") {
+            return (
+                .toolResult,
+                .toolResult(toolName: toolName, resultJSON: toolInput, isError: true)
+            )
+        }
+        if normalized.contains("completed") || normalized.contains("result") || normalized.contains("stop") || normalized.contains("idle") {
+            return (
+                .toolResult,
+                .toolResult(toolName: toolName, resultJSON: toolInput, isError: event.isError ?? false)
+            )
+        }
+        if normalized.contains("reasoning") || normalized.contains("message") {
+            return (
+                .assistantMessage,
+                .assistantMessage(text: Self.promptText(from: event.toolInputJSON))
+            )
+        }
+        if normalized.contains("task") || normalized.contains("plan") || normalized.contains("started") || normalized.contains("command") || normalized.contains("filechange") {
+            return (
+                .toolUse,
+                .toolUse(toolName: toolName, toolInputJSON: toolInput)
+            )
+        }
+        return (
+            .toolResult,
+            .toolResult(toolName: toolName, resultJSON: toolInput, isError: event.isError ?? false)
+        )
     }
 
     private func defaultTitle(for event: WorkstreamEvent) -> String? {

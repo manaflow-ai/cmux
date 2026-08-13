@@ -86,6 +86,20 @@ struct FeedCoordinatorTests {
         #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexSession))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexSession))
 
+        let codexMCPApproval = #"""
+        {"app_server_method":"mcpServer/elicitation/request","available_decisions":["accept","decline"],"metadata":{"codex_approval_kind":"mcp_tool_call","persist":["session","always"]}}
+        """#
+        #expect(FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: codexMCPApproval))
+        #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexMCPApproval))
+        #expect(FeedPermissionActionPolicy.supportsPersistentPermissionMode(source: .codex, toolInputJSON: codexMCPApproval))
+        #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexMCPApproval))
+
+        let malformedMCPPersistence = #"""
+        {"app_server_method":"mcpServer/elicitation/request","available_decisions":["accept","decline"],"metadata":{"codex_approval_kind":"mcp_tool_call","persist":["session",7]}}
+        """#
+        #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: malformedMCPPersistence))
+        #expect(!FeedPermissionActionPolicy.supportsPersistentPermissionMode(source: .codex, toolInputJSON: malformedMCPPersistence))
+
         let truncatedCodexToolInput = #"{"app_server_method":"item/commandExecution/requestApproval","available_decisions":["accept"]"#
         #expect(!FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
         #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
@@ -487,6 +501,45 @@ struct FeedCoordinatorTests {
         }
         guard case .expired = status else {
             Issue.record("timed-out hook item should be expired")
+            return
+        }
+    }
+
+    @Test func originatingAgentInvalidationExpiresPendingQuestionImmediately() async {
+        defer { Self.resetFeedCoordinatorTestHooks() }
+        let requestID = "codex-session-input-stale"
+
+        await MainActor.run {
+            FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestID in
+                guard ingestedRequestID == requestID else { return }
+                FeedCoordinator.shared.invalidateBlockingRequest(requestId: ingestedRequestID)
+            }
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .notification,
+            rawHookEventName: "item/tool/requestUserInput",
+            source: "codex",
+            toolInputJSON: #"{"questions":[{"id":"mode","question":"Choose","options":[{"label":"Fast","description":""}]}]}"#,
+            requestId: requestID
+        )
+        let done = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 5)
+            done.signal()
+        }
+
+        #expect(done.wait(timeout: .now() + 2) == .success)
+        guard case .timedOut = resultBox.value else {
+            Issue.record("invalidated request should stop waiting without a decision")
+            return
+        }
+        let status = await MainActor.run { FeedCoordinator.shared.store.items.first?.status }
+        guard case .expired = status else {
+            Issue.record("invalidated question should be visibly expired")
             return
         }
     }

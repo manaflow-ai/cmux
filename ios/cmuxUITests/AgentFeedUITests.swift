@@ -21,6 +21,16 @@ final class AgentFeedUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: denyID).count, 1)
         XCTAssertTrue(deny.waitForExistence(timeout: 3))
         XCTAssertTrue(deny.isHittable)
+        let session = app.buttons[
+            "MobileAgentFeedPermission-always-macbook-00000000-0000-0000-0000-000000000101"
+        ]
+        XCTAssertTrue(session.exists)
+        XCTAssertEqual(session.label, "Allow for Session")
+        let persistent = app.buttons[
+            "MobileAgentFeedPermission-persistent-macbook-00000000-0000-0000-0000-000000000101"
+        ]
+        XCTAssertTrue(persistent.exists)
+        XCTAssertEqual(persistent.label, "Always Allow")
         deny.tap()
         waitForExistence(permissionCard, expected: false)
         app.buttons["All Activity"].tap()

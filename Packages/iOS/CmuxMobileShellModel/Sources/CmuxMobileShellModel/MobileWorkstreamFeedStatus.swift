@@ -20,5 +20,6 @@ public enum MobileWorkstreamDecision: Equatable, Sendable {
     case permission(mode: String)
     case exitPlan(mode: String, feedback: String?)
     case question(selections: [String])
+    case form(action: String, selections: [String])
     case unknown(kind: String)
 }

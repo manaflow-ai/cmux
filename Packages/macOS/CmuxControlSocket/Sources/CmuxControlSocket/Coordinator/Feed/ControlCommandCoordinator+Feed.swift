@@ -7,7 +7,7 @@ internal import Foundation
 /// wire bytes match.
 ///
 /// The worker-lane feed methods (`feed.push`, `feed.permission.reply`,
-/// `feed.question.reply`, `feed.exit_plan.reply`) block or await on the socket
+/// `feed.question.reply`, `feed.exit_plan.reply`, `feed.invalidate`) block or await on the socket
 /// worker and remain on the app-side worker path — they are deliberately NOT
 /// dispatched here.
 extension ControlCommandCoordinator {

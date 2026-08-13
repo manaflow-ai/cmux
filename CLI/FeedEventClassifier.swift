@@ -79,7 +79,7 @@ struct FeedEventClassifier {
     /// Whether any of `source`'s registered events carry the
     /// ``FeedEventSemantic/nativeApprovalPrompt`` semantic.
     private static func sourceRaisesNativeApprovalPrompts(_ source: String) -> Bool {
-        feedEventSemanticRegistry[source]?.values.contains(.nativeApprovalPrompt) == true
+        feedEventSemanticRegistry[normalizedSource(source)]?.values.contains(.nativeApprovalPrompt) == true
     }
 
     /// User-attention semantic of a hook/feed event, independent of the
@@ -92,6 +92,10 @@ struct FeedEventClassifier {
         /// Resolved against the tool name so Claude's `ExitPlanMode` /
         /// `AskUserQuestion` approvals route to their dedicated kinds.
         case approvalRequest
+        /// A structured user question, boolean confirmation, or elicitation
+        /// form. These share the AskUserQuestion wire envelope so older
+        /// agents still receive the same reply bridge.
+        case questionRequest
         /// A tool is about to run but no approval is pending. Telemetry
         /// only. Used by agents that expose a *separate* approval event
         /// (Claude, Codex, Hermes) so their pre-tool hook never escalates.
@@ -140,8 +144,61 @@ struct FeedEventClassifier {
         source: String,
         event: String
     ) -> FeedEventSemantic {
-        let table = feedEventSemanticRegistry[source] ?? telemetryOnlyFeedEventSemantics
-        return table[event] ?? .unknown
+        let sourceKey = normalizedSource(source)
+        let table = feedEventSemanticRegistry[sourceKey] ?? telemetryOnlyFeedEventSemantics
+        if let semantic = table[event] {
+            return semantic
+        }
+        // The agent ecosystems do not share one spelling for a structured
+        // user-input request. Once a source is registered in the cmux hook
+        // catalog, normalize the small, explicit family of question names so
+        // new MCP/app-server adapters do not silently become telemetry. This
+        // remains fail-closed for unknown sources and for all other unknown
+        // event names.
+        if registeredFeedSources.contains(sourceKey), isQuestionEventName(event) {
+            return .questionRequest
+        }
+        return .unknown
+    }
+
+    private static func normalizedSource(_ source: String) -> String {
+        let value = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch value {
+        case "claude-code": return "claude"
+        case "cursor-agent": return "cursor"
+        case "open-code": return "opencode"
+        case "gemini-cli": return "gemini"
+        case "grok-code": return "grok"
+        case "rovo": return "rovodev"
+        case "agy": return "antigravity"
+        default: return value
+        }
+    }
+
+    private static func isQuestionEventName(_ event: String) -> Bool {
+        let normalized = event.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+            .lowercased()
+        return [
+            "askuserquestion",
+            "askuserconfirmation",
+            "askuser",
+            "booleanquestion",
+            "confirmationrequest",
+            "questionasked",
+            "questionv2asked",
+            "questionrequest",
+            "elicitation",
+            "elicitationrequest",
+            "mcpelicitation",
+            "mcpserverelicitationrequest",
+            "requestuserinput",
+            "userinputrequest",
+            "inputrequest",
+            "toolrequestuserinput",
+            "itemtoolrequestuserinput",
+        ].contains(normalized)
     }
 
     /// Tool names that carry their own dedicated approval wire event rather
@@ -166,6 +223,8 @@ struct FeedEventClassifier {
         switch semantic {
         case .approvalRequest:
             return actionable(dedicatedApprovalEvent(for: toolName) ?? "PermissionRequest")
+        case .questionRequest:
+            return actionable("AskUserQuestion")
         case .toolStartMaybeApproval:
             if let dedicated = dedicatedApprovalEvent(for: toolName) {
                 return actionable(dedicated)
@@ -271,6 +330,11 @@ struct FeedEventClassifier {
             "SubagentStart": .subagentStart,
             "SubagentStop": .subagentResponse,
             "Notification": .statusNotification,
+            "AskUserQuestion": .questionRequest,
+            "AskUserConfirmation": .questionRequest,
+            "BooleanQuestion": .questionRequest,
+            "Elicitation": .questionRequest,
+            "ElicitationRequest": .questionRequest,
         ],
         "codex": [
             // Codex runs PermissionRequest hooks before its own approval
@@ -303,6 +367,13 @@ struct FeedEventClassifier {
             "subagent_stop": .subagentResponse,
             "Notification": .statusNotification,
             "notification": .statusNotification,
+            "AskUserQuestion": .questionRequest,
+            "AskUserConfirmation": .questionRequest,
+            "BooleanQuestion": .questionRequest,
+            "Elicitation": .questionRequest,
+            "ElicitationRequest": .questionRequest,
+            "tool/requestUserInput": .questionRequest,
+            "requestUserInput": .questionRequest,
         ],
         "hermes-agent": [
             // `pre_tool_call` is a tool *starting* — Hermes raises a
@@ -321,6 +392,9 @@ struct FeedEventClassifier {
             "on_session_reset": .sessionStart,
             "on_session_end": .sessionEnd,
             "on_session_finalize": .sessionEnd,
+            "ask_user": .questionRequest,
+            "question": .questionRequest,
+            "elicitation": .questionRequest,
         ],
         // Gemini CLI consumes the generic PreToolUse decision schema and has
         // no separate approval event, so it deliberately opts in to blocking.
@@ -336,6 +410,8 @@ struct FeedEventClassifier {
             "userPromptSubmit": .promptSubmit,
             "agentSpawn": .sessionStart,
             "stop": .response,
+            "askUserQuestion": .questionRequest,
+            "ask_user": .questionRequest,
         ],
     ]
 
@@ -356,6 +432,13 @@ struct FeedEventClassifier {
         "SubagentStart": .subagentStart,
         "SubagentStop": .subagentResponse,
         "Notification": .statusNotification,
+        "AskUserQuestion": .questionRequest,
+        "AskUserConfirmation": .questionRequest,
+        "BooleanQuestion": .questionRequest,
+        "Elicitation": .questionRequest,
+        "ElicitationRequest": .questionRequest,
+        "tool/requestUserInput": .questionRequest,
+        "requestUserInput": .questionRequest,
     ]
 
     /// Safe fallback for unregistered sources. Familiar event names preserve
@@ -374,6 +457,15 @@ struct FeedEventClassifier {
         "SubagentStart": .subagentStart,
         "SubagentStop": .subagentResponse,
         "Notification": .statusNotification,
+    ]
+
+    /// Sources with an installed cmux hook integration. They may opt into the
+    /// explicit question-name normalization above; unknown integrations stay
+    /// telemetry-only until their wire contract is reviewed.
+    private static let registeredFeedSources: Set<String> = [
+        "claude", "codex", "opencode", "grok", "pi", "omp", "campfire", "amp",
+        "cursor", "gemini", "kiro", "antigravity", "rovodev", "hermes-agent",
+        "copilot", "codebuddy", "factory", "qoder", "kimi",
     ]
 
     /// Tools that mutate state and deserve a user-visible approve/

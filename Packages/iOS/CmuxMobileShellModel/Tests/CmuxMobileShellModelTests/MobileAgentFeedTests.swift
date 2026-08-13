@@ -42,6 +42,68 @@ struct MobileAgentFeedTests {
         ))
     }
 
+    @Test func booleanAndFormPrimitivesDecodeIntoInlinePayloads() throws {
+        let boolean = try decodeRow(
+            id: "00000000-0000-0000-0000-000000000009",
+            kind: "boolean",
+            status: "pending",
+            extra: "\"request_id\":\"bool-9\",\"boolean_prompt\":\"Continue?\",\"boolean_yes_label\":\"Continue\",\"boolean_no_label\":\"Stop\",\"boolean_default\":true,\"questions\":[{\"id\":\"q0\",\"prompt\":\"Continue?\",\"multi_select\":false,\"input_type\":\"boolean\",\"options\":[{\"id\":\"yes\",\"label\":\"Continue\"},{\"id\":\"no\",\"label\":\"Stop\"}]}]"
+        )
+        #expect(boolean.payload == .boolean(
+            requestID: "bool-9",
+            prompt: "Continue?",
+            yesLabel: "Continue",
+            noLabel: "Stop",
+            defaultValue: true
+        ))
+
+        let form = try decodeRow(
+            id: "00000000-0000-0000-0000-000000000010",
+            kind: "form",
+            status: "pending",
+            extra: "\"request_id\":\"form-10\",\"form_title\":\"Release\",\"form_url\":\"https://example.com/form\",\"questions\":[{\"id\":\"branch\",\"prompt\":\"Branch\",\"multi_select\":false,\"input_type\":\"text\",\"required\":true,\"min_length\":2,\"max_length\":20},{\"id\":\"targets\",\"prompt\":\"Targets\",\"multi_select\":true,\"input_type\":\"choice\",\"min_selections\":1,\"max_selections\":2,\"options\":[{\"id\":\"ios\",\"label\":\"iOS\"}]}]"
+        )
+        guard case .form(let requestID, let title, let fields, let externalURL) = form.payload else {
+            Issue.record("Expected form payload")
+            return
+        }
+        #expect(requestID == "form-10")
+        #expect(title == "Release")
+        #expect(fields.first?.inputType == "text")
+        #expect(fields.first?.minLength == 2)
+        #expect(fields.first?.maxLength == 20)
+        #expect(fields.last?.minSelections == 1)
+        #expect(fields.last?.maxSelections == 2)
+        #expect(externalURL == "https://example.com/form")
+    }
+
+    @Test func resolvedFormActionRemainsInspectable() throws {
+        let row = try decodeRow(
+            id: "00000000-0000-0000-0000-000000000012",
+            source: "codex",
+            kind: "form",
+            status: "resolved",
+            extra: "\"request_id\":\"form-12\",\"questions\":[],\"decision\":{\"kind\":\"form\",\"action\":\"decline\",\"selections\":[]}"
+        )
+        #expect(row.status == .resolved(decision: .form(action: "decline", selections: [])))
+    }
+
+    @Test func appServerQuestionAliasesAndOtherMetadataDecode() throws {
+        let row = try decodeRow(
+            id: "00000000-0000-0000-0000-000000000011",
+            kind: "item/tool/requestUserInput",
+            status: "pending",
+            extra: "\"request_id\":\"codex-11\",\"questions\":[{\"id\":\"mode\",\"header\":\"Mode\",\"question\":\"Choose\",\"is_other\":false,\"options\":[{\"label\":\"Fast\",\"description\":\"Quick\"}]}]"
+        )
+        guard case .question(let requestID, let questions) = row.payload else {
+            Issue.record("Expected question payload")
+            return
+        }
+        #expect(requestID == "codex-11")
+        #expect(questions.first?.allowsOther == false)
+        #expect(questions.first?.options.first?.id == "Fast")
+    }
+
     @Test func rowPreservesExactWorkspaceAndSurfaceRoute() throws {
         let row = try decodeRow(
             id: "00000000-0000-0000-0000-000000000006",

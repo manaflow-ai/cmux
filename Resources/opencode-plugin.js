@@ -17,6 +17,9 @@ export const CMUXFeed = async (ctx) => {
   let client = null;
   let buffered = "";
   const pending = new Map();
+  const requestSessions = new Map();
+  const requestKinds = new Map();
+  const questionRequests = new Map();
   const messageRoles = new Map();
   const sessions = new Map();
 
@@ -93,7 +96,19 @@ export const CMUXFeed = async (ctx) => {
     remember: reply === "always",
   });
 
-  const replyPermission = async ({ sessionId, requestId, reply, message }) => {
+  const replyPermission = async ({ sessionId, requestId, reply, message, apiVersion = 1 }) => {
+    if (
+      apiVersion === 2 &&
+      sessionId &&
+      await tryRawClientRequest("post", {
+        url: "/api/session/{sessionID}/permission/{requestID}/reply",
+        path: { sessionID: sessionId, requestID: requestId },
+        body: message ? { reply, message } : { reply },
+      })
+    ) {
+      return;
+    }
+
     if (
       await tryRawClientRequest("post", {
         url: "/permission/{requestID}/reply",
@@ -116,7 +131,19 @@ export const CMUXFeed = async (ctx) => {
     }
   };
 
-  const replyQuestion = async (requestId, answers) => {
+  const replyQuestion = async (sessionId, requestId, answers, apiVersion = 1) => {
+    if (
+      apiVersion === 2 &&
+      sessionId &&
+      await tryRawClientRequest("post", {
+        url: "/api/session/{sessionID}/question/{requestID}/reply",
+        path: { sessionID: sessionId, requestID: requestId },
+        body: { answers },
+      })
+    ) {
+      return;
+    }
+
     if (
       await tryRawClientRequest("post", {
         url: "/question/{requestID}/reply",
@@ -130,7 +157,19 @@ export const CMUXFeed = async (ctx) => {
     await callClientMethod(ctx?.client?.question, "reply", { requestID: requestId, answers });
   };
 
-  const rejectQuestion = async (requestId) => {
+  const rejectQuestion = async (sessionId, requestId, apiVersion = 1) => {
+    if (
+      apiVersion === 2 &&
+      sessionId &&
+      await tryRawClientRequest("post", {
+        url: "/api/session/{sessionID}/question/{requestID}/reject",
+        path: { sessionID: sessionId, requestID: requestId },
+        body: {},
+      })
+    ) {
+      return;
+    }
+
     if (
       await tryRawClientRequest("post", {
         url: "/question/{requestID}/reject",
@@ -223,9 +262,38 @@ export const CMUXFeed = async (ctx) => {
     }
   };
 
-  const questionAnswers = (selections) => {
-    if (!Array.isArray(selections) || selections.length === 0) return [[]];
-    return selections.map((selection) => [String(selection)]);
+  const questionAnswers = (selections, questions) => {
+    const orderedQuestions = Array.isArray(questions) ? questions : [];
+    const answers = orderedQuestions.map(() => []);
+    for (const encoded of Array.isArray(selections) ? selections : []) {
+      const selection = String(encoded);
+      const separator = selection.indexOf("=");
+      if (separator < 1) continue;
+      const questionId = selection.slice(0, separator);
+      const questionIndex = orderedQuestions.findIndex((question) => question.id === questionId);
+      if (questionIndex < 0) continue;
+      const value = selection.slice(separator + 1);
+      const answer = value.startsWith("other:")
+        ? value.slice("other:".length)
+        : orderedQuestions[questionIndex].options.find((option) => option.id === value)?.label || value;
+      if (answer && !answers[questionIndex].includes(answer)) answers[questionIndex].push(answer);
+    }
+    return answers.length > 0 ? answers : [[]];
+  };
+
+  const feedSelectionsForAnswers = (answers, questions) => {
+    const orderedQuestions = Array.isArray(questions) ? questions : [];
+    const selections = [];
+    for (let index = 0; index < orderedQuestions.length; index += 1) {
+      const question = orderedQuestions[index];
+      const values = Array.isArray(answers?.[index]) ? answers[index] : [];
+      for (const rawValue of values) {
+        const value = String(rawValue);
+        const option = question.options.find((candidate) => candidate.label === value);
+        selections.push(`${question.id}=${option ? option.id : `other:${value}`}`);
+      }
+    }
+    return selections;
   };
 
   const resolveSessionPlanPath = (sid, rawPlanPath) => {
@@ -288,12 +356,12 @@ export const CMUXFeed = async (ctx) => {
     };
   };
 
-  const handleExitPlanDecision = async (sid, requestId, decision) => {
+  const handleExitPlanDecision = async (sid, requestId, decision, apiVersion) => {
     const mode = decision?.mode || "manual";
     const feedback = normalizeText(decision?.feedback, 1800);
 
     if (feedback) {
-      await replyQuestion(requestId, [["No"]]);
+      await replyQuestion(sid, requestId, [["No"]], apiVersion);
       await sendPlanFeedback(
         sid,
         `User rejected the plan via cmux Feed and wants this change: ${feedback}\n\nUpdate the plan file, then call plan_exit again.`
@@ -302,12 +370,12 @@ export const CMUXFeed = async (ctx) => {
     }
 
     if (mode === "deny") {
-      await replyQuestion(requestId, [["No"]]);
+      await replyQuestion(sid, requestId, [["No"]], apiVersion);
       return;
     }
 
     if (mode === "ultraplan") {
-      await replyQuestion(requestId, [["No"]]);
+      await replyQuestion(sid, requestId, [["No"]], apiVersion);
       await sendPlanFeedback(
         sid,
         "User chose Ultraplan via cmux Feed. Refine the plan more deeply, update the plan file, then call plan_exit again."
@@ -323,14 +391,14 @@ export const CMUXFeed = async (ctx) => {
       permissionsApplied = false;
     }
     if (!permissionsApplied) {
-      await replyQuestion(requestId, [["No"]]);
+      await replyQuestion(sid, requestId, [["No"]], apiVersion);
       await sendPlanFeedback(
         sid,
         "cmux could not apply the selected permission mode. Ask the user to approve the plan again before switching to build mode."
       );
       return;
     }
-    await replyQuestion(requestId, [["Yes"]]);
+    await replyQuestion(sid, requestId, [["Yes"]], apiVersion);
   };
 
   const resolvePending = (requestId, value) => {
@@ -399,6 +467,38 @@ export const CMUXFeed = async (ctx) => {
       failPending();
       return false;
     }
+  };
+
+  const writeDetached = (method, params) => {
+    try {
+      const conn = net.createConnection(SOCKET_PATH);
+      conn.once("connect", () => {
+        conn.end(JSON.stringify({
+          id: `opencode-lifecycle-${Date.now()}`,
+          method,
+          params,
+        }) + "\n");
+      });
+      conn.once("error", () => conn.destroy());
+    } catch (_) {}
+  };
+
+  const rememberRequest = (requestId, sessionId, kind, questions) => {
+    requestSessions.set(requestId, sessionId);
+    requestKinds.set(requestId, kind);
+    if (questions) questionRequests.set(requestId, questions);
+  };
+
+  const forgetRequest = (requestId) => {
+    requestSessions.delete(requestId);
+    requestKinds.delete(requestId);
+    questionRequests.delete(requestId);
+  };
+
+  const invalidateRequest = (requestId) => {
+    if (!requestId || !pending.has(requestId)) return;
+    writeDetached("feed.invalidate", { request_id: requestId });
+    resolvePending(requestId, { status: "invalidated" });
   };
 
   const base = (sessionId, extra) => {
@@ -516,6 +616,9 @@ export const CMUXFeed = async (ctx) => {
         case "session.deleted": {
           const sid = event.properties?.info?.id;
           if (!sid) break;
+          for (const [requestId, requestSessionId] of requestSessions) {
+            if (requestSessionId === sid) invalidateRequest(requestId);
+          }
           sessions.delete(sid);
           pushTelemetry(base(sid, {
             hook_event_name: "SessionEnd",
@@ -531,12 +634,49 @@ export const CMUXFeed = async (ctx) => {
           }));
           break;
         }
-        case "permission.asked": {
+        case "permission.replied":
+        case "permission.v2.replied": {
+          const props = event.properties || {};
+          const requestId = props.requestID || props.id;
+          if (!requestId || !pending.has(requestId)) break;
+          const mode = props.reply === "always" ? "always" : props.reply === "reject" ? "deny" : "once";
+          writeDetached("feed.permission.reply", { request_id: requestId, mode });
+          resolvePending(requestId, { status: "invalidated" });
+          break;
+        }
+        case "question.replied":
+        case "question.v2.replied": {
+          const props = event.properties || {};
+          const requestId = props.requestID || props.id;
+          if (!requestId || !pending.has(requestId)) break;
+          if (requestKinds.get(requestId) === "exit_plan") {
+            const answer = String(props.answers?.[0]?.[0] || "").toLowerCase();
+            writeDetached("feed.exit_plan.reply", {
+              request_id: requestId,
+              mode: answer === "yes" ? "manual" : "deny",
+            });
+          } else {
+            writeDetached("feed.question.reply", {
+              request_id: requestId,
+              selections: feedSelectionsForAnswers(props.answers, questionRequests.get(requestId)),
+            });
+          }
+          resolvePending(requestId, { status: "invalidated" });
+          break;
+        }
+        case "question.rejected":
+        case "question.v2.rejected": {
+          invalidateRequest(event.properties?.requestID || event.properties?.id);
+          break;
+        }
+        case "permission.asked":
+        case "permission.v2.asked": {
           const props = event.properties || {};
           const requestId = props.id;
           if (!requestId) break;
           const sid = props.sessionID || "unknown";
-          const permission = firstString(props.permission, props.tool?.name) || "permission";
+          const apiVersion = event.type === "permission.v2.asked" ? 2 : 1;
+          const permission = firstString(props.permission, props.action, props.tool?.name) || "permission";
           const metadata = isObject(props.metadata) ? props.metadata : {};
           const frame = base(sid, {
             hook_event_name: "PermissionRequest",
@@ -544,16 +684,17 @@ export const CMUXFeed = async (ctx) => {
             tool_name: permission,
             tool_input: {
               permission,
-              patterns: Array.isArray(props.patterns) ? props.patterns : [],
-              always: Array.isArray(props.always) ? props.always : [],
+              patterns: Array.isArray(props.patterns) ? props.patterns : (props.resources || []),
+              always: Array.isArray(props.always) ? props.always : (props.save || []),
               metadata,
-              tool: props.tool,
+              tool: props.tool || props.source,
             },
             context: {
               ...(contextForSession(sid) || {}),
               permissionMode: "opencode",
             },
           });
+          rememberRequest(requestId, sid, "permission");
           const result = await pushBlocking(frame, requestId);
           if (result?.status === "resolved" && result.decision?.kind === "permission") {
             const mode = result.decision.mode;
@@ -566,21 +707,26 @@ export const CMUXFeed = async (ctx) => {
                 requestId,
                 reply: permissionReplyForMode(mode),
                 message: mode === "deny" ? "User denied permission via cmux Feed." : undefined,
+                apiVersion,
               });
             } catch (e) { /* ignore - opencode already moved on */ }
           }
+          forgetRequest(requestId);
           break;
         }
-        case "question.asked": {
+        case "question.asked":
+        case "question.v2.asked": {
           const props = event.properties || {};
           const requestId = props.id;
           const sid = props.sessionID || "unknown";
           if (!requestId) break;
+          const apiVersion = event.type === "question.v2.asked" ? 2 : 1;
           const questions = (props.questions || []).map((q, idx) => ({
             id: q.id || `q${idx}`,
             header: q.header || q.title,
             question: q.question || q.prompt || "",
             multiSelect: q.multiSelect === true || q.multiple === true,
+            custom: q.custom,
             options: (q.options || []).map((o, optionIdx) => ({
               id: o.id || `opt${optionIdx}`,
               label: o.label || o.title || String(o),
@@ -603,12 +749,14 @@ export const CMUXFeed = async (ctx) => {
                 permissionMode: "plan",
               },
             });
+            rememberRequest(requestId, sid, "exit_plan", questions);
             const result = await pushBlocking(frame, requestId);
             if (result?.status === "resolved" && result.decision?.kind === "exit_plan") {
               try {
-                await handleExitPlanDecision(sid, requestId, result.decision);
+                await handleExitPlanDecision(sid, requestId, result.decision, apiVersion);
               } catch (_) {}
             }
+            forgetRequest(requestId);
             break;
           }
 
@@ -618,14 +766,21 @@ export const CMUXFeed = async (ctx) => {
             tool_name: "question",
             tool_input: { questions },
           });
+          rememberRequest(requestId, sid, "question", questions);
           const result = await pushBlocking(frame, requestId);
           if (result?.status === "resolved" && result.decision?.kind === "question") {
             try {
-              await replyQuestion(requestId, questionAnswers(result.decision.selections));
+              await replyQuestion(
+                sid,
+                requestId,
+                questionAnswers(result.decision.selections, questions),
+                apiVersion
+              );
             } catch (_) {
-              try { await rejectQuestion(requestId); } catch (_) {}
+              try { await rejectQuestion(sid, requestId, apiVersion); } catch (_) {}
             }
           }
+          forgetRequest(requestId);
           break;
         }
         default:

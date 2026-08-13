@@ -12,7 +12,7 @@ public enum MobileAgentFeedFilter: Hashable, Sendable {
             return items.filter { item in
                 let isNewestForWorkstream = seenWorkstreams.insert(item.workstreamScope).inserted
                 return item.wire.status.isPending
-                    || (isNewestForWorkstream && item.isTurnCompletion)
+                    || (isNewestForWorkstream && item.isReplyableTurnCompletion)
             }
         case .allActivity:
             return items

@@ -594,7 +594,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             }
             let session = try await processStore.start(
                 plan: plan,
-                workingDirectory: request.string("workingDirectory") ?? workingDirectory
+                workingDirectory: request.string("workingDirectory") ?? workingDirectory,
+                workspaceId: workspaceId,
+                surfaceId: panelId
             )
             return [
                 "sessionId": session.sessionId,

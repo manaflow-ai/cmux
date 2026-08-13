@@ -1380,6 +1380,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "feed.invalidate":
+            return v2Result(id: request.id, v2FeedInvalidate(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -2734,6 +2736,7 @@ class TerminalController {
             "feed.permission.reply",
             "feed.question.reply",
             "feed.exit_plan.reply",
+            "feed.invalidate",
             "feed.jump",
             "feed.list",
             "surface.list",
@@ -6097,6 +6100,18 @@ class TerminalController {
             decision: .question(selections: selections)
         )
         return .ok(["delivered": true])
+    }
+
+    private nonisolated func v2FeedInvalidate(params: [String: Any]) -> V2CallResult {
+        guard let requestId = params["request_id"] as? String else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.invalidate requires request_id",
+                data: nil
+            )
+        }
+        FeedCoordinator.shared.invalidateBlockingRequest(requestId: requestId)
+        return .ok(["invalidated": true])
     }
 
     private nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
@@ -14427,7 +14442,7 @@ class TerminalController {
         case "workstream.feed.action":
             result = v2MobileWorkstreamFeedAction(params: request.params)
         case "workstream.feed.reply":
-            result = v2MobileWorkstreamFeedReply(params: request.params)
+            result = await v2MobileWorkstreamFeedReply(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         case "mobile.sync.fetch":
@@ -14514,6 +14529,44 @@ class TerminalController {
                 return .err(code: "invalid_params", message: "Missing question selections", data: nil)
             }
             decision = .question(selections: selections)
+        case "boolean", "confirmation", "approval":
+            guard let value = params["value"] as? Bool else {
+                return .err(code: "invalid_params", message: "Missing boolean value", data: nil)
+            }
+            let question = FeedCoordinator.shared
+                .snapshot(pendingOnly: false)
+                .first(where: { $0.id == itemId })
+                .flatMap { item in
+                    if case .question(_, let questions) = item.payload {
+                        return questions.first
+                    }
+                    return nil
+                }
+            let questionID = question?.id ?? "q0"
+            let optionID = value
+                ? (question?.options.first?.id ?? "yes")
+                : (question?.options.dropFirst().first?.id ?? "no")
+            decision = .question(selections: ["\(questionID)=\(optionID)"])
+        case "form", "elicitation":
+            guard let action = WorkstreamFormAction(
+                rawValue: (params["action"] as? String) ?? WorkstreamFormAction.accept.rawValue
+            ) else {
+                return .err(code: "invalid_params", message: "Invalid form action", data: nil)
+            }
+            let selections: [String]
+            if let encoded = params["selections"] as? [String] {
+                selections = encoded
+            } else if let values = params["values"] as? [String: String] {
+                selections = values
+                    .sorted { $0.key < $1.key }
+                    .map { "\($0.key)=\($0.value)" }
+            } else {
+                selections = []
+            }
+            guard action == .accept || selections.isEmpty else {
+                return .err(code: "invalid_params", message: "Non-accept form actions cannot include values", data: nil)
+            }
+            decision = .form(action: action, selections: selections)
         default:
             return .err(code: "invalid_params", message: "Unknown feed action", data: nil)
         }
@@ -14534,16 +14587,19 @@ class TerminalController {
     }
 
     /// Sends one acknowledged ordinary turn reply to a pinned route.
-    private func v2MobileWorkstreamFeedReply(params: [String: Any]) -> V2CallResult {
-        guard let workstreamId = params["workstream_id"] as? String,
+    private func v2MobileWorkstreamFeedReply(params: [String: Any]) async -> V2CallResult {
+        guard let itemRaw = params["item_id"] as? String,
+              let itemId = UUID(uuidString: itemRaw),
+              let workstreamId = params["workstream_id"] as? String,
               let workspaceId = params["workspace_id"] as? String,
               let surfaceId = params["surface_id"] as? String,
               let text = params["text"] as? String,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .err(code: "invalid_params", message: "Missing feed reply target or text", data: nil)
         }
-        guard FeedCoordinator.shared.sendTextToTarget(
+        guard await FeedCoordinator.shared.sendTextToTarget(
             workstreamId: workstreamId,
+            itemId: itemId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             text: text

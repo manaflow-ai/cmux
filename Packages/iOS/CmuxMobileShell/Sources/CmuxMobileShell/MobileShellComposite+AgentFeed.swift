@@ -97,13 +97,14 @@ extension MobileShellComposite {
         _ = scheduleAgentFeedRefresh(target)
     }
 
-    /// Sends one exact permission, plan, or question decision. No optimistic
-    /// resolution is applied; the authoritative list acknowledgement wins.
+    /// Sends one exact Feed decision. No optimistic resolution is applied;
+    /// the authoritative list acknowledgement wins.
     public func sendAgentFeedAction(
         _ action: MobileAgentFeedAction,
         for item: MobileAgentFeedItem
     ) async {
         guard agentFeedMutationStates[item.id] != .sending,
+              agentFeedMutationStates[item.id] != .awaitingReconciliation,
               item.wire.status.isPending,
               let requestID = item.wire.payload.requestID,
               let workspaceID = item.wire.workspaceID,
@@ -124,11 +125,17 @@ extension MobileShellComposite {
             if let feedback, !feedback.isEmpty { params["feedback"] = feedback }
         case .question(let selections):
             params["kind"] = "question"; params["selections"] = selections
+        case .boolean(let value):
+            params["kind"] = "boolean"; params["value"] = value
+        case .form(let action, let selections):
+            params["kind"] = "form"
+            params["action"] = action
+            params["selections"] = selections
         }
         do {
             let request = try MobileCoreRPCClient.requestData(method: "workstream.feed.action", params: params)
             _ = try await target.client.sendRequest(request)
-            agentFeedMutationStates[item.id] = .idle
+            agentFeedMutationStates[item.id] = .awaitingReconciliation
             await scheduleAgentFeedRefresh(target).value
         } catch {
             agentFeedMutationStates[item.id] = .failed(message: String(describing: error))
@@ -138,6 +145,8 @@ extension MobileShellComposite {
     /// Sends a multiline reply once to the item snapshot's pinned route.
     public func sendAgentFeedReply(for item: MobileAgentFeedItem) async {
         guard agentFeedMutationStates[item.id] != .sending,
+              agentFeedMutationStates[item.id] != .awaitingReconciliation,
+              item.isReplyableTurnCompletion,
               let workspaceID = item.wire.workspaceID,
               let surfaceID = item.wire.surfaceID,
               let draft = agentFeedDrafts[item.id],
@@ -156,8 +165,8 @@ extension MobileShellComposite {
                 ]
             )
             _ = try await target.client.sendRequest(request)
-            agentFeedDrafts[item.id] = nil
-            agentFeedMutationStates[item.id] = .idle
+            agentFeedMutationStates[item.id] = .awaitingReconciliation
+            await scheduleAgentFeedRefresh(target).value
         } catch {
             agentFeedMutationStates[item.id] = .failed(message: String(describing: error))
         }
@@ -202,7 +211,25 @@ extension MobileShellComposite {
         }
         let retainedIDs = Set(agentFeedItems.map(\.id))
         agentFeedDrafts = agentFeedDrafts.filter { retainedIDs.contains($0.key) }
-        agentFeedMutationStates = agentFeedMutationStates.filter { retainedIDs.contains($0.key) }
+        var latestByWorkstream: [String: MobileAgentFeedItemID] = [:]
+        for item in agentFeedItems {
+            latestByWorkstream[agentFeedWorkstreamKey(item)] = latestByWorkstream[agentFeedWorkstreamKey(item)] ?? item.id
+        }
+        let itemByID = Dictionary(uniqueKeysWithValues: agentFeedItems.map { ($0.id, $0) })
+        agentFeedMutationStates = agentFeedMutationStates.filter { id, state in
+            guard retainedIDs.contains(id), let item = itemByID[id] else { return false }
+            switch state {
+            case .awaitingReconciliation:
+                // Keep the card locked while the host still reports it as
+                // pending. A successful reply/action must never become
+                // tappable again during a delayed list refresh.
+                return item.wire.status.isPending
+                    || (item.isReplyableTurnCompletion
+                        && latestByWorkstream[agentFeedWorkstreamKey(item)] == item.id)
+            default:
+                return true
+            }
+        }
         recomputeAgentFeedPagingState()
     }
 
@@ -475,10 +502,15 @@ extension MobileShellComposite {
     }
 }
 
+private func agentFeedWorkstreamKey(_ item: MobileAgentFeedItem) -> String {
+    "\(item.macDeviceID)|\(item.macInstanceTag ?? "")|\(item.wire.workstreamID)"
+}
+
 private extension MobileWorkstreamFeedPayload {
     var requestID: String? {
         switch self {
         case .permission(let id, _, _, _), .exitPlan(let id, _, _, _), .question(let id, _): id
+        case .boolean(let id, _, _, _, _), .form(let id, _, _, _): id
         default: nil
         }
     }

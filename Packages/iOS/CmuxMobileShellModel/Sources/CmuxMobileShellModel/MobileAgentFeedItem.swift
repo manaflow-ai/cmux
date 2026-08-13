@@ -29,7 +29,7 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
     /// Whether this row can represent work awaiting a response. Turn-complete
     /// rows still need collection context so only the latest turn is offered.
     public var isActionable: Bool {
-        wire.status.isPending || isTurnCompletion
+        wire.status.isPending || isReplyableTurnCompletion
     }
 
     /// Whether this row marks a point where another prompt can continue the agent.
@@ -42,5 +42,12 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
         default:
             return false
         }
+    }
+
+    /// A completed turn can accept a reply only while it remains a live
+    /// telemetry boundary. Expired and already-resolved rows stay visible in
+    /// All Activity, but never regain an input control.
+    public var isReplyableTurnCompletion: Bool {
+        isTurnCompletion && wire.status == .telemetry
     }
 }
