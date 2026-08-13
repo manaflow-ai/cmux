@@ -159,14 +159,34 @@ struct MoshTerminalCommandBuilderTests {
             let result = try run(
                 builder(
                     sshFallbackCommand: "printf 'ssh fallback\\n'",
-                    preparationShellScript: "false"
+                    preparationShellScript: "printf '%s\\n' 'bootstrap install stderr' >&2; false"
                 ),
                 environment: environment
             )
 
             #expect(result.status == 0)
             #expect(result.stdout == "ssh fallback\n")
-            #expect(result.stderr == "remote probe failed\n")
+            #expect(result.stderr.contains("remote bootstrap install failed"))
+            #expect(result.stderr.contains("bootstrap install stderr"))
+            #expect(!result.stderr.contains("remote probe failed"))
+        }
+    }
+
+    @Test("uses local Mosh address resolution when SSH advertises an unusable address")
+    func unusableRemoteAddressUsesLocalMode() throws {
+        try withFakeCommands(
+            sshStatus: 0,
+            sshConnection: "0.0.0.0 0 0.0.0.0 0"
+        ) { directory, environment in
+            let result = try run(builder(), environment: environment)
+            let moshArguments = try String(
+                contentsOf: directory.appendingPathComponent("mosh.args"),
+                encoding: .utf8
+            )
+
+            #expect(result.status == 0)
+            #expect(moshArguments.firstLine == "--experimental-remote-ip=local")
+            #expect(result.stderr.contains("using local Mosh address resolution"))
         }
     }
 
@@ -269,6 +289,7 @@ struct MoshTerminalCommandBuilderTests {
         executeRemoteCommand: Bool = false,
         installRemoteMoshServerOutsidePath: Bool = false,
         requireManagementReady: Bool = false,
+        sshConnection: String? = nil,
         moshStatus: Int32 = 0,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
@@ -288,6 +309,11 @@ struct MoshTerminalCommandBuilderTests {
               HOME="$FAKE_REMOTE_HOME" PATH=/usr/bin:/bin /bin/sh -c "$cmux_remote_command"
               exit $?
             fi
+            case "$cmux_remote_command" in
+              *SSH_CONNECTION*)
+                printf '%s\\n' "${FAKE_SSH_CONNECTION:-}"
+                ;;
+            esac
             exit "$FAKE_SSH_STATUS"
             """,
             in: directory
@@ -339,6 +365,7 @@ struct MoshTerminalCommandBuilderTests {
             "FAKE_SSH_STATUS": String(sshStatus),
             "FAKE_SSH_EXEC_REMOTE": executeRemoteCommand ? "1" : "0",
             "FAKE_REMOTE_HOME": remoteHome.path,
+            "FAKE_SSH_CONNECTION": sshConnection ?? "",
             "FAKE_MOSH_SUPPORTS_REMOTE_IP": moshSupportsRemoteIP ? "1" : "0",
             "FAKE_REQUIRE_MANAGEMENT_READY": requireManagementReady ? "1" : "0",
             "FAKE_MOSH_STATUS": String(moshStatus),
@@ -379,5 +406,11 @@ struct MoshTerminalCommandBuilderTests {
             String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
             String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         )
+    }
+}
+
+private extension String {
+    var firstLine: String {
+        split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
     }
 }
