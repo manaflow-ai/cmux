@@ -3408,19 +3408,32 @@ struct CMUXCLI {
             .compactMap({ resolveExecutableInPath($0) })
             .first else {
             throw CLIError(
-                message: missingProviderExecutableMessage(
-                    displayName: "CodeRouter CLI",
-                    executableName: "coderouter or cr"
+                message: String(
+                    localized: "cli.coderouter.error.notFound",
+                    defaultValue: "Required CLI not found. Install the command and retry."
                 ),
                 exitCode: 127
             )
         }
 
-        let executionError: Int32 = withCLIDefaultSIGPIPEForChildLaunch {
+        // CodeRouter is an independent executable. Do not hand it cmux's ambient
+        // terminal/control-plane context: CMUX_* and CMUXD_* may carry socket
+        // paths, capabilities, passwords, auth state, or internal paths. There is
+        // intentionally no auth handoff here; a future handoff must be explicit
+        // and narrowly allowlisted.
+        let childEnvironment = ProcessInfo.processInfo.environment.filter { key, _ in
+            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+        }
+        var executionError: Int32 = 0
+        cliExecFailureErrno {
             withCStringArray([executablePath] + commandArgs) { argv in
-                executablePath.withCString { executable in
-                    _ = execv(executable, argv)
-                    return errno
+                withEnvironmentCStringArray(childEnvironment) { environment in
+                    executablePath.withCString { executable in
+                        _ = execve(executable, argv, environment)
+                        // Capture errno before the CString-array cleanup can
+                        // run and potentially overwrite the thread-local value.
+                        executionError = errno
+                    }
                 }
             }
         }
@@ -3432,7 +3445,7 @@ struct CMUXCLI {
         throw CLIError(
             message: String(
                 localized: "cli.coderouter.error.launchFailed",
-                defaultValue: "Could not start the CodeRouter CLI. Verify that coderouter or cr is executable and on PATH, then retry."
+                defaultValue: "Could not start the required CLI. Check the installation and try again."
             ),
             exitCode: 127
         )

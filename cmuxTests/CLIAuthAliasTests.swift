@@ -302,6 +302,105 @@ struct CLICoderouterAliasTests {
         )
     }
 
+    @Test("does not leak cmux control environment to the child")
+    func childEnvironmentExcludesCmuxControlValues() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-environment-\(UUID().uuidString)", isDirectory: true)
+        let environmentURL = root.appendingPathComponent("environment.txt", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeExecutable(
+            """
+            #!/bin/sh
+            /usr/bin/env | /usr/bin/sort > "$CODEROUTER_ENV_FILE"
+            printf 'environment captured\\n'
+            """,
+            at: root.appendingPathComponent("coderouter", isDirectory: false)
+        )
+
+        let result = runCLI(
+            cliPath: cliPath,
+            arguments: ["coderouter", "env"],
+            environment: [
+                "PATH": root.path,
+                "CODEROUTER_ENV_FILE": environmentURL.path,
+                "CODEROUTER_TEST_MARKER": "preserved",
+                "CMUX_SOCKET": "/tmp/cmux-private.sock",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-private-path.sock",
+                "CMUX_SOCKET_CAPABILITY": "capability-secret",
+                "CMUX_SOCKET_PASSWORD": "password-secret",
+                "CMUX_AUTH_CREDENTIALS_FILE": "/tmp/cmux-credentials",
+                "CMUX_WORKSPACE_ID": "workspace-secret",
+                "CMUX_SURFACE_ID": "surface-secret",
+                "CMUXD_UNIX_PATH": "/tmp/cmuxd-private.sock",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "environment captured\n")
+        #expect(result.stderr.isEmpty)
+        let childEnvironment = try String(contentsOf: environmentURL, encoding: .utf8)
+        let childEnvironmentLines = childEnvironment.split(separator: "\n").map(String.init)
+        #expect(
+            !childEnvironmentLines.contains { line in
+                line.hasPrefix("CMUX_") || line.hasPrefix("CMUXD_")
+            },
+            Comment(rawValue: childEnvironment)
+        )
+        #expect(childEnvironmentLines.contains("CODEROUTER_TEST_MARKER=preserved"))
+        #expect(!childEnvironment.contains("capability-secret"))
+        #expect(!childEnvironment.contains("password-secret"))
+        #expect(!childEnvironment.contains("workspace-secret"))
+        #expect(!childEnvironment.contains("surface-secret"))
+    }
+
+    @Test("keeps launch diagnostics internal")
+    func launchFailureDoesNotExposePathOrSystemError() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-launch-failure-\(UUID().uuidString)", isDirectory: true)
+        let executableURL = root.appendingPathComponent("coderouter", isDirectory: false)
+        let debugLogURL = root.appendingPathComponent("debug.log", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        // An executable file without a recognized format makes execve fail after
+        // PATH resolution, exercising the internal diagnostic path.
+        try writeExecutable("not an executable format\n", at: executableURL)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            arguments: ["coderouter", "launch"],
+            environment: [
+                "PATH": root.path,
+                "CMUX_SOCKET_PATH": makeSocketPath("launch-failure"),
+                "CMUX_DEBUG_LOG": debugLogURL.path,
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 127, Comment(rawValue: result.stderr))
+        #expect(result.stdout.isEmpty)
+        #expect(result.stderr.contains("Could not start the required CLI"))
+        #expect(!result.stderr.contains(root.path))
+        #expect(!result.stderr.contains("Exec format error"))
+
+#if DEBUG
+        let debugLog = try String(contentsOf: debugLogURL, encoding: .utf8)
+        #expect(debugLog.contains("cli.coderouter.exec_failed"))
+        #expect(debugLog.contains(executableURL.path))
+        #expect(debugLog.contains("errno="))
+#endif
+    }
+
     @Test("reports an actionable error when neither executable exists")
     func missingExecutableIsActionable() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
@@ -310,6 +409,7 @@ struct CLICoderouterAliasTests {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-coderouter-missing-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeSocketPath("missing")
         defer { try? fileManager.removeItem(at: root) }
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
 
@@ -318,7 +418,9 @@ struct CLICoderouterAliasTests {
             arguments: ["coderouter", "login"],
             environment: [
                 "PATH": root.path,
-                "CMUX_SOCKET_PATH": makeSocketPath("missing"),
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_SOCKET_CAPABILITY": "missing-capability",
+                "CMUX_SOCKET_PASSWORD": "missing-password",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ]
         )
@@ -326,10 +428,15 @@ struct CLICoderouterAliasTests {
         #expect(!result.timedOut)
         #expect(result.status == 127, Comment(rawValue: result.stderr))
         #expect(result.stdout.isEmpty)
-        #expect(result.stderr.contains("CodeRouter CLI"))
-        #expect(result.stderr.contains("coderouter"))
-        #expect(result.stderr.contains("cr"))
-        #expect(result.stderr.contains("PATH"))
+        #expect(result.stderr.contains("Required CLI not found"))
+        #expect(result.stderr.contains("Install the command"))
+        #expect(!result.stderr.contains("CodeRouter"))
+        #expect(!result.stderr.contains("coderouter"))
+        #expect(!result.stderr.contains("PATH"))
+        #expect(!result.stderr.contains(root.path))
+        #expect(!result.stderr.contains(socketPath))
+        #expect(!result.stderr.contains("missing-capability"))
+        #expect(!result.stderr.contains("missing-password"))
     }
 
     private func runCLI(
@@ -342,7 +449,7 @@ struct CLICoderouterAliasTests {
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = arguments
         var childEnvironment = ProcessInfo.processInfo.environment
-        for key in childEnvironment.keys.filter({ $0.hasPrefix("CMUX_") }) {
+        for key in childEnvironment.keys where key.hasPrefix("CMUX_") || key.hasPrefix("CMUXD_") {
             childEnvironment.removeValue(forKey: key)
         }
         childEnvironment.merge(environment) { _, newValue in newValue }
