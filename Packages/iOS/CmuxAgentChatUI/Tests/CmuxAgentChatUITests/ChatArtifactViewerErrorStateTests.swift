@@ -24,6 +24,19 @@ struct ChatArtifactViewerErrorStateTests {
         #expect(state(ChatArtifactError.tooLarge(limitBytes: 9)) == .tooLarge(actualSize: nil, limit: 9))
     }
 
+    @Test func transportCopyNamesTheSideThatIsDown() {
+        // A phone that knows its own session dropped must not send the user
+        // to inspect the Mac.
+        let connected = ChatArtifactConnectionHint.connected.unreachableCopy
+        let reconnecting = ChatArtifactConnectionHint.reconnecting.unreachableCopy
+        let disconnected = ChatArtifactConnectionHint.disconnected.unreachableCopy
+        #expect(connected.title != reconnecting.title)
+        #expect(connected.title != disconnected.title)
+        #expect(reconnecting.title != disconnected.title)
+        #expect(!reconnecting.message.contains("Check the connection"))
+        #expect(!disconnected.message.contains("Check the connection"))
+    }
+
     @Test func onlyTransportErrorsClaimTheMacIsUnreachable() {
         struct DecodeFailure: Error {}
         // A reply that round-tripped but failed to decode is not a

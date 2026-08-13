@@ -14,6 +14,7 @@ struct MarkdownSurfaceView: View {
     let surface: MobileSurfacePreview
     let path: String
     let loader: ChatArtifactLoader
+    let connectionStatus: MobileMacConnectionStatus
 
     @State private var model = MarkdownSurfaceModel()
     @State private var retryCount = 0
@@ -86,14 +87,8 @@ struct MarkdownSurfaceView: View {
         case .macUnreachable:
             MacSurfaceMessageView(
                 systemImage: "wifi.exclamationmark",
-                title: L10n.string(
-                    "mobile.surface.macUnreachable.title",
-                    defaultValue: "Mac unreachable"
-                ),
-                message: L10n.string(
-                    "mobile.surface.macUnreachable.message",
-                    defaultValue: "Check the connection to your Mac and try again."
-                ),
+                title: unreachableTitle,
+                message: unreachableMessage,
                 retry: { retryCount += 1 }
             )
         case .tooLarge(let actualSize, let limit):
@@ -158,6 +153,40 @@ struct MarkdownSurfaceView: View {
     private var progressValue: Double? {
         guard let total = model.totalBytes, total > 0 else { return nil }
         return Double(model.fetchedBytes) / Double(total)
+    }
+
+    /// Transport-failure copy names the side that is actually down: the
+    /// phone's own dropped/reforming session reads as such, and only a
+    /// healthy-looking session blames the path to the Mac.
+    private var unreachableTitle: String {
+        switch connectionStatus {
+        case .connected:
+            L10n.string("mobile.surface.macUnreachable.title", defaultValue: "Mac unreachable")
+        case .reconnecting:
+            L10n.string("mobile.surface.reconnecting.title", defaultValue: "Reconnecting\u{2026}")
+        case .unavailable:
+            L10n.string("mobile.surface.disconnected.title", defaultValue: "Not connected")
+        }
+    }
+
+    private var unreachableMessage: String {
+        switch connectionStatus {
+        case .connected:
+            L10n.string(
+                "mobile.surface.macUnreachable.message",
+                defaultValue: "Check the connection to your Mac and try again."
+            )
+        case .reconnecting:
+            L10n.string(
+                "mobile.surface.reconnecting.message",
+                defaultValue: "This phone's connection to the Mac dropped and is coming back. Retry in a moment."
+            )
+        case .unavailable:
+            L10n.string(
+                "mobile.surface.disconnected.message",
+                defaultValue: "This phone isn't connected to the Mac right now. Reconnect, then retry."
+            )
+        }
     }
 
     private func loadFailedMessage(code: String?) -> String {

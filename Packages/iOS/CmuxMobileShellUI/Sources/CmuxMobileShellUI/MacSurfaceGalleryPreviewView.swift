@@ -29,13 +29,15 @@ public struct MacSurfaceGalleryPreviewView: View {
             PanelFileSurfaceView(
                 surface: Self.fileSurface,
                 path: Self.textPath,
-                loader: Self.fixtureLoader
+                loader: Self.fixtureLoader,
+                connectionStatus: .connected
             )
         case "markdown":
             MarkdownSurfaceView(
                 surface: Self.markdownSurface,
                 path: Self.markdownPath,
-                loader: Self.fixtureLoader
+                loader: Self.fixtureLoader,
+                connectionStatus: .connected
             )
         case "fallback":
             SurfaceFallbackCardView(

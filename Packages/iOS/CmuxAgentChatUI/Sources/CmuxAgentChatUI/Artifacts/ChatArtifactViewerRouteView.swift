@@ -12,6 +12,9 @@ struct ChatArtifactViewerRouteView: View {
     let snapshot: ChatArtifactViewerPageSnapshot
     let scope: ChatArtifactViewerScope
     let actions: ChatArtifactViewerPageActions
+    /// The host's live session state, so transport-failure copy tells the
+    /// user which side is down instead of always blaming the Mac.
+    var connectionHint: ChatArtifactConnectionHint = .connected
     let onDone: () -> Void
     let onImageMinimumZoomChanged: (Bool) -> Void
     let onImageAction: (@MainActor (ChatArtifactAction) -> Void)?
@@ -23,6 +26,7 @@ struct ChatArtifactViewerRouteView: View {
         snapshot: ChatArtifactViewerPageSnapshot,
         scope: ChatArtifactViewerScope,
         actions: ChatArtifactViewerPageActions,
+        connectionHint: ChatArtifactConnectionHint = .connected,
         onImageMinimumZoomChanged: @escaping (Bool) -> Void = { _ in },
         onImageAction: (@MainActor (ChatArtifactAction) -> Void)? = nil,
         onDone: @escaping () -> Void
@@ -30,6 +34,7 @@ struct ChatArtifactViewerRouteView: View {
         self.snapshot = snapshot
         self.scope = scope
         self.actions = actions
+        self.connectionHint = connectionHint
         self.onDone = onDone
         self.onImageMinimumZoomChanged = onImageMinimumZoomChanged
         self.onImageAction = onImageAction
@@ -197,8 +202,8 @@ struct ChatArtifactViewerRouteView: View {
             )
         case .macUnreachable:
             unavailableView(
-                title: String(localized: "chat.artifact.mac_unreachable.title", defaultValue: "Mac unreachable", bundle: .module),
-                message: String(localized: "chat.artifact.mac_unreachable.message", defaultValue: "Check the connection to your Mac and try again.", bundle: .module),
+                title: connectionHint.unreachableCopy.title,
+                message: connectionHint.unreachableCopy.message,
                 retry: true
             )
         case .forbidden:

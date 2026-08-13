@@ -137,6 +137,40 @@
         }
       }
     },
+    "chat.artifact.disconnected.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone isn't connected to the Mac right now. Reconnect, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneは現在Macに接続されていません。再接続してからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.disconnected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続"
+          }
+        }
+      }
+    },
     "chat.artifact.done": {
       "extractionState": "manual",
       "localizations": {
@@ -779,6 +813,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "プレビューできません"
+          }
+        }
+      }
+    },
+    "chat.artifact.reconnecting.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone's connection to the Mac dropped and is coming back. Retry in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneとMacの接続が切断され、再接続中です。しばらくしてからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.reconnecting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
           }
         }
       }

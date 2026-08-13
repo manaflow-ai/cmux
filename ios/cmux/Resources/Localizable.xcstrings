@@ -4472,6 +4472,8 @@
         }
       }
     },
+    "mobile.surface.disconnected.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This phone isn't connected to the Mac right now. Reconnect, then retry."}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneは現在Macに接続されていません。再接続してからもう一度お試しください。"}}}},
+    "mobile.surface.disconnected.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Not connected"}},"ja":{"stringUnit":{"state":"translated","value":"未接続"}}}},
     "mobile.surface.explainer.agentSession": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This agent session is running in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このエージェントセッションはMacのcmuxで実行中です。"}}}},
     "mobile.surface.explainer.browser": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This browser tab is open in cmux on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このブラウザタブはMacのcmuxで開かれています。"}}}},
     "mobile.surface.explainer.cloudVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This Cloud VM is still starting up on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"このクラウドVMはMac側で起動中です。"}}}},
@@ -4494,6 +4496,8 @@
     "mobile.surface.macUnreachable.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mac unreachable"}},"ja":{"stringUnit":{"state":"translated","value":"Macに接続できません"}}}},
     "mobile.surface.panelClosed.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"That file panel is no longer open on your Mac."}},"ja":{"stringUnit":{"state":"translated","value":"そのファイルパネルはMac上で開かれていません。"}}}},
     "mobile.surface.panelClosed.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Panel closed"}},"ja":{"stringUnit":{"state":"translated","value":"パネルは閉じられました"}}}},
+    "mobile.surface.reconnecting.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This phone's connection to the Mac dropped and is coming back. Retry in a moment."}},"ja":{"stringUnit":{"state":"translated","value":"このiPhoneとMacの接続が切断され、再接続中です。しばらくしてからもう一度お試しください。"}}}},
+    "mobile.surface.reconnecting.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reconnecting…"}},"ja":{"stringUnit":{"state":"translated","value":"再接続中…"}}}},
     "mobile.surface.retry": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Retry"}},"ja":{"stringUnit":{"state":"translated","value":"再試行"}}}},
     "mobile.surface.tooLarge.limitFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This preview is limited to %@."}},"ja":{"stringUnit":{"state":"translated","value":"プレビューは%@までに制限されています。"}}}},
     "mobile.surface.tooLarge.messageFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This file is %1$@; previews are limited to %2$@."}},"ja":{"stringUnit":{"state":"translated","value":"このファイルは%1$@です。プレビューは%2$@までに制限されています。"}}}},

@@ -102,7 +102,8 @@ extension WorkspaceDetailView {
                 loader: panelArtifactLoader(
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
                     surfaceID: macSurface.id.rawValue
-                )
+                ),
+                connectionStatus: connectionStatus
             )
             .id(macSurface.id.rawValue)
         case .markdown(let path):
@@ -112,7 +113,8 @@ extension WorkspaceDetailView {
                 loader: panelArtifactLoader(
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
                     surfaceID: macSurface.id.rawValue
-                )
+                ),
+                connectionStatus: connectionStatus
             )
             .id(macSurface.id.rawValue)
         case .fallbackCard:

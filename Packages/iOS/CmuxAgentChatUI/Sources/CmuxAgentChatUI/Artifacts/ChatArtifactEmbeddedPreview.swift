@@ -17,6 +17,7 @@ public struct ChatArtifactEmbeddedPreview: View {
     private let scope: ChatArtifactViewerScope
     private let loader: ChatArtifactLoader
     private let refreshToken: String?
+    private let connectionHint: ChatArtifactConnectionHint
 
     /// Creates an embedded, chrome-free artifact preview.
     ///
@@ -31,12 +32,14 @@ public struct ChatArtifactEmbeddedPreview: View {
         path: String,
         scope: ChatArtifactViewerScope,
         loader: ChatArtifactLoader,
-        refreshToken: String? = nil
+        refreshToken: String? = nil,
+        connectionHint: ChatArtifactConnectionHint = .connected
     ) {
         self.path = path
         self.scope = scope
         self.loader = loader
         self.refreshToken = refreshToken
+        self.connectionHint = connectionHint
     }
 
     public var body: some View {
@@ -44,7 +47,8 @@ public struct ChatArtifactEmbeddedPreview: View {
             path: path,
             scope: scope,
             loader: loader,
-            refreshToken: refreshToken
+            refreshToken: refreshToken,
+            connectionHint: connectionHint
         )
         .id(path)
     }
@@ -56,6 +60,7 @@ private struct EmbeddedArtifactPage: View {
     let scope: ChatArtifactViewerScope
     let loader: ChatArtifactLoader
     let refreshToken: String?
+    let connectionHint: ChatArtifactConnectionHint
 
     @State private var model: ChatArtifactViewerPageModel
 
@@ -63,12 +68,14 @@ private struct EmbeddedArtifactPage: View {
         path: String,
         scope: ChatArtifactViewerScope,
         loader: ChatArtifactLoader,
-        refreshToken: String?
+        refreshToken: String?,
+        connectionHint: ChatArtifactConnectionHint
     ) {
         self.path = path
         self.scope = scope
         self.loader = loader
         self.refreshToken = refreshToken
+        self.connectionHint = connectionHint
         _model = State(initialValue: ChatArtifactViewerPageModel(
             path: path,
             textPreferences: ChatArtifactTextPreferences(defaults: .standard)
@@ -93,6 +100,7 @@ private struct EmbeddedArtifactPage: View {
                     #endif
                 }
             ),
+            connectionHint: connectionHint,
             onDone: {}
         )
         .onChange(of: refreshToken) { _, _ in

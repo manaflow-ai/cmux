@@ -13,6 +13,7 @@ struct PanelFileSurfaceView: View {
     let surface: MobileSurfacePreview
     let path: String
     let loader: ChatArtifactLoader
+    let connectionStatus: MobileMacConnectionStatus
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +26,8 @@ struct PanelFileSurfaceView: View {
                 path: path,
                 scope: .panel,
                 loader: loader,
-                refreshToken: surface.title
+                refreshToken: surface.title,
+                connectionHint: connectionStatus.artifactConnectionHint
             )
         }
     }
