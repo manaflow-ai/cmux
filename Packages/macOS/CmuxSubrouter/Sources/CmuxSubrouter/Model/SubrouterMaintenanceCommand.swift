@@ -59,6 +59,14 @@ public enum SubrouterMaintenanceCommand {
     /// button runs this when the local daemon is unreachable.
     public static var setup: String { "cmux subrouter setup" }
 
+    /// The pre-typed template for pointing `sr` at a hosted subrouter
+    /// server instead of the local daemon. Never auto-run: the user
+    /// replaces the placeholders and presses Return (`sr server use local`
+    /// returns to the local daemon later).
+    public static var connectServer: String {
+        "cmux sr server add <name> --url <url> --default"
+    }
+
     /// Wraps a value in single quotes for POSIX shells, escaping any
     /// embedded single quotes. Account ids are emails or profile names,
     /// but they cross a shell boundary and must never be interpolated raw.

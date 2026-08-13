@@ -21,6 +21,13 @@ import Testing
         )
     }
 
+    @Test func connectServerIsAPreTypedTemplate() {
+        #expect(
+            SubrouterMaintenanceCommand.connectServer
+                == "cmux sr server add <name> --url <url> --default"
+        )
+    }
+
     @Test func remoteAddChainsTheServerUpload() {
         #expect(
             SubrouterMaintenanceCommand.addAccount(provider: .codex, serverName: "cmux-mac-mini")

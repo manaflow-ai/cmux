@@ -24,6 +24,10 @@ public struct SubrouterDaemonStatusView: View {
     /// Opens a terminal running `cmux subrouter setup`, or `nil` when the
     /// host cannot open terminals (previews, tests, remote endpoints).
     private let onSetup: (() -> Void)?
+    /// Opens a terminal with the connect-to-hosted-server command
+    /// pre-typed, or `nil` when the host cannot open terminals or the
+    /// endpoint is already remote.
+    private let onConnectServer: (() -> Void)?
 
     /// Creates the status header.
     /// - Parameters:
@@ -35,6 +39,8 @@ public struct SubrouterDaemonStatusView: View {
     ///   - onRetry: The manual-retry action.
     ///   - onSetup: Opens a terminal running the first-run setup, shown as
     ///     the primary action when the local daemon is unreachable.
+    ///   - onConnectServer: Opens a terminal with the hosted-server
+    ///     connect command pre-typed, shown as the secondary path.
     public init(
         state: SubrouterDaemonState,
         lastErrorDescription: String?,
@@ -42,7 +48,8 @@ public struct SubrouterDaemonStatusView: View {
         isRemoteEndpoint: Bool = false,
         serverName: String? = nil,
         onRetry: @escaping () -> Void,
-        onSetup: (() -> Void)? = nil
+        onSetup: (() -> Void)? = nil,
+        onConnectServer: (() -> Void)? = nil
     ) {
         self.state = state
         self.lastErrorDescription = lastErrorDescription
@@ -51,6 +58,7 @@ public struct SubrouterDaemonStatusView: View {
         self.serverName = serverName
         self.onRetry = onRetry
         self.onSetup = onSetup
+        self.onConnectServer = onConnectServer
     }
 
     public var body: some View {
@@ -137,6 +145,17 @@ public struct SubrouterDaemonStatusView: View {
             )
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.orange)
+            // First-run guidance for the local daemon: name both hosting
+            // choices and mark local as the default path.
+            if !isRemoteEndpoint {
+                Text(String(
+                    localized: "subrouter.daemon.setupExplainer",
+                    defaultValue: "Set up the local subrouter on this Mac (default), or connect to a hosted subrouter server."
+                ))
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
             if let lastErrorDescription, !lastErrorDescription.isEmpty {
                 Text(lastErrorDescription)
                     .font(.system(size: 9))
@@ -169,6 +188,17 @@ public struct SubrouterDaemonStatusView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.mini)
                 }
+                if !isRemoteEndpoint, let onConnectServer {
+                    Button(action: onConnectServer) {
+                        Text(String(
+                            localized: "subrouter.daemon.connectServer",
+                            defaultValue: "Use a server…"
+                        ))
+                        .font(.system(size: 10))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
                 Button(action: onRetry) {
                     Text(String(localized: "subrouter.daemon.retry", defaultValue: "Retry"))
                         .font(.system(size: 10))
@@ -192,7 +222,7 @@ public struct SubrouterDaemonStatusView: View {
         }
         return String(
             localized: "subrouter.daemon.unreachable",
-            defaultValue: "subrouter daemon unreachable"
+            defaultValue: "Subrouter isn't running"
         )
     }
 }

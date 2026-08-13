@@ -56,7 +56,10 @@ public struct AgentsPanelView: View {
                     onRetry: { store.refresh(reason: "retry") },
                     onSetup: configuration.isRemoteEndpoint
                         ? nil
-                        : terminalAction(.setup())
+                        : terminalAction(.setup()),
+                    onConnectServer: configuration.isRemoteEndpoint
+                        ? nil
+                        : terminalAction(.connectServer())
                 )
                 if let switchError = store.lastSwitchError {
                     switchErrorBanner(switchError)

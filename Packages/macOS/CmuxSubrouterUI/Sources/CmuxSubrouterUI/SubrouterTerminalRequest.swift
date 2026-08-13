@@ -48,6 +48,19 @@ public struct SubrouterTerminalRequest: Sendable, Equatable {
         )
     }
 
+    /// The connect-to-hosted-server request. Pre-typed, never auto-run:
+    /// the user fills in the server name and URL before pressing Return.
+    public static func connectServer() -> SubrouterTerminalRequest {
+        SubrouterTerminalRequest(
+            workspaceTitle: String(
+                localized: "subrouter.terminal.connectServerTitle",
+                defaultValue: "Connect subrouter server"
+            ),
+            command: SubrouterMaintenanceCommand.connectServer,
+            runsImmediately: false
+        )
+    }
+
     /// The re-login request for an account, or `nil` when unsupported.
     public static func signIn(account: SubrouterAccountUsageStatus) -> SubrouterTerminalRequest? {
         guard let command = SubrouterMaintenanceCommand.signIn(

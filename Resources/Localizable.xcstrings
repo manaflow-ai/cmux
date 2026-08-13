@@ -266810,13 +266810,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "subrouter daemon unreachable"
+            "value": "Subrouter isn't running"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "subrouter デーモンに接続できません"
+            "value": "Subrouterが起動していません"
           }
         }
       }
@@ -267514,6 +267514,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "週間制限"
+          }
+        }
+      }
+    },
+    "subrouter.daemon.setupExplainer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up the local subrouter on this Mac (default), or connect to a hosted subrouter server."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacにローカルのSubrouterをセットアップ（デフォルト）するか、ホスト済みのSubrouterサーバーに接続します。"
+          }
+        }
+      }
+    },
+    "subrouter.daemon.connectServer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a server…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーを使用…"
+          }
+        }
+      }
+    },
+    "subrouter.terminal.connectServerTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect subrouter server"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subrouterサーバーに接続"
           }
         }
       }
