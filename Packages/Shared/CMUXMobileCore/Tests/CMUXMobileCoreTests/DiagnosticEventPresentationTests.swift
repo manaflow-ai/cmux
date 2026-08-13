@@ -38,12 +38,34 @@ import Testing
 
     @Test func describesDirectDialBootstrapTrace() {
         let plan = englishPresentation.describe(
-            DiagnosticEvent(code: .transportDialPlanBuilt, tNanos: 1, a: 0, b: 0)
+            DiagnosticEvent(
+                code: .transportDialPlanBuilt,
+                tNanos: 1,
+                a: 2,
+                b: 0,
+                c: 1
+            )
         )
-        #expect(plan.name == "Direct dial plan assembled")
+        #expect(plan.name == "Transport dial plan built")
         #expect(plan.fields == [
-            .init(key: "public_paths", value: "0"),
+            .init(key: "public_paths", value: "2"),
             .init(key: "private_fallback_paths", value: "0"),
+            .init(key: "public_relay_urls", value: "1"),
+        ])
+
+        let discovery = englishPresentation.describe(DiagnosticEvent(
+            code: .discoverySucceeded,
+            tNanos: 1,
+            ms: 340,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: 2,
+            c: 3
+        ))
+        #expect(discovery.fields == [
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "bindings", value: "2"),
+            .init(key: "duration", value: "340 ms"),
+            .init(key: "relay_fleet", value: "3"),
         ])
 
         let join = englishPresentation.describe(DiagnosticEvent(
@@ -53,7 +75,7 @@ import Testing
             b: 2,
             c: 0
         ))
-        #expect(join.name == "Private addresses joined broker port")
+        #expect(join.name == "Private address candidate joined")
         #expect(join.fields.contains(
             .init(key: "join", value: "Broker ports missing or stale")
         ))
@@ -67,7 +89,7 @@ import Testing
             a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
             b: 0
         ))
-        #expect(lan.name == "LAN discovery resolved")
+        #expect(lan.name == "LAN discovery completed")
         #expect(lan.fields.contains(
             .init(key: "outcome", value: "Local Network permission denied")
         ))
@@ -89,7 +111,7 @@ import Testing
             a: DiagnosticLANPublicationState.policyDenied.rawValue,
             b: 0
         ))
-        #expect(publication.name == "LAN advertisement state changed")
+        #expect(publication.name == "LAN publication state changed")
         #expect(publication.fields.contains(
             .init(key: "state", value: "Local Network permission denied")
         ))
@@ -150,8 +172,8 @@ import Testing
             .init(key: "session", value: "9"),
         ])
         let closeSummary = englishPresentation.summary(close)
-        #expect(!closeSummary.contains("Session"))
-        #expect(!closeSummary.contains("9"))
+        #expect(closeSummary.contains("Session"))
+        #expect(closeSummary.contains("9"))
     }
 
     @Test func describesLifecycleAndReachability() {
@@ -238,12 +260,15 @@ import Testing
             .browserInputReplayed: "Browser input replayed",
             .browserEditableFocus: "Browser editable focus",
             .browserPanelCreateResolved: "Browser panel create resolved",
-            .transportDialPlanBuilt: "Direct dial plan assembled",
-            .transportPrivateAddressJoin: "Private addresses joined broker port",
-            .transportLANDiscovery: "LAN discovery resolved",
-            .transportDialLegSucceeded: "Direct dial leg connected",
+            .transportDialPlanBuilt: "Transport dial plan built",
+            .transportPrivateAddressJoin: "Private address candidate joined",
+            .transportLANDiscovery: "LAN discovery completed",
+            .transportDialLegSucceeded: "Direct dial leg succeeded",
             .transportDialLegFailed: "Direct dial leg failed",
-            .lanPublicationState: "LAN advertisement state changed",
+            .lanPublicationState: "LAN publication state changed",
+            .transportDialSessionLinked: "Transport dial linked to session",
+            .transportDialCancelled: "Transport dial cancelled",
+            .transportCloseReason: "Remote close reason",
             .simulatorStreamLifecycle: "Simulator stream state changed",
             .simulatorFrameLifecycle: "Simulator frame pipeline changed",
             .simulatorInputLifecycle: "Simulator input state changed",
@@ -272,6 +297,57 @@ import Testing
         #expect(recovery.fields == [
             .init(key: "transport", value: "Iroh"),
             .init(key: "trigger", value: "Network changed"),
+        ])
+
+        let recoveryWithContext = englishPresentation.describe(DiagnosticEvent(
+            code: .recoverySucceeded,
+            tNanos: 1,
+            surface: 77,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            c: 12
+        ))
+        #expect(recoveryWithContext.fields == [
+            .init(key: "recovery", value: "77"),
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "peer", value: "12"),
+        ])
+
+        let linked = englishPresentation.describe(DiagnosticEvent(
+            code: .transportDialSessionLinked,
+            tNanos: 1,
+            surface: 8,
+            a: 42,
+            c: 12
+        ))
+        #expect(linked.fields == [
+            .init(key: "peer", value: "8"),
+            .init(key: "attempt", value: "42"),
+            .init(key: "session", value: "12"),
+        ])
+
+        let cancelled = englishPresentation.describe(DiagnosticEvent(
+            code: .transportDialCancelled,
+            tNanos: 1,
+            surface: 8,
+            ms: 120,
+            a: DiagnosticCancellationReason.requestTimedOut.rawValue,
+            c: 42
+        ))
+        #expect(cancelled.fields.contains(
+            .init(key: "cancellation", value: "Request timed out")
+        ))
+
+        let closeReason = englishPresentation.describe(DiagnosticEvent(
+            code: .transportCloseReason,
+            tNanos: 1,
+            surface: 8,
+            a: DiagnosticRemoteCloseReason.superseded.rawValue,
+            c: 12
+        ))
+        #expect(closeReason.fields == [
+            .init(key: "peer", value: "8"),
+            .init(key: "reason", value: "Superseded session"),
+            .init(key: "session", value: "12"),
         ])
 
         let endpoint = englishPresentation.describe(DiagnosticEvent(

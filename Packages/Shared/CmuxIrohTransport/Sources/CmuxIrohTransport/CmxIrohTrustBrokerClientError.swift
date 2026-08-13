@@ -17,7 +17,11 @@ public enum CmxIrohTrustBrokerClientError:
     case rejected(statusCode: Int, code: String?)
     case invalidResponse
 
-    static func preservesVerifiedPolicyDuringRefresh(_ error: any Error) -> Bool {
+    /// Whether an inconclusive refresh may preserve already-verified state.
+    ///
+    /// This never admits a new peer. Callers may retain only state whose own
+    /// signed lease or policy expiry remains authoritative.
+    static func preservesVerifiedStateDuringRefresh(_ error: any Error) -> Bool {
         if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
             return true
         }
@@ -32,11 +36,11 @@ public enum CmxIrohTrustBrokerClientError:
             // broker client's single force-refresh retry, so it is a session
             // transition still settling (rotation race, locked token store) or
             // a server-side availability condition — not a trust change. The
-            // cached policy was verified when stored; tearing the runtime down
-            // buys nothing and turns a seconds-long auth blip into a full
-            // endpoint rebuild. A genuinely dead session clears auth state
-            // through the coordinator, which stops the runtime through the
-            // lifecycle owner instead.
+            // existing state remains bounded by its signed expiry; tearing it
+            // down buys nothing and turns a seconds-long auth blip into a full
+            // endpoint or session rebuild. A genuinely dead session clears
+            // auth state through the coordinator, which stops the runtime
+            // through the lifecycle owner instead.
             return statusCode == 401
                 || statusCode == 408
                 || statusCode == 425

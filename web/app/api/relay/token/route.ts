@@ -23,6 +23,7 @@ import {
 import {
   RelayConfigurationError,
   RelayDatabaseError,
+  relayAuthenticationError,
 } from "../../../../services/relay/errors";
 import {
   productionRelayWorkflowConfig,
@@ -115,7 +116,32 @@ export async function handleRelayTokenRequest(
   request: Request,
   deps: RelayTokenDeps,
 ): Promise<Response> {
-  const user = await deps.verifyRequest(request);
+  // Apply the cheap IP-scoped gate before calling Stack Auth. A storming
+  // client must not spend one upstream users/me request per retry. The clone
+  // preserves the existing auth-first semantics for malformed requests, which
+  // must not consume a valid relay-token budget.
+  if (await hasValidRelayEndpoint(request)) {
+    try {
+      await runRelayEffect(enforceRelayRateLimit({
+        request,
+        accountId: "pre-auth",
+        rateLimitKey: null,
+        ruleId: deps.rateLimitRuleId(),
+        check: deps.checkRateLimit,
+        isVercel: deps.isVercel(),
+        retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS,
+      }));
+    } catch (error) {
+      return relayErrorResponse(error);
+    }
+  }
+
+  let user: AuthedUser | null;
+  try {
+    user = await deps.verifyRequest(request);
+  } catch (error) {
+    return relayErrorResponse(relayAuthenticationError(error));
+  }
   if (!user) return unauthorized();
 
   try {
@@ -254,4 +280,14 @@ function homogeneousLegacyCredential(
 
 export function POST(request: Request): Promise<Response> {
   return handleRelayTokenRequest(request, productionDeps);
+}
+
+async function hasValidRelayEndpoint(request: Request): Promise<boolean> {
+  try {
+    const body = await readBoundedJsonObject(request.clone(), MAX_BODY_BYTES);
+    const endpointId = body.ok ? body.value.endpointId : undefined;
+    return typeof endpointId === "string" && isValidEndpointId(endpointId);
+  } catch {
+    return false;
+  }
 }
