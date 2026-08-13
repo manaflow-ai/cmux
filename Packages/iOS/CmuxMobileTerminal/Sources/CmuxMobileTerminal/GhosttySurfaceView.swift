@@ -3552,7 +3552,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 )
                 Task { @MainActor [weak self] in
-                    self?.acceptVerifiedReplayObservedFrame(
+                    guard let self else { return }
+                    self.acceptVerifiedReplayObservedFrame(
                         observed,
                         submission: VerifiedReplayRenderSubmission(
                             surface: submission.surface,
@@ -3560,6 +3561,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                         ),
                         generation: submission.generation
                     )
+                    // A failed read-back never submits a tokened render, so
+                    // Ghostty cannot deliver the callback that normally
+                    // releases the presentation gate.
+                    if observed == nil {
+                        self.cancelRenderSubmission(token: submission.token)
+                    }
                 }
             }
         }
@@ -3568,18 +3575,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Called only from the render-presented bridge callback. A stale callback
     /// cannot release the gate or advance fallback visibility.
     func finishRenderSubmission(token: UInt64) {
+        releaseRenderSubmission(token: token, presented: true)
+    }
+
+    /// Releases a submission that failed before Ghostty could present it.
+    private func cancelRenderSubmission(token: UInt64) {
+        releaseRenderSubmission(token: token, presented: false)
+    }
+
+    private func releaseRenderSubmission(token: UInt64, presented: Bool) {
         guard let submission = renderSubmission,
               submission.token == token,
               submission.generation == surfaceGeneration else { return }
-        let action = renderPresentationGate.complete(
-            token: token,
-            generation: submission.generation
-        )
+        let action = presented
+            ? renderPresentationGate.complete(
+                token: token,
+                generation: submission.generation
+            )
+            : renderPresentationGate.cancel(
+                token: token,
+                generation: submission.generation
+            )
         guard action != .ignored else { return }
         renderSubmission = nil
         renderInFlight = false
         renderInFlightSince = nil
-        if hasAppliedOutput {
+        if presented && hasAppliedOutput {
             surfaceHasReceivedOutput = true
             snapshotFallbackView.isHidden = true
         }
@@ -3587,12 +3608,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let surfaceID = hostSurfaceID {
             if let sequence = latencyLastAppliedSequence {
                 MobileLatencyTrace.stamp(
-                    "rd.present",
+                    presented ? "rd.present" : "rd.cancel",
                     "s=\(surfaceID.prefix(8).lowercased()) seq=\(sequence)"
                 )
             } else {
                 MobileLatencyTrace.stamp(
-                    "rd.present",
+                    presented ? "rd.present" : "rd.cancel",
                     "s=\(surfaceID.prefix(8).lowercased())"
                 )
             }
@@ -4395,7 +4416,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
 
-        let rendererHasContents = hasAppliedOutput &&
+        // Existing IOSurface contents may belong to the previous model while a
+        // newer output batch is waiting behind the presentation gate. They are
+        // not evidence that the newer model is visible, so never use them to
+        // hide the fallback before the matching token callback.
+        let rendererHasContents = !hasAppliedOutput &&
             !prefersSnapshotFallbackRendering &&
             (layer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
         if rendererHasContents {
