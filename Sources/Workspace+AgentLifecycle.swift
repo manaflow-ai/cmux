@@ -311,7 +311,7 @@ extension Workspace {
         case .commandRunning:
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.awaitingAutoResumeCommand):
-                restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+                restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning),
                  .some(.completedAgentExit):
                 break
@@ -338,10 +338,10 @@ extension Workspace {
     ) {
         switch (shellState, restoredAgentResumeStatesByPanelId[panelId]) {
         case (.commandRunning, .some(.awaitingAutoResumeCommand)):
-            restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+            restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
-            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+            restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             retireAgentHookResumeBinding(panelId: panelId)
         default:
@@ -488,23 +488,6 @@ extension Workspace {
             for: liveIndex?.entry(workspaceId: id, panelId: panelId),
             kind: kind,
             sessionId: checkpointId
-        )
-    }
-
-    func seedSessionRestoredAgentState(
-        panelId: UUID,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        willRunStartupCommand: Bool,
-        willRunStartupInput: Bool,
-        resumeSessionWorkingDirectory: String?
-    ) {
-        restoredAgentLifecycle.seedSessionRestore(
-            panelId: panelId,
-            snapshot: restorableAgent,
-            manualResumeAvailable: restorableAgent != nil,
-            willRunStartupCommand: willRunStartupCommand,
-            willRunStartupInput: willRunStartupInput,
-            resumeWorkingDirectory: resumeSessionWorkingDirectory
         )
     }
 

@@ -633,15 +633,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
     }
 
-    #if DEBUG
-    /// Structured diagnostic log (DEBUG dogfood builds only), property-injected
-    /// from the shell store by ``GhosttySurfaceRepresentable`` so the
-    /// composer-dock probes land in the blob the diagnostic export captures.
-    /// `nil` in hosts that do not wire it; every probe is then a no-op. The
-    /// property does not exist in release builds — every reader is inside a
-    /// `#if DEBUG` block.
+    /// Structured diagnostic log, property-injected from the shell store by
+    /// ``GhosttySurfaceRepresentable`` so the composer-dock probes land in the
+    /// blob the diagnostic export captures. The event payloads are bounded and
+    /// privacy-safe, so the same sink is available in Release builds. `nil` in
+    /// hosts that do not wire it; every probe is then a no-op.
     public var diagnosticLog: DiagnosticLog?
-    #endif
 
     private lazy var inputSession = TerminalInputSessionCoordinator(
         focus: { [weak self] owner in
@@ -700,16 +697,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputProxy.onZoom = { [weak self] direction in
             self?.performFontZoom(direction)
         }
+        inputProxy.onToolbarDiagnosticAction = { [weak self] action in
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: action)
+        }
         inputProxy.onToggleComposer = { [weak self] in
             guard let self else { return }
             self.handleComposerButtonTap()
         }
         inputProxy.onHideKeyboard = { [weak self] in
             guard let self else { return }
-            #if DEBUG
-            // The keyboard-toggle was tapped while composing. Round 8 no longer
-            // dismisses the composer here (the composer survives a keyboard-down), so
-            // this is now purely diagnostic.
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .keyboardToggle)
+            // The keyboard toggle is a low-frequency, privacy-safe lifecycle
+            // edge. Keep it in Release diagnostics so a shared user log can
+            // distinguish responder loss from an intentional keyboard close.
             if self.composerActive {
                 let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
                 self.diagnosticLog?.record(DiagnosticEvent(
@@ -719,7 +720,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     b: frOwner.rawValue
                 ))
             }
-            #endif
             // Round 8: the keyboard-toggle button only raises/lowers the keyboard. The
             // toolbar stays visible either way, and an open composer survives a
             // keyboard-down (its draft lives in the store; the field just loses focus).
@@ -736,10 +736,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         inputProxy.onHideChrome = { [weak self] in
-            self?.setChromeHidden(true)
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .hideChrome)
+            self.setChromeHidden(true)
         }
         inputProxy.onOpenToolbarSettings = { [weak self] in
             guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .customize)
             self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
         }
         inputProxy.onOpenArtifactFiles = { [weak self] sourceView in
@@ -1637,12 +1640,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux(
             "composer.toggle active=\(active) keyboardHeight=\(Int(keyboardHeight)) occInBounds=\(Int(keyboardOccupancyInBounds)) barHidden=\(dockedToolbar?.isHidden ?? true) barY=\(Int(barFrame.minY)) barH=\(Int(barFrame.height)) boundsH=\(Int(bounds.height))"
         )
-        // COMPOSER: structured event for the item-4 edge case (composer shown while
-        // textbox/keyboard hidden). Captures the composer-active transition plus the
-        // resolved first-responder owner and keyboardHeight at that instant, into the
-        // same sink the round-4 composer flag/appear/focus events use. With these,
-        // a captured trace shows whether the composer ever ends up active with the
-        // FR owned by no terminal/composer responder and keyboardHeight 0.
+        #endif
+        // This structured transition contains only booleans, a bounded height,
+        // and a fixed responder category, so it remains safe in Release logs.
         let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
         diagnosticLog?.record(DiagnosticEvent(
             .composerActiveTransition,
@@ -1651,7 +1651,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             b: frOwner.rawValue,
             c: inputProxy.isFirstResponder ? 1 : 0
         ))
-        #endif
     }
 
     /// Whether the composer's hosted field currently holds first responder.
@@ -2232,6 +2231,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
         showZoomOverlay()
+        delegate?.ghosttySurfaceView(
+            self,
+            didChangeZoom: direction == .increase ? .stepIncrease : .stepDecrease
+        )
         return true
     }
 
@@ -2286,6 +2289,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// zoom-control overlay, so there is one clamp + reflow path, then refreshes
     /// the zoom HUD so the on-screen size tracks the remote change.
     public func setLiveFontSize(_ points: Float32) {
+        delegate?.ghosttySurfaceView(self, didChangeZoom: .hostSet)
         applyUserFontSize(points)
         zoomOverlay?.updateZoom(points: pendingFontSize ?? liveFontSize)
     }
@@ -2359,6 +2363,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         overlay.onResetToDefault = { [weak self] in
             guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .zoomResetToDefault)
+            self.delegate?.ghosttySurfaceView(self, didChangeZoom: .resetToDefault)
             let target = self.zoomPreference.savedFontSize
                 ?? MobileTerminalFontPreference.defaultSize
             self.applyUserFontSize(target)
@@ -2366,10 +2372,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         overlay.onSaveAsDefault = { [weak self] in
             guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .zoomSaveAsDefault)
             self.zoomPreference.save(self.pendingFontSize ?? self.liveFontSize)
         }
         overlay.onRestoreBuiltIn = { [weak self] in
             guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didUseToolbarAction: .zoomRestoreBuiltIn)
+            self.delegate?.ghosttySurfaceView(self, didChangeZoom: .restoreBuiltIn)
             self.zoomPreference.clear()
             self.applyUserFontSize(MobileTerminalFontPreference.defaultSize)
             self.zoomOverlay?.updateZoom(points: MobileTerminalFontPreference.defaultSize)

@@ -28,6 +28,9 @@ struct DisconnectedWorkspaceShellView: View {
     /// (this screen is the terminal not-connected state, reached after a stored
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
+    /// Whether the root setup-prompt coordinator currently presents its banner.
+    var showsTailscalePairingBanner = false
+    var dismissTailscalePairingBanner: () -> Void = {}
     var showSettings: () -> Void = {}
     var setupHelpPresentation = MobileChildSheetPresentation()
 
@@ -43,6 +46,14 @@ struct DisconnectedWorkspaceShellView: View {
     var body: some View {
         NavigationStack {
             content
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if showsTailscalePairingBanner, let showPairingScanner {
+                        MobileTailscalePairingRequiredBanner(
+                            scanPairingCode: showPairingScanner,
+                            dismiss: dismissTailscalePairingBanner
+                        )
+                    }
+                }
                 .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
                 .mobileInlineNavigationTitle()
                 .toolbar {
@@ -226,6 +237,10 @@ struct DisconnectedWorkspaceShellView: View {
     /// in that case the newer attempt is still in flight or has already
     /// connected, and alerting "couldn't connect" would be wrong — skip it.
     private func connect(to computer: MacComputerSnapshot) {
+        if showsTailscalePairingBanner {
+            showPairingScanner?()
+            return
+        }
         guard connectingMacID == nil, let store else { return }
         connectingMacID = computer.id
         Task {

@@ -61,9 +61,15 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
+    /// Whether the root setup-prompt coordinator currently presents its banner.
+    var showsTailscalePairingBanner = false
+    var dismissTailscalePairingBanner: () -> Void = {}
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
     var showAddDevice: (() -> Void)?
+    /// Live app routes the Computers screen through the root modal owner.
+    /// Standalone previews retain the local device-tree sheet.
+    var showComputers: (() -> Void)? = nil
     var showPairingScanner: (() -> Void)?
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
@@ -500,6 +506,15 @@ struct WorkspaceListView: View {
             workspacesByID: currentWorkspacesByID
         )
             .modifier(WorkspaceListBarUnderlap())
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if connectionChrome == .tailscalePairingRequired,
+                   let showPairingScanner {
+                    MobileTailscalePairingRequiredBanner(
+                        scanPairingCode: showPairingScanner,
+                        dismiss: dismissTailscalePairingBanner
+                    )
+                }
+            }
         #else
         let baseList = List {
             switch connectionChrome {
@@ -511,6 +526,17 @@ struct WorkspaceListView: View {
                             connectionError: store.connectionError,
                             signOut: signOut,
                             rendersInline: true
+                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.hidden)
+                    }
+                }
+            case .tailscalePairingRequired:
+                if let showPairingScanner {
+                    Section {
+                        MobileTailscalePairingRequiredBanner(
+                            scanPairingCode: showPairingScanner,
+                            dismiss: dismissTailscalePairingBanner
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
@@ -619,6 +645,12 @@ struct WorkspaceListView: View {
         }
         .onChange(of: currentVisibleMacSelection) { _, selection in
             filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
+        }
+        .onChange(of: filter) { _, filter in
+            store?.recordAppEvent(
+                .workspaceListFilterChanged,
+                count: filter.isActive ? 1 : 0
+            )
         }
         #if os(iOS)
         .sheet(
@@ -884,6 +916,7 @@ struct WorkspaceListView: View {
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             connectionStatus: connectionStatus,
+            tailscalePairingRequired: showsTailscalePairingBanner,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         )
@@ -909,7 +942,11 @@ struct WorkspaceListView: View {
     #if os(iOS)
     var devicesButton: some View {
         Button {
-            deviceTreePresentation.present()
+            if let showComputers {
+                showComputers()
+            } else {
+                deviceTreePresentation.present()
+            }
         } label: {
             Image(systemName: "desktopcomputer")
         }

@@ -226,7 +226,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var cachedSplitDividerRegions: [DividerRegion]?
-    private weak var cachedSplitDividerRootView: NSView?
+    private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
     private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
@@ -234,6 +234,8 @@ final class WindowBrowserHostView: NSView {
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
+    private let paneTransferSourceResolver = PaneTransferSourceResolver()
+    let paneDropRoutingSession = PaneDropRoutingSession()
 
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
@@ -385,7 +387,21 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let routingContext = WindowInputRoutingContext(event: NSApp.currentEvent)
+        performHitTest(
+            at: point,
+            currentEvent: NSApp.currentEvent,
+            dragPasteboard: NSPasteboard(name: .drag)
+        )
+    }
+
+    // Treat the event and drag pasteboard as one routing snapshot; AppKit can
+    // otherwise advance either ambient value during nested hit testing.
+    func performHitTest(
+        at point: NSPoint,
+        currentEvent: NSEvent?,
+        dragPasteboard: NSPasteboard
+    ) -> NSView? {
+        let routingContext = WindowInputRoutingContext(event: currentEvent)
         guard routingContext.allowsPortalPointerHitTesting else {
             let hitView = super.hitTest(point)
             return hitView === self ? nil : hitView
@@ -457,15 +473,24 @@ final class WindowBrowserHostView: NSView {
 #endif
             return nil
         }
-        // Mirror terminal portal routing: while tab-reorder drags are active,
-        // pass through to SwiftUI drop targets behind the portal host.
-        // Browser hover routing also arrives as cursor/enter events and may not
-        // report a pressed-button state, so include that path here.
-        if routingContext.allowsBrowserPortalDragRouting,
-           Self.shouldPassThroughToDragTargets(
-            pasteboardTypes: NSPasteboard(name: .drag).types,
-            eventType: eventType
-           ) {
+        // Live pane transfers stay in the portal so every source reaches the
+        // same BrowserPaneDropTargetView router. Sidebar reorder and stale or
+        // unknown transfer payloads still pass through to the SwiftUI layers.
+        if Self.shouldPassThroughToDragTargets(
+            pasteboardTypes: dragPasteboard.types,
+            eventType: eventType,
+            hasActiveDropDrag: hasActivePaneDropDrag
+        ) {
+            if routingContext.eventKind == .pointerUp,
+               hasActivePaneDropDrag,
+               let paneDropTarget = paneDropTarget(at: point) {
+                return paneDropTarget
+            }
+            if let transfer = paneTransferSourceResolver.transfer(from: dragPasteboard),
+               paneTransferSourceResolver.source(for: transfer) != nil,
+               let paneDropTarget = paneDropTarget(at: point) {
+                return paneDropTarget
+            }
             return nil
         }
 
@@ -812,12 +837,26 @@ final class WindowBrowserHostView: NSView {
 
     static func shouldPassThroughToDragTargets(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        eventType: NSEvent.EventType?,
+        hasActiveDropDrag: Bool = false
     ) -> Bool {
         DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
-            eventType: eventType
+            eventType: eventType,
+            hasActiveDropDrag: hasActiveDropDrag
         )
+    }
+
+    private func paneDropTarget(at point: NSPoint) -> BrowserPaneDropTargetView? {
+        for subview in subviews.reversed() {
+            guard let slotView = subview as? WindowBrowserSlotView,
+                  !slotView.isHidden else { continue }
+            let pointInSlot = slotView.convert(point, from: self)
+            if let target = slotView.paneDropTargetForDrop(at: pointInSlot) {
+                return target
+            }
+        }
+        return nil
     }
 
     private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {
@@ -1034,23 +1073,15 @@ final class WindowBrowserHostView: NSView {
         return (pageFrame, inspectorFrame)
     }
     private func splitDividerRegions() -> [DividerRegion] {
-        guard let rootView = dividerSearchRootView() else {
-            invalidateSplitDividerRegionCache()
-            return []
-        }
-        if let regions = cachedSplitDividerRegions,
-           cachedSplitDividerRootView === rootView,
-           splitDividerCacheInvalidator.isHierarchyCurrent(for: rootView),
-           PortalSplitDividerRegion.allLive(regions) {
-            return regions
-        }
+        guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
+        let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
+        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
         let collected = PortalSplitDividerRegion.collect(in: rootView, hostView: self)
         cachedSplitDividerRegions = collected.regions
-        cachedSplitDividerRootView = rootView
+        cachedSplitDividerRootSubviewIds = rootSubviewIds
         splitDividerCacheInvalidator.observe(
-            rootView: rootView,
             geometryViews: collected.geometryObservedViews,
-            hierarchyNodes: collected.hierarchyNodes
+            structureViews: collected.structureObservedViews
         ) { [weak self] in
             guard let self else { return }
             self.invalidateSplitDividerRegionCache()
@@ -1061,7 +1092,7 @@ final class WindowBrowserHostView: NSView {
 
     private func invalidateSplitDividerRegionCache() {
         cachedSplitDividerRegions = nil
-        cachedSplitDividerRootView = nil
+        cachedSplitDividerRootSubviewIds = nil
         splitDividerCacheInvalidator.invalidate()
     }
 
@@ -1164,11 +1195,7 @@ struct BrowserPortalDesignComposerConfiguration {
     let controller: BrowserDesignModeController
 }
 
-struct BrowserPaneDropContext: Equatable {
-    let workspaceId: UUID
-    let panelId: UUID
-    let paneId: PaneID
-}
+typealias BrowserPaneDropContext = PaneDropContext
 
 final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
@@ -1759,18 +1786,6 @@ final class WindowBrowserSlotView: NSView {
             overlayContainer.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: nil)
         }
 
-        var previousPriority = Int.min
-        var needsReordering = false
-        for subview in subviews {
-            let priority = interactionLayerPriority(of: subview)
-            if priority < previousPriority {
-                needsReordering = true
-                break
-            }
-            previousPriority = priority
-        }
-        guard needsReordering else { return }
-
         let context = Unmanaged.passUnretained(self).toOpaque()
         sortSubviews({ lhs, rhs, context in
             guard let context else { return .orderedSame }
@@ -1855,7 +1870,6 @@ final class WindowBrowserPortal: NSObject {
     private final class PendingHostedWebViewRefresh {
         var generation: UInt64 = 0
         var completionActions: Set<HostedWebViewRefreshCompletionAction> = []
-        let geometryScheduler = MainActorDeferredActionScheduler()
         let asyncScheduler = MainActorDeferredActionScheduler()
         let delayedScheduler = MainActorDeferredActionScheduler()
     }
@@ -2027,6 +2041,9 @@ final class WindowBrowserPortal: NSObject {
 
     private func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
+        // The reference hierarchy belongs to SwiftUI/AppKit. Consume its settled
+        // geometry snapshots here; forcing its layout can re-enter NSHostingView.
+        // Synchronous layout stays below this boundary in portal-owned WebKit views.
         synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
 
         for entry in entriesByWebViewId.values {
@@ -2440,21 +2457,35 @@ final class WindowBrowserPortal: NSObject {
         return created
     }
 
+    private enum HostedWebViewUpdateMode {
+        case invalidateGeometry
+        case refreshPresentation
+
+        var debugEvent: String {
+            switch self {
+            case .invalidateGeometry:
+                return "invalidate"
+            case .refreshPresentation:
+                return "refresh"
+            }
+        }
+    }
+
     @discardableResult
-    private func runHostedWebViewRefreshPass(
+    private func runHostedWebViewUpdatePass(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
         reason: String,
         phase: String,
-        reattachRenderingState: Bool
+        mode: HostedWebViewUpdateMode
     ) -> Bool {
         guard !containerView.isHidden else { return false }
         guard !containerView.isHostedInspectorDividerDragActive else {
 #if DEBUG
             cmuxDebugLog(
-                "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
+                "browser.portal.\(mode.debugEvent).skip web=\(browserPortalDebugToken(webView)) " +
                 "container=\(browserPortalDebugToken(containerView)) reason=\(reason) phase=\(phase) " +
-                "drag=1 reattach=\(reattachRenderingState ? 1 : 0)"
+                "drag=1"
             )
 #endif
             return false
@@ -2484,6 +2515,25 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.setNeedsDisplay(webKitSubview.bounds)
         }
 
+        switch mode {
+        case .invalidateGeometry:
+            // AppKit owns scheduling the next layout/display pass. A geometry
+            // notification can arrive while SwiftUI is rendering, so synchronously
+            // flushing portal content here could re-enter NSHostingView.
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.invalidate web=\(browserPortalDebugToken(webView)) " +
+                "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
+                "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
+            )
+#endif
+            return true
+        case .refreshPresentation:
+            break
+        }
+
+        // Keep synchronous WebKit repair inside the portal-owned subtree. Calling
+        // displayIfNeeded() on the window would also flush SwiftUI-owned ancestors.
         containerView.layoutSubtreeIfNeeded()
         for webKitSubview in hostedWebKitSubviews {
             if let scrollView = webKitSubview.enclosingScrollView {
@@ -2492,9 +2542,7 @@ final class WindowBrowserPortal: NSObject {
                 scrollView.displayIfNeeded()
             }
             webKitSubview.layoutSubtreeIfNeeded()
-            if reattachRenderingState {
-                webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
-            }
+            webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
             if webKitSubview === webView {
                 webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
                     reason: "\(reason):\(phase)",
@@ -2505,10 +2553,9 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.displayIfNeeded()
         }
         containerView.displayIfNeeded()
-        (containerView.window ?? webView.window ?? hostView.window)?.displayIfNeeded()
 #if DEBUG
         cmuxDebugLog(
-            "\(reattachRenderingState ? "browser.portal.refresh" : "browser.portal.invalidate") " +
+            "browser.portal.refresh " +
             "web=\(browserPortalDebugToken(webView)) " +
             "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
             "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
@@ -2540,7 +2587,6 @@ final class WindowBrowserPortal: NSObject {
         keepGeneration: Bool = false
     ) {
         guard let pending = pendingHostedWebViewRefreshes[webViewId] else { return }
-        pending.geometryScheduler.cancel()
         pending.asyncScheduler.cancel()
         pending.delayedScheduler.cancel()
         if !keepGeneration {
@@ -2553,27 +2599,13 @@ final class WindowBrowserPortal: NSObject {
         in containerView: WindowBrowserSlotView,
         reason: String
     ) {
-        let webViewId = ObjectIdentifier(webView)
-        let pending = pendingHostedWebViewRefreshes[webViewId] ?? PendingHostedWebViewRefresh()
-        pendingHostedWebViewRefreshes[webViewId] = pending
-
-        // Portal geometry callbacks originate in NSViewRepresentable update and
-        // AppKit layout. Flushing WebKit's subtree on that stack re-enters the
-        // surrounding SwiftUI layout transaction. Coalesce the flush onto the
-        // next main-actor turn, after the outer transaction has unwound.
-        guard !pending.asyncScheduler.isScheduled,
-              !pending.geometryScheduler.isScheduled else { return }
-        pending.geometryScheduler.schedule { [weak self, weak webView, weak containerView] in
-            guard let self, let webView, let containerView else { return }
-            guard self.pendingHostedWebViewRefreshes[webViewId] === pending else { return }
-            self.runHostedWebViewRefreshPass(
-                webView,
-                in: containerView,
-                reason: reason,
-                phase: "geometry",
-                reattachRenderingState: false
-            )
-        }
+        runHostedWebViewUpdatePass(
+            webView,
+            in: containerView,
+            reason: reason,
+            phase: "geometry",
+            mode: .invalidateGeometry
+        )
     }
 
     private func refreshHostedWebViewPresentation(
@@ -2599,12 +2631,12 @@ final class WindowBrowserPortal: NSObject {
         pending.asyncScheduler.schedule { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
             guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
-            guard self.runHostedWebViewRefreshPass(
+            guard self.runHostedWebViewUpdatePass(
                 webView,
                 in: containerView,
                 reason: reason,
                 phase: "async",
-                reattachRenderingState: true
+                mode: .refreshPresentation
             ) else { return }
             self.completeHostedWebViewRefreshPass(
                 for: webViewId,
@@ -2620,12 +2652,12 @@ final class WindowBrowserPortal: NSObject {
             guard let self else { return }
             guard let webView, let containerView else { return }
             guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
-            guard self.runHostedWebViewRefreshPass(
+            guard self.runHostedWebViewUpdatePass(
                 webView,
                 in: containerView,
                 reason: reason,
                 phase: "delayed",
-                reattachRenderingState: true
+                mode: .refreshPresentation
             ) else { return }
             self.completeHostedWebViewRefreshPass(
                 for: webViewId,

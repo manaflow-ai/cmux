@@ -257,6 +257,38 @@ import os
         #expect(recorder.events.withLock { $0.isEmpty })
     }
 
+    @Test func appFeatureEventsUseAppNamespaceAndClassifiedSeverity() {
+        let recorder = Recorder()
+        let reporter = makeReporter(recorder: recorder)
+
+        reporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1,
+            a: DiagnosticAppEventKind.workspaceOpenSucceeded.rawValue
+        ))
+        reporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 2,
+            a: DiagnosticAppEventKind.workspaceOpenFailed.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue
+        ))
+
+        let crumbs = recorder.breadcrumbs.withLock { $0 }
+        #expect(crumbs.map(\.category) == ["app", "app"])
+        #expect(crumbs.map(\.level) == [.info, .warning])
+        #expect(crumbs[0].data["event_code"] == "appFeatureAction")
+        #expect(crumbs[0].data["operation"] == "workspaceOpenSucceeded")
+
+        let logs = recorder.logs.withLock { $0 }
+        #expect(logs.count == 2)
+        #expect(logs[0].attributes["app.event_code"] == "appFeatureAction")
+        #expect(logs[0].attributes["app.operation"] == "workspaceOpenSucceeded")
+        #expect(logs[1].attributes["app.failure"] == "Timed out")
+        #expect(logs.allSatisfy { line in
+            line.attributes.keys.contains { $0.hasPrefix("transport.") } == false
+        })
+    }
+
     @Test func disabledDeliverySendsNothing() {
         let recorder = Recorder()
         recorder.enabled.withLock { $0 = false }

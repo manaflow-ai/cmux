@@ -51,6 +51,7 @@ extension TerminalController {
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
             initialDividerPosition: initialDividerPosition,
             preferredProfileID: preferredProfileID,
+            preloadInitialNavigationInBackground: kind == .browser,
             focus: focus
         )
         guard let newPanelId else {

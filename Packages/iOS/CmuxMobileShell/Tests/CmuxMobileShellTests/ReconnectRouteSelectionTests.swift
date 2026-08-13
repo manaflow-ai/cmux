@@ -586,6 +586,143 @@ import Testing
         #expect(routes.isEmpty)
     }
 
+    @Test func usableTailscaleAuthorizationRequiresACurrentExactRouteMatch() throws {
+        let current = try tailscale()
+        let stale = try tailscale(50_907)
+        let base = MobilePairedMac(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [current],
+            createdAt: .distantPast,
+            lastSeenAt: .now,
+            isActive: true,
+            stackUserID: "user-1"
+        )
+
+        let authorized = MobilePairedMac(
+            macDeviceID: base.macDeviceID,
+            displayName: base.displayName,
+            routes: base.routes,
+            createdAt: base.createdAt,
+            lastSeenAt: base.lastSeenAt,
+            isActive: base.isActive,
+            stackUserID: base.stackUserID,
+            legacyTailscaleRoutes: [current]
+        )
+        let staleAuthorization = MobilePairedMac(
+            macDeviceID: base.macDeviceID,
+            displayName: base.displayName,
+            routes: base.routes,
+            createdAt: base.createdAt,
+            lastSeenAt: base.lastSeenAt,
+            isActive: base.isActive,
+            stackUserID: base.stackUserID,
+            legacyTailscaleRoutes: [stale]
+        )
+
+        #expect(MobileShellComposite.hasUsableTailscaleAuthorization(in: [authorized]))
+        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(in: [base]))
+        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(
+            in: [staleAuthorization]
+        ))
+    }
+
+    @Test func usableTailscaleAuthorizationFindsLastMacInLargeSnapshot() throws {
+        let current = try tailscale()
+        let macs = (0 ..< 1_000).map { index in
+            MobilePairedMac(
+                macDeviceID: "test-mac-\(index)",
+                displayName: "Test Mac \(index)",
+                routes: [current],
+                createdAt: .distantPast,
+                lastSeenAt: .distantPast,
+                isActive: index == 999,
+                stackUserID: "user-1",
+                legacyTailscaleRoutes: index == 999 ? [current] : nil
+            )
+        }
+
+        #expect(MobileShellComposite.hasUsableTailscaleAuthorization(in: macs))
+    }
+
+    @Test func tailscaleSetupIsRequiredImmediatelyWhenNoMacIsKnown() {
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-setup-method-\(UUID().uuidString)"
+        )!
+        methodDefaults.set(
+            MobileConnectionMethod.tailscale.rawValue,
+            forKey: MobileConnectionMethodStore.methodKey
+        )
+        let pairingDefaults = UserDefaults(
+            suiteName: "tailscale-setup-pairing-\(UUID().uuidString)"
+        )!
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            ),
+            pairingHintDefaults: pairingDefaults
+        )
+
+        #expect(store.pairedMacLoadState == .notLoaded)
+        #expect(!store.hasKnownPairedMac)
+        #expect(store.tailscaleSetupStatus == .pairingRequired)
+        #expect(store.tailscalePairingRequired)
+    }
+
+    @Test func knownMacWaitsForRouteLoadBeforeRequiringTailscaleSetup() {
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-load-method-\(UUID().uuidString)"
+        )!
+        methodDefaults.set(
+            MobileConnectionMethod.tailscale.rawValue,
+            forKey: MobileConnectionMethodStore.methodKey
+        )
+        let pairingDefaults = UserDefaults(
+            suiteName: "tailscale-load-pairing-\(UUID().uuidString)"
+        )!
+        pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            ),
+            pairingHintDefaults: pairingDefaults
+        )
+
+        #expect(store.tailscaleSetupStatus == .loadingAuthorization)
+        #expect(!store.tailscalePairingRequired)
+        store.pairedMacLoadState = .failed
+        #expect(store.tailscaleSetupStatus == .pairingRequired)
+        #expect(store.tailscalePairingRequired)
+    }
+
+    @Test func projectedTailscaleSetupStatusEvaluatesBeforeMethodSelection() {
+        let methodDefaults = UserDefaults(
+            suiteName: "tailscale-projected-method-\(UUID().uuidString)"
+        )!
+        let pairingDefaults = UserDefaults(
+            suiteName: "tailscale-projected-pairing-\(UUID().uuidString)"
+        )!
+        pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionMethodStore: MobileConnectionMethodStore(
+                defaults: methodDefaults
+            ),
+            pairingHintDefaults: pairingDefaults
+        )
+
+        #expect(store.tailscaleSetupStatus == .notSelected)
+        #expect(
+            store.tailscaleSetupStatusWhenSelected == .loadingAuthorization
+        )
+        store.pairedMacLoadState = .failed
+        #expect(
+            store.tailscaleSetupStatusWhenSelected == .pairingRequired
+        )
+    }
+
     @Test func changingToUnavailableTailscaleDropsLiveIrohWithoutFallback() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
