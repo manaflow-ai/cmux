@@ -44,6 +44,13 @@ jobs:
       # those external controls or move this action into branch-controlled code.
       # It attaches the VM requested by `blacksmith testbox warmup` and leaves
       # it alive after this setup job.
+      - name: Guard trusted source ref
+        if: github.ref != 'refs/heads/main'
+        shell: bash
+        run: |
+          echo "::error::Testbox token-bearing setup is restricted to reviewed main" >&2
+          exit 1
+
       - name: Begin Testbox
         uses: useblacksmith/begin-testbox@233448af4bfdc6fca509a7f0974411ac6d8a8043 # v2
         with:

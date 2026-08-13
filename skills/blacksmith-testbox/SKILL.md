@@ -37,10 +37,11 @@ Before using the lane, a repository administrator must create the
 `blacksmith-testbox-trusted` GitHub environment, configure required reviewers
 (or an equivalent manual approval rule), disable administrator bypass, and leave
 the environment secret set empty. GitHub evaluates that approval before the
-job's first step, including `begin-testbox`. The workflow cannot verify this
-out-of-band policy after `begin-testbox` without exposing the same token, so a
-missing or drifting environment is an operational stop condition, not a
-recoverable workflow state. If the environment does not exist or has no
+job's first step, including `begin-testbox`. The workflow additionally rejects every ref except reviewed `main` before
+`begin-testbox`. It cannot verify the environment's reviewer configuration
+inside the token-bearing job without exposing the same token, so a missing or
+drifting environment remains an operational stop condition, not a recoverable
+workflow state. If the environment does not exist or has no
 required reviewer, stop: the lane is not production-safe. Never dispatch it
 for an untrusted PR, fork, branch containing unreviewed workflow/helper changes,
 or source supplied by an external contributor. When trust changes, stop the old box and warm a
@@ -53,8 +54,10 @@ controlled and is not an authentication mechanism. The protected environment
 and trusted-maintainer policy are the security boundary. Verify before every
 use that `blacksmith-testbox-trusted` still has required reviewers, no secrets,
 administrator bypass disabled, and no broad branch policy admitting unreviewed
-refs. The workflow cannot manufacture those repository settings, so drift makes
-the lane unavailable rather than safe.
+refs. The checked-in workflow independently permits only reviewed `main`; the
+feature branch is for code review and cannot expose a Testbox token. The
+workflow cannot manufacture the environment settings, so drift makes the lane
+unavailable rather than safe.
 
 * Never run `cargo`, `rustc`, `rustup`, `zig build`, or another Rust/Zig build
   command on Lawrence's Mac. This includes local fallback builds and local
