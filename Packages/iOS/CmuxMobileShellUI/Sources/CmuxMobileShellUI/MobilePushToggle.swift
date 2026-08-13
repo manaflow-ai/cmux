@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 
 /// The phone push preference is persisted asynchronously, so update the
@@ -15,15 +16,14 @@ struct MobilePushToggle: View {
     let onReconcile: @MainActor () async -> Bool?
     var mutationClock: any Clock<Duration> = ContinuousClock()
 
-    @State private var mutationTask: Task<Void, Never>?
+    @State private var mutationSequencer = MobilePushMutationSequencer()
+    @State private var currentAttempt: MobilePushMutationAttempt?
+    @State private var currentReconciliation: MobilePushReconciliationAttempt?
     @State private var mutationTimeoutTask: Task<Void, Never>?
-    @State private var reconciliationTask: Task<Void, Never>?
-    @State private var reconciliationTimeoutTask: Task<Void, Never>?
-    @State private var mutationID: UUID?
-    @State private var reconciliationID: UUID?
     @State private var previousValue: Bool?
     @State private var retryValue: Bool?
-    @State private var mutationTimedOut = false
+    @State private var queuedMutationValue: Bool?
+    @State private var mutationGeneration = 0
     @State private var showsMutationError = false
 
     var body: some View {
@@ -47,7 +47,7 @@ struct MobilePushToggle: View {
                 .foregroundStyle(.red)
                 .accessibilityIdentifier("MobileSettingsNotificationsError")
 
-                if mutationTask == nil, reconciliationTask == nil, let retryValue {
+                if currentReconciliation == nil, let retryValue {
                     Button {
                         startMutation(retryValue)
                     } label: {
@@ -64,7 +64,7 @@ struct MobilePushToggle: View {
             reconcileIfNeeded()
         }
         .onDisappear {
-            cancelMutation()
+            cancelCurrentOperation()
         }
     }
 
@@ -78,150 +78,193 @@ struct MobilePushToggle: View {
     }
 
     private func startMutation(_ requested: Bool) {
-        guard mutationTask == nil, !isUpdating else { return }
-        reconciliationTask?.cancel()
-        reconciliationTask = nil
-        reconciliationTimeoutTask?.cancel()
-        reconciliationTimeoutTask = nil
-        reconciliationID = nil
-        mutationTimedOut = false
-        showsMutationError = false
-        retryValue = nil
-        let mutationID = UUID()
-        let previous = isEnabled
-        self.mutationID = mutationID
-        previousValue = previous
+        guard !isUpdating else { return }
+        if currentReconciliation != nil {
+            // Let the authoritative read settle before capturing the rollback
+            // value for this write. The request remains optimistic in the UI,
+            // but the actual operation is queued behind that read.
+            queuedMutationValue = requested
+            isEnabled = requested
+            isUpdating = true
+            showsMutationError = false
+            retryValue = nil
+            return
+        }
+        beginMutation(requested)
+    }
+
+    private func beginMutation(_ requested: Bool) {
+        mutationGeneration += 1
+        let generation = mutationGeneration
+        invalidateCurrentReconciliation()
+        mutationTimeoutTask?.cancel()
+        mutationTimeoutTask = nil
+
+        let attempt = MobilePushMutationAttempt(requested: requested)
+        currentAttempt = attempt
+        previousValue = isEnabled
         isEnabled = requested
         isUpdating = true
-        mutationTask = Task { @MainActor in
-            let succeeded = await onChange(requested)
-            guard self.mutationID == mutationID else { return }
-            finishMutation(
-                id: mutationID,
-                requested: requested,
-                succeeded: succeeded
-            )
-        }
+        showsMutationError = false
+        retryValue = nil
+
+        let task = mutationSequencer.enqueue(
+            { await self.onChange(requested) },
+            completion: { succeeded in
+                self.finishMutation(
+                    attempt: attempt,
+                    generation: generation,
+                    succeeded: succeeded
+                )
+            }
+        )
+        attempt.task = task
         mutationTimeoutTask = Task { @MainActor in
             do {
                 try await mutationClock.sleep(for: Self.mutationTimeout)
             } catch {
                 return
             }
-            guard !Task.isCancelled else { return }
-            guard self.mutationID == mutationID else { return }
-            // Cancellation is only a request. Keep the operation as the
-            // owner of the write until it actually returns, then reconcile.
-            mutationTimedOut = true
-            showsMutationError = true
-            retryValue = requested
-            mutationTask?.cancel()
-            mutationTimeoutTask = nil
+            guard !Task.isCancelled, self.currentAttempt === attempt else { return }
+            timeoutMutation(attempt, generation: generation)
         }
     }
 
+    private func timeoutMutation(
+        _ attempt: MobilePushMutationAttempt,
+        generation: Int
+    ) {
+        guard currentAttempt === attempt else { return }
+        attempt.didTimeout = true
+        showsMutationError = true
+        retryValue = attempt.requested
+        queuedMutationValue = nil
+        // The request may still finish and commit, so its task remains in the
+        // sequencer. Releasing the binding keeps the UI recoverable while every
+        // later write waits behind this one.
+        isUpdating = false
+        mutationTimeoutTask = nil
+        attempt.task?.cancel()
+        currentAttempt = nil
+        previousValue = nil
+        enqueueReconciliation(for: attempt.requested, generation: generation)
+    }
+
     private func finishMutation(
-        id: UUID,
-        requested: Bool,
+        attempt: MobilePushMutationAttempt,
+        generation: Int,
         succeeded: Bool
     ) {
-        guard mutationID == id else { return }
-        let outcomeWasUnknown = mutationTimedOut
-        if !succeeded, !outcomeWasUnknown, let previousValue {
+        if attempt.didTimeout {
+            // The reconciliation was reserved at timeout, immediately after
+            // this write in the sequencer. A late completion only closes the
+            // attempt; it must never overwrite a newer UI generation.
+            return
+        }
+        guard currentAttempt === attempt,
+              generation == mutationGeneration else { return }
+        if !succeeded, let previousValue {
             isEnabled = previousValue
         }
         if !succeeded {
             showsMutationError = true
-            retryValue = requested
+            retryValue = attempt.requested
         }
-        mutationTask = nil
         mutationTimeoutTask?.cancel()
         mutationTimeoutTask = nil
-        mutationID = nil
-        previousValue = nil
-        mutationTimedOut = false
+        currentAttempt = nil
+        self.previousValue = nil
         isUpdating = false
-        if outcomeWasUnknown {
-            startReconciliation(for: requested)
-        }
     }
 
-    private func cancelMutation() {
-        guard mutationTask != nil else {
-            mutationTimeoutTask?.cancel()
-            mutationTimeoutTask = nil
-            reconciliationTask?.cancel()
-            reconciliationTimeoutTask?.cancel()
-            reconciliationTask = nil
-            reconciliationTimeoutTask = nil
-            reconciliationID = nil
-            return
+    private func cancelCurrentOperation() {
+        if let attempt = currentAttempt {
+            timeoutMutation(attempt, generation: mutationGeneration)
         }
-
-        // A disappearing view may cancel the task after its request reached
-        // the service. Preserve the active operation and let its completion
-        // trigger reconciliation, rather than clearing its ownership here.
-        mutationTimedOut = true
-        showsMutationError = true
-        retryValue = isEnabled
-        mutationTask?.cancel()
         mutationTimeoutTask?.cancel()
         mutationTimeoutTask = nil
-        reconciliationTask?.cancel()
-        reconciliationTimeoutTask?.cancel()
-        reconciliationTask = nil
-        reconciliationTimeoutTask = nil
-        reconciliationID = nil
+        // Queued operations remain in the sequencer. Their callbacks are
+        // generation-checked, so a disappearing view cannot race a later read
+        // or write into visible state.
+        invalidateCurrentReconciliation()
     }
 
-    private func startReconciliation(for requested: Bool) {
-        guard reconciliationTask == nil else { return }
-        let reconciliationID = UUID()
-        self.reconciliationID = reconciliationID
-        reconciliationTask = Task { @MainActor in
-            let authoritative = await onReconcile()
-            guard self.reconciliationID == reconciliationID else { return }
-            if !Task.isCancelled, let authoritative {
-                isEnabled = authoritative
-                showsMutationError = authoritative != requested
-                retryValue = authoritative == requested ? nil : requested
-            } else if !Task.isCancelled {
-                showsMutationError = true
-                retryValue = requested
+    private func enqueueReconciliation(for requested: Bool, generation: Int) {
+        let reconciliation = MobilePushReconciliationAttempt(
+            requested: requested,
+            generation: generation
+        )
+        currentReconciliation = reconciliation
+        let task = mutationSequencer.enqueue(
+            { await self.onReconcile() },
+            completion: { authoritative in
+                self.finishReconciliation(
+                    reconciliation,
+                    authoritative: authoritative
+                )
             }
-            finishReconciliation(id: reconciliationID)
-        }
-        reconciliationTimeoutTask = Task { @MainActor in
+        )
+        reconciliation.task = task
+        reconciliation.timeoutTask = Task { @MainActor in
             do {
                 try await mutationClock.sleep(for: Self.mutationTimeout)
             } catch {
                 return
             }
             guard !Task.isCancelled,
-                  self.reconciliationID == reconciliationID else { return }
-            reconciliationTask?.cancel()
-            // The authoritative read did not complete by the deadline. Keep
-            // the optimistic value marked unknown and offer a retry instead of
-            // leaving the control busy forever.
-            showsMutationError = true
-            retryValue = requested
-            reconciliationTask = nil
-            reconciliationTimeoutTask = nil
-            self.reconciliationID = nil
+                  self.currentReconciliation === reconciliation else { return }
+            reconciliation.task?.cancel()
+            self.currentReconciliation = nil
+            reconciliation.timeoutTask = nil
+            self.showsMutationError = true
+            self.isUpdating = false
+            self.retryValue = self.queuedMutationValue ?? requested
+            self.queuedMutationValue = nil
         }
     }
 
-    private func finishReconciliation(id: UUID) {
-        guard reconciliationID == id else { return }
-        reconciliationTimeoutTask?.cancel()
-        reconciliationTimeoutTask = nil
-        reconciliationTask = nil
-        reconciliationID = nil
+    private func finishReconciliation(
+        _ reconciliation: MobilePushReconciliationAttempt,
+        authoritative: Bool?
+    ) {
+        guard currentReconciliation === reconciliation else { return }
+        reconciliation.timeoutTask?.cancel()
+        reconciliation.timeoutTask = nil
+        currentReconciliation = nil
+        guard reconciliation.generation == mutationGeneration else { return }
+        if let authoritative {
+            isEnabled = authoritative
+            if let queuedMutationValue {
+                self.queuedMutationValue = nil
+                previousValue = authoritative
+                beginMutation(queuedMutationValue)
+                return
+            }
+            showsMutationError = authoritative != reconciliation.requested
+            retryValue = authoritative == reconciliation.requested
+                ? nil
+                : reconciliation.requested
+        } else {
+            showsMutationError = true
+            retryValue = queuedMutationValue ?? reconciliation.requested
+        }
+    }
+
+    private func invalidateCurrentReconciliation() {
+        currentReconciliation?.timeoutTask?.cancel()
+        currentReconciliation = nil
+        queuedMutationValue = nil
     }
 
     private func reconcileIfNeeded() {
-        guard mutationTask == nil, let retryValue, showsMutationError else { return }
-        startReconciliation(for: retryValue)
+        guard currentAttempt == nil,
+              currentReconciliation == nil,
+              let retryValue,
+              showsMutationError else { return }
+        enqueueReconciliation(
+            for: retryValue,
+            generation: mutationGeneration
+        )
     }
 }
 #endif
