@@ -40,8 +40,8 @@ public extension ClientConfigFlag where Value == Bool {
     static let mobileConnectButtonEnabledRelease = Self(booleanKey: "mobile-connect-button-enabled-release")
     /// Enables the iOS terminal Files chip. Defaults on so an unavailable
     /// control plane preserves the fully integrated shipping behavior.
-    static let mobileTerminalFilesChipEnabledRelease = Self(
-        booleanKey: "mobile-terminal-files-chip-enabled-release",
+    static let iosArtifactChipEnabledRelease = Self(
+        booleanKey: "ios-artifact-chip-enabled-release",
         defaultValue: true
     )
 }

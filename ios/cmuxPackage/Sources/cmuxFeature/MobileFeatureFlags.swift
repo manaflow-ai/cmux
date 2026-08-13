@@ -13,7 +13,7 @@ import Observation
 public final class MobileFeatureFlags {
     /// The remote kill switch for the fully integrated terminal Files chip.
     public static let terminalFilesChipFlag =
-        ClientConfigFlag<Bool>.mobileTerminalFilesChipEnabledRelease
+        ClientConfigFlag<Bool>.iosArtifactChipEnabledRelease
 
     private static var terminalFilesChipCacheKey: String {
         "cmux.mobile.flags.remote." + terminalFilesChipFlag.key

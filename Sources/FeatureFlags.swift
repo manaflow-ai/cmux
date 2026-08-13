@@ -110,13 +110,13 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
     )
 
-    // FLAG(key: mobile-terminal-files-chip-enabled-release, owner: lawrencecchen,
+    // FLAG(key: ios-artifact-chip-enabled-release, owner: lawrencecchen,
     //      reviewBy: 2027-02-01, defaultWhenUnavailable: true)
     // Controls the fully integrated terminal Files chip on iOS. The enabled
     // fallback preserves the shipping behavior when PostHog is unavailable;
     // a remote false value is the emergency kill switch.
     static let mobileTerminalFilesChipFlag = CmuxFeatureFlagDefinition(
-        key: "mobile-terminal-files-chip-enabled-release",
+        key: "ios-artifact-chip-enabled-release",
         title: String(
             localized: "featureFlags.mobileTerminalFilesChip.title",
             defaultValue: "Mobile terminal Files chip"
