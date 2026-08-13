@@ -81,7 +81,7 @@ if (( pre_status == 0 )); then
     echo "owned Testbox context differs from the warmup receipt; refusing cleanup" >&2
     exit 66
   fi
-elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_status_log"; then
+elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_status_log"; then
   echo "failed to preview Testbox $testbox_id before cleanup; see $pre_status_log" >&2
   exit "$pre_status"
 fi
@@ -98,7 +98,7 @@ set -e
 if (( stop_status != 0 )); then
   # A completed Testbox can race the explicit stop call. Tolerate only the
   # documented terminal-state response, never an arbitrary stop failure.
-  if grep -Eiq 'already[[:space:]]+(stopped|completed)' "$stop_log"; then
+  if grep -Eiq 'already[[:space:]]+(stopped|completed)|hydration_failed' "$stop_log"; then
     printf 'stop already reached a terminal state for %s; continuing\n' "$testbox_id" >&2
   else
     echo "failed to stop Testbox $testbox_id; see $stop_log" >&2
@@ -116,14 +116,14 @@ set -e
 if (( status_status == 0 )); then
   status_value="$(awk -v id="$testbox_id" '$1 == id { print tolower($2); exit }' "$status_log")"
   case "$status_value" in
-    completed|stopped|cancelled|failed|terminated)
+    completed|stopped|cancelled|failed|terminated|hydration_failed)
       ;;
     ready|running|hydrating|in_progress|queued)
       echo "Testbox $testbox_id is still active after cleanup" >&2
       (( cleanup_status == 0 )) && cleanup_status=1
       ;;
     *)
-      if grep -Eiq 'status:[[:space:]]*(completed|stopped|cancelled|failed|terminated)' "$status_log"; then
+      if grep -Eiq 'status:[[:space:]]*(completed|stopped|cancelled|failed|terminated|hydration_failed)' "$status_log"; then
         :
       else
         echo "could not establish a terminal status for Testbox $testbox_id; see $status_log" >&2
@@ -131,7 +131,7 @@ if (( status_status == 0 )); then
       fi
       ;;
   esac
-elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$status_log"; then
+elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$status_log"; then
   echo "failed to inspect Testbox $testbox_id; see $status_log" >&2
   (( cleanup_status == 0 )) && cleanup_status=$status_status
 fi
@@ -149,7 +149,7 @@ else
     "")
       # The CLI may remove terminal boxes from the inventory immediately.
       ;;
-    completed|stopped|cancelled|failed|terminated)
+    completed|stopped|cancelled|failed|terminated|hydration_failed)
       # --all is the full inventory, so a terminal row is safe and expected.
       ;;
     ready|running|hydrating|in_progress|queued)

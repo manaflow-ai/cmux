@@ -307,9 +307,10 @@ scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$CLEANUP_TOKEN"
 It records a pre-stop status preview, stop result, post-stop status, and
 `list --all` output. The preview must match the receipt's workflow, job, and
 branch before any stop is attempted. It verifies that the specific Testbox ID
-is terminal or absent from the active inventory, and accepts only the known race
-where stop returns a 409 saying the box is already stopped or completed. Other
-stop, status, or list failures remain failures.
+is terminal or absent from the active inventory, and accepts the known terminal
+states `completed`, `stopped`, `cancelled`, `failed`, `terminated`, and
+`hydration_failed`, plus a 409 saying the box is already stopped or completed.
+Other stop, status, or list failures remain failures.
 Put it in an `EXIT` trap that preserves the benchmark's original exit status
 unless cleanup itself fails. The detailed benchmark writes a receipt and
 confirmation token for the exact ID returned by warmup; cleanup refuses an ID

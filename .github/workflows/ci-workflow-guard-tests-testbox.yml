@@ -324,30 +324,11 @@ jobs:
           test "$(<"$state/testbox_id")" = "$EXPECTED_TESTBOX_ID"
           installation_model_id="$(<"$state/installation_model_id")"
           [[ "$installation_model_id" =~ ^[0-9]+$ ]]
-          api_url="$(<"$state/api_url")"
-          auth_token="$(<"$state/auth_token")"
-          runner_host="$(<"$state/runner_host")"
-          runner_ssh_port="$(<"$state/runner_ssh_port")"
-          working_directory="$(<"$state/working_directory")"
-          adopted_run_id="$(<"$state/adopted_run_id")"
-          payload="$(jq -n \
-            --arg testbox_id "$EXPECTED_TESTBOX_ID" \
-            --arg runner_host "$runner_host" \
-            --arg runner_ssh_port "$runner_ssh_port" \
-            --arg working_directory "$working_directory" \
-            --arg adopted_run_id "$adopted_run_id" \
-            --argjson installation_model_id "$installation_model_id" \
-            '{testbox_id: $testbox_id, installation_model_id: $installation_model_id, status: "ready", ip_address: $runner_host, ssh_port: $runner_ssh_port, working_directory: $working_directory, adopted_run_id: $adopted_run_id, metadata: {}}')"
-          # begin-testbox deliberately continues after phone-home errors. Make
-          # registration an explicit fail-closed prerequisite before publishing
-          # the marker consumed by the remote benchmark helper.
-          response="$(curl -fsS --connect-timeout 2 --max-time 10 \
-            -X POST "$api_url/api/testbox/phone-home" \
-            -H 'Content-Type: application/json' \
-            -H "Authorization: Bearer $auth_token" \
-            --data "$payload")"
-          [[ -n "$response" ]]
           test -s "$state/ssh_public_key"
+          # begin-testbox deliberately continues after degraded phone-home.
+          # Validate the SSH handoff and install the identity marker before the
+          # pinned run-testbox action publishes ready. That action remains the
+          # sole readiness publisher, so a CLI run cannot race this marker.
           marker="$state/cmux-tui-rust-setup-identity.json"
           rm -f "$marker"
           install -m 600 testbox-benchmark/setup-identity.json "$marker"
