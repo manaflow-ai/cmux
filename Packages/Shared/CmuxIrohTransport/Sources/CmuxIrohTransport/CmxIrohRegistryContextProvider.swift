@@ -406,9 +406,11 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     ) async -> [CmxIrohPathHint] {
         guard let customPrivateFallback else { return [] }
         let configured = await customPrivateFallback(targetBinding.deviceID)
+        let peerAlias = DiagnosticCorrelation().handle(for: targetBinding.deviceID)
         guard !configured.isEmpty else {
             diagnostics?.record(DiagnosticEvent(
                 .transportPrivateAddressJoin,
+                surface: peerAlias,
                 a: DiagnosticPrivateAddressJoinState.notConfigured.rawValue,
                 b: 0,
                 c: 0
@@ -421,6 +423,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         ) else {
             diagnostics?.record(DiagnosticEvent(
                 .transportPrivateAddressJoin,
+                surface: peerAlias,
                 a: DiagnosticPrivateAddressJoinState.brokerPortsStale.rawValue,
                 b: configured.count,
                 c: 0
@@ -451,6 +454,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         }
         diagnostics?.record(DiagnosticEvent(
             .transportPrivateAddressJoin,
+            surface: peerAlias,
             a: DiagnosticPrivateAddressJoinState.joined.rawValue,
             b: configured.count,
             c: hints.count
@@ -505,6 +509,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             // absent stage is recorded here instead of failing silently.
             diagnostics?.record(DiagnosticEvent(
                 .transportLANDiscovery,
+                surface: DiagnosticCorrelation().handle(for: expectedDeviceID),
                 a: DiagnosticLANDiscoveryOutcome.noAuthority.rawValue,
                 b: 0
             ))

@@ -150,8 +150,8 @@ import Testing
             .init(key: "session", value: "9"),
         ])
         let closeSummary = englishPresentation.summary(close)
-        #expect(!closeSummary.contains("Session"))
-        #expect(!closeSummary.contains("9"))
+        #expect(closeSummary.contains("Session"))
+        #expect(closeSummary.contains("9"))
     }
 
     @Test func describesLifecycleAndReachability() {
@@ -244,6 +244,9 @@ import Testing
             .transportDialLegSucceeded: "Direct dial leg connected",
             .transportDialLegFailed: "Direct dial leg failed",
             .lanPublicationState: "LAN advertisement state changed",
+            .transportDialSessionLinked: "Transport dial linked to session",
+            .transportDialCancelled: "Transport dial cancelled",
+            .transportCloseReason: "Remote close reason",
             .simulatorStreamLifecycle: "Simulator stream state changed",
             .simulatorFrameLifecycle: "Simulator frame pipeline changed",
             .simulatorInputLifecycle: "Simulator input state changed",
@@ -272,6 +275,57 @@ import Testing
         #expect(recovery.fields == [
             .init(key: "transport", value: "Iroh"),
             .init(key: "trigger", value: "Network changed"),
+        ])
+
+        let recoveryWithContext = englishPresentation.describe(DiagnosticEvent(
+            code: .recoverySucceeded,
+            tNanos: 1,
+            surface: 77,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            c: 12
+        ))
+        #expect(recoveryWithContext.fields == [
+            .init(key: "recovery", value: "77"),
+            .init(key: "transport", value: "Iroh"),
+            .init(key: "peer", value: "12"),
+        ])
+
+        let linked = englishPresentation.describe(DiagnosticEvent(
+            code: .transportDialSessionLinked,
+            tNanos: 1,
+            surface: 8,
+            a: 42,
+            c: 12
+        ))
+        #expect(linked.fields == [
+            .init(key: "peer", value: "8"),
+            .init(key: "attempt", value: "42"),
+            .init(key: "session", value: "12"),
+        ])
+
+        let cancelled = englishPresentation.describe(DiagnosticEvent(
+            code: .transportDialCancelled,
+            tNanos: 1,
+            surface: 8,
+            ms: 120,
+            a: DiagnosticCancellationReason.requestTimedOut.rawValue,
+            c: 42
+        ))
+        #expect(cancelled.fields.contains(
+            .init(key: "cancellation", value: "Request timed out")
+        ))
+
+        let closeReason = englishPresentation.describe(DiagnosticEvent(
+            code: .transportCloseReason,
+            tNanos: 1,
+            surface: 8,
+            a: DiagnosticRemoteCloseReason.superseded.rawValue,
+            c: 12
+        ))
+        #expect(closeReason.fields == [
+            .init(key: "peer", value: "8"),
+            .init(key: "reason", value: "Superseded session"),
+            .init(key: "session", value: "12"),
         ])
 
         let endpoint = englishPresentation.describe(DiagnosticEvent(

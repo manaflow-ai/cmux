@@ -503,6 +503,19 @@ public actor CmxConnectivityEngine {
         await peer.updateControlPurpose(ownerID: ownerID, purpose: purpose)
     }
 
+    /// Resolves the admitted session correlation for one exact peer request.
+    /// This is intentionally a local query used only to link dial and session
+    /// events after the shared peer actor has completed admission.
+    func diagnosticSessionID(
+        for request: CmxByteTransportRequest
+    ) async -> Int? {
+        guard let peerID = try? CmxConnectivityPeerID(request: request),
+              let peer = peers[peerID] else {
+            return nil
+        }
+        return await peer.diagnosticSessionID()
+    }
+
     private func activePeer(
         for request: CmxByteTransportRequest
     ) throws -> CmxConnectivityPeerSession {

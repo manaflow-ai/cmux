@@ -246,9 +246,11 @@ extension MobileShellComposite {
         guard let attempt else { return }
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryStarted,
+            surface: attempt.diagnosticID,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            b: trigger.diagnosticCode
+            b: trigger.diagnosticCode,
+            c: activePeerDiagnosticAlias
         ))
         applyConnectionRecoveryOwnerState()
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
@@ -367,7 +369,7 @@ extension MobileShellComposite {
         _ attempt: MobileConnectionRecoveryOwner.Attempt
     ) -> Bool {
         guard connectionRecoveryOwner.complete(attempt) else { return false }
-        recordConnectionRecoverySucceeded()
+        recordConnectionRecoverySucceeded(attempt)
         return true
     }
 
@@ -411,7 +413,7 @@ extension MobileShellComposite {
         failure: DiagnosticFailureKind
     ) -> Bool {
         guard connectionRecoveryOwner.fail(attempt) else { return false }
-        recordConnectionRecoveryFailed(failure)
+        recordConnectionRecoveryFailed(attempt, failure: failure)
         return true
     }
 
@@ -419,26 +421,42 @@ extension MobileShellComposite {
     func failConnectionRecoveryReplacement(
         failure: DiagnosticFailureKind
     ) -> Bool {
-        guard connectionRecoveryOwner.failReplacement() != nil else { return false }
-        recordConnectionRecoveryFailed(failure)
+        guard let attempt = connectionRecoveryOwner.failReplacement() else { return false }
+        recordConnectionRecoveryFailed(attempt, failure: failure)
         return true
     }
 
-    private func recordConnectionRecoverySucceeded() {
+    private func recordConnectionRecoverySucceeded(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt
+    ) {
         diagnosticLog?.record(DiagnosticEvent(
             .recoverySucceeded,
+            surface: attempt.diagnosticID,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue
+                ?? DiagnosticTransportKind.unknown.rawValue,
+            c: activePeerDiagnosticAlias
         ))
     }
 
-    private func recordConnectionRecoveryFailed(_ failure: DiagnosticFailureKind) {
+    private func recordConnectionRecoveryFailed(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt,
+        failure: DiagnosticFailureKind
+    ) {
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryFailed,
+            surface: attempt.diagnosticID,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            b: failure.rawValue
+            b: failure.rawValue,
+            c: activePeerDiagnosticAlias
         ))
+    }
+
+    /// A peer alias is stable for this process but never exports the Mac ID.
+    private var activePeerDiagnosticAlias: UInt32? {
+        DiagnosticCorrelation().handle(
+            for: activeTicket?.macDeviceID ?? foregroundMacDeviceID
+        )
     }
 
     func recordSuccessfulTerminalSubscription(
@@ -450,8 +468,10 @@ extension MobileShellComposite {
                 connectionGeneration: connectionGeneration,
                 listenerID: listenerID
             )
-        if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
-            recordConnectionRecoverySucceeded()
+        let attempt = connectionRecoveryOwner.activeAttempt
+        if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration),
+           let attempt {
+            recordConnectionRecoverySucceeded(attempt)
             applyConnectionRecoveryOwnerState()
         }
     }

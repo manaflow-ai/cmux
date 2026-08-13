@@ -4752,7 +4752,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-            transportConnectObserver: transportConnectDiagnosticObserver,
+            transportConnectObserver: transportConnectDiagnosticObserver(
+                peerID: mac.macDeviceID
+            ),
             sessionPurpose: .backgroundControl
         )
         var status: MobileHostStatusResponse
@@ -9063,7 +9065,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-                transportConnectObserver: transportConnectDiagnosticObserver
+                transportConnectObserver: transportConnectDiagnosticObserver(
+                    peerID: ticket.macDeviceID
+                )
             )
             if let previousAttemptClient =
                 replaceConnectionAttemptClientOwnership(with: client) {
@@ -9237,6 +9241,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     diagnosticLog?.record(DiagnosticEvent(
                         .hostAuthenticated,
+                        surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
                         a: DiagnosticTransportKind(route.kind).rawValue
                     ))
                     guard isConnectCurrent() else {
@@ -9397,6 +9402,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     diagnosticLog?.record(DiagnosticEvent(
                         .rpcReady,
+                        surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
+                        ms: connectionAttemptStartedAt.map {
+                            UInt32(clamping: max(0, Int(Date().timeIntervalSince($0) * 1_000)))
+                        },
                         a: DiagnosticTransportKind(route.kind).rawValue
                     ))
                     // Record this as the foreground entry in the per-Mac

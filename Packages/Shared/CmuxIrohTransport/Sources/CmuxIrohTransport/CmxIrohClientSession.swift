@@ -14,6 +14,7 @@ public actor CmxIrohClientSession {
     private let privateFallbackContextProvider: PrivateFallbackContextProvider?
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let diagnostics: DiagnosticLog?
+    private let peerAlias: UInt32?
     private let headerCodec: CmxIrohStreamHeaderCodec
     private let admissionCodec = CmxIrohAdmissionAckCodec()
     private var connectionTask: Task<CmxIrohConnectedControl, any Error>?
@@ -57,6 +58,7 @@ public actor CmxIrohClientSession {
         self.privateFallbackContextProvider = privateFallbackContextProvider
         self.protocolConfiguration = protocolConfiguration
         self.diagnostics = diagnostics
+        self.peerAlias = DiagnosticCorrelation().handle(for: targetIdentity.endpointID)
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
 
@@ -286,6 +288,7 @@ public actor CmxIrohClientSession {
         var publicConnectionError: (any Error)?
         diagnostics?.record(DiagnosticEvent(
             .transportDialPlanBuilt,
+            surface: peerAlias,
             a: dialPlan.publicPaths.count,
             b: dialPlan.privateFallbackPaths.count
         ))
@@ -300,11 +303,13 @@ public actor CmxIrohClientSession {
                 )
                 diagnostics?.record(DiagnosticEvent(
                     .transportDialLegSucceeded,
+                    surface: peerAlias,
                     a: DiagnosticDirectDialLeg.publicPaths.rawValue
                 ))
             } catch {
                 diagnostics?.record(DiagnosticEvent(
                     .transportDialLegFailed,
+                    surface: peerAlias,
                     a: DiagnosticDirectDialLeg.publicPaths.rawValue,
                     b: DiagnosticFailureKind.classify(error).rawValue
                 ))
@@ -333,6 +338,7 @@ public actor CmxIrohClientSession {
                 // never sent a packet on the private leg.
                 diagnostics?.record(DiagnosticEvent(
                     .transportDialLegFailed,
+                    surface: peerAlias,
                     a: DiagnosticDirectDialLeg.privateFallback.rawValue,
                     b: DiagnosticFailureKind.noRoute.rawValue
                 ))
@@ -360,11 +366,13 @@ public actor CmxIrohClientSession {
                 )
                 diagnostics?.record(DiagnosticEvent(
                     .transportDialLegSucceeded,
+                    surface: peerAlias,
                     a: DiagnosticDirectDialLeg.privateFallback.rawValue
                 ))
             } catch {
                 diagnostics?.record(DiagnosticEvent(
                     .transportDialLegFailed,
+                    surface: peerAlias,
                     a: DiagnosticDirectDialLeg.privateFallback.rawValue,
                     b: DiagnosticFailureKind.classify(error).rawValue
                 ))

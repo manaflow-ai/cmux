@@ -287,6 +287,18 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// is the synchronization reason (0 applied, 1 listener setting
     /// disabled, 2 runtime context unavailable).
     case lanPublicationState = 76
+
+    /// The transport dial was associated with the admitted session it opened.
+    /// `surface` is the process-local peer alias, `a` is the dial attempt ID,
+    /// and `c` is the matching session ID.
+    case transportDialSessionLinked = 77
+    /// A pending dial was cancelled by a lifecycle owner. `surface` is the
+    /// peer alias, `a` is ``DiagnosticCancellationReason``, `ms` is elapsed
+    /// dial time, and `c` is the dial attempt ID.
+    case transportDialCancelled = 78
+    /// A close carried a bounded remote reason token. `surface` is the peer
+    /// alias, `a` is ``DiagnosticRemoteCloseReason``, and `c` is the session ID.
+    case transportCloseReason = 79
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

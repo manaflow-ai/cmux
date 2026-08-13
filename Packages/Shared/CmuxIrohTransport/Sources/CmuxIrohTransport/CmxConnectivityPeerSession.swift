@@ -42,6 +42,7 @@ actor CmxConnectivityPeerSession {
     static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
 
     let peerID: CmxConnectivityPeerID
+    private let peerAlias: UInt32?
     private let buildSession: SessionBuilder
     private let handleSnapshot: SnapshotHandler
     private let diagnosticLog: DiagnosticLog?
@@ -68,6 +69,7 @@ actor CmxConnectivityPeerSession {
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
         self.peerID = peerID
+        self.peerAlias = DiagnosticCorrelation().handle(for: peerID.deviceID)
         self.buildSession = buildSession
         self.handleSnapshot = handleSnapshot
         self.diagnosticLog = diagnosticLog
@@ -300,6 +302,11 @@ actor CmxConnectivityPeerSession {
 
     func connectionContinuityID() async -> UInt64? {
         await activeConnection?.session.connectionContinuityID()
+    }
+
+    /// Returns the diagnostic session currently admitted for this peer.
+    func diagnosticSessionID() -> Int? {
+        activeConnection?.diagnosticID
     }
 
     func observedSelectedPath() async -> CmxIrohObservedConnectionPath {
@@ -686,6 +693,7 @@ actor CmxConnectivityPeerSession {
     ) {
         diagnosticLog?.record(DiagnosticEvent(
             .transportSessionLifecycle,
+            surface: peerAlias,
             a: kind.rawValue,
             b: Int(purpose.rawValue),
             c: sessionID
@@ -701,7 +709,8 @@ actor CmxConnectivityPeerSession {
         if let diagnosticLog {
             let recorder = CmxIrohConnectionDiagnosticRecorder(
                 diagnosticLog: diagnosticLog,
-                sessionID: active.diagnosticID
+                sessionID: active.diagnosticID,
+                peerAlias: peerAlias
             )
             recorder.record(await active.session.closeAttribution())
         }
@@ -712,6 +721,7 @@ actor CmxConnectivityPeerSession {
         )
         diagnosticLog?.record(DiagnosticEvent(
             .sessionClosed,
+            surface: peerAlias,
             a: DiagnosticTransportKind.iroh.rawValue,
             b: failure.rawValue,
             c: active.diagnosticID
