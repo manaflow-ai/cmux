@@ -2405,6 +2405,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var workspaceSetReconciledIds: Set<UUID> = []
     private var workspaceSetSelectionCancellable: AnyCancellable?
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    /// Last lane set written by `recordActiveLaneSnapshot`, to skip redundant writes.
+    private var lastRecordedLanes: [ActiveLaneSnapshot.Lane]?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private let sessionPersistenceQueue = DispatchQueue(
@@ -3003,6 +3005,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        recordActiveLaneSnapshot()
         stopSessionAutosaveTimer()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
@@ -4818,6 +4821,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func runSessionAutosaveTick(source: String) {
         guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
+        // Ahead of the typing quiet period: a no-op unless a lane opened or closed, and
+        // the whole point is to have this on disk before an unclean shutdown.
+        recordActiveLaneSnapshot()
         guard !sessionAutosaveTickInFlight else { return }
         if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
 #if DEBUG
@@ -5280,6 +5286,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             refreshTerminalSurfacesAfterGhosttyConfigReload(source: "recoverLiveTmuxSessions")
         }
         return recovered
+    }
+
+    // MARK: - Restore after a reboot
+
+    /// Every workspace that currently has an agent lane registered, across all windows.
+    func currentActiveLanes() -> [ActiveLaneSnapshot.Lane] {
+        var lanes: [ActiveLaneSnapshot.Lane] = []
+        var seen: Set<UUID> = []
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                guard let session = workspace.ownedTmuxSession, !session.isEmpty else { continue }
+                guard seen.insert(workspace.id).inserted else { continue }
+                lanes.append(
+                    ActiveLaneSnapshot.Lane(
+                        workspace: workspace.id,
+                        session: session,
+                        directory: workspace.currentDirectory,
+                        title: workspace.title
+                    )
+                )
+            }
+        }
+        return lanes
+    }
+
+    /// Persist the current lane set, so a restart can offer to bring it back.
+    ///
+    /// Cheap by construction: it reads registrations already held in memory and never
+    /// shells out to tmux, which is what makes it safe to run on the autosave tick as
+    /// well as at termination. The tick is the one that matters — a panic or a power cut
+    /// never reaches `applicationWillTerminate`.
+    func recordActiveLaneSnapshot() {
+        let lanes = currentActiveLanes()
+        // The lane set changes only when a pane opens or closes, while the tick that
+        // calls this runs constantly. Comparing first keeps the steady state free of
+        // disk writes, which is what makes it safe on the typing-sensitive autosave path.
+        guard lanes != lastRecordedLanes else { return }
+        let snapshot = ActiveLaneSnapshot.Snapshot(
+            ts: Int(Date().timeIntervalSince1970),
+            lanes: lanes
+        )
+        guard ActiveLaneSnapshot.write(snapshot) else { return }
+        lastRecordedLanes = lanes
+    }
+
+    /// Workspaces recorded as having had a lane, which are open now and not yet attached.
+    func lanesAwaitingRestore() -> [(workspace: Workspace, lane: ActiveLaneSnapshot.Lane)] {
+        guard let snapshot = ActiveLaneSnapshot.read() else { return [] }
+
+        var workspacesById: [UUID: Workspace] = [:]
+        var attached: Set<UUID> = []
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                workspacesById[workspace.id] = workspace
+                if let session = workspace.ownedTmuxSession, !session.isEmpty {
+                    attached.insert(workspace.id)
+                }
+            }
+        }
+
+        let lanes = ActiveLaneSnapshot.restorable(
+            snapshot: snapshot,
+            openWorkspaces: Set(workspacesById.keys),
+            attached: attached
+        )
+        return lanes.compactMap { lane in
+            guard let workspace = workspacesById[lane.workspace] else { return nil }
+            return (workspace, lane)
+        }
+    }
+
+    /// Rebuild every recorded workspace, letting each lane shim resume its transcript.
+    ///
+    /// Ownership is deliberately *not* pre-registered the way `recoverLiveTmuxSessions`
+    /// does: there is no surviving session to claim, so the name is only known once the
+    /// wrapper has started and registered it over the socket. Claiming a predicted name
+    /// here would be wrong for any lane launched with an explicit word suffix.
+    @discardableResult
+    func restorePreviousSessions() -> [String] {
+        let targets = lanesAwaitingRestore()
+        guard !targets.isEmpty else { return [] }
+        var restored: [String] = []
+        for (workspace, lane) in targets {
+            guard WorkspaceSetImporter.rebuildWorkspaceFromTemplate(workspace) != nil else {
+                NSLog("[LaneRestore] no template for '%@' — skipped", workspace.title)
+                continue
+            }
+            workspaceSetReconciledIds.insert(workspace.id)
+            restored.append(lane.session)
+        }
+        if !restored.isEmpty {
+            NSLog("[LaneRestore] restored %d workspace(s): %@",
+                  restored.count, restored.joined(separator: ", "))
+            refreshTerminalSurfacesAfterGhosttyConfigReload(source: "restorePreviousSessions")
+        }
+        return restored
     }
 
     func windowMoveTargets(referenceWindowId: UUID?) -> [WindowMoveTarget] {

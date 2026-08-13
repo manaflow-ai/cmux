@@ -20,6 +20,7 @@
 			A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
 		A5001540 /* PortScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001541 /* PortScanner.swift */; };
 		A5001A10 /* TmuxSessionReaper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A11 /* TmuxSessionReaper.swift */; };
+		A5001B10 /* ActiveLaneSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001B11 /* ActiveLaneSnapshot.swift */; };
 		14D4FD45A95D3F9DF64B315F /* ActiveWorkspaceMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73D0D2F1A1A680D5F9020FA /* ActiveWorkspaceMirror.swift */; };
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
@@ -126,6 +127,7 @@
 		A5001623 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = A5001622 /* cmux.sdef */; };
 						E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
 						A5001A20 /* TmuxSessionReaperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A21 /* TmuxSessionReaperTests.swift */; };
+						A5001B20 /* ActiveLaneSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001B21 /* ActiveLaneSnapshotTests.swift */; };
 					1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */; };
 					46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
 					6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
@@ -228,6 +230,7 @@
 			A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
 		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
 		A5001A11 /* TmuxSessionReaper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxSessionReaper.swift; sourceTree = "<group>"; };
+		A5001B11 /* ActiveLaneSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveLaneSnapshot.swift; sourceTree = "<group>"; };
 		E73D0D2F1A1A680D5F9020FA /* ActiveWorkspaceMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveWorkspaceMirror.swift; sourceTree = "<group>"; };
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
@@ -329,6 +332,7 @@
 		A5001622 /* cmux.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.sdef; path = cmux.sdef; sourceTree = "<group>"; };
 				970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
 				A5001A21 /* TmuxSessionReaperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxSessionReaperTests.swift; sourceTree = "<group>"; };
+				A5001B21 /* ActiveLaneSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveLaneSnapshotTests.swift; sourceTree = "<group>"; };
 				58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelTests.swift; sourceTree = "<group>"; };
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
 				71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
@@ -492,6 +496,7 @@
 				A5001019 /* TerminalController.swift */,
 				A5001541 /* PortScanner.swift */,
 				A5001A11 /* TmuxSessionReaper.swift */,
+				A5001B11 /* ActiveLaneSnapshot.swift */,
 				E73D0D2F1A1A680D5F9020FA /* ActiveWorkspaceMirror.swift */,
 				A5001544 /* TerminalImageTransfer.swift */,
 				A5001545 /* TerminalSSHSessionDetector.swift */,
@@ -616,6 +621,7 @@
 					A5008382 /* CommandPaletteSearchEngineTests.swift */,
 					970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
 					A5001A21 /* TmuxSessionReaperTests.swift */,
+					A5001B21 /* ActiveLaneSnapshotTests.swift */,
 					58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
 					02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
 					71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */,
@@ -825,6 +831,7 @@
 				A5001007 /* TerminalController.swift in Sources */,
 				A5001540 /* PortScanner.swift in Sources */,
 				A5001A10 /* TmuxSessionReaper.swift in Sources */,
+				A5001B10 /* ActiveLaneSnapshot.swift in Sources */,
 				14D4FD45A95D3F9DF64B315F /* ActiveWorkspaceMirror.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
@@ -923,6 +930,7 @@
 					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
 					E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,
 					A5001A20 /* TmuxSessionReaperTests.swift in Sources */,
+					A5001B20 /* ActiveLaneSnapshotTests.swift in Sources */,
 					1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */,
 					46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */,
 					6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */,
