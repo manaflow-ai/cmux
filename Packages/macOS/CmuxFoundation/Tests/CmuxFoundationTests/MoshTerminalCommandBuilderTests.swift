@@ -81,6 +81,39 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("runs remote probes through POSIX sh under a fish login shell")
+    func remoteProbeIsShellAgnostic() throws {
+        try withFakeCommands(
+            sshStatus: 0,
+            executeRemoteCommand: true,
+            installRemoteMoshServerOutsidePath: true,
+            remoteLoginShell: "/usr/local/bin/fish"
+        ) { directory, environment in
+            let remoteHome = directory.appendingPathComponent("remote-home", isDirectory: true)
+            let staging = try #require(RemoteBootstrapStagingCommandBuilder(
+                installerSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
+                destination: "user@example.com",
+                remoteRelayPort: 52_263,
+                bootstrapScript: "printf '%s\\n' fish-bootstrap"
+            ))
+            let result = try run(
+                builder(
+                    preparationShellScript: staging.preparationShellScript,
+                    remoteRelayPort: 52_263
+                ),
+                environment: environment
+            )
+
+            #expect(result.status == 0)
+            #expect(result.stdout.isEmpty)
+            #expect(result.stderr.isEmpty)
+            #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("mosh.args").path))
+            #expect(FileManager.default.fileExists(
+                atPath: remoteHome.appendingPathComponent(".cmux/relay/52263.bootstrap.sh").path
+            ))
+        }
+    }
+
     @Test("preserves the Mosh SSH bootstrap and remote command argv")
     func supportedMoshPreservesArguments() throws {
         try withFakeCommands(sshStatus: 0) { directory, environment in
@@ -278,7 +311,9 @@ struct MoshTerminalCommandBuilderTests {
             localMoshMissingMessage: "local mosh missing",
             localMoshUnsupportedMessage: "local mosh unsupported",
             remoteMoshMissingMessage: "remote mosh missing",
-            remoteMoshProbeFailedMessage: "remote probe failed"
+            remoteMoshProbeFailedMessage: "remote probe failed",
+            remoteBootstrapInstallFailedMessage: "remote bootstrap install failed",
+            remoteMoshAddressFallbackMessage: "using local Mosh address resolution"
         )
     }
 
@@ -290,6 +325,7 @@ struct MoshTerminalCommandBuilderTests {
         installRemoteMoshServerOutsidePath: Bool = false,
         requireManagementReady: Bool = false,
         sshConnection: String? = nil,
+        remoteLoginShell: String = "/bin/sh",
         moshStatus: Int32 = 0,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
@@ -303,15 +339,15 @@ struct MoshTerminalCommandBuilderTests {
             script: """
             #!/bin/sh
             printf '%s\\n' "$@" > "$SSH_ARGS_FILE"
+            cmux_remote_command=
+            for cmux_arg in "$@"; do cmux_remote_command=$cmux_arg; done
             if [ "$FAKE_SSH_EXEC_REMOTE" = "1" ]; then
-              cmux_remote_command=
-              for cmux_arg in "$@"; do cmux_remote_command=$cmux_arg; done
-              HOME="$FAKE_REMOTE_HOME" PATH=/usr/bin:/bin /bin/sh -c "$cmux_remote_command"
+              SSH_CONNECTION="$FAKE_SSH_CONNECTION" HOME="$FAKE_REMOTE_HOME" PATH=/usr/bin:/bin "$FAKE_REMOTE_LOGIN_SHELL" -c "$cmux_remote_command"
               exit $?
             fi
             case "$cmux_remote_command" in
               *SSH_CONNECTION*)
-                printf '%s\\n' "${FAKE_SSH_CONNECTION:-}"
+                printf '%s\\n' "__CMUX_SSH_CONNECTION__${FAKE_SSH_CONNECTION:-}"
                 ;;
             esac
             exit "$FAKE_SSH_STATUS"
@@ -361,11 +397,12 @@ struct MoshTerminalCommandBuilderTests {
             )
         }
         try operation(directory, [
-            "PATH": directory.path,
+            "PATH": directory.path + ":/usr/bin:/bin",
             "FAKE_SSH_STATUS": String(sshStatus),
             "FAKE_SSH_EXEC_REMOTE": executeRemoteCommand ? "1" : "0",
             "FAKE_REMOTE_HOME": remoteHome.path,
-            "FAKE_SSH_CONNECTION": sshConnection ?? "",
+            "FAKE_REMOTE_LOGIN_SHELL": remoteLoginShell,
+            "FAKE_SSH_CONNECTION": sshConnection ?? "192.0.2.10 12345 192.0.2.20 22",
             "FAKE_MOSH_SUPPORTS_REMOTE_IP": moshSupportsRemoteIP ? "1" : "0",
             "FAKE_REQUIRE_MANAGEMENT_READY": requireManagementReady ? "1" : "0",
             "FAKE_MOSH_STATUS": String(moshStatus),

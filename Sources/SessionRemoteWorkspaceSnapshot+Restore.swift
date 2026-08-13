@@ -431,6 +431,14 @@ extension SessionRemoteWorkspaceSnapshot {
             remoteMoshProbeFailedMessage: String(
                 localized: "cli.ssh.mosh.probeFailed",
                 defaultValue: "[cmux] Could not verify remote Mosh support; continuing over SSH."
+            ),
+            remoteBootstrapInstallFailedMessage: String(
+                localized: "cli.ssh.mosh.bootstrapInstallFailed",
+                defaultValue: "[cmux] Remote bootstrap install failed; continuing over SSH."
+            ),
+            remoteMoshAddressFallbackMessage: String(
+                localized: "cli.ssh.mosh.addressFallback",
+                defaultValue: "[cmux] Remote SSH advertised an unusable address; using local Mosh address resolution."
             )
         ).command()
     }

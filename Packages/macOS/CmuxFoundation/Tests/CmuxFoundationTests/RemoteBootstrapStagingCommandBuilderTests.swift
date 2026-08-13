@@ -72,6 +72,7 @@ struct RemoteBootstrapStagingCommandBuilderTests {
         .split(separator: "\n")
         .map(String.init)
         #expect(sshArguments.allSatisfy { $0.utf8.count < 4_096 })
+        #expect(sshArguments.contains(where: { $0.hasPrefix("/bin/sh -c '") }))
 
         let execution = try run(
             executable: "/bin/sh",
@@ -87,6 +88,52 @@ struct RemoteBootstrapStagingCommandBuilderTests {
                 "workspace=workspace-123 surface=surface-456 lifecycle=lifecycle-789 attempt=attempt-012\n"
         )
         #expect(execution.stderr.isEmpty)
+    }
+
+    @Test("installs through POSIX sh when the remote login shell is fish")
+    func stagesThroughFishLoginShell() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/local/bin/fish") else {
+            return
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-bootstrap-fish-\(UUID().uuidString)", isDirectory: true)
+        let remoteHome = directory.appendingPathComponent("remote-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: remoteHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fakeSSH = directory.appendingPathComponent("ssh")
+        try """
+        #!/bin/sh
+        cmux_remote_command=
+        for cmux_argument in "$@"; do cmux_remote_command=$cmux_argument; done
+        HOME="$CMUX_REMOTE_HOME" PATH=/usr/bin:/bin /usr/local/bin/fish -c "$cmux_remote_command"
+        """.write(to: fakeSSH, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeSSH.path
+        )
+
+        let builder = try #require(RemoteBootstrapStagingCommandBuilder(
+            installerSSHArguments: [fakeSSH.path, "-o", "RemoteCommand=none"],
+            destination: "user@example.com",
+            remoteRelayPort: 52_262,
+            bootstrapScript: "printf '%s\\n' fish-bootstrap"
+        ))
+        let preparation = try run(
+            executable: "/bin/sh",
+            arguments: ["-c", builder.preparationShellScript],
+            environment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_REMOTE_HOME": remoteHome.path,
+            ]
+        )
+
+        #expect(preparation.status == 0)
+        #expect(preparation.stderr.isEmpty)
+        #expect(FileManager.default.fileExists(
+            atPath: remoteHome.appendingPathComponent(".cmux/relay/52262.bootstrap.sh").path
+        ))
     }
 
     @Test("rejects an invalid relay namespace")

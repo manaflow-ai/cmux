@@ -36,15 +36,12 @@ public struct RemoteBootstrapStagingCommandBuilder: Sendable {
     }
 
     /// Local shell code that substitutes runtime IDs and streams the bootstrap over SSH.
+    ///
+    /// The SSH command is one `/bin/sh -c` remote-command string so an account's
+    /// configured login shell cannot parse the POSIX installer itself.
     public var preparationShellScript: String {
         let encodedBootstrapScript = Data(bootstrapScript.utf8).base64EncodedString()
-        let installCommand = ([
-            "/bin/sh",
-            "-c",
-            remoteInstallShellScript,
-        ])
-        .map(\.remoteCommandShellQuoted)
-        .joined(separator: " ")
+        let installCommand = "/bin/sh -c \(remoteInstallShellScript.remoteCommandShellQuoted)"
         let sshPrefix = installerSSHArguments
             .map(\.remoteCommandShellQuoted)
             .joined(separator: " ")
@@ -61,9 +58,19 @@ public struct RemoteBootstrapStagingCommandBuilder: Sendable {
             "cmux_terminal_lifecycle_id_escaped=\"$(cmux_sed_escape \"$cmux_terminal_lifecycle_id\")\"",
             "cmux_ssh_attempt_id_escaped=\"$(cmux_sed_escape \"$cmux_ssh_attempt_id\")\"",
             "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id_escaped/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id_escaped/g; s/__CMUX_TERMINAL_LIFECYCLE_ID__/$cmux_terminal_lifecycle_id_escaped/g; s/__CMUX_SSH_ATTEMPT_ID__/$cmux_ssh_attempt_id_escaped/g\")\"",
-            "printf '%s' \"$cmux_remote_bootstrap\" | command \(sshPrefix) -T \(destination.remoteCommandShellQuoted) \(installCommand.remoteCommandShellQuoted)",
-            "cmux_remote_install_status=$?",
-            "unset cmux_remote_bootstrap cmux_remote_bootstrap_b64 cmux_workspace_id cmux_surface_id cmux_terminal_lifecycle_id cmux_ssh_attempt_id cmux_workspace_id_escaped cmux_surface_id_escaped cmux_terminal_lifecycle_id_escaped cmux_ssh_attempt_id_escaped",
+            "cmux_remote_install_stderr_file=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-remote-bootstrap-install.XXXXXX\" 2>/dev/null || true)\"",
+            "if [ -n \"$cmux_remote_install_stderr_file\" ]; then",
+            "  printf '%s' \"$cmux_remote_bootstrap\" | command \(sshPrefix) -T \(destination.remoteCommandShellQuoted) \(installCommand.remoteCommandShellQuoted) 2>\"$cmux_remote_install_stderr_file\"",
+            "  cmux_remote_install_status=$?",
+            "else",
+            "  printf '%s' \"$cmux_remote_bootstrap\" | command \(sshPrefix) -T \(destination.remoteCommandShellQuoted) \(installCommand.remoteCommandShellQuoted)",
+            "  cmux_remote_install_status=$?",
+            "fi",
+            "if [ \"$cmux_remote_install_status\" -ne 0 ] && [ -n \"$cmux_remote_install_stderr_file\" ] && [ -s \"$cmux_remote_install_stderr_file\" ]; then",
+            "  cat \"$cmux_remote_install_stderr_file\" >&2",
+            "fi",
+            "rm -f -- \"${cmux_remote_install_stderr_file:-}\" 2>/dev/null || true",
+            "unset cmux_remote_bootstrap cmux_remote_bootstrap_b64 cmux_workspace_id cmux_surface_id cmux_terminal_lifecycle_id cmux_ssh_attempt_id cmux_workspace_id_escaped cmux_surface_id_escaped cmux_terminal_lifecycle_id_escaped cmux_ssh_attempt_id_escaped cmux_remote_install_stderr_file",
             "(exit \"$cmux_remote_install_status\")",
         ].joined(separator: "\n")
     }
@@ -73,9 +80,14 @@ public struct RemoteBootstrapStagingCommandBuilder: Sendable {
         "exec /bin/sh \"$HOME/.cmux/relay/\(remoteRelayPort).bootstrap.sh\""
     }
 
-    /// Remote argv that executes the staged bootstrap.
+    /// Remote command argv that executes the staged bootstrap.
+    ///
+    /// Keep the launcher as one command string. OpenSSH concatenates remote
+    /// command arguments before handing them to the account's login shell;
+    /// one `exec /bin/sh` command prevents that shell from interpreting the
+    /// staged POSIX script.
     public var remoteExecutionCommandArguments: [String] {
-        ["/bin/sh", "-c", remoteExecutionShellScript]
+        [remoteExecutionShellScript]
     }
 
     private var remoteInstallShellScript: String {

@@ -51,7 +51,9 @@ let command = MoshTerminalCommandBuilder(
     localMoshMissingMessage: "Mosh is unavailable locally; using SSH.",
     localMoshUnsupportedMessage: "Mosh is too old for shared SSH setup; using SSH.",
     remoteMoshMissingMessage: "mosh-server is unavailable remotely; using SSH.",
-    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH."
+    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH.",
+    remoteBootstrapInstallFailedMessage: "Remote bootstrap install failed; using SSH.",
+    remoteMoshAddressFallbackMessage: "Remote SSH address is unusable; using local Mosh resolution."
 ).command()
 ```
 

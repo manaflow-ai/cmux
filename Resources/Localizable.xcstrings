@@ -54293,6 +54293,40 @@
         }
       }
     },
+    "cli.ssh.mosh.bootstrapInstallFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote bootstrap install failed; continuing over SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートブートストラップのインストールに失敗したため、SSH で接続を続行します。"
+          }
+        }
+      }
+    },
+    "cli.ssh.mosh.addressFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote SSH advertised an unusable address; using local Mosh address resolution."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート SSH が使用できないアドレスを通知したため、ローカルで Mosh のアドレスを解決します。"
+          }
+        }
+      }
+    },
     "cli.ssh.mosh.remoteMissing": {
       "extractionState": "manual",
       "localizations": {
