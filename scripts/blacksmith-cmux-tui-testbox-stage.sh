@@ -126,6 +126,38 @@ if errors:
 PY
 }
 verify_setup_identity
+setup_rust_toolchain="$(python3 - "$setup_identity_path" <<'PY'
+import json
+import pathlib
+import sys
+record=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(record["toolchain"]["rust_toolchain"])
+PY
+)"
+setup_rustc="$(python3 - "$setup_identity_path" <<'PY'
+import json
+import pathlib
+import sys
+record=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(record["toolchain"]["rustc"])
+PY
+)"
+setup_cargo="$(python3 - "$setup_identity_path" <<'PY'
+import json
+import pathlib
+import sys
+record=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(record["toolchain"]["cargo"])
+PY
+)"
+setup_zig="$(python3 - "$setup_identity_path" <<'PY'
+import json
+import pathlib
+import sys
+record=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(record["toolchain"]["zig"])
+PY
+)"
 
 benchmark_dir="$repo_root/testbox-benchmark"
 command -v flock >/dev/null || {
@@ -312,6 +344,10 @@ rust_toolchain="$(rustup show active-toolchain)"
 rustc_version="$(rustc --version)"
 cargo_version="$(cargo --version)"
 zig_version="$("$zig_bin" version)"
+[[ "$rust_toolchain" == "$setup_rust_toolchain" && "$rustc_version" == "$setup_rustc" && "$cargo_version" == "$setup_cargo" && "$zig_version" == "$setup_zig" ]] || {
+  echo "active Rust/Cargo/Zig toolchain differs from the setup identity marker" >&2
+  exit 66
+}
 export ZIG="$zig_bin"
 rust_toolchain_file_sha256="$(sha256sum cmux-tui/rust-toolchain.toml | cut -d ' ' -f 1)"
 cargo_lock_sha256="$(sha256sum cmux-tui/Cargo.lock | cut -d ' ' -f 1)"
@@ -333,7 +369,7 @@ case "$stage" in
       exit 67
     fi
     backup_sha256="$(sha256sum "$backup_candidate" | cut -d ' ' -f 1)"
-    backup_size="$(wc -c <"$backup_candidate")"
+    backup_size="$(wc -c <"$backup_candidate" | tr -d '[:space:]')"
     [[ "$backup_size" =~ ^[0-9]+$ && "$backup_size" -gt 0 ]] || {
       rm -f "$backup_candidate"
       echo "source backup is empty" >&2
