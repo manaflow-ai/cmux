@@ -575,7 +575,12 @@ public extension DiagnosticEventCode {
              .discoveryStarted, .discoverySucceeded, .discoveryFailed,
              .admissionSucceeded, .admissionFailed,
              .transportSessionLifecycle,
-             .transportCloseAttribution, .transportPathEvent:
+             .transportCloseAttribution, .transportPathEvent,
+             .transportDialPlanBuilt, .transportPrivateAddressJoin,
+             .transportLANDiscovery, .transportDialLegSucceeded,
+             .transportDialLegFailed, .lanPublicationState,
+             .transportDialSessionLinked, .transportDialCancelled,
+             .transportCloseReason:
             return .network
         case .appLifecycleChanged, .reachabilityChanged:
             return .both

@@ -4743,7 +4743,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-            transportConnectObserver: transportConnectDiagnosticObserver,
+            transportConnectObserver: transportConnectDiagnosticObserver(
+                peerID: mac.macDeviceID
+            ),
             sessionPurpose: .backgroundControl
         )
         var status: MobileHostStatusResponse
@@ -9054,7 +9056,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-                transportConnectObserver: transportConnectDiagnosticObserver
+                transportConnectObserver: transportConnectDiagnosticObserver(
+                    peerID: ticket.macDeviceID
+                )
             )
             if let previousAttemptClient =
                 replaceConnectionAttemptClientOwnership(with: client) {
@@ -9228,6 +9232,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     diagnosticLog?.record(DiagnosticEvent(
                         .hostAuthenticated,
+                        surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
                         a: DiagnosticTransportKind(route.kind).rawValue
                     ))
                     guard isConnectCurrent() else {
@@ -9388,6 +9393,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     diagnosticLog?.record(DiagnosticEvent(
                         .rpcReady,
+                        surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
+                        ms: connectionAttemptStartedAt.map {
+                            UInt32(clamping: max(0, Int(Date().timeIntervalSince($0) * 1_000)))
+                        },
                         a: DiagnosticTransportKind(route.kind).rawValue
                     ))
                     // Record this as the foreground entry in the per-Mac
@@ -9442,6 +9451,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         || failure == .authorizationFailed
                         || failure == .accountMismatch {
                         recordHostAuthenticationFailure(route: route, failure: failure)
+                    }
+                    // An unreachable-class iroh route failure is staleness
+                    // evidence: drop any reusable discovery snapshot for this
+                    // Mac so the NEXT attempt rebuilds its dial plan from a
+                    // fresh broker fetch instead of redialing a corpse route.
+                    // The transport pool reports most dial failures itself,
+                    // but this request deadline cancels an in-flight dial (the
+                    // pool then sees only a cancellation), so the owner that
+                    // classified the outcome reports it too.
+                    if route.kind == .iroh,
+                       !ticket.macDeviceID.isEmpty,
+                       Self.routeFailureIndicatesStaleDiscovery(failure) {
+                        await personalIrohDiscovery?.invalidateDiscovery(
+                            forMacDeviceID: ticket.macDeviceID
+                        )
                     }
                 }
             }
@@ -10503,8 +10527,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requiresSubscriptionValidation =
             runtime?.supportsServerPushEvents == true
                 || terminalEventListenerID != nil
+        // Creating or refreshing the push subscription is a secondary
+        // readiness check. It must not demote an already-authenticated RPC
+        // session to `reconnecting` while the ACK is in flight. A transient
+        // subscription race otherwise blanks the workspace UI even though the
+        // live Iroh client can still serve requests.
         guard !requiresSubscriptionValidation
-                || subscriptionIsValidated else {
+                || subscriptionIsValidated
+                || macConnectionStatus == .connected else {
             macConnectionStatus = .reconnecting
             connectionRecoveryFailed = false
             return

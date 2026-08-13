@@ -5,6 +5,45 @@ public import IrohLib
 // exporting `String(describing: error)`, which may contain endpoint identities,
 // relay URLs, credentials, or private network addresses.
 
+/// Recognizes operating-system route failures that Iroh currently exposes only
+/// through an opaque display string. Keep this list narrow. A peer-controlled
+/// close reason must not be allowed to turn an established-session close into a
+/// local route diagnosis.
+enum CmxIrohRouteFailureClassifier {
+    static func classify(_ message: String) -> DiagnosticFailureKind? {
+        let normalized = message.lowercased()
+        // These strings describe an already established close, or contain
+        // peer-controlled application text. They are not local route
+        // evidence, even when the peer's reason happens to say "no route".
+        if normalized.hasPrefix("closed by peer:")
+            || normalized.hasPrefix("aborted by peer:")
+            || normalized.hasPrefix("reset by peer:")
+            || normalized.contains("connectionlost(")
+            || normalized.contains("applicationclosed(")
+            || normalized.contains("connectionclosed(") {
+            return nil
+        }
+        if normalized.contains("connection refused")
+            || normalized.contains("econnrefused") {
+            return .connectionRefused
+        }
+        if normalized.contains("network is unreachable")
+            || normalized.contains("no route to host")
+            || normalized.contains("host unreachable")
+            || normalized.contains("enetunreach")
+            || normalized.contains("ehostunreach") {
+            return .hostUnreachable
+        }
+        if normalized.contains("no route")
+            || normalized.contains("no usable route")
+            || normalized.contains("no usable path")
+            || normalized.contains("no route candidates") {
+            return .noRoute
+        }
+        return nil
+    }
+}
+
 extension IrohError: @retroactive DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         Self.diagnosticFailureKind(message: message())
@@ -28,6 +67,15 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
         if message.contains("ConnectionLost(LocallyClosed)") {
             return .cancelled
         }
+        // ConnectAttempt can render a peer close without the structured
+        // ConnectionLost wrapper. Preserve the same attribution rule here:
+        // the peer's reason is not local route evidence.
+        let normalized = message.lowercased()
+        if normalized.hasPrefix("closed by peer:")
+            || normalized.hasPrefix("aborted by peer:")
+            || normalized.hasPrefix("reset by peer:") {
+            return .connectionClosed
+        }
         if message.contains("TransportError(")
             && (message.contains("Code::crypto(")
                 || message.contains("TLS error:")) {
@@ -49,6 +97,13 @@ extension IrohError: @retroactive DiagnosticFailureProviding {
             || message.contains("Resolve failed, IPv4:")
             || message.contains("Failed to resolve") {
             return .dnsFailed
+        }
+        // Route words are meaningful only on an opaque pre-connection error.
+        // Structured close markers above describe an already admitted session;
+        // a peer-controlled application reason must never be exported as a
+        // local no-route diagnosis.
+        if let routeFailure = CmxIrohRouteFailureClassifier.classify(message) {
+            return routeFailure
         }
         // Connection-level operations (`accept_bi`, `open_bi`, `accept_uni`,
         // `open_uni`) surface `iroh::endpoint::ConnectionError` Debug-formatted
@@ -176,6 +231,8 @@ extension CmxIrohClientSessionError: DiagnosticFailureProviding {
             .identityMismatch
         case .admissionDenied:
             .admissionDenied
+        case .dialTimedOut:
+            .timedOut
         case .alreadyClosed, .notConnected, .unexpectedEndOfStream:
             .connectionClosed
         case .invalidAdmissionFrame, .invalidMaximumByteCount,
