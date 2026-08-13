@@ -1,5 +1,5 @@
 #if os(iOS)
-import CMUXMobileCore
+import CmuxMobileSupport
 import SwiftUI
 
 /// Value-only Settings section for the connected Mac's cmux-owned power state.
