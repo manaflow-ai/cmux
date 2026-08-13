@@ -98,7 +98,8 @@ extension GhosttySurfaceView {
                         generation: operation.generation,
                         kind: .localScroll,
                         surface: operation.surface,
-                        verifiedReplayRead: nil
+                        verifiedReplayRead: nil,
+                        presentationRetryCount: 0
                     )
                 )
                 self.drawForWakeup()
