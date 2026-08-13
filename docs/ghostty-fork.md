@@ -875,8 +875,9 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     only when the upper physical row is width-filled. Indented continuations
     and terminal soft wraps keep their existing behavior.
   - Prevents a short complete URL or path ending in break punctuation from
-    absorbing unrelated output on the next row; a trailing wide-character
-    spacer head still counts as filling the row.
+    absorbing unrelated output on the next row. Terminal soft wraps remain
+    authoritative through `Row.wrap`; that path owns wide-character spacer
+    heads before the hard-newline width check runs.
   - Keeps conservative boundaries for explicit schemes and roots, semantic
     prompt transitions, unrelated indentation, and trailing sentence
     punctuation.
