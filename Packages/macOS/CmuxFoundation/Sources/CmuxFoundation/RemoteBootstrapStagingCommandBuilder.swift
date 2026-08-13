@@ -77,17 +77,21 @@ public struct RemoteBootstrapStagingCommandBuilder: Sendable {
 
     /// Small remote shell command that replaces the process with the staged bootstrap.
     public var remoteExecutionShellScript: String {
-        "exec /bin/sh \"$HOME/.cmux/relay/\(remoteRelayPort).bootstrap.sh\""
+        let launcher = "exec /bin/sh \"$HOME/.cmux/relay/\(remoteRelayPort).bootstrap.sh\""
+        // OpenSSH and Mosh hand their remote command to the account's
+        // configured login shell first. Quote the POSIX launcher as the
+        // argument to an explicit /bin/sh -c so fish/csh/nushell never parse
+        // the staged bootstrap command themselves.
+        return "/bin/sh -c \(launcher.remoteCommandShellQuoted)"
     }
 
     /// Remote command argv that executes the staged bootstrap.
     ///
-    /// Keep the explicit interpreter and its script as separate argv entries.
-    /// OpenSSH/Mosh quote and concatenate these entries into `/bin/sh -c
-    /// 'exec /bin/sh ...'`, so the account's login shell only parses the
-    /// interpreter invocation and never the staged POSIX script.
+    /// Keep the complete launcher as one command string. OpenSSH concatenates
+    /// remote command arguments before handing them to the account's login
+    /// shell; one quoted `/bin/sh -c` command preserves its inner script.
     public var remoteExecutionCommandArguments: [String] {
-        ["/bin/sh", "-c", remoteExecutionShellScript]
+        [remoteExecutionShellScript]
     }
 
     private var remoteInstallShellScript: String {
