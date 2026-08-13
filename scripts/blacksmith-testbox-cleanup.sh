@@ -24,9 +24,19 @@ if [[ "$operator_confirmation" != "PREVIEW" && "$operator_confirmation" != "STOP
 fi
 
 mkdir -p "$evidence_dir"
-command -v timeout >/dev/null || {
-  echo "timeout is required for bounded cleanup operations" >&2
-  exit 65
+sha256_file() {
+  if command -v sha256sum >/dev/null; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo "sha256sum or shasum is required for cleanup preview hashing" >&2
+    return 65
+  fi
+}
+bounded_command() {
+  scripts_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  "$scripts_dir/blacksmith-bounded-command.sh" "$@"
 }
 receipt_path="$evidence_dir/testbox-receipt.json"
 if [[ ! -s "$receipt_path" ]]; then
@@ -113,11 +123,13 @@ for line in text.splitlines():
     if len(fields) < 2:
         raise SystemExit(66)
     status = fields[1].lower()
+    matching_context = False
     for index, field in enumerate(fields[2:], start=2):
-        if field == expected_workflow:
-            if fields[index + 1:index + 3] != [expected_job, expected_ref]:
-                raise SystemExit(66)
+        if field == expected_workflow and fields[index + 1:index + 3] == [expected_job, expected_ref]:
+            matching_context = True
             break
+    if not matching_context:
+        raise SystemExit(66)
     print(status)
     raise SystemExit(0)
 
@@ -149,7 +161,7 @@ is_known_absence() {
 
 inventory_log="$evidence_dir/list-before-stop.log"
 set +e
-timeout --foreground --kill-after=5s 20s blacksmith testbox list --all >"$inventory_log" 2>&1
+bounded_command 20 blacksmith testbox list --all >"$inventory_log" 2>&1
 inventory_status=$?
 set -e
 if (( inventory_status != 0 )); then
@@ -171,7 +183,7 @@ esac
 
 status_log="$evidence_dir/status-before-stop.log"
 set +e
-timeout --foreground --kill-after=5s 20s blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
+bounded_command 20 blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
 status_command_status=$?
 set -e
 status_value=""
@@ -227,7 +239,7 @@ out = pathlib.Path(path)
 out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 out.chmod(0o600)
 PY
-preview_sha="$(sha256sum "$preview_path" | awk '{print $1}')"
+preview_sha="$(sha256_file "$preview_path" | awk '{print $1}')"
 printf 'Testbox cleanup preview: id=%s status=%s inventory_row=%s workflow=%s job=%s ref=%s\n' \
   "$testbox_id" "${status_value:-absent}" "$inventory_row_present" "$receipt_workflow" "$receipt_job" "$receipt_ref"
 printf 'Preview SHA: %s\n' "$preview_sha"
@@ -254,7 +266,7 @@ if (( status_absent == 1 )) || is_terminal "$status_value"; then
   printf 'Testbox %s is already terminal or absent; no stop request needed\n' "$testbox_id" >"$stop_log"
 else
   set +e
-  timeout --foreground --kill-after=5s 20s blacksmith testbox stop --id "$testbox_id" >"$stop_log" 2>&1
+  bounded_command 20 blacksmith testbox stop --id "$testbox_id" >"$stop_log" 2>&1
   stop_status=$?
   set -e
   if (( stop_status != 0 )); then
@@ -273,7 +285,7 @@ while :; do
   poll_attempt=$((poll_attempt + 1))
   : >"$status_log"
   set +e
-  timeout --foreground --kill-after=5s 20s blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
+  bounded_command 20 blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
   status_command_status=$?
   set -e
   if (( status_command_status == 0 )); then
@@ -311,7 +323,7 @@ while :; do
 done
 
 set +e
-timeout --foreground --kill-after=5s 20s blacksmith testbox list --all >"$list_log" 2>&1
+bounded_command 20 blacksmith testbox list --all >"$list_log" 2>&1
 list_status=$?
 set -e
 if (( list_status != 0 )); then

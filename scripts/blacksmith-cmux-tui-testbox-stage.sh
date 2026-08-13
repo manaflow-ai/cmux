@@ -178,7 +178,7 @@ restore_changed_file() {
 # Always restore the deliberately changed source, including when Cargo exits
 # non-zero. Do not let cleanup replace the build result unless restoration
 # itself fails.
-# shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
+# shellcheck disable=SC2329 # invoked indirectly by the signal/EXIT traps
 finish_source() {
   local result=$?
   if [[ -n "$changed_backup" ]]; then
@@ -189,7 +189,7 @@ finish_source() {
   fi
   exit "$result"
 }
-trap finish_source EXIT
+trap finish_source EXIT TERM INT HUP
 
 clean_status() {
   local top_status ghostty_status

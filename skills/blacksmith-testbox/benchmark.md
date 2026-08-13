@@ -312,8 +312,7 @@ run_stage() {
     'CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=%q %q %q %q %q' \
     "$TBX" ./scripts/blacksmith-cmux-tui-testbox-stage.sh \
     "$stage" "$SOURCE_SHA" "$GHOSTTY_SHA"
-  timeout --foreground --kill-after=30s 25m \
-    blacksmith testbox run --id "$TBX" --debug \
+  ./scripts/blacksmith-bounded-command.sh 1500 blacksmith testbox run --id "$TBX" --debug \
     "$remote_command" >"$OUT/$stage.run.log" 2>&1
   run_status=$?
   set -e
