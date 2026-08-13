@@ -224,7 +224,9 @@ if [[ "$ATTACH" -eq 1 ]]; then
   ATTACH_SOCKET_READY=0
   ATTACH_MINT_STATUS=1
   if [[ "$ENSURE_MAC" -eq 1 ]]; then
-    if ! cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" "$ATTACH_TARGET"; then
+    ENSURE_MAC_FORCE_RELAUNCH=0
+    [[ -n "$AUTH_CREDENTIALS_FILE" ]] && ENSURE_MAC_FORCE_RELAUNCH=1
+    if ! cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" "$ATTACH_TARGET" "$ENSURE_MAC_FORCE_RELAUNCH"; then
       echo "error: could not prepare tagged Mac '$TAG' for auto-pair" >&2
       echo "error: dogfood setup requires a usable pairing ticket; use --no-attach only for an intentionally unpaired launch" >&2
       exit 1
