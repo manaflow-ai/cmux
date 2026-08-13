@@ -5164,6 +5164,117 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// Every tmux session currently claimed by an open workspace, across all windows.
+    ///
+    /// The prune pass needs the union over every window: a session owned by a workspace
+    /// in another window is not an orphan, and killing it from this window's view would
+    /// take down a live agent.
+    func allOwnedTmuxSessions() -> Set<String> {
+        var owned: Set<String> = []
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                if let session = workspace.ownedTmuxSession, !session.isEmpty {
+                    owned.insert(session)
+                }
+            }
+        }
+        return owned
+    }
+
+    /// Every tmux session name an open workspace would *predict* for itself, across all
+    /// windows, whether or not anything has registered ownership.
+    ///
+    /// Registration is runtime-only — `resetForRestart` clears `ownedTmuxSession`, because
+    /// a name captured before a restart may be stale. That leaves a window right after
+    /// launch in which nothing is registered but sessions are very much alive, and treating
+    /// registration as the sole signal there classifies every live session as an orphan.
+    /// Prediction covers exactly that window.
+    func allDerivedTmuxSessions() -> Set<String> {
+        var derived: Set<String> = []
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                let name = TmuxSessionReaper.sessionName(
+                    directory: workspace.currentDirectory,
+                    instanceIndex: workspace.instanceIndex
+                )
+                if !name.isEmpty { derived.insert(name) }
+            }
+        }
+        return derived
+    }
+
+    /// Sessions no open workspace claims *or* would claim. The union is the correct
+    /// orphan test: registered names catch word-suffixed sessions prediction cannot see,
+    /// and predicted names catch live sessions whose wrapper has not re-registered yet.
+    func allClaimedTmuxSessions() -> Set<String> {
+        allOwnedTmuxSessions().union(allDerivedTmuxSessions())
+    }
+
+    /// Workspaces with a live tmux session that the GUI is not currently showing.
+    ///
+    /// After a crash the tmux daemons survive — that is the whole point of the
+    /// `new-session -A` wrappers — but cmux comes back with no panes attached. Each
+    /// returned workspace has a predicted session name that is live right now, which is
+    /// the safety property: rebuilding a workspace re-runs its panel command, so doing
+    /// this to a workspace with no live session would spawn a *new* agent rather than
+    /// reattach an old one.
+    func workspacesAwaitingTmuxReattach() -> [(workspace: Workspace, session: String)] {
+        let live = Set(TmuxSessionReaper.liveSessions())
+        guard !live.isEmpty else { return [] }
+        var matches: [(workspace: Workspace, session: String)] = []
+        var claimed: Set<String> = []
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                let name = TmuxSessionReaper.sessionName(
+                    directory: workspace.currentDirectory,
+                    instanceIndex: workspace.instanceIndex
+                )
+                // A workspace that already registered this session attached during this
+                // launch, so it needs nothing — registration is cleared on restart, which
+                // is exactly what makes it a usable "not yet reattached" signal. Skipping
+                // these keeps the command idempotent and safe to invoke at any time, not
+                // only after a crash.
+                if workspace.ownedTmuxSession == name { continue }
+                // One workspace per session: two workspaces on the same directory and
+                // instance would otherwise both rebuild onto the same session, and the
+                // second would steal the pane from the first.
+                guard live.contains(name), !claimed.contains(name) else { continue }
+                claimed.insert(name)
+                matches.append((workspace, name))
+            }
+        }
+        return matches
+    }
+
+    /// Reattach every workspace whose tmux session is still live. Returns the session
+    /// names reattached, in the order they were processed.
+    ///
+    /// This is the in-app form of the freeze-recovery pass: rebuilding from the template
+    /// re-runs each panel's command, and `tmux new-session -A` attaches the existing
+    /// session instead of creating one. Registers ownership as it goes, so a subsequent
+    /// prune sees these as claimed even before the wrapper re-registers.
+    @discardableResult
+    func recoverLiveTmuxSessions() -> [String] {
+        let targets = workspacesAwaitingTmuxReattach()
+        guard !targets.isEmpty else { return [] }
+        var recovered: [String] = []
+        for (workspace, session) in targets {
+            guard WorkspaceSetImporter.rebuildWorkspaceFromTemplate(workspace) != nil else {
+                NSLog("[TmuxRecover] no template for '%@' — skipped", workspace.title)
+                continue
+            }
+            workspace.ownedTmuxSession = session
+            workspaceSetReconciledIds.insert(workspace.id)
+            recovered.append(session)
+        }
+        if !recovered.isEmpty {
+            NSLog("[TmuxRecover] reattached %d workspace(s): %@",
+                  recovered.count, recovered.joined(separator: ", "))
+            refreshTerminalSurfacesAfterGhosttyConfigReload(source: "recoverLiveTmuxSessions")
+        }
+        return recovered
+    }
+
     func windowMoveTargets(referenceWindowId: UUID?) -> [WindowMoveTarget] {
         let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)

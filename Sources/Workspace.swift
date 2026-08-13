@@ -347,6 +347,11 @@ extension Workspace {
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
         agentPIDs.removeAll()
+        // Same reasoning: a session name captured before the restart may no longer
+        // correspond to anything. The launcher re-registers when the panel relaunches
+        // and `tmux new-session -A` reattaches the still-live session, so dropping it
+        // here loses nothing and avoids ever killing a session we no longer own.
+        ownedTmuxSession = nil
         agentListeningPorts.removeAll()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
@@ -6633,6 +6638,15 @@ final class Workspace: Identifiable, ObservableObject {
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
+
+    /// Name of a tmux session this workspace owns, registered by the launcher script
+    /// (see `cmux set-tmux-session`). When set, deliberately closing the workspace also
+    /// kills the session, so a persistent `tmux new-session -A` wrapper does not leave
+    /// its shell — and whatever agent is running inside it — resident forever.
+    ///
+    /// Registration is the opt-in: panels that never register are never touched, and a
+    /// cmux crash never reaches `closeWorkspace`, so crash-resilient reattach still works.
+    var ownedTmuxSession: String?
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     private func sidebarObservationSignal<Value: Equatable>(

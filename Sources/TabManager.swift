@@ -3014,6 +3014,21 @@ class TabManager: ObservableObject {
         cleanupSectionsForRemovedWorkspace(workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+
+        // Deliberately closing a workspace also ends the tmux session it registered.
+        // Without this a persistent `tmux new-session -A` wrapper outlives its
+        // workspace and keeps its agent resident indefinitely. Only registered
+        // sessions are affected, and a crash never reaches closeWorkspace, so the
+        // crash-resilient reattach those wrappers exist for still works.
+        //
+        // Deliberately NOT done in releaseRestoredAwayWorkspace: that discards
+        // pre-restore bootstrap objects whose sessions the restored workspaces are
+        // about to reattach to.
+        if let session = workspace.ownedTmuxSession {
+            TmuxSessionReaper.kill(session)
+            workspace.ownedTmuxSession = nil
+        }
+
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)

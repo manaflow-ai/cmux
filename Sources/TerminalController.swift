@@ -1782,6 +1782,18 @@ class TerminalController {
         case "clear_agent_pid":
             return clearAgentPID(args)
 
+        case "set_tmux_session":
+            return setTmuxSession(args)
+
+        case "clear_tmux_session":
+            return clearTmuxSession(args)
+
+        case "tmux_prune":
+            return pruneTmuxSessions(args)
+
+        case "tmux_recover":
+            return recoverTmuxSessions(args)
+
         case "clear_meta":
             return clearMeta(args)
 
@@ -15099,6 +15111,92 @@ class TerminalController {
             controller.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"
+    }
+
+    /// Register the tmux session this workspace owns, so closing the workspace ends it.
+    /// Usage: set_tmux_session <name> [--tab=<id>]
+    private func setTmuxSession(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let name = parsed.positional.first, !name.isEmpty else {
+            return "ERROR: Usage: set_tmux_session <name> [--tab=<id>]"
+        }
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+        scheduleSidebarMutation(target: target) { _, tab in
+            tab.ownedTmuxSession = name
+        }
+        return "OK"
+    }
+
+    /// Unregister the tmux session, leaving it running when the workspace closes.
+    /// Usage: clear_tmux_session [--tab=<id>]
+    private func clearTmuxSession(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+        scheduleSidebarMutation(target: target) { _, tab in
+            tab.ownedTmuxSession = nil
+        }
+        return "OK"
+    }
+
+    /// Kill every live tmux session that no open workspace claims.
+    ///
+    /// cmux is the only thing that can compute this: the session name derives from the
+    /// workspace directory *and* its instance index, and the instance index is not
+    /// recoverable from outside the app. Reports without killing unless `--kill` is
+    /// passed, so the caller can show the list first.
+    ///
+    /// Usage: tmux_prune [--kill]
+    private func pruneTmuxSessions(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let shouldKill = parsed.options["kill"] != nil
+
+        let claimed = v2MainSync { AppDelegate.shared?.allClaimedTmuxSessions() } ?? []
+        let orphans = TmuxSessionReaper.orphans(ownedSessions: claimed)
+        guard !orphans.isEmpty else { return "OK: no orphaned sessions" }
+
+        guard shouldKill else {
+            return "DRY-RUN: \(orphans.count) orphaned\n" + orphans.joined(separator: "\n")
+        }
+
+        var killed: [String] = []
+        for session in orphans where TmuxSessionReaper.kill(session) {
+            killed.append(session)
+        }
+        return "OK: killed \(killed.count)\n" + killed.joined(separator: "\n")
+    }
+
+    /// Reattach every workspace whose tmux session survived a crash.
+    ///
+    /// The inverse of `tmux_prune`: prune kills sessions no workspace wants, this
+    /// reattaches sessions a workspace does want but is not currently showing. Reports
+    /// without acting unless `--attach` is passed, matching prune's report-first shape.
+    ///
+    /// Usage: tmux_recover [--attach]
+    private func recoverTmuxSessions(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let shouldAttach = parsed.options["attach"] != nil
+
+        guard shouldAttach else {
+            // Render the lines inside the main-actor hop: Workspace is a @MainActor
+            // reference type, so reading `.title` from this background socket thread
+            // would be an isolation violation. Only plain strings cross back.
+            let lines = v2MainSync {
+                AppDelegate.shared?.workspacesAwaitingTmuxReattach()
+                    .map { "\($0.session)\t\($0.workspace.title)" }
+            } ?? []
+            guard !lines.isEmpty else { return "OK: nothing to reattach" }
+            return "DRY-RUN: \(lines.count) reattachable\n" + lines.joined(separator: "\n")
+        }
+
+        let recovered = v2MainSync { AppDelegate.shared?.recoverLiveTmuxSessions() } ?? []
+        guard !recovered.isEmpty else { return "OK: nothing to reattach" }
+        return "OK: reattached \(recovered.count)\n" + recovered.joined(separator: "\n")
     }
 
     /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>]
