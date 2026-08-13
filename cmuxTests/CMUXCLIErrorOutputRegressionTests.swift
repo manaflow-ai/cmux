@@ -1212,7 +1212,11 @@ import Testing
                 "prepared_arguments": ["/usr/bin/true"],
             ],
         ])
-        let socketPath = "/tmp/cmux-restore-startup-\(UUID().uuidString.prefix(8)).sock"
+        let fixtureDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-restore-startup-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        let socketPath = fixtureDirectory.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let debugLogPath = fixtureDirectory.appendingPathComponent("cli.log", isDirectory: false).path
         var startupSocketFD = try bindUnavailableUnixSocket(at: socketPath)
         var responder: UnixSocketResponder?
         defer {
@@ -1221,6 +1225,7 @@ import Testing
             }
             responder?.stop()
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: fixtureDirectory)
         }
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
@@ -1228,6 +1233,7 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_DEBUG_LOG"] = debugLogPath
         environment["CMUX_SURFACE_ID"] = surfaceID
 
         let result = runProcess(
@@ -1240,10 +1246,18 @@ import Testing
             environment: environment,
             timeout: 5,
             afterLaunch: {
-                usleep(100_000)
+                // The CLI emits this diagnostic at the readiness boundary. Wait
+                // for that explicit milestone before making the same socket inode
+                // listen; this avoids turning the regression into a wall-clock race.
+                guard self.waitForFileContentsUsingKqueue(
+                    URL(fileURLWithPath: debugLogPath),
+                    containing: "socket.connect.wait.entered",
+                    timeout: 3
+                ) else {
+                    return
+                }
                 close(startupSocketFD)
                 startupSocketFD = -1
-                unlink(socketPath)
                 responder = try? UnixSocketResponder(
                     path: socketPath,
                     responses: [currentWorkspaceResponse, identifyResponse, recordResponse]
@@ -1262,6 +1276,94 @@ import Testing
         #expect(methods == [
             "workspace.current",
             "system.identify",
+            "surface.resume.get",
+        ])
+    }
+
+    @Test func testRestoreWaitsForRelayDuringAppStartup() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let targetResponse = try jsonResponse(result: [
+            "terminals": [[
+                "tty": "0",
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ]],
+            "source": "tty",
+            "tty_resolution": "reported_tty",
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let fixtureDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-restore-relay-startup-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        let debugLogPath = fixtureDirectory.appendingPathComponent("cli.log", isDirectory: false).path
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: [targetResponse, recordResponse],
+            startListening: false
+        )
+        defer {
+            responder.stop()
+            try? FileManager.default.removeItem(at: fixtureDirectory)
+        }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_CLI_TTY_NAME"] = "0"
+        environment["CMUX_DEBUG_LOG"] = debugLogPath
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5,
+            afterLaunch: {
+                guard self.waitForFileContentsUsingKqueue(
+                    URL(fileURLWithPath: debugLogPath),
+                    containing: "socket.connect.wait.entered",
+                    timeout: 3
+                ) else {
+                    return
+                }
+                // Keep the bound TCP endpoint unavailable through the waiter's
+                // first connection attempt. Without relay error classification,
+                // that attempt fails permanently instead of reaching a retry.
+                usleep(100_000)
+                responder.startListening()
+            }
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
             "surface.resume.get",
         ])
     }
@@ -3486,6 +3588,55 @@ import Testing
         return descriptor
     }
 
+    /// Waits for a child-written marker using the directory's vnode events.
+    ///
+    /// The initial content check handles a write that wins the race with kqueue
+    /// registration; subsequent writes wake the event wait without polling or
+    /// sleeping the test thread.
+    private func waitForFileContentsUsingKqueue(
+        _ url: URL,
+        containing expected: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let directoryURL = url.deletingLastPathComponent()
+        let queue = kqueue()
+        guard queue >= 0 else { return false }
+        defer { close(queue) }
+
+        let directoryFD = open(directoryURL.path, O_EVTONLY)
+        guard directoryFD >= 0 else { return false }
+        defer { close(directoryFD) }
+
+        var event = kevent(
+            ident: UInt(directoryFD),
+            filter: Int16(EVFILT_VNODE),
+            flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+            fflags: UInt32(NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB | NOTE_EXTEND | NOTE_LINK),
+            data: 0,
+            udata: nil
+        )
+        guard kevent(queue, &event, 1, nil, 0, nil) == 0 else { return false }
+
+        let deadline = Date.now.addingTimeInterval(max(timeout, 0))
+        while true {
+            if let contents = try? String(contentsOf: url, encoding: .utf8),
+               contents.contains(expected) {
+                return true
+            }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            var timeoutSpec = timespec(
+                tv_sec: Int(remaining),
+                tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
+            )
+            var triggeredEvent = kevent()
+            let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
+            if result < 0, errno != EINTR {
+                return false
+            }
+        }
+    }
+
     /// Points the stable last-socket-path marker inside `home` at a path of the test's own.
     ///
     /// `CFFIXED_USER_HOME` moves the socket directory but not socket discovery: the CLI
@@ -4222,7 +4373,11 @@ final class RelaySocketResponder {
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
 
-    init(relayID: String, responses: [String]) throws {
+    init(
+        relayID: String,
+        responses: [String],
+        startListening: Bool = true
+    ) throws {
         guard !responses.isEmpty else {
             throw NSError(
                 domain: NSCocoaErrorDomain,
@@ -4248,8 +4403,8 @@ final class RelaySocketResponder {
                 Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-        guard bindResult == 0, listen(fd, 8) == 0 else {
-            let error = Self.posixError("bind/listen")
+        guard bindResult == 0 else {
+            let error = Self.posixError("bind")
             close(fd)
             throw error
         }
@@ -4269,8 +4424,8 @@ final class RelaySocketResponder {
 
         listenerFD = fd
         endpoint = "127.0.0.1:\(UInt16(bigEndian: boundAddress.sin_port))"
-        queue.async { [weak self] in
-            self?.acceptLoop(listenerFD: fd)
+        if startListening {
+            self.startListening()
         }
     }
 
@@ -4282,6 +4437,21 @@ final class RelaySocketResponder {
         lock.lock()
         defer { lock.unlock() }
         return requests
+    }
+
+    func startListening() {
+        lock.lock()
+        guard !stopped, listenerFD >= 0 else {
+            lock.unlock()
+            return
+        }
+        let fd = listenerFD
+        let listenResult = listen(fd, 8)
+        lock.unlock()
+        guard listenResult == 0 else { return }
+        queue.async { [weak self] in
+            self?.acceptLoop(listenerFD: fd)
+        }
     }
 
     func stop() {

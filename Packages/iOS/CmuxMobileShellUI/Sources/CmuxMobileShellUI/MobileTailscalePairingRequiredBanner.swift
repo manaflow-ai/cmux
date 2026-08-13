@@ -1,20 +1,35 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// Persistent recovery chrome for a Tailscale selection with no local endpoint grant.
+/// Recovery chrome for a Tailscale selection with no local endpoint grant.
 struct MobileTailscalePairingRequiredBanner: View {
     let scanPairingCode: () -> Void
+    let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(
-                L10n.string(
-                    "mobile.tailscalePairingRequired.title",
-                    defaultValue: "Finish Tailscale setup"
-                ),
-                systemImage: "qrcode.viewfinder"
-            )
-            .font(.headline)
+            HStack(alignment: .top, spacing: 10) {
+                Label(
+                    L10n.string(
+                        "mobile.tailscalePairingRequired.title",
+                        defaultValue: "Finish Tailscale setup"
+                    ),
+                    systemImage: "qrcode.viewfinder"
+                )
+                .font(.headline)
+
+                Spacer(minLength: 8)
+
+                Button(action: dismiss) {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .accessibilityLabel(L10n.string("mobile.common.dismiss", defaultValue: "Dismiss"))
+                .accessibilityIdentifier("MobileTailscalePairingRequiredDismiss")
+            }
 
             Text(MobilePairingScannerSheet.guidanceText)
             .font(.subheadline)

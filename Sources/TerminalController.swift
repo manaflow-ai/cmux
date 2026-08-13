@@ -2910,6 +2910,13 @@ class TerminalController {
             "browser.input_keyboard",
             "browser.input_touch",
         ]
+        if !Self.mobileTaskComposerFeatureEnabled {
+            let taskComposerMethods: Set<String> = [
+                "mobile.task.attachment.upload",
+                "mobile.task.models.list",
+            ]
+            methods.removeAll { taskComposerMethods.contains($0) }
+        }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
         methods.append(contentsOf: Self.v2DebugMethodNames)

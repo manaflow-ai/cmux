@@ -357,6 +357,34 @@ struct SocketControlServerLifecycleTests {
         if fd >= 0 { close(fd) }
     }
 
+    @Test func reclaimsUnmarkedStaleSocketAfterUncleanExit() throws {
+        let harness = try ServerHarness()
+        defer { harness.shutdown() }
+        let server = harness.server
+
+        // A process that dies before it writes the reusable marker still leaves
+        // behind an unheld lock and a socket inode. Recreate that exact state:
+        // acquire/release the lock, then close a bound socket without unlinking
+        // its path.
+        guard case .acquired(let previousLockFD, _) =
+                server.transport.acquireSocketPathLock(for: harness.socketPath) else {
+            Issue.record("could not create the stale socket lock")
+            return
+        }
+        server.transport.releaseSocketPathLock(previousLockFD)
+        let staleListener = try UnixSocketFixture.bindListeningSocket(at: harness.socketPath)
+        close(staleListener)
+
+        #expect(server.transport.pathProbeResult(at: harness.socketPath) == .refused)
+        #expect(server.transport.pathCanBeReclaimedForStartup(harness.socketPath))
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        #expect(server.isRunning)
+
+        let clientFD = connect(to: harness.socketPath)
+        #expect(clientFD >= 0)
+        if clientFD >= 0 { close(clientFD) }
+    }
+
     @Test func refusesRegularFileAtSocketPath() throws {
         let harness = try ServerHarness()
         defer { harness.shutdown() }

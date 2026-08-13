@@ -23,6 +23,7 @@ extension WorkspaceDetailView {
         surfaceID: terminalID,
         store: store,
         fontSize: MobileTerminalFontPreference.defaultSize,
+        terminalPresentationIsActive: scenePhase == .active,
         // Do not let a terminal reattach steal focus while the
         // composer owns or intentionally withholds the keyboard.
         autoFocusOnWindowAttach: shouldAutoFocus,
@@ -42,6 +43,10 @@ extension WorkspaceDetailView {
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in
+            store.recordAppEvent(
+                .terminalArtifactGalleryOpened,
+                correlationID: terminalID
+            )
             terminalArtifactFilesPresentation.present {
                 terminalArtifactFilesContext = TerminalArtifactContext(
                     workspaceID: workspace.id.rawValue,

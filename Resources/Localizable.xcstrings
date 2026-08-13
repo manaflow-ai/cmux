@@ -113180,6 +113180,57 @@
         }
       }
     },
+    "featureFlags.mobileTaskComposer.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSの新規タスク作成を有効にします。タスクモデル検出、ディレクトリ選択、添付ファイルのステージングを含みます。"
+          }
+        }
+      }
+    },
+    "featureFlags.mobileTaskComposer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile Task Composer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイルタスク作成"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.error.capabilityDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Composer is disabled on this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacではタスク作成が無効です"
+          }
+        }
+      }
+    },
     "featureFlags.override.none": {
       "extractionState": "manual",
       "localizations": {
@@ -137109,6 +137160,13 @@
         }
       }
     },
+    "mobile.chat.artifact.error.corruptMedia": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file contains invalid or damaged media data." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルに無効または破損したメディアデータが含まれています。" } }
+      }
+    },
     "mobile.chat.artifact.error.fileNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -137194,6 +137252,23 @@
         }
       }
     },
+    "mobile.chat.artifact.error.invalidPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file path is invalid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルパスが無効です。"
+          }
+        }
+      }
+    },
     "mobile.chat.artifact.error.irohTransportUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -137211,6 +137286,41 @@
         }
       }
     },
+    "mobile.chat.artifact.error.notDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That path is not a folder." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "そのパスはフォルダではありません。" } }
+      }
+    },
+    "mobile.chat.artifact.error.notRegularFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That path is not a regular file." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "そのパスは通常のファイルではありません。" } }
+      }
+    },
+    "mobile.chat.artifact.error.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux does not have permission to read that file." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxにはそのファイルを読み取る権限がありません。" } }
+      }
+    },
+    "mobile.chat.artifact.error.previewFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac could not create a preview for that file." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでそのファイルのプレビューを作成できませんでした。" } }
+      }
+    },
+    "mobile.chat.artifact.error.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac found that file but could not read it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでファイルは見つかりましたが、読み取れませんでした。" } }
+      }
+    },
     "mobile.chat.artifact.error.sessionNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -137226,6 +137336,13 @@
             "value": "そのエージェントセッションは利用できなくなりました。"
           }
         }
+      }
+    },
+    "mobile.chat.artifact.error.sessionUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "That session exists, but its file history could not be read." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "そのセッションは存在しますが、ファイル履歴を読み取れませんでした。" } }
       }
     },
     "mobile.chat.artifact.error.transferUnavailable": {
@@ -179166,13 +179283,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+            "value": "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
+            "value": "接続先のMacは、Irohのプライベート経路サポートを通知する最新のcmuxを実行している必要があります。カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
           }
         }
       }
@@ -179292,6 +179409,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "プライベートネットワーク"
+          }
+        }
+      }
+    },
+    "settings.networking.neverUseRelays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Use Relays"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーを使用しない"
+          }
+        }
+      }
+    },
+    "settings.networking.neverUseRelays.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達可能な直接経路、ローカルネットワーク経路、またはプライベートネットワーク経路が必要です。次回の再接続時に適用されます。"
           }
         }
       }
@@ -264616,13 +264767,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
+            "value": "The other Mac must run a current cmux build that advertises Iroh private-path support. Custom raw TCP routes are not accepted because they cannot prove the remote Mac. Iroh private paths stay encrypted and bound to its exact EndpointID."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
+            "value": "接続先のMacは、Irohのプライベート経路サポートを通知する最新のcmuxを実行している必要があります。カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。Iroh のプライベート経路は暗号化され、正確な EndpointID に結び付けられます。"
           }
         }
       }
@@ -266141,6 +266292,134 @@
         }
       }
     },
+    "settings.networking.check.path": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Active Route" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "アクティブな経路" } }
+    } },
+    "settings.networking.check.path.unavailable": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No Live Route" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "有効な経路なし" } }
+    } },
+    "settings.networking.check.path.direct": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Direct Peer-to-Peer" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ピアツーピア直接接続" } }
+    } },
+    "settings.networking.check.path.private": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "LAN or Private VPN" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "LAN またはプライベート VPN" } }
+    } },
+    "settings.networking.check.path.managedRelay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux Relay (%1$@, %2$@)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux リレー（%1$@、%2$@）" } }
+    } },
+    "settings.networking.check.path.customRelay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Custom Relay (%1$@)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "カスタムリレー（%1$@）" } }
+    } },
+    "settings.networking.check.shareReport": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connection Report" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "接続レポート" } }
+    } },
+    "settings.networking.check.report.header": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux Connection Report" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux 接続レポート" } }
+    } },
+    "settings.networking.check.report.action": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Suggested Action" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "推奨される対応" } }
+    } },
+    "settings.networking.check.shareAllowlist": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "IT Relay Allowlist" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "IT リレー許可リスト" } }
+    } },
+    "settings.networking.check.share": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Share…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "共有…" } }
+    } },
+    "settings.networking.check.allowlist.header": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Allow outbound HTTPS and WebSocket access to these cmux relay origins:" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "次の cmux リレーオリジンへの送信 HTTPS および WebSocket アクセスを許可してください:" } }
+    } },
+    "settings.networking.check.title": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connection Check" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "接続チェック" } }
+    } },
+    "settings.networking.check.subtitle": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Checks encrypted transport, relay policy, and relay reachability from this Mac." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "この Mac から暗号化トランスポート、リレーポリシー、リレーへの到達性を確認します。" } }
+    } },
+    "settings.networking.check.run": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Run Check" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "チェックを実行" } }
+    } },
+    "settings.networking.check.note": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux automatically uses direct internet, LAN, or any VPN route available to macOS, then falls back to an allowed relay. Every route remains end-to-end encrypted." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux は macOS で利用可能なインターネット、LAN、または任意の VPN 経路を自動的に使用し、必要に応じて許可されたリレーへ切り替えます。すべての経路でエンドツーエンド暗号化が維持されます。" } }
+    } },
+    "settings.networking.check.transport": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Encrypted Transport" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "暗号化トランスポート" } }
+    } },
+    "settings.networking.check.policy": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Relay Policy" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレーポリシー" } }
+    } },
+    "settings.networking.check.relay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Relay Reachability" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレーへの到達性" } }
+    } },
+    "settings.networking.check.mac": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Mac Available" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "Mac の利用可否" } }
+    } },
+    "settings.networking.check.session": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Secure Session" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "安全なセッション" } }
+    } },
+    "settings.networking.check.passed": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Passed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "正常" } }
+    } },
+    "settings.networking.check.warning": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Needs Attention" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "確認が必要" } }
+    } },
+    "settings.networking.check.failed": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Failed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "失敗" } }
+    } },
+    "settings.networking.check.notApplicable": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Not Needed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "不要" } }
+    } },
+    "settings.networking.check.action.retry": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Retry. If this continues, share the safe report with cmux support." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "再試行してください。問題が続く場合は、安全なレポートを cmux サポートと共有してください。" } }
+    } },
+    "settings.networking.check.action.internet": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connect this Mac to the internet, then run the check again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "この Mac をインターネットに接続してから、もう一度確認してください。" } }
+    } },
+    "settings.networking.check.action.mac": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Keep cmux open and confirm both apps use the same account." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux を開いたままにし、両方のアプリが同じアカウントを使用していることを確認してください。" } }
+    } },
+    "settings.networking.check.action.relay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Your network may block relay traffic. Ask IT to allow HTTPS and WebSocket access to your configured cmux relay domains, or add an approved custom relay." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ネットワークがリレートラフィックを遮断している可能性があります。設定済みの cmux リレードメインへの HTTPS と WebSocket アクセスを許可するよう IT 部門に依頼するか、承認済みのカスタムリレーを追加してください。" } }
+    } },
+    "settings.networking.check.action.account": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Confirm you are signed in, then reopen cmux and run the check again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "サインインを確認し、cmux を開き直してからもう一度確認してください。" } }
+    } },
+    "settings.networking.check.action.settings": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Choose Automatic relay selection, or fix the selected custom relay and its device secret." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレー選択を「自動」にするか、選択したカスタムリレーとデバイスシークレットを修正してください。" } }
+    } },
+    "settings.networking.check.action.repair": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Update cmux on both devices. If needed, pair them again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "両方のデバイスで cmux を更新してください。必要に応じて再度ペアリングしてください。" } }
+    } },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {

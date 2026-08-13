@@ -33,8 +33,9 @@ extension WorkspaceShellView {
         let title = Self.workspaceActionFailureTitle(action: action)
         let reason = Self.workspaceActionFailureReasonText(failure)
         guard toasts.isEnabled else {
-            // Toasts beta off: the legacy dismissible bottom banner, with the
-            // same title and reason joined into its single-line message.
+            // The shelved toast presenter falls back to the legacy dismissible
+            // bottom banner, with the same title and reason joined into its
+            // single-line message.
             withAnimation(.snappy(duration: 0.2)) {
                 workspaceActionToast = WorkspaceActionToastContent(
                     message: String.localizedStringWithFormat(

@@ -15,7 +15,9 @@ extension SocketTransport {
     /// Creates (or opens) the sibling lock file with `O_NOFOLLOW`, validates it
     /// is a regular single-link file owned by the current user, and takes a
     /// non-blocking exclusive `flock(2)`. On success the caller owns the
-    /// returned descriptor until ``releaseSocketPathLock(_:)``.
+    /// returned descriptor until ``releaseSocketPathLock(_:)``. The returned
+    /// replacement bit is derived from the lock plus a current liveness probe,
+    /// so a process that died before writing the reusable marker is recoverable.
     ///
     /// - Parameter socketPath: The socket path whose lock to acquire.
     /// - Returns: The ``SocketPathLockAcquisition`` outcome.
@@ -62,10 +64,20 @@ extension SocketTransport {
             close(fd)
             return .failed(SocketStageFailure(stage: "lock", errnoCode: errnoCode))
         }
+
+        // Ownership is established by the flock, not by the contents of the
+        // lock file. A process can die before it writes the reusable marker,
+        // leaving an unmarked lock beside a refused socket inode. Once this
+        // process owns the lock, a refused probe is definitive evidence that
+        // the old listener is gone and the inode can be replaced. Keep the
+        // marker and filename checks for compatibility with older paths, but
+        // do not make either one a prerequisite for crash recovery.
+        let canReplaceRefusedSocket = pathLockHasReusableMarker(fd)
+            || canReplaceUnmarkedRefusedSocket(at: socketPath)
+            || pathProbeResult(at: socketPath) == .refused
         return .acquired(
             fd: fd,
-            canReplaceRefusedSocket: pathLockHasReusableMarker(fd)
-                || canReplaceUnmarkedRefusedSocket(at: socketPath)
+            canReplaceRefusedSocket: canReplaceRefusedSocket
         )
     }
 
@@ -273,8 +285,9 @@ extension SocketTransport {
     }
 
     /// Whether a startup listener may claim `path`: either nothing exists there
-    /// (and no foreign lock blocks it), or a socket exists whose lock is free
-    /// and carries the reusable marker.
+    /// (and no foreign lock blocks it), or a current-user socket exists whose
+    /// lock is free and whose probe proves that no listener is accepting
+    /// connections.
     ///
     /// - Parameter path: The socket path to evaluate.
     /// - Returns: True when a startup listener may claim the path.
@@ -287,7 +300,18 @@ extension SocketTransport {
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             return false
         }
-        return pathHasAvailableLock(path, requireReusableMarker: true, treatMissingLockAsAvailable: false)
+        guard st.st_uid == getuid() else {
+            return false
+        }
+        guard pathHasAvailableLock(path, requireReusableMarker: false, treatMissingLockAsAvailable: false) else {
+            return false
+        }
+        switch pathProbeResult(at: path) {
+        case .refused, .stale:
+            return true
+        case .connected, .occupiedOrIndeterminate:
+            return false
+        }
     }
 
     func pathHasAvailableLock(

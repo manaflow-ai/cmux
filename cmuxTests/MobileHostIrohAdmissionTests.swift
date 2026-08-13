@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
 import CmuxMobileRPC
+import Darwin
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -465,7 +466,19 @@ extension MobileHostAuthorizationTests {
     @Test func testIrohArtifactDescriptorFailuresPreserveFileAndCapacitySemantics() {
         #expect(
             MobileHostIrohArtifactTransferRegistry.Error.invalidFile.issueFailure
+                == .readFailed
+        )
+        #expect(
+            MobileHostIrohArtifactTransferRegistry.Error.fileNotFound.issueFailure
                 == .fileNotFound
+        )
+        #expect(
+            MobileHostIrohArtifactTransferRegistry.Error.permissionDenied.issueFailure
+                == .permissionDenied
+        )
+        #expect(
+            MobileHostIrohArtifactTransferRegistry.Error.notRegularFile.issueFailure
+                == .notRegularFile
         )
         #expect(
             MobileHostIrohArtifactTransferRegistry.Error.unavailable.issueFailure
@@ -475,6 +488,23 @@ extension MobileHostAuthorizationTests {
             MobileHostIrohArtifactTransferRegistry.Error.capacityExceeded.issueFailure
                 == .unavailable
         )
+    }
+
+    @Test func testIrohArtifactDescriptorRejectsSpecialFilesWithoutBlocking() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-iroh-artifact-fifo-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fifo = directory.appendingPathComponent("preview.png")
+        try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+        let registry = MobileHostIrohArtifactTransferRegistry()
+        let peer = try irohPeer(endpointCharacter: "f")
+
+        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.notRegularFile) {
+            try await registry.issue(canonicalPath: fifo.path, peer: peer)
+        }
     }
 
     @Test func testIrohArtifactCapabilityIsOpaquePeerBoundAndSeriallyResumable() async throws {

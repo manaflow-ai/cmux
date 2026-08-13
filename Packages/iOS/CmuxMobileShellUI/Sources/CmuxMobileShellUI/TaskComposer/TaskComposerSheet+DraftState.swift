@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Foundation
 
@@ -8,12 +9,17 @@ extension TaskComposerSheet {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
             selectedModelID = validatedModelID
+            explicitlySelectedModel = nil
             if template.isPlainShell {
                 removeStagedAttachmentFiles()
                 attachments.removeAll()
             }
             syncSuggestedDirectory()
         }
+        store.recordAppEvent(
+            .taskProviderSelected,
+            correlationID: template.id.uuidString
+        )
     }
 
     func restoreSubmittedDraft(_ snapshot: MobileTaskSubmissionSnapshot) {
@@ -27,6 +33,7 @@ extension TaskComposerSheet {
                 previouslyValidModelID: snapshot.modelID
             )
         }
+        explicitlySelectedModel = nil
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
         directory = snapshot.directory
@@ -63,6 +70,13 @@ extension TaskComposerSheet {
         failureText = nil
         failureTitleStyle = .launchFailed
         update()
+        if !hasRecordedDraftChange {
+            hasRecordedDraftChange = true
+            store.recordAppEvent(
+                .taskDraftChanged,
+                correlationID: submissionIdentity.id.uuidString
+            )
+        }
         submissionIdentity.markRequestDirty()
         if var recovery = completedOperationRecovery {
             recovery.markCurrentRequestDifferent()
@@ -111,35 +125,14 @@ extension TaskComposerSheet {
     }
 
     func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
-        resolveCurrentRequestReconcilingHiddenModel()
-    }
-
-    /// Resolves the current request, re-resolving once when the Off picker
-    /// hides a model that a clean cached request (restored draft or adopted
-    /// recovery) still carries. The forced resolution runs through
-    /// `makeSubmissionSnapshot`, whose `selectedModel` gate strips the model,
-    /// and `MobileTaskSubmissionIdentity` mints a fresh operation ID for the
-    /// changed bytes. Applied at BOTH the submission and draft-persistence
-    /// boundaries so a persisted draft can never pair a model-less request
-    /// with an operation ID previously bound to model-bearing bytes.
-    private func resolveCurrentRequestReconcilingHiddenModel() -> MobileTaskSubmissionSnapshot? {
         let candidateID = submissionIdentity.id
-        let resolved = submissionIdentity.resolveCurrentRequest {
-            makeSubmissionSnapshot(operationID: candidateID)
-        }
-        guard displaySettings.taskComposerModelPickerVariant.renderedVariant == .off,
-              resolved?.modelID != nil else {
-            return resolved
-        }
-        submissionIdentity.markRequestDirty()
-        let rotatedID = submissionIdentity.id
         return submissionIdentity.resolveCurrentRequest {
-            makeSubmissionSnapshot(operationID: rotatedID)
+            makeSubmissionSnapshot(operationID: candidateID)
         }
     }
 
     func draftSnapshot() -> MobileTaskComposerDraft {
-        let resolved = resolveCurrentRequestReconcilingHiddenModel()
+        let resolved = submissionSnapshot()
         let completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
         return MobileTaskComposerDraft(
             prompt: prompt,

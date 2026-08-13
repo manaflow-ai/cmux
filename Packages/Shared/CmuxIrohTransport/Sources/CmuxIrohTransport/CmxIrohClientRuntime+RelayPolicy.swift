@@ -131,6 +131,7 @@ extension CmxIrohClientRuntime {
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
                 customPrivateFallback: customPrivateFallback,
+                diagnostics: diagnosticLog,
                 now: now
             )
             registryContextProvider = provider
