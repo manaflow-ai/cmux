@@ -125,6 +125,40 @@ class_files() {
   grep -rlE "class[[:space:]]+${cls}\b" --include='*.swift' "$dir" 2>/dev/null || true
 }
 
+# Files declaring the class OR an extension of it (methods may live in either).
+related_files() {
+  local dir="$1" cls="$2"
+  grep -rlE "(class|extension)[[:space:]]+${cls}\b" --include='*.swift' "$dir" 2>/dev/null || true
+}
+
+# Lines inside `class <cls>` / `extension <cls>` blocks across the given files,
+# tracked by brace depth, so a same-file helper or sibling class cannot satisfy
+# a Class/method filter that XCTest would resolve to zero tests.
+class_scoped_lines() {
+  local cls="$1"
+  shift
+  [ $# -gt 0 ] || return 0
+  awk -v cls="$cls" '
+    FNR == 1 { inside = 0; depth = 0; seen_open = 0 }
+    {
+      if (!inside) {
+        if ($0 ~ ("(^|[^A-Za-z0-9_])(class|extension)[[:space:]]+" cls "([^A-Za-z0-9_]|$)")) {
+          inside = 1; depth = 0; seen_open = 0
+        } else {
+          next
+        }
+      }
+      print
+      line = $0
+      o = gsub(/{/, "", line)
+      c = gsub(/}/, "", line)
+      depth += o - c
+      if (o > 0) seen_open = 1
+      if (seen_open && depth <= 0) inside = 0
+    }
+  ' "$@"
+}
+
 # Nearest candidates for a missed name, best first.
 suggest_names() {
   local query="$1"
@@ -206,14 +240,19 @@ validate_item() {
 
   if [ -n "$method" ]; then
     local method_bare="${method%()}"
-    local found=0
+    local -a scope_files=()
     local file
     while IFS= read -r file; do
-      if grep -qE "func[[:space:]]+${method_bare}\b" "$file"; then
-        found=1
-        break
-      fi
-    done <<<"$files"
+      [ -n "$file" ] && scope_files+=("$file")
+    done < <(related_files "$target_dir" "$cls")
+    local scoped
+    scoped="$(class_scoped_lines "$cls" "${scope_files[@]}")"
+    local found=0
+    # grep must read the full stream (no -q): under pipefail, -q's early exit
+    # SIGPIPEs printf and fails the pipeline even on a match.
+    if printf '%s\n' "$scoped" | grep -E "func[[:space:]]+${method_bare}\b" >/dev/null; then
+      found=1
+    fi
     if [ "$found" -eq 0 ]; then
       echo "error: no 'func $method_bare' found in class $cls for filter item '$item'" >&2
       local -a all_methods=()
@@ -222,10 +261,7 @@ validate_item() {
           all_methods+=("$name")
         fi
       done < <(
-        while IFS= read -r f; do
-          [ -n "$f" ] || continue
-          grep -hoE 'func[[:space:]]+test[A-Za-z0-9_]*' "$f" 2>/dev/null || true
-        done <<<"$files" | awk '{print $2}' | sort -u
+        printf '%s\n' "$scoped" | grep -oE 'func[[:space:]]+test[A-Za-z0-9_]*' | awk '{print $2}' | sort -u
       )
       local suggestions=""
       if [ "${#all_methods[@]}" -gt 0 ]; then
@@ -318,6 +354,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 RUN_IDS=()
+UNRESOLVED=0
 for item in "${CLEAN_ITEMS[@]}"; do
   dispatch_args_for "$item"
   pre_ids="$(existing_run_ids)"
@@ -327,6 +364,7 @@ for item in "${CLEAN_ITEMS[@]}"; do
     RUN_IDS+=("$run_id")
     echo "run: https://github.com/$REPO/actions/runs/$run_id"
   else
+    UNRESOLVED=$((UNRESOLVED + 1))
     echo "warning: dispatched but could not resolve the new run id for '$item'." >&2
     echo "  gh run list --repo $REPO --workflow $WORKFLOW --limit 5" >&2
   fi
@@ -341,5 +379,14 @@ if [ "$WATCH" -eq 1 ]; then
       FAILED=1
     fi
   done
+  if [ "$UNRESOLVED" -gt 0 ]; then
+    # A watch that silently omits an unresolved run must not report success.
+    echo "error: $UNRESOLVED dispatched run(s) could not be resolved and were not watched" >&2
+    exit 1
+  fi
   exit "$FAILED"
+fi
+
+if [ "$UNRESOLVED" -gt 0 ]; then
+  echo "note: dispatch succeeded for all items; $UNRESOLVED run URL(s) could not be resolved" >&2
 fi
