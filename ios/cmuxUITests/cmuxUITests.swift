@@ -10692,6 +10692,66 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// A second tap at the keyboard-control's original screen coordinate can land
+    /// while its first hide animation is still moving the dock. This is distinct from
+    /// a terminal tap reversal because it exercises the same control's hit target
+    /// through an A→B→A keyboard sequence. The host must rebase the clip, dock, and
+    /// terminal wrapper from one presentation edge before beginning the return leg.
+    @MainActor
+    func testTerminalDockStaysPinnedForInPlaceKeyboardControlReversals() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "in-place reversal baseline"
+        )
+
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+        let controlFrame = hideKeyboardButton.frame
+        let controlPoint = app.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: controlFrame.midX, dy: controlFrame.midY)
+        )
+
+        for cycle in 1...10 {
+            controlPoint.tap()
+            controlPoint.tap()
+
+            guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let dock = surfaceDock(in: app)
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                dock,
+                surface: surface,
+                keyboard: keyboard,
+                context: "in-place reversal \(cycle)"
+            )
+            assertTerminalPresentationPinnedToDock(
+                dock,
+                context: "in-place reversal \(cycle)"
+            )
+        }
+    }
+
     /// iOS 27 falls back to notification-driven keyboard geometry because its
     /// keyboard layout guide can remain seated at the screen bottom. Force that
     /// runtime policy on the CI simulator and prove the visible dock follows the

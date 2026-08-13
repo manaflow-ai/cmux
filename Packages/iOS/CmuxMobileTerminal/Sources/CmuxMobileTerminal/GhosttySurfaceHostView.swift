@@ -152,7 +152,7 @@ public final class GhosttySurfaceHostView: UIView {
         targetIsVisible: Bool,
         transition: MobileKeyboardTransition
     ) {
-        rebaseTerminalPresentationFromLiveFrame()
+        rebaseKeyboardPresentationFromLiveFrames()
         layoutIfNeeded()
         keyboardTransitionGeneration &+= 1
         let generation = keyboardTransitionGeneration
@@ -239,20 +239,41 @@ public final class GhosttySurfaceHostView: UIView {
         return occupancy > resolvedBottomSafeAreaInset + 0.5 ? occupancy : 0
     }
 
-    /// UIKit's `.beginFromCurrentState` restarts the dock-constraint animation from
-    /// its presentation tree. The terminal wrapper also carries an explicit transform,
-    /// so fold its live presentation transform into the model before every new will.
-    private func rebaseTerminalPresentationFromLiveFrame() {
-        guard let presentation = terminalPresentationView.layer.presentation(),
-              CATransform3DIsAffine(presentation.transform) else { return }
+    /// Rebase both sides of the terminal/dock boundary before a new keyboard will.
+    ///
+    /// A reversal arrives while the previous leg still has separate Core Animation
+    /// presentation trees for the dock constraint, clip boundary, and terminal
+    /// wrapper. Rebasing only the wrapper makes its next `.beginFromCurrentState`
+    /// animation start at the live edge while the clip remains at the old target,
+    /// exposing a one-frame gap. The notification fallback owns the dock constraint,
+    /// so it can first fold the live dock bottom into that constraint, lay out the
+    /// linked clip without actions, then fold the wrapper's live transform into its
+    /// model. The next transaction therefore starts every owned component at one edge.
+    private func rebaseKeyboardPresentationFromLiveFrames() {
+        let wrapperTransform: CGAffineTransform? = {
+            guard let presentation = terminalPresentationView.layer.presentation(),
+                  CATransform3DIsAffine(presentation.transform) else { return nil }
+            return CATransform3DGetAffineTransform(presentation.transform)
+        }()
+        let liveDockBottom = surfaceView.hostedBottomDockPresentationBottom(in: self)
+
+        guard wrapperTransform != nil || liveDockBottom != nil else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
-            terminalPresentationView.transform = CATransform3DGetAffineTransform(
-                presentation.transform
-            )
-            terminalPresentationView.layer.removeAllAnimations()
+            if keyboardDockGeometrySource == .keyboardNotifications,
+               let liveDockBottom {
+                dockBottomConstraint.constant = liveDockBottom - bounds.maxY
+            }
+            if let wrapperTransform {
+                terminalPresentationView.transform = wrapperTransform
+            }
+            // The clip bottom is constrained to the dock top. Layout before removing
+            // the old animations so its model edge is the same live edge as the dock.
             layoutIfNeeded()
+            terminalClipView.layer.removeAllAnimations()
+            surfaceView.removeHostedBottomDockAnimations()
+            terminalPresentationView.layer.removeAllAnimations()
         }
         CATransaction.commit()
     }

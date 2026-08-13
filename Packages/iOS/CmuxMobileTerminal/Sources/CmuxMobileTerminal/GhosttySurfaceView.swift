@@ -1193,6 +1193,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ).y
     }
 
+    func hostedBottomDockPresentationBottom(in host: UIView) -> CGFloat? {
+        guard bottomDockContainer.superview != nil else { return nil }
+        let source = bottomDockContainer.layer.presentation() ?? bottomDockContainer.layer
+        let hostLayer = host.layer.presentation() ?? host.layer
+        return source.convert(
+            CGPoint(x: source.bounds.midX, y: source.bounds.maxY),
+            to: hostLayer
+        ).y
+    }
+
+    /// The host has already folded the dock's presentation position into its
+    /// constraint. Removing only this container's old position animation lets the
+    /// next host-owned transaction restart the dock and terminal at the same edge.
+    func removeHostedBottomDockAnimations() {
+        bottomDockContainer.layer.removeAllAnimations()
+    }
+
     #if DEBUG
     /// Switches the dock to a synthetic bottom anchor for host tests and previews.
     private func setKeyboardHeightOverrideForTesting(_ height: CGFloat) {
