@@ -146,20 +146,7 @@ struct MobileSettingsView: View {
                         }
                     }
                 }
-                if let store, store.connectionState == .connected {
-                    MobileCaffeineSettingsContent(
-                        isEnabled: store.caffeineStatus?.enabled,
-                        isSupported: store.supportsCaffeineControl,
-                        isBusy: store.isCaffeineMutationInFlight,
-                        onSet: { enabled in
-                            await store.setCaffeineEnabled(enabled)
-                        }
-                    )
-                    .task(id: caffeineLoadID) {
-                        guard store.supportsCaffeineControl else { return }
-                        await store.refreshCaffeineStatus()
-                    }
-                }
+                caffeineSettingsSection
                 if hasConnectionSection {
                     Button {
                         showingSetupHelp = true
@@ -770,6 +757,24 @@ struct MobileSettingsView: View {
             String(store.supportsCaffeineControl),
             String(describing: store.connectionState),
         ].joined(separator: ":")
+    }
+
+    @ViewBuilder
+    private var caffeineSettingsSection: some View {
+        if let store, store.connectionState == .connected {
+            MobileCaffeineSettingsContent(
+                isEnabled: store.caffeineStatus?.enabled,
+                isSupported: store.supportsCaffeineControl,
+                isBusy: store.isCaffeineMutationInFlight,
+                onSet: { enabled in
+                    await store.setCaffeineEnabled(enabled)
+                }
+            )
+            .task(id: caffeineLoadID) {
+                guard store.supportsCaffeineControl else { return }
+                await store.refreshCaffeineStatus()
+            }
+        }
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
