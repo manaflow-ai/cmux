@@ -58,7 +58,7 @@ If the iPhone is unreachable at build time, the reload still completes: the sign
 
 ## Regression test commits
 
-Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
+Two commits, so the history proves the test catches the bug: commit 1 adds the failing test only, commit 2 adds the fix. When red/green proof is wanted, dispatch the hosted run once against commit 1 and once against the head.
 
 ## Hosted E2E dispatch
 
@@ -94,7 +94,7 @@ Do not launch a background review agent (`$autoreview`, `codex review`, `claude 
 
 The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood; if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
 
-Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. Later closeout notifications use `"CI green: <branch>"` or `"CI blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
+Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. Later closeout notifications use `"Merge gate green: <branch>"` or `"Merge gate blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
 
 ## Pitfalls
 
