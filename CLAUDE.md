@@ -74,6 +74,8 @@ Dispatch hosted UI/E2E runs through the validated wrapper. It checks every filte
 gh workflow run test-e2e.yml --repo manaflow-ai/cmux -f ref=<branch-or-sha> -f test_filter="<Class or Class/method>"
 ```
 
+At most one dispatch per dogfood round. A red run means root-cause locally or on a fleet simulator first; never loop dispatch-fix-redispatch. A new XCUITest needs one green hosted run before the task is done; nothing else does.
+
 ## Agent time discipline
 
 Every poll slice pays a full model reasoning pass, so waiting is where agent hours disappear.
@@ -82,12 +84,13 @@ Every poll slice pays a full model reasoning pass, so waiting is where agent hou
 - **One build dispatch per need.** The cloud reload waits internally for a builder slot; never cycle `RELOAD_CLOUD_BUILDER` or re-dispatch a build that is already queued.
 - **Batch fixes per rebuild.** Accumulate a dogfood round's fixes, preflight with focused tests, then do one tagged rebuild for the round. Never rebuild per one-line fix.
 - **Locked or offline iPhone: probe once, then queue.** One reachability probe, enqueue in the install queue, notify, and end the turn with "queued; unlock to receive". Never write unlock/ready watcher scripts or repeat devicectl probes.
+- **CI is advisory.** Never block a handoff on bot checks, and never re-dispatch a failing hosted run without a local root cause.
 
 ## First pass, then dogfood
 
 A first pass ends when the change is implemented, the tagged build succeeded on the pushed HEAD, focused tests ran, and the PR is open (for `web/` PRs, also the live Vercel preview URL). Then hand off to the user. Do not sit in the main conversation watching CI or running speculative review passes after that point.
 
-Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. Let required GitHub checks and the automatic review bots run asynchronously, then return to address only concrete check failures and actionable findings before merge.
+Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. PR checks are advisory review bots only; there are no required status checks. Let them run asynchronously and return only for actionable findings. Merge validation happens at merge time via the merge gate, not by watching PR checks.
 
 The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood; if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
 
