@@ -45,7 +45,9 @@ public struct AgentsPanelView: View {
         let snapshot = store.snapshot
         let configuration = store.configuration
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            // Sections sit flat on the panel (no card boxes), so the gap
+            // between providers is the only separator — keep it generous.
+            VStack(alignment: .leading, spacing: 14) {
                 SubrouterDaemonStatusView(
                     state: snapshot.daemonState,
                     lastErrorDescription: snapshot.lastErrorDescription,
@@ -89,8 +91,8 @@ public struct AgentsPanelView: View {
                     )
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear { updateVisibilityRegistration(isPanelVisible) }

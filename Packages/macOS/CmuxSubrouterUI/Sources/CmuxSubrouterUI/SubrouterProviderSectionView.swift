@@ -148,9 +148,7 @@ public struct SubrouterProviderSectionView: View {
                 }
             }
         }
-        .padding(9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
     }
 
     /// The provider's brand mark from the host app's `AgentIcons` asset
