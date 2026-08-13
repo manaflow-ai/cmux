@@ -120,6 +120,55 @@ struct MobileInjectedAttachStartupTests {
         #expect(await recorder.values() == [attachURL])
         #expect(coordinator.claimStoredReconnect() == nil)
     }
+
+    @Test
+    @MainActor
+    func duplicateAccountScopeDoesNotReplaceAnAdmittedAttach() async throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        var applications = 0
+        #expect(coordinator.prepareAccountScope(
+            userID: "user-1",
+            teamID: "team-1",
+            apply: { applications += 1 }
+        ) == true)
+
+        let attempt = try #require(coordinator.claimInjectedAttach())
+        #expect(coordinator.prepareAccountScope(
+            userID: "user-1",
+            teamID: "team-1",
+            apply: { applications += 1 }
+        ) == false)
+
+        let completion = await coordinator.connectInjectedAttach(
+            attempt,
+            attachURL: "cmux-ios://attach?v=2&payload=iroh-route"
+        ) { _ in
+            .connected
+        }
+
+        #expect(completion?.result == .connected)
+        #expect(applications == 1)
+    }
+
+    @Test
+    @MainActor
+    func genuineAccountScopeChangeSupersedesPreviousStartupOwner() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        #expect(coordinator.prepareAccountScope(
+            userID: "user-1",
+            teamID: "team-1",
+            apply: {}
+        ) == true)
+        let staleAttempt = try #require(coordinator.claimInjectedAttach())
+
+        #expect(coordinator.prepareAccountScope(
+            userID: "user-1",
+            teamID: "team-2",
+            apply: {}
+        ) == true)
+        #expect(!coordinator.cancelInjectedAttach(staleAttempt))
+        #expect(coordinator.claimStoredReconnect() != nil)
+    }
 }
 
 private actor MobileInjectedAttachURLRecorder {

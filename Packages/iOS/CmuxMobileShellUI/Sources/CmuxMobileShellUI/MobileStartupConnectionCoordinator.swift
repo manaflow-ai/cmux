@@ -11,6 +11,11 @@ import CmuxMobileShellModel
 /// of stranding the authenticated shell in a disconnected state.
 @MainActor
 final class MobileStartupConnectionCoordinator {
+    private struct AccountScope: Equatable {
+        let userID: String
+        let teamID: String?
+    }
+
     enum InjectedAttachOutcome: Sendable {
         case connected
         case awaitingUserApproval
@@ -36,11 +41,38 @@ final class MobileStartupConnectionCoordinator {
     }
 
     private var owner: Owner = .unclaimed
+    private var preparedAccountScope: AccountScope?
     private var injectedAttachTask: Task<Void, Never>?
     private var injectedAttachTaskAttempt: Attempt?
 
     var shouldFallBackFromInjectedAttach: Bool {
         owner == .injectedAttachFailed
+    }
+
+    /// Applies each authenticated account/team scope once before startup may
+    /// dial. SwiftUI can deliver the bootstrap task and the matching `onChange`
+    /// callback in either order; coalescing them here prevents the later
+    /// callback from invalidating a healthy in-flight Iroh admission.
+    ///
+    /// - Returns: `nil` when no authenticated account is available, otherwise
+    ///   whether this call applied a new scope.
+    @discardableResult
+    func prepareAccountScope(
+        userID: String?,
+        teamID: String?,
+        apply: () -> Void
+    ) -> Bool? {
+        guard let userID, !userID.isEmpty else { return nil }
+        let scope = AccountScope(userID: userID, teamID: teamID)
+        guard preparedAccountScope != scope else { return false }
+
+        // A genuine account/team transition supersedes startup work authorized
+        // under the previous scope. The initial bootstrap reaches this before
+        // any dial; a delayed duplicate is coalesced above.
+        resetConnectionOwner()
+        preparedAccountScope = scope
+        apply()
+        return true
     }
 
     func claimInjectedAttach() -> Attempt? {
@@ -186,6 +218,11 @@ final class MobileStartupConnectionCoordinator {
     }
 
     func reset() {
+        preparedAccountScope = nil
+        resetConnectionOwner()
+    }
+
+    private func resetConnectionOwner() {
         injectedAttachTask?.cancel()
         injectedAttachTask = nil
         injectedAttachTaskAttempt = nil

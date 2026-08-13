@@ -1331,9 +1331,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryControlReassertionTokensByOwnerKey: [MacPairingKey: UUID] = [:]
     private var secondaryControlReassertionOwnerIDsByOwnerKey:
         [MacPairingKey: ObjectIdentifier] = [:]
-    /// The disconnected-Mac reconnect started by a team boundary transition.
-    /// Replaced and cancelled by every newer team switch or account sign-out.
-    private var teamScopeReconnectTask: Task<Void, Never>?
+    /// Cleanup for paired-Mac backup reads crossing a team boundary. This task
+    /// never owns a transport dial; startup connection ownership lives at the
+    /// app root so scope notifications cannot replace an admitted Iroh client.
+    private var teamScopeCleanupTask: Task<Void, Never>?
     /// Bumped on Stack team switches so every aggregation caller, including
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
@@ -1789,7 +1790,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         foregroundWorkspaceMutationRefreshPending = false
         foregroundWorkspaceMutationRefreshGeneration = UUID()
         notificationFeedOpenTask?.cancel()
-        teamScopeReconnectTask?.cancel()
+        teamScopeCleanupTask?.cancel()
         cancelAllTerminalReplayTasks()
         teardownSecondaryMacSubscriptions()
         let terminalLaneCoordinator = terminalLaneCoordinator
@@ -1936,8 +1937,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // synchronously first; the actor cleanup below is still fire-and-forget
         // because signOut is sync.
         pairedMacRestoreBoundary?.invalidate()
-        teamScopeReconnectTask?.cancel()
-        teamScopeReconnectTask = nil
+        teamScopeCleanupTask?.cancel()
+        teamScopeCleanupTask = nil
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             Task { await refresher.cancelInFlightRestores() }
         }
@@ -1991,7 +1992,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func currentTeamDidChange() {
         cancelComputerVisibilityMutations()
         secondaryAggregationScopeGeneration &+= 1
-        let teamScopeGeneration = secondaryAggregationScopeGeneration
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
         presenceTask?.cancel()
@@ -2012,8 +2012,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // fire-and-forget (this method is sync) and does not wipe the local store.
         clearMacSwitchAttemptState(invalidateUnderlyingConnectionAttempt: true)
         // A reconnect that captured the previous team must not finish against the
-        // new scope. The recovery task below starts one fresh pass after backup
-        // restore cancellation has crossed the same team boundary.
+        // new scope. Starting the replacement is deliberately left to the app
+        // root's startup coordinator.
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
@@ -2032,20 +2032,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hiddenComputers = []
         hasHiddenComputers = false
         registryDevices = []
-        teamScopeReconnectTask?.cancel()
-        teamScopeReconnectTask = Task { @MainActor [weak self] in
-            guard let self,
-                  self.secondaryAggregationScopeGeneration == teamScopeGeneration else { return }
+        teamScopeCleanupTask?.cancel()
+        teamScopeCleanupTask = Task {
             if let refresher {
                 await refresher.cancelInFlightRestores()
             }
-            guard !Task.isCancelled,
-                  self.secondaryAggregationScopeGeneration == teamScopeGeneration,
-                  self.isSignedIn,
-                  self.connectionState != .connected else { return }
-            _ = await self.reconnectActiveMacIfAvailable(
-                stackUserID: self.identityProvider?.currentUserID
-            )
         }
     }
 
