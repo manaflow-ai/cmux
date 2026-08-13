@@ -65,29 +65,32 @@ extension GhosttySurfaceView {
                     return
                 }
                 self.localViewportState.inFlight?.row = after.offset
-                self.handleScrollBoundaryChange(
-                    TerminalScrollBoundary(
-                        totalRows: after.total,
-                        viewportOffsetRows: after.offset,
-                        visibleRows: after.len
+                self.localViewportState.inFlight?.boundary = TerminalScrollBoundary(
+                    totalRows: after.total,
+                    viewportOffsetRows: after.offset,
+                    visibleRows: after.len
+                )
+                self.localViewportState.inFlight?.renderRequested = true
+                self.enqueueRenderSubmission(
+                    GhosttySurfaceView.RenderSubmission(
+                        token: operation.token,
+                        generation: operation.generation,
+                        kind: .localViewport,
+                        surface: operation.surface,
+                        verifiedReplayRead: nil
                     )
                 )
-                self.renderLocalScrollbackViewport(operation)
             }
-        }
-    }
-
-    private func renderLocalScrollbackViewport(_ operation: LocalScrollbackViewportOperation) {
-        outputQueue.async {
-            ghostty_surface_render_now_with_token(operation.surface, operation.token)
         }
     }
 
     func handleRenderPresented(token: UInt64) {
         if handleLocalScrollbackViewportPresented(token: token) {
+            finishRenderSubmission(token: token)
             return
         }
         handleVerifiedReplayRenderPresented(token: token)
+        finishRenderSubmission(token: token)
     }
 
     private func handleLocalScrollbackViewportPresented(token: UInt64) -> Bool {
@@ -95,7 +98,11 @@ extension GhosttySurfaceView {
               inFlight.token == token else {
             return false
         }
+        let boundary = inFlight.boundary
         localViewportState.inFlight = nil
+        if let boundary {
+            handleScrollBoundaryChange(boundary)
+        }
         handleNativePixelScrollViewportPresented(row: inFlight.row)
         delegate?.ghosttySurfaceView(
             self,

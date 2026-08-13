@@ -429,6 +429,11 @@ extension GhosttySurfaceView {
         verifiedReplayReadyTransactionID = nil
         verifiedReplayRenderSuppressed = false
         CATransaction.commit()
+        if let pending = pendingRenderSubmission,
+           pending.kind != .verifiedReplay {
+            pendingRenderSubmission = nil
+            resumeQueuedRenderAfterReplaySuppression()
+        }
     }
 
     /// Called by Ghostty after one exact tokened command reaches the model
