@@ -20,6 +20,7 @@ public struct SocketStartupWaiter {
     private let initialRetryDelay: TimeInterval
     private let maximumRetryDelay: TimeInterval
     private let monotonicTime: () -> TimeInterval
+    private let eventQueueFactory: () -> Int32
 
     /// Creates a startup waiter with bounded exponential retry delays.
     ///
@@ -37,12 +38,27 @@ public struct SocketStartupWaiter {
             ProcessInfo.processInfo.systemUptime
         }
     ) {
+        self.init(
+            initialRetryDelay: initialRetryDelay,
+            maximumRetryDelay: maximumRetryDelay,
+            monotonicTime: monotonicTime,
+            eventQueueFactory: { kqueue() }
+        )
+    }
+
+    init(
+        initialRetryDelay: TimeInterval,
+        maximumRetryDelay: TimeInterval,
+        monotonicTime: @escaping () -> TimeInterval,
+        eventQueueFactory: @escaping () -> Int32
+    ) {
         let finiteInitialDelay = initialRetryDelay.isFinite ? initialRetryDelay : 0.025
         let normalizedInitialDelay = max(finiteInitialDelay, 0.001)
         let finiteMaximumDelay = maximumRetryDelay.isFinite ? maximumRetryDelay : 0.5
         self.initialRetryDelay = normalizedInitialDelay
         self.maximumRetryDelay = max(finiteMaximumDelay, normalizedInitialDelay)
         self.monotonicTime = monotonicTime
+        self.eventQueueFactory = eventQueueFactory
     }
 
     /// Waits until `attemptConnection` produces a connection or the deadline expires.
@@ -71,12 +87,13 @@ public struct SocketStartupWaiter {
     ) throws -> Connection {
         let normalizedTimeout = timeout.isFinite ? max(timeout, 0) : 0
         let deadline = monotonicTime() + normalizedTimeout
-        let eventQueue = kqueue()
+        let eventQueue = eventQueueFactory()
         var lastPath = resolvePath()
-        guard eventQueue >= 0 else {
-            throw SocketStartupWaitTimeout(path: lastPath)
+        defer {
+            if eventQueue >= 0 {
+                Darwin.close(eventQueue)
+            }
         }
-        defer { Darwin.close(eventQueue) }
 
         var watchedDirectoryFD: Int32 = -1
         var watchedDirectoryPath: String?
@@ -100,7 +117,8 @@ public struct SocketStartupWaiter {
                 throw SocketStartupWaitTimeout(path: lastPath)
             }
 
-            if let directory = existingWatchDirectory(forPath: currentPath),
+            if eventQueue >= 0,
+               let directory = existingWatchDirectory(forPath: currentPath),
                directory != watchedDirectoryPath {
                 if watchedDirectoryFD >= 0 {
                     Darwin.close(watchedDirectoryFD)
@@ -110,7 +128,7 @@ public struct SocketStartupWaiter {
                 watchedDirectoryPath = watchedDirectoryFD >= 0 ? directory : nil
             }
 
-            waitForSocketDirectoryEvent(
+            waitForRetryOpportunity(
                 eventQueue,
                 timeout: min(retryDelay, remaining)
             )
@@ -152,8 +170,12 @@ public struct SocketStartupWaiter {
         return descriptor
     }
 
-    private func waitForSocketDirectoryEvent(_ queue: Int32, timeout: TimeInterval) {
+    private func waitForRetryOpportunity(_ queue: Int32, timeout: TimeInterval) {
         guard timeout > 0 else { return }
+        guard queue >= 0 else {
+            waitForRetryDelay(timeout)
+            return
+        }
         let deadline = monotonicTime() + timeout
         while true {
             let remaining = deadline - monotonicTime()
@@ -165,6 +187,21 @@ public struct SocketStartupWaiter {
             var triggeredEvent = kevent()
             let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
             if result >= 0 || errno != EINTR {
+                return
+            }
+        }
+    }
+
+    private func waitForRetryDelay(_ timeout: TimeInterval) {
+        let deadline = monotonicTime() + timeout
+        while true {
+            let remaining = deadline - monotonicTime()
+            guard remaining > 0 else { return }
+            var delay = timespec(
+                tv_sec: Int(remaining),
+                tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
+            )
+            if nanosleep(&delay, nil) == 0 || errno != EINTR {
                 return
             }
         }

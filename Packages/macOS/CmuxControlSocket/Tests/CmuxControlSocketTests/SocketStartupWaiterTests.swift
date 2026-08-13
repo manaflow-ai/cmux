@@ -8,9 +8,14 @@ struct SocketStartupWaiterTests {
         let preferredPath = "/tmp/cmux-startup-wait-preferred.sock"
         let fallbackPath = "/tmp/cmux-startup-wait-fallback.sock"
         var attemptedPaths: [String] = []
+        var currentTime: TimeInterval = 0
         let waiter = SocketStartupWaiter(
             initialRetryDelay: 0.001,
-            maximumRetryDelay: 0.001
+            maximumRetryDelay: 0.001,
+            monotonicTime: {
+                defer { currentTime += 0.001 }
+                return currentTime
+            }
         )
 
         let connectedPath: String = try waiter.wait(
@@ -61,5 +66,56 @@ struct SocketStartupWaiterTests {
 
         #expect(attemptCount == 1)
         #expect(observedRemainingTime == 0.25)
+    }
+
+    @Test func retriesWhenEventQueueIsUnavailable() throws {
+        let socketPath = "/tmp/cmux-startup-wait-no-kqueue.sock"
+        var currentTime: TimeInterval = 0
+        var attemptCount = 0
+        let waiter = SocketStartupWaiter(
+            initialRetryDelay: 0.001,
+            maximumRetryDelay: 0.001,
+            monotonicTime: {
+                defer { currentTime += 0.001 }
+                return currentTime
+            },
+            eventQueueFactory: { -1 }
+        )
+
+        let connection: String = try waiter.wait(
+            timeout: 1,
+            resolvePath: { socketPath },
+            attemptConnection: { path, _ in
+                attemptCount += 1
+                return attemptCount == 2 ? path : nil
+            }
+        )
+
+        #expect(connection == socketPath)
+        #expect(attemptCount == 2)
+    }
+
+    @Test func propagatesPermanentFailureWithoutRetrying() {
+        let socketPath = "/tmp/cmux-startup-wait-permanent-failure.sock"
+        var attemptCount = 0
+        let waiter = SocketStartupWaiter()
+
+        do {
+            let _: String = try waiter.wait(
+                timeout: 1,
+                resolvePath: { socketPath },
+                attemptConnection: { _, _ in
+                    attemptCount += 1
+                    throw CancellationError()
+                }
+            )
+            Issue.record("Expected the permanent connection failure to propagate")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(attemptCount == 1)
     }
 }
