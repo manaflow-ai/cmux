@@ -249,7 +249,7 @@ struct VaultPaneTransferLifecycleTests {
                     focus: true,
                     creationPolicy: .restoration,
                     allowsExternalBrowserFallback: false
-                ))
+                )).id
             }
             let targetPane = try #require(
                 fixture.workspace.paneId(forPanelId: targetPanelID)
