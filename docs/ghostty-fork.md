@@ -688,6 +688,11 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
     before returning, including serialization with cross-thread app actions.
   - Retains only the outer surface allocation when teardown is reentrant from
     an app action. The live core is still destroyed synchronously.
+  - `external_link_hover` is a renderer-thread callback. Its host handler must
+    not call `ghostty_surface_free` for the reported surface or block waiting
+    for a free issued elsewhere. A handler that wants to tear down the surface
+    must post that work to another queue and return immediately; synchronous
+    free remains the contract on that other queue.
   - Requires the embedder to retain callback userdata until
     `ghostty_surface_free` returns, then release it exactly once.
   - Drops the action's allocation reference before publishing a drained action
