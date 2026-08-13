@@ -6,6 +6,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         remoteRelayPort: Int,
         shellFeatures: String,
         initialCommand: String? = nil,
+        initialWorkingDirectory: String? = nil,
         configuredRemoteCommand: String? = nil,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
@@ -78,6 +79,14 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
             "if [ -z \"${CMUX_PERSISTENT_PTY_EXEC_HELPER:-}\" ] || [ ! -x \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" ]; then exit 126; fi",
+        ]
+        // The interactive shell is exec'd from this POSIX script, so changing
+        // directory here lands every login shell (zsh, bash, fish, and the
+        // fallbacks) in the requested directory without shell-specific syntax.
+        outerLines.append(
+            contentsOf: RemoteWorkingDirectoryScript(path: initialWorkingDirectory).lines
+        )
+        outerLines += [
             "case \"${CMUX_LOGIN_SHELL##*/}\" in",
             "  zsh)",
             "    cat > \"$cmux_shell_dir/.zshenv\" <<'CMUXZSHENV'",

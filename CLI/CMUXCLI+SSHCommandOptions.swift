@@ -9,6 +9,8 @@ extension CMUXCLI {
         let identityFile: String?
         let workspaceName: String?
         let initialCommand: String?
+        /// Remote directory the session's shell starts in; nil keeps the login shell default.
+        let initialWorkingDirectory: String?
         let windowRaw: String?
         let noFocus: Bool
         var sshOptions: [String]
@@ -32,6 +34,7 @@ extension CMUXCLI {
             identityFile: String?,
             workspaceName: String?,
             initialCommand: String? = nil,
+            initialWorkingDirectory: String? = nil,
             windowRaw: String? = nil,
             noFocus: Bool,
             sshOptions: [String],
@@ -52,6 +55,7 @@ extension CMUXCLI {
             self.identityFile = identityFile
             self.workspaceName = workspaceName
             self.initialCommand = initialCommand
+            self.initialWorkingDirectory = initialWorkingDirectory
             self.windowRaw = windowRaw
             self.noFocus = noFocus
             self.sshOptions = sshOptions

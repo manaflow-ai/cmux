@@ -9342,6 +9342,7 @@ struct CMUXCLI {
             !sshOptions.skipDaemonBootstrap &&
             sshOptions.extraArguments.isEmpty &&
             sshOptions.initialCommand == nil &&
+            sshOptions.initialWorkingDirectory == nil &&
             sshOptions.terminalProfile.kind == .shell
         // This lookup determines which program the user expects to run, but it
         // remains best-effort: a broken or slow ssh_config rule must not block
@@ -9419,6 +9420,7 @@ struct CMUXCLI {
                     remoteRelayPort: sshOptions.remoteRelayPort,
                     shellFeatures: shellFeaturesValue,
                     initialCommand: sshOptions.initialCommand,
+                    initialWorkingDirectory: sshOptions.initialWorkingDirectory,
                     configuredRemoteCommand: configuredInteractiveRemoteCommand,
                     terminfoSource: terminfoSource,
                     terminalProfile: sshOptions.terminalProfile
@@ -9912,6 +9914,7 @@ struct CMUXCLI {
         var identityFile: String?
         var workspaceName: String?
         var initialCommand: String?
+        var initialWorkingDirectory: String?
         var windowRaw: String?
         var noFocus = false
         var sshOptions: [String] = []
@@ -9964,6 +9967,12 @@ struct CMUXCLI {
                     throw CLIError(message: String(localized: "cli.ssh.error.commandRequiresText", defaultValue: "ssh: --command requires non-empty command text"))
                 }
                 initialCommand = command
+                index += 2
+            case "--cwd":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: String(localized: "cli.ssh.error.cwdRequiresPath", defaultValue: "ssh: --cwd requires a remote directory path"))
+                }
+                initialWorkingDirectory = try normalizedRemoteWorkingDirectory(commandArgs[index + 1])
                 index += 2
             case "--window":
                 guard index + 1 < commandArgs.count else {
@@ -10052,6 +10061,7 @@ struct CMUXCLI {
             identityFile: identityFile,
             workspaceName: workspaceName,
             initialCommand: initialCommand,
+            initialWorkingDirectory: initialWorkingDirectory,
             windowRaw: windowRaw ?? windowOverride,
             noFocus: noFocus,
             sshOptions: agentForwarding.sshOptions,
@@ -10062,6 +10072,24 @@ struct CMUXCLI {
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort
         )
+    }
+
+    /// Validates a `--cwd` value before it reaches the generated remote script.
+    /// The path is shell-quoted downstream, so this only has to reject values
+    /// that quoting cannot make safe: empty paths and embedded control
+    /// characters (a newline would split the generated script into new commands).
+    func normalizedRemoteWorkingDirectory(_ rawValue: String) throws -> String {
+        let path = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else {
+            throw CLIError(message: String(localized: "cli.ssh.error.cwdRequiresPath", defaultValue: "ssh: --cwd requires a remote directory path"))
+        }
+        guard path.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else {
+            throw CLIError(message: String(
+                localized: "cli.ssh.error.cwdInvalidPath",
+                defaultValue: "ssh: --cwd must be a remote directory path without control characters"
+            ))
+        }
+        return path
     }
 
     private func resolvedSSHAgentForwarding(
@@ -10285,7 +10313,10 @@ struct CMUXCLI {
                 )
             ).joined(separator: "\n")
         )
-        let originalRemoteCommand = options.extraArguments.joined(separator: " ")
+        let originalRemoteCommand = (
+            RemoteWorkingDirectoryScript(path: options.initialWorkingDirectory).lines
+                + [options.extraArguments.joined(separator: " ")]
+        ).joined(separator: "\n")
         let remoteCommandPrefix = [
             "cmux_remote_readiness_pid=",
             "cmux_remote_readiness_cleanup() {",
@@ -10422,6 +10453,7 @@ struct CMUXCLI {
         remoteRelayPort: Int,
         shellFeatures: String,
         initialCommand: String? = nil,
+        initialWorkingDirectory: String? = nil,
         configuredRemoteCommand: String? = nil,
         terminfoSource: String? = nil,
         terminalProfile: WorkspaceRemoteTerminalProfile = .shell
@@ -10430,6 +10462,7 @@ struct CMUXCLI {
             remoteRelayPort: remoteRelayPort,
             shellFeatures: shellFeatures,
             initialCommand: initialCommand,
+            initialWorkingDirectory: initialWorkingDirectory,
             configuredRemoteCommand: configuredRemoteCommand,
             terminfoSource: terminfoSource,
             bundledZshIntegration: bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
@@ -36603,9 +36636,9 @@ export default CMUXSessionRestore;
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
-          ssh <destination> [--transport <ssh|mosh>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
-          mosh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
-          mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
+          ssh <destination> [--transport <ssh|mosh>] [--name <title>] [--command <text>] [--cwd <path>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          mosh <destination> [--name <title>] [--command <text>] [--cwd <path>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--cwd <path>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
           ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus] [--new-window]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]

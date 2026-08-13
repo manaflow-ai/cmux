@@ -47,7 +47,21 @@ extension CMUXCLI {
               cmux ssh dev@my-host --command 'omp "investigate auth"'
             """
         )
-        return "\(help)\n\n\(initialCommandHelp)\n\n\(moshHelp)"
+        let workingDirectoryHelp = String(
+            localized: "cli.help.ssh.workingDirectory",
+            defaultValue: """
+            Remote working directory:
+              --cwd <path>            Start the remote shell in path instead of the login default
+
+            The path is resolved on the remote host, so `~` expands there. It combines
+            with --command: cmux changes directory first, then runs the command there.
+
+            Example:
+              cmux ssh dev@my-host --cwd /srv/app
+              cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'
+            """
+        )
+        return "\(help)\n\n\(workingDirectoryHelp)\n\n\(initialCommandHelp)\n\n\(moshHelp)"
     }
 
     static var moshCommandUsage: String {
