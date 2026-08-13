@@ -4,9 +4,9 @@ import CoreGraphics
 
 /// Single calculator for the iOS terminal viewport contract.
 ///
-/// `GhosttySurfaceView` has several asynchronous participants: UIKit keyboard
-/// animation, composer measurement, bottom chrome frames, Ghostty geometry
-/// readback, and render-layer presentation. This coordinator turns the current
+/// `GhosttySurfaceView` has several asynchronous participants: host-owned keyboard
+/// presentation, composer measurement, and Ghostty geometry readback. This
+/// coordinator turns the current
 /// main-actor inputs into one immutable snapshot so every participant consumes
 /// the same viewport for a frame.
 struct TerminalViewportCoordinator {
@@ -54,11 +54,6 @@ struct TerminalViewportCoordinator {
             width: bounds.width,
             height: max(1, containerSize.height)
         )
-        let liveViewportHeight = liveViewportHeight(
-            inputs: inputs,
-            boundsHeight: bounds.height,
-            fallbackHeight: layoutViewport.height
-        )
         return TerminalViewportSnapshot(
             bounds: bounds,
             containerSize: containerSize,
@@ -70,24 +65,10 @@ struct TerminalViewportCoordinator {
                 x: 0,
                 y: 0,
                 width: bounds.width,
-                height: liveViewportHeight
+                height: layoutViewport.height
             ),
             viewportNegotiationUnsettled: inputs.viewportNegotiationUnsettled
         )
-    }
-
-    private func liveViewportHeight(
-        inputs: TerminalViewportInputs,
-        boundsHeight: CGFloat,
-        fallbackHeight: CGFloat
-    ) -> CGFloat {
-        guard inputs.chromeVisible,
-              let frame = inputs.toolbarPresentationFrame ?? inputs.toolbarFrame,
-              !frame.isNull,
-              !frame.isEmpty else {
-            return fallbackHeight
-        }
-        return min(max(1, frame.minY), max(1, boundsHeight))
     }
 
 }
