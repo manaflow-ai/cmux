@@ -202,7 +202,8 @@ run_stage() {
     'CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=%q %q %q %q %q' \
     "$TBX" ./scripts/blacksmith-cmux-tui-testbox-stage.sh \
     "$stage" "$SOURCE_SHA" "$GHOSTTY_SHA"
-  blacksmith testbox run --id "$TBX" --debug \
+  ./scripts/blacksmith-bounded-command.sh 1500 \
+    blacksmith testbox run --id "$TBX" --debug \
     "$remote_command" >"$OUT/$stage.run.log" 2>&1
   run_status=$?
   set -e
@@ -312,21 +313,23 @@ CLEANUP_TOKEN="${CLEANUP_TOKEN:-}"
   echo "use the ownership token emitted by the warmup receipt" >&2
   exit 64
 }
-scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$CLEANUP_TOKEN" STOP
+scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$CLEANUP_TOKEN" PREVIEW
+# Review cleanup-preview.json, then rerun with STOP:<sha256(cleanup-preview.json)>.
 ```
 
 It records a pre-stop status preview, stop result, post-stop status, and
 `list --all` output. The preview must match the receipt's workflow, job, and
-branch before any stop is attempted. Cleanup is destructive and requires the
-separate literal `STOP` operator confirmation in addition to the receipt token.
+branch before any stop is attempted. Cleanup is destructive and requires a fresh `STOP:<sha256(cleanup-preview.json)>`
+confirmation after reviewing the current receipt-bound preview.
 It verifies that the specific Testbox ID is terminal or absent from the active
 inventory, accepts the known terminal states `completed`, `stopped`, `cancelled`,
 `failed`, `terminated`, and `hydration_failed`, plus a 409 saying the box is
 already stopped or completed, and polls for up to two minutes while cancellation
 propagates. Other stop, status, or list failures remain failures.
 Put it in an `EXIT` trap only after an independent operator exports
-`CONFIRM_TESTBOX_STOP=STOP`; otherwise preserve the benchmark's original exit
-status and leave the box for manual cleanup. The detailed benchmark writes a
+`CONFIRM_TESTBOX_STOP=STOP`; the trap performs a preview and confirms its hash
+before stopping. Otherwise preserve the benchmark's original exit status and
+leave the box for manual cleanup. The detailed benchmark writes a
 receipt and ownership token for the exact ID returned by warmup; cleanup refuses an ID
 or token that is not bound to that receipt. If warmup fails before returning an
 ID, retain before/after inventory but do not automatically stop a box, because

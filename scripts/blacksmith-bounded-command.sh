@@ -12,7 +12,7 @@ shift
 # usable on macOS hosts that have neither `timeout` nor `gtimeout`.
 for candidate in gtimeout timeout; do
   if command -v "$candidate" >/dev/null && "$candidate" --version 2>&1 | grep -q 'GNU coreutils'; then
-    exec "$candidate" --foreground --kill-after=5s "${seconds}s" "$@"
+    exec "$candidate" --kill-after=5s "${seconds}s" "$@"
   fi
 done
 

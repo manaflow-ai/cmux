@@ -149,8 +149,15 @@ cleanup() {
   trap - EXIT
   if [[ -n "$TBX" && -n "$cleanup_token" && "${CONFIRM_TESTBOX_STOP:-}" == "STOP" ]]; then
     set +e
-    scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" STOP
-    cleanup_status=$?
+    scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" PREVIEW
+    preview_status=$?
+    if (( preview_status == 75 )); then
+      preview_sha="$(sha256sum "$OUT/cleanup-preview.json" | awk '{print $1}')"
+      scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" "STOP:$preview_sha"
+      cleanup_status=$?
+    else
+      cleanup_status="$preview_status"
+    fi
     set -e
   else
     # Without the CLI receipt there is no proof that a newly listed box belongs
@@ -413,7 +420,8 @@ cleanup_token="${cleanup_token:-}"
   echo "use the confirmation token emitted by the warmup receipt" >&2
   exit 64
 }
-scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" STOP
+scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" PREVIEW
+# Review cleanup-preview.json, then rerun with STOP:<sha256(cleanup-preview.json)>.
 ```
 
 A shell `EXIT` trap may call that helper only when an independent operator has
