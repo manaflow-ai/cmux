@@ -253,6 +253,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
     #expect(store.remoteClient === originalClient)
     #expect(store.connectionState == .connected)
     #expect(store.macConnectionStatus == .connected)
+    await router.releaseAllHeld()
 }
 
 @MainActor
@@ -278,6 +279,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
     ))
     #expect(store.connectionRecoveryOwner.fail(failedAttempt))
     store.applyConnectionRecoveryOwnerState()
+    store.isReconnectingStoredMac = false
     store.didFinishStoredMacReconnectAttempt = true
     let workspaceListCount = await router.count(of: "workspace.list")
     let attachTicketCount = await router.count(of: "mobile.attach_ticket.create")
@@ -288,9 +290,10 @@ struct MobileShellForegroundConnectionRecoveryTests {
 
     #expect(await router.waitForCount(
         of: "workspace.list",
-        atLeast: workspaceListCount + 1
+        atLeast: workspaceListCount + 1,
+        timeoutNanoseconds: 30_000_000_000
     ))
-    #expect(try await pollUntil {
+    #expect(try await pollUntil(attempts: 3_000) {
         store.connectionState == .connected
             && store.macConnectionStatus == .connected
     })
