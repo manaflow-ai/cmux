@@ -522,6 +522,24 @@ describe("CodeRouter handoff secret representation", () => {
       "https://cmux.test/api/coderouter/handoff?teamId=team_1",
       { headers: { "x-cmux-team-id": "team_1" } },
     ))).toBe(true);
+    expect(validTeamSelectorHeaders(new Request(
+      "https://cmux.test/api/coderouter/handoff",
+      {
+        headers: [
+          ["x-cmux-team-id", "team_1"],
+          ["x-cmux-team-id", "team_1"],
+        ],
+      },
+    ))).toBe(true);
+    expect(validTeamSelectorHeaders(new Request(
+      "https://cmux.test/api/coderouter/handoff",
+      {
+        headers: [
+          ["x-cmux-team-id", "team_1"],
+          ["x-cmux-team-id", "team_2"],
+        ],
+      },
+    ))).toBe(false);
   });
 });
 

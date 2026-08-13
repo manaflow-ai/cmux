@@ -172,8 +172,16 @@ export function validTeamSelectorHeaders(request: Request): boolean {
   for (const name of CODEROUTER_HANDOFF_TEAM_HEADER_NAMES) {
     const value = request.headers.get(name);
     if (value === null) continue;
-    if (!boundedSelector(value)) return false;
-    selectors.add(value);
+    // Headers.get() joins repeated field values with commas. Split that
+    // representation so duplicate or conflicting header occurrences are
+    // subject to the same distinct-selector check as query parameters.
+    const values = value.includes(",")
+      ? value.split(",").map((part) => part.trim())
+      : [value];
+    for (const selector of values) {
+      if (!boundedSelector(selector)) return false;
+      selectors.add(selector);
+    }
   }
   try {
     const searchParams = new URL(request.url).searchParams;
