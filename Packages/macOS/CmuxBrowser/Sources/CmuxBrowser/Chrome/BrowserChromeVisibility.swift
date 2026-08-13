@@ -3,7 +3,7 @@
 /// `hidden` is user-revealable: focusing the address bar shows the toolbar again.
 /// `chromeless` is an intentional pane policy, so address-bar focus requests and
 /// user omnibar toggles are ignored while that policy is active.
-public nonisolated enum BrowserChromeVisibility: String, Codable, Equatable, Sendable {
+public enum BrowserChromeVisibility: String, Codable, Equatable, Sendable {
     /// Shows the address bar and browser toolbar.
     case visible
 
