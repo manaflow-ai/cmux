@@ -18,6 +18,7 @@ struct MobilePushToggle: View {
     @State private var mutationTask: Task<Void, Never>?
     @State private var mutationTimeoutTask: Task<Void, Never>?
     @State private var reconciliationTask: Task<Void, Never>?
+    @State private var reconciliationTimeoutTask: Task<Void, Never>?
     @State private var mutationID: UUID?
     @State private var reconciliationID: UUID?
     @State private var previousValue: Bool?
@@ -79,6 +80,8 @@ struct MobilePushToggle: View {
         guard mutationTask == nil, !isUpdating else { return }
         reconciliationTask?.cancel()
         reconciliationTask = nil
+        reconciliationTimeoutTask?.cancel()
+        reconciliationTimeoutTask = nil
         reconciliationID = nil
         showsMutationError = false
         retryValue = nil
@@ -147,7 +150,9 @@ struct MobilePushToggle: View {
         mutationTask?.cancel()
         mutationTimeoutTask?.cancel()
         reconciliationTask?.cancel()
+        reconciliationTimeoutTask?.cancel()
         reconciliationTask = nil
+        reconciliationTimeoutTask = nil
         reconciliationID = nil
         // Cancellation cannot prove that an already-submitted request did not
         // commit. Keep the optimistic value marked unknown until the next
@@ -166,21 +171,48 @@ struct MobilePushToggle: View {
     }
 
     private func startReconciliation(for requested: Bool) {
+        guard reconciliationTask == nil else { return }
         let reconciliationID = UUID()
         self.reconciliationID = reconciliationID
-        reconciliationTask?.cancel()
         reconciliationTask = Task { @MainActor in
             let authoritative = await onReconcile()
-            guard !Task.isCancelled,
-                  self.reconciliationID == reconciliationID else { return }
-            if let authoritative {
+            guard self.reconciliationID == reconciliationID else { return }
+            if !Task.isCancelled, let authoritative {
                 isEnabled = authoritative
                 showsMutationError = authoritative != requested
                 retryValue = authoritative == requested ? nil : requested
+            } else if !Task.isCancelled {
+                showsMutationError = true
+                retryValue = requested
             }
+            finishReconciliation(id: reconciliationID)
+        }
+        reconciliationTimeoutTask = Task { @MainActor in
+            do {
+                try await mutationClock.sleep(for: Self.mutationTimeout)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  self.reconciliationID == reconciliationID else { return }
+            reconciliationTask?.cancel()
+            // The authoritative read did not complete by the deadline. Keep
+            // the optimistic value marked unknown and offer a retry instead of
+            // leaving the control busy forever.
+            showsMutationError = true
+            retryValue = requested
             reconciliationTask = nil
+            reconciliationTimeoutTask = nil
             self.reconciliationID = nil
         }
+    }
+
+    private func finishReconciliation(id: UUID) {
+        guard reconciliationID == id else { return }
+        reconciliationTimeoutTask?.cancel()
+        reconciliationTimeoutTask = nil
+        reconciliationTask = nil
+        reconciliationID = nil
     }
 
     private func reconcileIfNeeded() {
