@@ -55,6 +55,11 @@ describe("CLI config route", () => {
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(await response.json()).toEqual({
         version: 4,
+        clientContract: {
+          protocolVersion: 4,
+          minCliVersion: "0.2.3",
+          requiredFeatures: ["coderouter", "organizations"],
+        },
         auth: {
           apiUrl: testEnvironment.NEXT_PUBLIC_STACK_API_URL,
           projectId: testEnvironment.NEXT_PUBLIC_STACK_PROJECT_ID,
@@ -74,6 +79,35 @@ describe("CLI config route", () => {
           exchangeUrl: "https://cmux.com/api/subrouter/tenant-exchange",
         },
       });
+    });
+  });
+
+  test("keeps compatibility metadata additive for older clients", async () => {
+    await withCliConfigEnvironment(testEnvironment, async () => {
+      const response = GET(
+        new Request("https://cmux.com/api/cli/config?clientVersion=0.2.2", {
+          headers: {
+            "user-agent": "coderouter/0.2.2",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.clientContract).toEqual({
+        protocolVersion: 4,
+        minCliVersion: "0.2.3",
+        requiredFeatures: ["coderouter", "organizations"],
+      });
+      expect(Object.keys(body.clientContract).sort()).toEqual([
+        "minCliVersion",
+        "protocolVersion",
+        "requiredFeatures",
+      ]);
+      expect(body).toHaveProperty("version", 4);
+      expect(body).toHaveProperty("auth");
+      expect(body).toHaveProperty("coderouter");
+      expect(body).toHaveProperty("subrouter");
     });
   });
 
