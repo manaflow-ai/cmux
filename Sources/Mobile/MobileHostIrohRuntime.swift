@@ -76,7 +76,11 @@ final class MobileHostIrohRuntime {
     }
     static let shared = MobileHostIrohRuntime()
 
-    static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
+    static let capabilities = [
+        "mobile-rpc-v1",
+        "multistream-v1",
+        MobileHostService.irohPrivatePathsCapability,
+    ]
     #if DEBUG
     static let debugRelayOnlyDefaultsKey = "cmux.iroh.debug.relay-only"
     #endif

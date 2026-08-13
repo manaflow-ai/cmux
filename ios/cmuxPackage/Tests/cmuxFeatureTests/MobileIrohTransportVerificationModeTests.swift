@@ -32,6 +32,20 @@ struct MobileIrohTransportVerificationModeTests {
             ).allowsNATTraversalAfterAdmission
         )
 
+        defaults.set(
+            CmxIrohPathPreference.neverUseRelays.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
+        )
+        let neverUseRelays = MobileIrohRuntimeComposition.initialTransportVerificationMode(
+            defaults: defaults
+        )
+        #expect(neverUseRelays == .directOnly)
+        #expect(
+            MobileIrohRuntimeComposition.protocolConfiguration(
+                for: neverUseRelays
+            ).allowsNATTraversalAfterAdmission
+        )
+
         #if DEBUG
         defaults.set(
             CmxIrohTransportVerificationMode.directOnly.rawValue,

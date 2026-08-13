@@ -2313,9 +2313,13 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             Optional<Set<String>>.none
         }
         let privatePathSnapshot: CmxIrohCustomPrivatePathSnapshot
-        if let activeAccountID {
+        // Fall back to the observed account like the settings mutations do:
+        // activeAccountID is nil while a transport-mode change restarts the
+        // runtime, and snapshots published mid-restart must not drop the
+        // persisted private-address configurations from Settings.
+        if let accountID = observedAccountID ?? activeAccountID {
             privatePathSnapshot = await customPrivatePaths.availableSnapshot(
-                accountID: activeAccountID
+                accountID: accountID
             )
         } else {
             privatePathSnapshot = .unavailable
@@ -2327,7 +2331,10 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             if privateNetworkMacsByID[id] == nil {
                 privateNetworkMacsByID[id] = .init(
                     id: id,
-                    displayName: mac.displayName ?? ""
+                    displayName: mac.displayName ?? "",
+                    supportsPrivatePaths: mac.capabilities.contains(
+                        "iroh.private_paths.v1"
+                    )
                 )
             }
         }
@@ -2530,6 +2537,36 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         case .invalidProfile, .bindFailed, .endpointClosed, .timedOut:
             return .failed
         }
+    }
+
+    public func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        await refreshIrohSettings()
+        let snapshot = await irohSettingsSnapshot()
+        let diagnostics = await irohDiagnosticReport()
+        let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
+        if transportVerificationMode == .directOnly {
+            // Relays are administratively excluded by the transport mode; a
+            // failed relay probe here must not send users to corporate IT.
+            relayReachability = .notConfigured
+        } else if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
+                  !profile.allowedRelayURLs.isEmpty {
+            if let isReachable = await runtime?.hasReachableRelay(in: profile.allowedRelayURLs) {
+                relayReachability = isReachable ? .reachable : .unreachable
+            } else {
+                relayReachability = .unavailable
+            }
+        } else {
+            relayReachability = .notConfigured
+        }
+        let macDiscovery: CmxIrohConnectionCheckReport.MacDiscovery =
+            await routeCatalog.liveMacCandidates(preferredTag: tag).isEmpty ? .missing : .found
+        return CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: snapshot,
+            diagnostics: diagnostics,
+            relayReachability: relayReachability,
+            macDiscovery: macDiscovery
+        )
     }
 
     public func upsertIrohCustomPrivatePath(

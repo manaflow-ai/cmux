@@ -75,10 +75,10 @@ public struct ChatScreen: View {
     public var body: some View {
         ZStack(alignment: .top) {
             chatLayout
-            // Legacy fallback while the Toasts beta flag is off: the inline
-            // error banner below the navigation bar (see errorBanner for the
-            // layering rationale). With the flag on, errors surface through
-            // the app-wide toast layer instead.
+            // Legacy fallback while the toast presenter is disabled: the
+            // inline error banner below the navigation bar (see errorBanner
+            // for the layering rationale). Re-enabling the presenter routes
+            // errors through the app-wide toast layer instead.
             if !toasts.isEnabled {
                 errorBanner
             }
@@ -110,13 +110,13 @@ public struct ChatScreen: View {
             guard runsStoreTask else { return }
             await store.run()
         }
-        // With the Toasts beta flag on, errors surface through the app-wide
-        // toast layer. Presenting hands display ownership to the ToastCenter,
-        // and clearing the store state immediately lets an identical
-        // follow-up error re-fire this bridge. One coalescing key per
-        // conversation store: a newer error replaces and re-bumps the visible
-        // one instead of queueing stale errors. With the flag off, the store
-        // state stays put and drives the legacy inline banner.
+        // When re-enabled, errors surface through the app-wide toast layer.
+        // Presenting hands display ownership to the ToastCenter, and clearing
+        // the store state immediately lets an identical follow-up error
+        // re-fire this bridge. One coalescing key per conversation store means
+        // a newer error replaces and re-bumps the visible one instead of
+        // queueing stale errors. While disabled, the store state stays put and
+        // drives the legacy inline banner.
         .onChange(of: store.lastErrorDescription, initial: true) { _, error in
             guard toasts.isEnabled, let error else { return }
             toasts.present(.failure(
@@ -250,8 +250,8 @@ public struct ChatScreen: View {
         AccessibilityNotification.Announcement(prose.text).post()
     }
 
-    /// Speaks the legacy error banner's text when an error surfaces while the
-    /// Toasts beta flag is off (the toast layer announces its own toasts).
+    /// Speaks the legacy error banner's text while the toast presenter is
+    /// disabled (the toast layer announces its own toasts when re-enabled).
     private func announceLastError() {
         guard !toasts.isEnabled,
               UIAccessibility.isVoiceOverRunning,
