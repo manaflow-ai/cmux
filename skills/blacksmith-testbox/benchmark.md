@@ -118,7 +118,12 @@ Use the branch ref, not `SOURCE_SHA`, in warmup:
 ```bash
 WORKFLOW=.github/workflows/ci-workflow-guard-tests-testbox.yml
 JOB=cmux-tui-rust
-OUT="$PWD/.cmux-scratch/blacksmith-testbox-$SOURCE_SHA"
+OUT_ROOT="$PWD/.cmux-scratch/blacksmith-testbox-$SOURCE_SHA"
+if [[ -e "$OUT_ROOT" ]]; then
+  echo "evidence directory already exists; choose a new run path and preserve prior records: $OUT_ROOT" >&2
+  exit 1
+fi
+OUT="$OUT_ROOT"
 TBX=""
 warmup_testbox_id=""
 cleanup_token=""
@@ -270,9 +275,12 @@ benchmarked.
 ## Three remote build timings
 
 The helper creates one structured JSON record, one raw Cargo log, and one raw
-`/usr/bin/time -p` file per stage. It verifies source and submodule identity
-before the stage, holds a remote `flock` through all writes, restores the
-controlled changed file, and verifies clean identity again.
+`/usr/bin/time -p` file per stage. Each remote Cargo build is bounded to 20
+minutes with a 30-second kill grace period. It verifies source and submodule
+identity before the stage, exports and records the exact Zig binary used by
+Cargo, holds a remote `flock` through all writes, restores the controlled
+changed file from an integrity-checked backup, and verifies clean identity
+again.
 
 ```bash
 # Run this orchestration block in Bash, not an interactive zsh session.
@@ -392,8 +400,9 @@ across concurrent operators. Reconcile that orphan manually through the
 Blacksmith control plane. Keep both inventories and their command statuses,
 plus warmup/status/identity transcripts, every stage run and download
 transcript, raw JSON/time/log files, runner catalog, setup identity artifact,
-cleanup logs, the receipt, and the final source manifest in the separate
-`.cmux-scratch/` directory. Never store credentials, private keys, or
+cleanup logs, the receipt, and the final source manifest in the new, unique
+`.cmux-scratch/` directory. Never reuse a prior SHA-only directory or overwrite
+historical records. Never store credentials, private keys, or
 `/tmp/.testbox/auth_token`.
 
 Record these fields alongside `timings.json`:
@@ -410,7 +419,8 @@ Record these fields alongside `timings.json`:
    the active inventory.
 
 The historical 32-vCPU evidence at
-`.cmux-scratch/blacksmith-testbox-e40704611ac35f4ffa153/` remains unchanged:
+`.cmux-scratch/blacksmith-testbox-e40704611ac35f4ffa153/` remains unchanged and
+must never be selected as a writable `OUT` directory:
 setup SHA `e40704611ac35f0e3a806841a9eae383f4ffa153`, Testbox
 `tbx_01kzxebn91nhatkv4ygevh06vs`, workflow run `31696013711`, first-clean
 `161.47s`, incremental no-op `8.28s`, changed-file `9.13s`, and cleanup with no

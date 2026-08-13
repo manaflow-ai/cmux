@@ -73,6 +73,10 @@ if [[ ! "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:sp
   exit 65
 fi
 expected_tree_sha="$(git rev-parse "${expected_source_sha}^{tree}")"
+if ! command -v timeout >/dev/null; then
+  echo "timeout is required for bounded remote builds" >&2
+  exit 65
+fi
 setup_identity_path="$state_dir/cmux-tui-rust-setup-identity.json"
 if [[ ! -s "$setup_identity_path" ]]; then
   echo "refusing to run without a successful Testbox setup identity marker" >&2
@@ -126,6 +130,8 @@ pre_identity_path="$benchmark_dir/.$stage.pre-identity.json"
 post_identity_path="$benchmark_dir/.$stage.post-identity.json"
 changed_file="cmux-tui/crates/cmux-tui/src/main.rs"
 changed_backup=""
+changed_backup_sha256=""
+changed_backup_size=""
 
 restore_changed_file() {
   if [[ -n "$changed_backup" ]]; then
@@ -133,7 +139,17 @@ restore_changed_file() {
       echo "changed-file backup disappeared: $changed_backup" >&2
       return 1
     fi
+    if [[ "$(wc -c <"$changed_backup")" != "$changed_backup_size" ||
+          "$(sha256sum "$changed_backup" | cut -d ' ' -f 1)" != "$changed_backup_sha256" ]]; then
+      echo "changed-file backup failed integrity verification" >&2
+      return 1
+    fi
     if ! cp "$changed_backup" "$repo_root/$changed_file"; then
+      return 1
+    fi
+    if [[ "$(wc -c <"$repo_root/$changed_file")" != "$changed_backup_size" ||
+          "$(sha256sum "$repo_root/$changed_file" | cut -d ' ' -f 1)" != "$changed_backup_sha256" ]]; then
+      echo "restored source failed integrity verification" >&2
       return 1
     fi
     if ! rm -f "$changed_backup"; then
@@ -280,6 +296,7 @@ rust_toolchain="$(rustup show active-toolchain)"
 rustc_version="$(rustc --version)"
 cargo_version="$(cargo --version)"
 zig_version="$("$zig_bin" version)"
+export ZIG="$zig_bin"
 rust_toolchain_file_sha256="$(sha256sum cmux-tui/rust-toolchain.toml | cut -d ' ' -f 1)"
 cargo_lock_sha256="$(sha256sum cmux-tui/Cargo.lock | cut -d ' ' -f 1)"
 ghostty_zon_sha256="$(sha256sum ghostty/build.zig.zon | cut -d ' ' -f 1)"
@@ -293,8 +310,22 @@ case "$stage" in
       echo "changed-file target is missing: $changed_file" >&2
       exit 65
     fi
-    changed_backup="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-testbox-source.XXXXXX")"
-    cp "$repo_root/$changed_file" "$changed_backup"
+    backup_candidate="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-testbox-source.XXXXXX")"
+    if ! cp "$repo_root/$changed_file" "$backup_candidate"; then
+      rm -f "$backup_candidate"
+      echo "failed to create a source backup" >&2
+      exit 67
+    fi
+    backup_sha256="$(sha256sum "$backup_candidate" | cut -d ' ' -f 1)"
+    backup_size="$(wc -c <"$backup_candidate")"
+    [[ "$backup_size" =~ ^[0-9]+$ && "$backup_size" -gt 0 ]] || {
+      rm -f "$backup_candidate"
+      echo "source backup is empty" >&2
+      exit 67
+    }
+    changed_backup="$backup_candidate"
+    changed_backup_sha256="$backup_sha256"
+    changed_backup_size="$backup_size"
     printf '\n// Blacksmith Testbox changed-file timing marker.\n' >>"$repo_root/$changed_file"
     ;;
 esac
@@ -304,7 +335,8 @@ rm -f "$time_path" "$log_path" "$json_path" "$post_identity_path"
 set +e
 (
   cd "$repo_root/cmux-tui"
-  /usr/bin/time -p -o "$time_path" cargo build -p cmux-tui --locked
+  timeout --foreground --kill-after=30s 20m \
+    /usr/bin/time -p -o "$time_path" cargo build -p cmux-tui --locked
 ) >"$log_path" 2>&1
 build_status=$?
 set -e

@@ -213,7 +213,9 @@ run_stage() {
 ```
 
 The helper supports exactly `first-clean`, `incremental-noop`, and
-`changed-file`. It records a schema-2 JSON object for each stage containing:
+`changed-file`. Each remote Cargo build is bounded to 20 minutes with a
+30-second kill grace period. It records a schema-2 JSON object for each stage
+containing:
 
 * expected and observed source commit/tree identity before and after the build;
 * expected and observed Ghostty gitlink and initialized submodule HEAD;
@@ -278,8 +280,9 @@ PY
 ```
 
 Keep `raw/*.json`, `raw/*.time`, `raw/*.log`, every `*.run.log` and download
-log, the setup artifact, and the source manifest in the separate
-`.cmux-scratch/` evidence directory. Do not add credentials or private keys.
+log, the setup artifact, and the source manifest in a new, unique
+`.cmux-scratch/` evidence directory. Never reuse a prior SHA-only directory;
+refuse to overwrite historical records. Do not add credentials or private keys.
 
 ## Fail-safe cleanup
 
