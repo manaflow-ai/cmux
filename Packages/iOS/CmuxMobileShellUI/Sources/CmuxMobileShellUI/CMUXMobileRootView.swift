@@ -1033,9 +1033,10 @@ struct CMUXMobileRootView: View {
 
     private func finishAuthenticationBootstrapAndConnect() async {
         await authManager.awaitBootstrapped()
-        guard !Task.isCancelled,
-              isAuthenticated,
-              prepareResolvedAccountScope() != nil else { return }
+        guard !Task.isCancelled else { return }
+        if authManager.isAuthenticated {
+            guard prepareResolvedAccountScope() != nil else { return }
+        }
         didFinishAuthBootstrap = true
         if !consumePendingURLIfReady() {
             reconnectStoredMacIfNeeded()
