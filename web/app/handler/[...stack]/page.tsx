@@ -12,10 +12,6 @@ export const instant = false;
 // empty handler shell before Stack can read that parameter.
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-// CLI auth confirmation consumes a one-time query parameter. Static
-// prerendering would cache an empty handler shell and drop that parameter.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 export default async function StackHandlerPage(
   props: { params: Promise<{ stack: string[] }> },
