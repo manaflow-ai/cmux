@@ -1795,11 +1795,22 @@ final class SocketClient {
     }
 
     private struct SocketConnectError: Error, CustomStringConvertible {
-        let path: String
+        enum Destination {
+            case unixSocket(path: String)
+            case relay(host: String, port: UInt16)
+        }
+
+        let destination: Destination
         let errnoValue: Int32
 
         var description: String {
-            "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
+            let target = switch destination {
+            case .unixSocket(let path):
+                "socket at \(path)"
+            case .relay(let host, let port):
+                "relay at \(host):\(port)"
+            }
+            return "Failed to connect to \(target) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
         }
     }
 
@@ -2212,7 +2223,10 @@ final class SocketClient {
 
         Darwin.close(socketFD)
         socketFD = -1
-        throw SocketConnectError(path: path, errnoValue: connectErrno)
+        throw SocketConnectError(
+            destination: .unixSocket(path: path),
+            errnoValue: connectErrno
+        )
     }
 
     static func shouldRetryConnect(_ error: Error) -> Bool {
@@ -2339,8 +2353,9 @@ final class SocketClient {
         }
         if connectErrno != 0 {
             close()
-            throw CLIError(
-                message: "Failed to connect to relay at \(endpoint.host):\(endpoint.port) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
+            throw SocketConnectError(
+                destination: .relay(host: endpoint.host, port: endpoint.port),
+                errnoValue: connectErrno
             )
         }
 
