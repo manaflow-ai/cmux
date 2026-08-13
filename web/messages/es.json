@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Distribuye solicitudes LLM entre cuentas de proveedores con conmutación por error y programación según el uso.",
-      "coderouterLink": "abrir coderouter"
+      "coderouterLink": "abrir coderouter",
+      "iosAppName": "app de iOS",
+      "iosAppDescription": "Instala la app de iOS de cmux a través de TestFlight (acceso beta).",
+      "iosLink": "Abrir app de iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",

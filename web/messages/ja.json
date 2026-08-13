@@ -115,7 +115,10 @@
       "vaultLink": "vaultを開く",
       "coderouterName": "coderouter",
       "coderouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
-      "coderouterLink": "coderouterを開く"
+      "coderouterLink": "coderouterを開く",
+      "iosAppName": "iOSアプリ",
+      "iosAppDescription": "TestFlight（ベータ版）で cmux iOS アプリをインストール。",
+      "iosLink": "iOSアプリを開く"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",

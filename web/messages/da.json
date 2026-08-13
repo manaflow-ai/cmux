@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Send LLM-anmodninger på tværs af udbyderkonti med failover og forbrugsbevidst planlægning.",
-      "coderouterLink": "åbn coderouter"
+      "coderouterLink": "åbn coderouter",
+      "iosAppName": "iOS-app",
+      "iosAppDescription": "Installer cmux iOS-appen via TestFlight (beta-adgang).",
+      "iosLink": "Åbn iOS-app"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",

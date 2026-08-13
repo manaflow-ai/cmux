@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Rute LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
-      "coderouterLink": "åpne coderouter"
+      "coderouterLink": "åpne coderouter",
+      "iosAppName": "iOS-app",
+      "iosAppDescription": "Installer cmux iOS-appen via TestFlight (beta-tilgang).",
+      "iosLink": "Åpne iOS-appen"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",

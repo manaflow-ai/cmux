@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "បញ្ជូនសំណើ LLM ឆ្លងកាត់គណនីអ្នកផ្តល់សេវា ដោយមានការប្តូរពេលមានបញ្ហា និងកំណត់កាលវិភាគតាមការប្រើប្រាស់។",
-      "coderouterLink": "បើក coderouter"
+      "coderouterLink": "បើក coderouter",
+      "iosAppName": "កម្មវិធី iOS",
+      "iosAppDescription": "ដំឡើងកម្មវិធី cmux iOS តាមរយៈ TestFlight (ការចូលប្រើ beta)។",
+      "iosLink": "បើកកម្មវិធី iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
