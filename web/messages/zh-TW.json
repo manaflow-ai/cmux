@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
-      "coderouterLink": "開啟 coderouter"
+      "coderouterLink": "開啟 coderouter",
+      "iosAppName": "iOS 應用程式",
+      "iosAppDescription": "透過 TestFlight（測試版）安裝 cmux iOS 應用程式。",
+      "iosLink": "開啟 iOS 應用程式"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -213,8 +216,10 @@
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-...",
       "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "npxCommand": "Copy npx command",
-      "cmuxCommand": "Copy cmux command",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
     },
     "billing": {

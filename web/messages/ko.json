@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
-      "coderouterLink": "coderouter 열기"
+      "coderouterLink": "coderouter 열기",
+      "iosAppName": "iOS 앱",
+      "iosAppDescription": "TestFlight(베타 액세스)를 통해 cmux iOS 앱을 설치하세요.",
+      "iosLink": "iOS 앱 열기"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -213,8 +216,10 @@
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-...",
       "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "npxCommand": "Copy npx command",
-      "cmuxCommand": "Copy cmux command",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
     },
     "billing": {

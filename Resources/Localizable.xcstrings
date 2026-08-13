@@ -53248,6 +53248,23 @@
         }
       }
     },
+    "cli.socket.error.discoveryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No live cmux socket found. Tried:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稼働中の cmux ソケットが見つかりません。試行したパス:"
+          }
+        }
+      }
+    },
     "cli.socket.error.commandTimedOut": {
       "extractionState": "manual",
       "localizations": {
@@ -53397,6 +53414,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースを閉じられませんでした"
+          }
+        }
+      }
+    },
+    "cli.socket.notice.rerouted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: default socket %@ is unavailable; using %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux: デフォルトソケット %@ は利用できないため、%@ を使用します。"
           }
         }
       }
@@ -266435,6 +266469,81 @@
             "value": "サイドバーで折りたたみ可能なワークスペースグループを管理します。各グループは「アンカー」ワークスペースが所有し、サイドバーのグループヘッダーがそのアンカーを表します。アンカーを閉じると、閉じられるのはそのワークスペースだけで、グループの次のメンバーが新しいアンカーに昇格するため、グループと他のメンバーはそのまま維持されます。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。"
           }
         }
+      }
+    },
+    "cli.coderouter.aliases": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (بدائل لـ CodeRouter CLI المثبّت)" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliasi za instalirani CodeRouter CLI)" } },
+        "da": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliasser for den installerede CodeRouter CLI)" } },
+        "de": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (Aliase für die installierte CodeRouter-CLI)" } },
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliases for the installed CodeRouter CLI)" } },
+        "es": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (alias para la CLI de CodeRouter instalada)" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (alias de la CLI CodeRouter installée)" } },
+        "it": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (alias per la CLI CodeRouter installata)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (インストール済み CodeRouter CLI のエイリアス)" } },
+        "km": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (ឈ្មោះកាត់សម្រាប់ CodeRouter CLI ដែលបានដំឡើង)" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (설치된 CodeRouter CLI의 별칭)" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliaser for den installerte CodeRouter CLI)" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliasy zainstalowanego CodeRouter CLI)" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (aliases para a CLI do CodeRouter instalada)" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (псевдонимы для установленного CodeRouter CLI)" } },
+        "th": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (ชื่อเรียกแทนสำหรับ CodeRouter CLI ที่ติดตั้งไว้)" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (yüklü CodeRouter CLI için takma adlar)" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (псевдоніми для встановленого CodeRouter CLI)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (已安装 CodeRouter CLI 的别名)" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "coderouter|cr [coderouter-args...]                 (已安裝 CodeRouter CLI 的別名)" } }
+      }
+    },
+    "cli.coderouter.error.launchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر تشغيل أداة سطر الأوامر المطلوبة. تحقّق من التثبيت ثم أعد المحاولة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Traženi CLI nije moguće pokrenuti. Provjerite instalaciju i pokušajte ponovo." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Den nødvendige CLI kunne ikke startes. Kontrollér installationen, og prøv igen." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die erforderliche CLI konnte nicht gestartet werden. Überprüfen Sie die Installation und versuchen Sie es erneut." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Could not start the required CLI. Check the installation and try again." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo iniciar la CLI necesaria. Comprueba la instalación y vuelve a intentarlo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Impossible de démarrer la CLI requise. Vérifiez l’installation, puis réessayez." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile avviare la CLI richiesta. Verifica l'installazione e riprova." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "必要な CLI を起動できませんでした。インストールを確認して、もう一度お試しください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "មិនអាចចាប់ផ្ដើម CLI ដែលត្រូវការ។ សូមពិនិត្យការដំឡើង ហើយព្យាយាមម្ដងទៀត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "필요한 CLI를 시작할 수 없습니다. 설치를 확인한 후 다시 시도하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kunne ikke starte den nødvendige CLI-en. Kontroller installasjonen og prøv igjen." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie można uruchomić wymaganej biblioteki CLI. Sprawdź instalację i spróbuj ponownie." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível iniciar a CLI necessária. Verifique a instalação e tente novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось запустить необходимый CLI. Проверьте установку и повторите попытку." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถเริ่ม CLI ที่จำเป็นได้ โปรดตรวจสอบการติดตั้งแล้วลองอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Gerekli CLI başlatılamadı. Kurulumu kontrol edip tekrar deneyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося запустити потрібний CLI. Перевірте встановлення та повторіть спробу." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法启动所需的 CLI。请检查安装并重试。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法啟動必要的 CLI。請檢查安裝後再試一次。" } }
+      }
+    },
+    "cli.coderouter.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر العثور على أداة سطر الأوامر المطلوبة. ثبّت الأمر ثم أعد المحاولة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Traženi CLI nije pronađen. Instalirajte naredbu i pokušajte ponovo." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Den nødvendige CLI blev ikke fundet. Installer kommandoen, og prøv igen." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die erforderliche CLI wurde nicht gefunden. Installieren Sie den Befehl und versuchen Sie es erneut." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Required CLI not found. Install the command and retry." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se encontró la CLI necesaria. Instala el comando y vuelve a intentarlo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La CLI requise est introuvable. Installez la commande, puis réessayez." } },
+        "it": { "stringUnit": { "state": "translated", "value": "La CLI richiesta non è stata trovata. Installa il comando e riprova." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "必要な CLI が見つかりません。コマンドをインストールして、もう一度お試しください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "រកមិនឃើញ CLI ដែលត្រូវការ។ សូមដំឡើងពាក្យបញ្ជា ហើយព្យាយាមម្ដងទៀត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "필요한 CLI를 찾을 수 없습니다. 명령을 설치한 후 다시 시도하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fant ikke den nødvendige CLI-en. Installer kommandoen og prøv igjen." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie znaleziono wymaganej CLI. Zainstaluj polecenie i spróbuj ponownie." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "A CLI necessária não foi encontrada. Instale o comando e tente novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось найти необходимый CLI. Установите команду и повторите попытку." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่พบ CLI ที่จำเป็น โปรดติดตั้งคำสั่งแล้วลองอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Gerekli CLI bulunamadı. Komutu yükleyip tekrar deneyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не знайдено потрібний CLI. Установіть команду та повторіть спробу." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到所需的 CLI。请安装该命令后重试。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到必要的 CLI。請安裝該命令後再試一次。" } }
       }
     }
   },

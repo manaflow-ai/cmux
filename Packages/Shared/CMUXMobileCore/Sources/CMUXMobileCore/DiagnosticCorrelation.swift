@@ -7,7 +7,7 @@ import Foundation
 /// while a later launch produces a different value. This keeps workspace,
 /// surface, panel, and computer operations debuggable without persisting their
 /// raw identifiers or creating a cross-launch tracking key.
-public nonisolated struct DiagnosticCorrelation: Sendable {
+public struct DiagnosticCorrelation: Sendable {
     public init() {}
 
     /// Returns a process-local handle for a non-empty opaque identifier.
