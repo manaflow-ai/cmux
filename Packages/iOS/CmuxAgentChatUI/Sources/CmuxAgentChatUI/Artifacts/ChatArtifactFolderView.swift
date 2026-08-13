@@ -180,6 +180,7 @@ private struct ChatArtifactFolderThumbnail: View {
 
     @Environment(\.chatArtifactLoader) private var loader
     @State private var thumbnailData: Data?
+    @State private var thumbnailLoadIdentity: LoadIdentity?
 
     var body: some View {
         Group {
@@ -194,9 +195,18 @@ private struct ChatArtifactFolderThumbnail: View {
         .background(.quaternary, in: .rect(cornerRadius: 6))
         .clipShape(.rect(cornerRadius: 6))
         .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
+            let loadIdentity = LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)
+            thumbnailLoadIdentity = loadIdentity
             thumbnailData = nil
             guard entry.kind == .image, loader.supportsArtifacts else { return }
-            thumbnailData = try? await loader.thumbnail(path: path, maxDimension: 96).data
+            do {
+                let data = try await loader.thumbnail(path: path, maxDimension: 96).data
+                guard !Task.isCancelled, thumbnailLoadIdentity == loadIdentity else { return }
+                thumbnailData = data
+            } catch {
+                guard !Task.isCancelled, thumbnailLoadIdentity == loadIdentity else { return }
+                thumbnailData = nil
+            }
         }
     }
 

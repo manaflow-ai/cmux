@@ -343,11 +343,11 @@ public struct ChatArtifactLoader: Sendable {
             try await onChunk(chunk)
         }
         guard scope != .unsupported,
-              let key = ChatArtifactContentCache.key(
-            scopeKey: scope.cacheNamespace,
-            path: path,
-            modifiedAt: modifiedAt,
-            size: size
+            let key = ChatArtifactContentCache.key(
+                scopeKey: cacheScopeNamespace,
+                path: path,
+                modifiedAt: modifiedAt,
+                size: size
         ), let size else {
             try await streamHandler(path, validatedReceive)
             try await validation.finish()
@@ -381,7 +381,7 @@ public struct ChatArtifactLoader: Sendable {
             size: size
         )
         let diskKey = ChatArtifactThumbnailDiskCache.key(
-            scopeKey: scope.cacheNamespace,
+            scopeKey: cacheScopeNamespace,
             path: path,
             modifiedAt: modifiedAt,
             size: size,
@@ -407,7 +407,7 @@ public struct ChatArtifactLoader: Sendable {
         size: Int64?
     ) -> String {
         if let diskKey = ChatArtifactThumbnailDiskCache.key(
-            scopeKey: scope.cacheNamespace,
+            scopeKey: cacheScopeNamespace,
             path: path,
             modifiedAt: modifiedAt,
             size: size,
@@ -415,7 +415,18 @@ public struct ChatArtifactLoader: Sendable {
         ) {
             return diskKey
         }
-        return "\(scope.cacheNamespace)#\(maxDimension)#\(path)"
+        return "\(cacheScopeNamespace)#\(maxDimension)#\(path)"
+    }
+
+    /// Cache namespace for one immutable source generation.
+    ///
+    /// A reconnect can expose the same session and host path through a new Mac
+    /// RPC client while the old cache still contains bytes for that path. Keep
+    /// each source generation in a separate namespace so a restarted load
+    /// cannot replay data authorized by the retired connection.
+    private var cacheScopeNamespace: String {
+        guard let sourceIdentity else { return scope.cacheNamespace }
+        return "\(scope.cacheNamespace)#source-generation:\(sourceIdentity)"
     }
 }
 

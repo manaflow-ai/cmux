@@ -99,7 +99,15 @@ public struct ChatAttachmentBubbleView: View {
                 path: hostPath,
                 sourceIdentity: artifactLoader.sourceIdentity
             )) {
-                await loadThumbnail(path: hostPath)
+                let loadIdentity = ThumbnailLoadIdentity(
+                    path: hostPath,
+                    sourceIdentity: artifactLoader.sourceIdentity
+                )
+                await loadThumbnail(
+                    path: hostPath,
+                    loader: artifactLoader,
+                    identity: loadIdentity
+                )
             }
         } else {
             bubble
@@ -214,17 +222,30 @@ public struct ChatAttachmentBubbleView: View {
         return String(localized: "chat.attachment.image", defaultValue: "Image", bundle: .module)
     }
 
-    private func loadThumbnail(path: String) async {
-        if thumbnailPath != path || thumbnailSourceIdentity != artifactLoader.sourceIdentity {
+    private func loadThumbnail(
+        path: String,
+        loader: ChatArtifactLoader,
+        identity: ThumbnailLoadIdentity
+    ) async {
+        if thumbnailPath != path || thumbnailSourceIdentity != identity.sourceIdentity {
             thumbnailPath = path
-            thumbnailSourceIdentity = artifactLoader.sourceIdentity
+            thumbnailSourceIdentity = identity.sourceIdentity
             thumbnailData = nil
             thumbnailFailed = false
         }
         guard thumbnailData == nil, !thumbnailFailed else { return }
         do {
-            thumbnailData = try await artifactLoader.thumbnail(path: path, maxDimension: 256).data
+            let data = try await loader.thumbnail(path: path, maxDimension: 256).data
+            guard !Task.isCancelled,
+                  thumbnailPath == identity.path,
+                  thumbnailSourceIdentity == identity.sourceIdentity
+            else { return }
+            thumbnailData = data
         } catch {
+            guard !Task.isCancelled,
+                  thumbnailPath == identity.path,
+                  thumbnailSourceIdentity == identity.sourceIdentity
+            else { return }
             thumbnailFailed = true
         }
     }
