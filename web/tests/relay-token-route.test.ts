@@ -342,6 +342,24 @@ describe("POST /api/relay/token", () => {
     expect(invalid.status).toBe(400);
   });
 
+  test("turns a transient Stack Auth throttle into a retryable response", async () => {
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        verifyRequest: async () => {
+          throw new AggregateError(
+            [new Error("Rate limited, no retry-after header received")],
+            "Stack Auth unavailable",
+          );
+        },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+  });
+
   test("rate limits per account and endpoint and fails closed", async () => {
     let key: string | undefined;
     let checks = 0;
