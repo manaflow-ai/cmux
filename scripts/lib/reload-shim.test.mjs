@@ -20,11 +20,15 @@ const reloadScript = path.join(repoRoot, "scripts/reload.sh");
 
 function shimWriterSource() {
   const source = fs.readFileSync(reloadScript, "utf8");
+  const probeStart = source.indexOf("reload_socket_is_live() {");
+  const probeEnd = source.indexOf("\n}\n\nreload_cleanup_tag_state_with_lock", probeStart);
   const start = source.indexOf("write_dev_cli_shim() {");
   const end = source.indexOf("\n}\n\nselect_cmux_shim_target", start);
+  assert.notEqual(probeStart, -1, "reload.sh must contain the shared socket probe");
+  assert.notEqual(probeEnd, -1, "reload.sh socket probe must end before tag cleanup");
   assert.notEqual(start, -1, "reload.sh must contain the shim writer");
   assert.notEqual(end, -1, "reload.sh shim writer must end before target selection");
-  return source.slice(start, end + 2);
+  return source.slice(probeStart, probeEnd + 2) + "\n" + source.slice(start, end + 2);
 }
 
 function pointerWriterSource() {
@@ -33,6 +37,24 @@ function pointerWriterSource() {
   const end = source.indexOf("\n}\n\nreload_write_discovery_file", start);
   assert.notEqual(start, -1, "reload.sh must contain the pointer writer");
   assert.notEqual(end, -1, "reload.sh pointer writer must end before the marker writer");
+  return source.slice(start, end + 2);
+}
+
+function tagStateTransactionSource() {
+  const source = fs.readFileSync(reloadScript, "utf8");
+  const start = source.indexOf("reload_cleanup_tag_state_with_lock() {");
+  const end = source.indexOf("\n}\n\ncleanup_stale_tag_state", start);
+  assert.notEqual(start, -1, "reload.sh must contain the tag-state transaction");
+  assert.notEqual(end, -1, "reload.sh tag-state transaction must end before cleanup wrapper");
+  return source.slice(start, end + 2);
+}
+
+function socketProbeSource() {
+  const source = fs.readFileSync(reloadScript, "utf8");
+  const start = source.indexOf("reload_socket_is_live() {");
+  const end = source.indexOf("\n}\n\nreload_cleanup_tag_state_with_lock", start);
+  assert.notEqual(start, -1, "reload.sh must contain the shared socket probe");
+  assert.notEqual(end, -1, "reload.sh socket probe must end before tag cleanup");
   return source.slice(start, end + 2);
 }
 
@@ -132,6 +154,186 @@ test("reload pointer publication waits for the shared ownership lock", async () 
   } finally {
     if (writer?.exitCode === null) writer.kill("SIGKILL");
     if (holder?.exitCode === null) holder.kill("SIGKILL");
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("tag-state publication stays behind the same-tag ownership lock", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-tag-state-lock-"));
+  const socketPath = path.join(root, "tag.sock");
+  const lockPath = `${socketPath}.lock`;
+  const marker = path.join(root, "state", "dev-tag-last-socket-path");
+  const legacyMarker = path.join(root, "legacy", "dev-tag-last-socket-path");
+  const tmpMarker = path.join(root, "tmp-last-socket-path");
+  const pointer = path.join(root, "last-cli-path");
+  const cliPath = path.join(root, "cmux DEV tag.app", "Contents", "Resources", "bin", "cmux");
+  fs.mkdirSync(path.dirname(marker), { recursive: true });
+  fs.mkdirSync(path.dirname(legacyMarker), { recursive: true });
+  fs.mkdirSync(path.dirname(cliPath), { recursive: true });
+  fs.writeFileSync(marker, "old-socket\n", { mode: 0o600 });
+  fs.writeFileSync(legacyMarker, `${socketPath}\n`, { mode: 0o600 });
+  fs.writeFileSync(tmpMarker, "old-socket\n", { mode: 0o600 });
+  fs.writeFileSync(pointer, "old-cli\n", { mode: 0o600 });
+  fs.writeFileSync(cliPath, "#!/bin/sh\n", { mode: 0o755 });
+
+  let holder;
+  const runTransaction = (timeout = 3000) => spawnSync(
+    "bash",
+    [
+      "-c",
+      `${tagStateTransactionSource()}\nreload_cleanup_tag_state_with_lock "$@"`,
+      "reload-tag-state-test",
+      socketPath,
+      "tag",
+      marker,
+      legacyMarker,
+      tmpMarker,
+      pointer,
+      socketPath,
+      cliPath,
+    ],
+    { cwd: repoRoot, encoding: "utf8", timeout },
+  );
+
+  try {
+    holder = spawn(
+      "perl",
+      [
+        "-MFcntl=:DEFAULT",
+        "-MFcntl=:flock",
+        "-e",
+        "$|=1; sysopen(my $fh, $ARGV[0], O_CREAT|O_RDWR|O_NOFOLLOW, 0600) or die $!; flock($fh, LOCK_EX) or die $!; print qq(locked\\n); scalar <STDIN>; flock($fh, LOCK_UN);",
+        lockPath,
+      ],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    );
+    const [holderReady] = await once(holder.stdout, "data");
+    assert.equal(holderReady.toString().trim(), "locked");
+
+    const blocked = runTransaction();
+    assert.notEqual(blocked.status, 0, blocked.stderr || blocked.stdout);
+    assert.equal(fs.readFileSync(marker, "utf8"), "old-socket\n");
+    assert.equal(fs.readFileSync(pointer, "utf8"), "old-cli\n");
+
+    const holderExit = once(holder, "exit");
+    holder.stdin.end();
+    assert.equal((await holderExit)[0], 0);
+
+    const published = runTransaction();
+    assert.equal(published.status, 0, published.stderr || published.stdout);
+    assert.equal(fs.readFileSync(marker, "utf8"), `${socketPath}\n`);
+    assert.equal(fs.readFileSync(tmpMarker, "utf8"), `${socketPath}\n`);
+    assert.equal(fs.readFileSync(pointer, "utf8"), `${cliPath}\n`);
+    assert.equal(fs.existsSync(legacyMarker), false);
+    assert.equal(fs.existsSync(lockPath), false);
+  } finally {
+    if (holder?.exitCode === null) holder.kill("SIGKILL");
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reload socket probe treats a bounded probe timeout as protected", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-probe-timeout-"));
+  const fakeBin = path.join(root, "bin");
+  const socketPath = path.join(root, "probe.sock");
+  fs.mkdirSync(fakeBin, { recursive: true });
+  writeExecutable(
+    path.join(fakeBin, "perl"),
+    "#!/bin/sh\ncase \"$*\" in *IO::Select*) exit 0 ;; *) sleep 10; exit 1 ;; esac\n",
+  );
+  writeExecutable(path.join(fakeBin, "nc"), "#!/bin/sh\nsleep 10\n");
+  const server = net.createServer();
+  try {
+    server.listen(socketPath);
+    await once(server, "listening");
+    const started = Date.now();
+    const result = spawnSync(
+      "bash",
+      ["-c", `${socketProbeSource()}\nreload_socket_is_live "$1"`, "reload-probe-timeout", socketPath],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: { PATH: `${fakeBin}:/usr/bin:/bin` },
+        timeout: 3000,
+      },
+    );
+    const elapsed = Date.now() - started;
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.error, undefined);
+    assert.ok(elapsed < 2500, `probe exceeded its deadline: ${elapsed}ms`);
+  } finally {
+    server.close();
+    await once(server, "close").catch(() => {});
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reload tag-state liveness probe bounds a full Unix-socket backlog", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-reload-wedged-socket-"));
+  const socketPath = path.join(root, "wedged.sock");
+  const marker = path.join(root, "marker");
+  const legacyMarker = path.join(root, "legacy-marker");
+  const tmpMarker = path.join(root, "tmp-marker");
+  const pointer = path.join(root, "pointer");
+  fs.writeFileSync(marker, "keep-marker\n", { mode: 0o600 });
+  fs.writeFileSync(pointer, "keep-pointer\n", { mode: 0o600 });
+
+  // Keep a listener alive without accepting. The non-blocking clients fill the
+  // kernel backlog, which makes a blocking connect() hang indefinitely.
+  const wedge = spawn(
+    "perl",
+    [
+      "-MFcntl=:DEFAULT",
+      "-MSocket",
+      "-MErrno=EAGAIN,EWOULDBLOCK,EINPROGRESS",
+      "-e",
+      [
+        "my $path = shift; unlink($path);",
+        "socket(my $listener, PF_UNIX, SOCK_STREAM, 0) or die $!;",
+        "bind($listener, sockaddr_un($path)) or die $!; listen($listener, 1) or die $!;",
+        "my @clients; for (1 .. 512) { socket(my $client, PF_UNIX, SOCK_STREAM, 0) or next;",
+        "my $flags = fcntl($client, F_GETFL, 0); fcntl($client, F_SETFL, $flags | O_NONBLOCK) if defined $flags;",
+        "connect($client, sockaddr_un($path)); push @clients, $client; }",
+        "$|=1; print qq(ready\\n); scalar <STDIN>;",
+      ].join(" "),
+      socketPath,
+    ],
+    { stdio: ["pipe", "pipe", "pipe"] },
+  );
+  try {
+    const [ready] = await once(wedge.stdout, "data");
+    assert.equal(ready.toString().trim(), "ready");
+    const started = Date.now();
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        `${tagStateTransactionSource()}\nreload_cleanup_tag_state_with_lock "$@"`,
+        "reload-wedged-test",
+        socketPath,
+        "wedged",
+        marker,
+        legacyMarker,
+        tmpMarker,
+        pointer,
+      ],
+      { cwd: repoRoot, encoding: "utf8", timeout: 5000 },
+    );
+    const elapsed = Date.now() - started;
+    assert.notEqual(result.error?.code, "ETIMEDOUT", "probe must not block forever");
+    assert.ok(elapsed < 4500, `liveness probe took ${elapsed}ms`);
+    // Darwin reports ECONNREFUSED immediately once this synthetic backlog is
+    // saturated, while other kernels leave connect() pending until the poll
+    // deadline. Both outcomes are valid for this fixture; the dedicated probe
+    // test above supplies the deterministic timeout/protection assertion.
+    if (result.status !== 0) {
+      assert.equal(fs.readFileSync(marker, "utf8"), "keep-marker\n");
+      assert.equal(fs.readFileSync(pointer, "utf8"), "keep-pointer\n");
+    }
+  } finally {
+    wedge.stdin.end();
+    await once(wedge, "exit").catch(() => {});
+    try { fs.unlinkSync(socketPath); } catch {}
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

@@ -2553,6 +2553,46 @@ import Testing
         XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
     }
 
+    @Test func testTaggedCLIThemesListWorksWithoutLiveSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-list-no-socket-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Offline Theme", background: "#101010", to: themesURL)
+
+        let tagSlug = "themes-no-socket-\(UUID().uuidString.lowercased())"
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["themes", "list"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("Offline Theme"), result.diagnostics)
+        XCTAssertFalse(result.stderr.contains("No live cmux socket found"), result.diagnostics)
+    }
+
     @Test func testThemesSetReloadsRunningAppAfterEveryThemeWrite() async throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
