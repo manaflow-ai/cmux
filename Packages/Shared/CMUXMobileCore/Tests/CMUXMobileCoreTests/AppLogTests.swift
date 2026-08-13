@@ -133,6 +133,48 @@ import Testing
         #expect(archives.contains { (try? contents(of: $0).contains("filler line")) == true })
     }
 
+    @Test func ordersArchivesByEmbeddedGenerationStamp() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appURL = dir.appendingPathComponent("app.log")
+        let olderArchive = dir.appendingPathComponent(
+            "app.archive-0000000001000-AAAAAAAA.log"
+        )
+        let newerArchive = dir.appendingPathComponent(
+            "app.archive-0000000002000-BBBBBBBB.log"
+        )
+        let unparseableArchive = dir.appendingPathComponent(
+            "app.archive-unparseable.log"
+        )
+        try Data("active\n".utf8).write(to: appURL)
+        try Data("older\n".utf8).write(to: olderArchive)
+        try Data("newer\n".utf8).write(to: newerArchive)
+        try Data("unparseable\n".utf8).write(to: unparseableArchive)
+
+        let distantFuture = Date(timeIntervalSince1970: 9_000)
+        let distantPast = Date(timeIntervalSince1970: 1_000)
+        try FileManager.default.setAttributes(
+            [.modificationDate: distantFuture],
+            ofItemAtPath: olderArchive.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: distantPast],
+            ofItemAtPath: newerArchive.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: distantFuture],
+            ofItemAtPath: unparseableArchive.path
+        )
+
+        let generations = AppLog.logFileURLs(for: appURL)
+        #expect(generations.map(\.lastPathComponent) == [
+            appURL.lastPathComponent,
+            newerArchive.lastPathComponent,
+            olderArchive.lastPathComponent,
+            unparseableArchive.lastPathComponent,
+        ])
+    }
+
     @Test func reopensExistingGenerationAcrossLaunches() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
