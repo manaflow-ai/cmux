@@ -107,6 +107,7 @@ describe("CLI config route", () => {
       expect(body).toHaveProperty("version", 4);
       expect(body).toHaveProperty("auth");
       expect(body).toHaveProperty("coderouter");
+      expect(body).toHaveProperty("subrouter");
     });
   });
 
