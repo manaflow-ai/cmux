@@ -309,7 +309,7 @@ jobs:
           set -euo pipefail
           state=/tmp/.testbox
           rm -f /tmp/.testbox/cmux-tui-rust-setup-identity.json
-          for required_file in testbox_id installation_model_id auth_token api_url runner_host runner_ssh_port adopted_run_id; do
+          for required_file in testbox_id installation_model_id auth_token api_url runner_host runner_ssh_port adopted_run_id ssh_public_key; do
             test -s "$state/$required_file"
           done
           test -s "$state/working_directory"
@@ -339,6 +339,7 @@ jobs:
             -H "Authorization: Bearer $auth_token" \
             --data "$payload")"
           [[ -n "$response" ]]
+          test -s "$state/ssh_public_key"
           marker="$state/cmux-tui-rust-setup-identity.json"
           rm -f "$marker"
           install -m 600 testbox-benchmark/setup-identity.json "$marker"

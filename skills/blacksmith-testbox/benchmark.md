@@ -19,8 +19,10 @@ setup-only GitHub job on the remote Linux runner.
 | Remote output | `testbox-benchmark/` |
 
 A repository administrator must configure the protected environment with
-required reviewers and no secrets before this plan is usable. The lane must
-never run untrusted PR or fork code. `begin-testbox` exposes its auth token to
+required reviewers, no secrets, administrator bypass disabled, and a trusted
+branch policy before this plan is usable. Verify that configuration before each
+run. The lane must never run untrusted PR or fork code. If the configuration is
+missing or drifts, stop instead of treating the environment name as a guard. `begin-testbox` exposes its auth token to
 commands in the Testbox, so `contents: read` is not a trust boundary. The
 repository does not currently pin a checksum-verified Blacksmith CLI artifact;
 that is a trusted-lane operational limitation. Use only the organization-

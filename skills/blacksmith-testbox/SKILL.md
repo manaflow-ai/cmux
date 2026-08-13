@@ -47,7 +47,11 @@ The helper retains the `CMUX_TESTBOX_REMOTE=1` guard for accidental local
 launches, and additionally requires the Blacksmith VM kernel metadata marker
 and matching `/tmp/.testbox` state. The environment flag remains caller
 controlled and is not an authentication mechanism. The protected environment
-and trusted-maintainer policy are the security boundary.
+and trusted-maintainer policy are the security boundary. Verify before every
+use that `blacksmith-testbox-trusted` still has required reviewers, no secrets,
+administrator bypass disabled, and no broad branch policy admitting unreviewed
+refs. The workflow cannot manufacture those repository settings, so drift makes
+the lane unavailable rather than safe.
 
 * Never run `cargo`, `rustc`, `rustup`, `zig build`, or another Rust/Zig build
   command on Lawrence's Mac. This includes local fallback builds and local
