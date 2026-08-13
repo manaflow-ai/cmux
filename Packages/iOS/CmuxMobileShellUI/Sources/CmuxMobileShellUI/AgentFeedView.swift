@@ -87,6 +87,7 @@ struct AgentFeedView: View {
                     .frame(width: 42, height: 42)
                     .background(variantAccent.opacity(0.14), in: Circle())
                     .accessibilityLabel(variant.title)
+                    .accessibilityIdentifier("AgentFeedVariant-\(variant.rawValue)")
             }
 
             if !store.sessions.isEmpty {
@@ -95,6 +96,7 @@ struct AgentFeedView: View {
                         feedFilterChip(
                             title: L10n.string("mobile.feed.filter.all", defaultValue: "All agents"),
                             symbol: "person.3",
+                            identifier: "AgentFeedFilter-all",
                             isSelected: selectedSessionID == nil
                         ) {
                             selectedSessionID = nil
@@ -103,6 +105,7 @@ struct AgentFeedView: View {
                             feedFilterChip(
                                 title: session.agentKind.displayName,
                                 symbol: session.agentKind == .codex ? "command" : "sparkle",
+                                identifier: "AgentFeedFilter-\(session.id)",
                                 isSelected: selectedSessionID == session.id
                             ) {
                                 selectedSessionID = session.id
@@ -120,6 +123,7 @@ struct AgentFeedView: View {
     private func feedFilterChip(
         title: String,
         symbol: String,
+        identifier: String,
         isSelected: Bool,
         action: @escaping () -> Void
     ) -> some View {
@@ -132,6 +136,8 @@ struct AgentFeedView: View {
                 .background(isSelected ? variantAccent : Color.primary.opacity(0.07), in: Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var timeline: some View {
@@ -175,6 +181,7 @@ struct AgentFeedView: View {
                             : { onOpenTerminal(entry) }
                     )
                     .padding(.horizontal, 14)
+                    .accessibilityIdentifier("AgentFeedEntry-\(entry.id)")
                 }
             }
             .padding(.top, 4)
@@ -256,6 +263,7 @@ struct AgentFeedView: View {
             .focused($composerFocused)
             .submitLabel(.send)
             .onSubmit { sendComposer() }
+            .accessibilityIdentifier("AgentFeedComposer")
 
             Button(action: sendComposer) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -264,6 +272,7 @@ struct AgentFeedView: View {
             }
             .disabled(!canSend)
             .accessibilityLabel(L10n.string("mobile.feed.composer.send", defaultValue: "Send reply"))
+            .accessibilityIdentifier("AgentFeedComposerSend")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -531,8 +540,20 @@ private struct AgentFeedPrimitiveView: View {
                     .font(.subheadline.monospaced().weight(.semibold))
                     .lineLimit(2)
                 HStack(spacing: 10) {
-                    if let additions = edit.additions { Text("+\(additions)").foregroundStyle(.green) }
-                    if let deletions = edit.deletions { Text("−\(deletions)").foregroundStyle(.red) }
+                    if let additions = edit.additions {
+                        Text(String(format: L10n.string(
+                            "mobile.feed.fileEdit.additions",
+                            defaultValue: "+%lld"
+                        ), additions))
+                        .foregroundStyle(.green)
+                    }
+                    if let deletions = edit.deletions {
+                        Text(String(format: L10n.string(
+                            "mobile.feed.fileEdit.deletions",
+                            defaultValue: "−%lld"
+                        ), deletions))
+                        .foregroundStyle(.red)
+                    }
                     Spacer()
                     primitiveButton("mobile.feed.action.viewDiff", fallback: "View diff", symbol: "doc.text.magnifyingglass") {
                         onInspect(AgentFeedDetail(title: edit.filePath, body: edit.unifiedDiff ?? L10n.string("mobile.feed.diffUnavailable", defaultValue: "Diff unavailable")))
@@ -575,6 +596,10 @@ private struct AgentFeedPrimitiveView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(question.selectedOptionLabel != nil)
+                    .accessibilityIdentifier("AgentFeedQuestionOption-\(option.id)")
+                    .accessibilityAddTraits(
+                        question.selectedOptionLabel == option.label ? .isSelected : []
+                    )
                 }
                 actionRow(copyText: question.prompt)
             }
@@ -637,7 +662,12 @@ private struct AgentFeedPrimitiveView: View {
             Text(presenceTitle(for: state))
                 .font(.subheadline.weight(.medium))
             Spacer()
-            primitiveButton("mobile.feed.action.reply", fallback: "Reply", symbol: "arrow.turn.up.left") { onReply() }
+            primitiveButton(
+                "mobile.feed.action.reply",
+                fallback: "Reply",
+                symbol: "arrow.turn.up.left",
+                identifier: "AgentFeedReply-\(entry.id)"
+            ) { onReply() }
         }
     }
 
@@ -671,7 +701,12 @@ private struct AgentFeedPrimitiveView: View {
 
     private func actionRow(copyText: String? = nil) -> some View {
         HStack {
-            primitiveButton("mobile.feed.action.reply", fallback: "Reply", symbol: "arrow.turn.up.left") { onReply() }
+            primitiveButton(
+                "mobile.feed.action.reply",
+                fallback: "Reply",
+                symbol: "arrow.turn.up.left",
+                identifier: "AgentFeedReply-\(entry.id)"
+            ) { onReply() }
             if let copyText, !copyText.isEmpty {
                 primitiveButton("mobile.feed.action.copy", fallback: "Copy", symbol: "doc.on.doc") { UIPasteboard.general.string = copyText }
             }
@@ -686,6 +721,7 @@ private struct AgentFeedPrimitiveView: View {
         _ key: StaticString,
         fallback: String.LocalizationValue,
         symbol: String,
+        identifier: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -694,6 +730,7 @@ private struct AgentFeedPrimitiveView: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
+        .accessibilityIdentifier(identifier ?? "AgentFeedAction-\(symbol)")
     }
 
     private func permissionResolutionLabel(_ resolution: ChatPermissionRequest.Resolution) -> String {

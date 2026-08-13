@@ -256,6 +256,24 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone cross-agent Feed lab is enabled.
+    ///
+    /// When `CMUX_UITEST_AGENT_FEED_PREVIEW=1`, the root view renders the real
+    /// five-composition Feed lab over its deterministic coding transcript,
+    /// without sign-in or Mac pairing. DEBUG-only.
+    public static var agentFeedPreviewEnabled: Bool {
+        agentFeedPreviewEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Resolves the standalone Feed lab flag from an explicit environment.
+    static func agentFeedPreviewEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_AGENT_FEED_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone agent-chat preview is enabled.
     ///
     /// When `CMUX_UITEST_AGENT_CHAT_PREVIEW=1`, the root view renders the

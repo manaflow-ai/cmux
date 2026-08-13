@@ -3606,6 +3606,61 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentFeedLabSwitchesVariantsAndRepliesInline() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_AGENT_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let feed = app.descendants(matching: .any)["AgentFeedView"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["AgentFeedFilter-feed-lab-session"].waitForExistence(timeout: 4)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["AgentFeedFilter-feed-lab-finished-session"].waitForExistence(timeout: 4)
+        )
+
+        for variant in ["orbit", "signal", "commandDeck", "prism", "pulse"] {
+            let option = app.descendants(matching: .any)["AgentFeedVariantOption-\(variant)"]
+            XCTAssertTrue(waitForHittable(option, timeout: 4), "Variant option was not tappable: \(variant)")
+            option.tap()
+            XCTAssertTrue(
+                app.descendants(matching: .any)["AgentFeedVariant-\(variant)"].waitForExistence(timeout: 3),
+                "Feed did not render the selected variant: \(variant)"
+            )
+        }
+
+        let claudeFilter = app.descendants(matching: .any)["AgentFeedFilter-feed-lab-finished-session"]
+        tap(claudeFilter, in: app)
+        let finishedPresence = app.buttons["AgentFeedReply-presence-finished-feed-lab-finished-session"]
+        for _ in 0..<5 where !finishedPresence.isHittable {
+            feed.swipeUp()
+        }
+        XCTAssertTrue(waitForHittable(finishedPresence, timeout: 4))
+
+        let codexFilter = app.descendants(matching: .any)["AgentFeedFilter-feed-lab-session"]
+        tap(codexFilter, in: app)
+        let needsInputPresence = app.buttons["AgentFeedReply-presence-feed-lab-session"]
+        for _ in 0..<5 where !needsInputPresence.isHittable {
+            feed.swipeUp()
+        }
+        XCTAssertTrue(waitForHittable(needsInputPresence, timeout: 4))
+        needsInputPresence.tap()
+
+        let composer = app.descendants(matching: .any)["AgentFeedComposer"]
+        XCTAssertTrue(waitForHittable(composer, timeout: 4))
+        try typeText("Inline reply from UI test", into: composer, in: app)
+        let send = app.buttons["AgentFeedComposerSend"]
+        XCTAssertTrue(waitForHittable(send, timeout: 4))
+        send.tap()
+        XCTAssertTrue(
+            app.staticTexts["Inline reply from UI test"].waitForExistence(timeout: 4),
+            "Inline reply did not return to the Feed timeline"
+        )
+    }
+
+    @MainActor
     func testNotificationTabPreservesSharedRootToolbar() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",

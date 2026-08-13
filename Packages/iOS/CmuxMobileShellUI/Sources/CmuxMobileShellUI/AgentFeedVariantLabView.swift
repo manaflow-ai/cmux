@@ -10,8 +10,8 @@ struct AgentFeedVariantLabView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(L10n.string("mobile.feed.lab.title", defaultValue: "Feed compositions"))
                     .font(.title2.weight(.bold))
                 Text(L10n.string(
@@ -20,43 +20,62 @@ struct AgentFeedVariantLabView: View {
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 18)
 
-                Picker(
-                    L10n.string("mobile.feed.lab.picker", defaultValue: "Composition"),
-                    selection: $displaySettings.agentFeedVariant
-                ) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
                     ForEach(AgentFeedVariant.allCases) { variant in
-                        Label(variant.title, systemImage: variant.symbolName)
-                            .tag(variant)
+                        let isSelected = displaySettings.agentFeedVariant == variant
+                        Button {
+                            displaySettings.agentFeedVariant = variant
+                        } label: {
+                            Label(variant.title, systemImage: variant.symbolName)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(isSelected ? Color.white : .primary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .background(
+                                    isSelected ? Color.accentColor : Color.primary.opacity(0.07),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("AgentFeedVariantOption-\(variant.rawValue)")
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                 }
-                .pickerStyle(.inline)
-                .accessibilityIdentifier("MobileSettingsAgentFeedVariantPicker")
+                .padding(.horizontal, 18)
+            }
+            .accessibilityLabel(
+                L10n.string("mobile.feed.lab.picker", defaultValue: "Composition")
+            )
+            .accessibilityIdentifier("MobileSettingsAgentFeedVariantPicker")
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Label(displaySettings.agentFeedVariant.title, systemImage: displaySettings.agentFeedVariant.symbolName)
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: displaySettings.agentFeedVariant.symbolName)
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displaySettings.agentFeedVariant.title)
                         .font(.headline)
                     Text(displaySettings.agentFeedVariant.subtitle)
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-
-                AgentFeedView(
-                    store: fixtureStore,
-                    variant: displaySettings.agentFeedVariant
-                )
-                .frame(minHeight: 620)
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-                }
             }
-            .padding(18)
+            .padding(.horizontal, 18)
+
+            AgentFeedView(
+                store: fixtureStore,
+                variant: displaySettings.agentFeedVariant
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+            }
         }
+        .padding(.top, 12)
         .navigationTitle(L10n.string("mobile.feed.lab.navigationTitle", defaultValue: "Feed Lab"))
         .navigationBarTitleDisplayMode(.inline)
     }
