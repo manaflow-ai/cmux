@@ -267,7 +267,24 @@ public struct DiagnosticEventPresentation: Sendable {
     public func describe(_ event: DiagnosticEvent) -> DescribedEvent {
         var fields: [Field] = []
         if let surface = event.surface {
-            fields.append(Field(key: "surface", value: String(surface)))
+            let key: String
+            switch event.code {
+            case .recoveryStarted, .recoverySucceeded, .recoveryFailed:
+                key = "recovery"
+            case .transportDialStarted, .transportDialConnected,
+                 .transportDialFailed, .transportDialSessionLinked,
+                 .transportDialCancelled, .transportSessionLifecycle,
+                 .sessionClosed, .transportCloseAttribution,
+                 .transportCloseReason, .transportPathEvent,
+                 .transportDialPlanBuilt, .transportPrivateAddressJoin,
+                 .transportLANDiscovery, .transportDialLegSucceeded,
+                 .transportDialLegFailed, .discoveryStarted,
+                 .discoverySucceeded, .discoveryFailed:
+                key = "peer"
+            default:
+                key = "surface"
+            }
+            fields.append(Field(key: key, value: String(surface)))
         }
         if let a = event.a {
             fields.append(decodeA(a, code: event.code))
@@ -573,6 +590,16 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "count", value: String(raw))
         case .browserEditableFocus:
             return Field(key: "outcome", value: browserFocusOutcomeName(raw))
+        case .transportDialPlanBuilt:
+            return Field(key: "private_fallback_paths", value: String(raw))
+        case .discoverySucceeded:
+            return Field(key: "bindings", value: String(raw))
+        case .transportPrivateAddressJoin:
+            return Field(key: "configured_addresses", value: String(raw))
+        case .transportLANDiscovery:
+            return Field(key: "hints", value: String(raw))
+        case .lanPublicationState:
+            return Field(key: "reason", value: lanPublicationReasonName(raw))
         case .simulatorStreamLifecycle:
             return Field(key: "owner", value: simulatorOwnershipName(raw))
         case .simulatorFrameLifecycle:
@@ -583,14 +610,6 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "y", value: normalizedCoordinate(raw))
         case .simulatorOwnershipChanged:
             return Field(key: "previous_owner", value: simulatorOwnershipName(raw))
-        case .transportDialPlanBuilt:
-            return Field(key: "private_fallback_paths", value: String(raw))
-        case .transportPrivateAddressJoin:
-            return Field(key: "configured_addresses", value: String(raw))
-        case .transportLANDiscovery:
-            return Field(key: "hints", value: String(raw))
-        case .lanPublicationState:
-            return Field(key: "reason", value: lanPublicationReasonName(raw))
         default:
             return Field(key: "detail_2", value: String(raw))
         }
@@ -618,6 +637,10 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private func decodeC(_ raw: Int, event: DiagnosticEvent) -> Field {
         switch event.code {
+        case .transportDialPlanBuilt:
+            return Field(key: "public_relay_urls", value: String(raw))
+        case .discoverySucceeded:
+            return Field(key: "relay_fleet", value: String(raw))
         case .transportDialStarted, .transportDialConnected, .transportDialFailed:
             return Field(key: "attempt", value: String(raw))
         case .sessionClosed, .transportSessionLifecycle,

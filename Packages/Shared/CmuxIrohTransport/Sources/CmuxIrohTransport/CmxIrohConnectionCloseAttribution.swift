@@ -190,6 +190,12 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
             || cause.contains("Failed to resolve") {
             return .dnsFailed
         }
+        // Only classify route words after structured close and DNS markers.
+        // A peer-chosen reason such as "No route found" is not evidence that
+        // this device lacked a route.
+        if let routeFailure = CmxIrohRouteFailureClassifier.classify(cause) {
+            return routeFailure
+        }
         if cause.contains("Tls")
             || cause.contains("TLS")
             || cause.contains("CryptoError")
