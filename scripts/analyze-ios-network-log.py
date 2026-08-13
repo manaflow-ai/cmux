@@ -29,6 +29,11 @@ ISO_EVENT_RE = re.compile(
 )
 FIELD_RE = re.compile(r"(?P<key>[^:(),]+):\s*(?P<value>[^,()]+)")
 NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+DURATION_RE = re.compile(
+    r"^\s*(?P<number>-?\d+(?:\.\d+)?)\s*"
+    r"(?P<unit>milliseconds?|ms|seconds?|secs?|s)?\s*$",
+    re.IGNORECASE,
+)
 
 
 def parse_stamp(raw: str, fallback: int) -> float:
@@ -38,9 +43,12 @@ def parse_stamp(raw: str, fallback: int) -> float:
         return float(match.group()) if match else float(fallback)
     try:
         normalized = raw.strip().removesuffix(" UTC")
-        return datetime.fromisoformat(normalized).replace(
-            tzinfo=timezone.utc
-        ).timestamp()
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return parsed.timestamp()
     except ValueError:
         # Preserve a stable synthetic value for an unrecognized timestamp.
         return float(fallback)
@@ -88,10 +96,15 @@ def as_milliseconds(value: object | None) -> float | None:
     if value is None:
         return None
     text = str(value).lower()
+    match = DURATION_RE.match(text)
+    if match:
+        parsed = float(match.group("number"))
+        unit = (match.group("unit") or "ms").lower()
+        if unit in {"s", "sec", "secs", "second", "seconds"}:
+            return parsed * 1000
+        return parsed
     parsed = as_seconds(text)
-    if parsed is None:
-        return None
-    return parsed * 1000 if "second" in text else parsed
+    return parsed * 1000 if parsed is not None and "second" in text else parsed
 
 
 def normalized_failure(value: object | None) -> str | None:
@@ -102,11 +115,17 @@ def normalized_failure(value: object | None) -> str | None:
     aliases = {
         "no_route_available": "no_route",
         "no_route": "no_route",
+        "no_route_found": "no_route",
+        "no_usable_route": "no_route",
+        "no_usable_route_path": "no_route",
+        "no_route_candidates": "no_route",
         "route_already_connecting": "route_gated",
         "route_gated": "route_gated",
         "timed_out": "timed_out",
         "transport_idle_timed_out": "transport_idle_timed_out",
         "connection_refused": "connection_refused",
+        "network_unreachable": "host_unreachable",
+        "no_route_to_host": "host_unreachable",
         "host_unreachable": "host_unreachable",
         "cancelled": "cancelled",
     }
@@ -299,7 +318,10 @@ def analyze(lines: Iterable[str], expected_background_seconds: float = 0.0) -> d
     private_fallback_paths_observed = sum(
         plan["private_fallback_paths"] for plan in dial_plans
     )
-    if not dial_failures.get("no_route"):
+    no_route_failure_observed = bool(dial_failures.get("no_route")) or any(
+        key.endswith("/no_route") for key in phase_failures
+    )
+    if not no_route_failure_observed:
         route_policy_assessment = "no_no_route_failure"
     elif not dial_plans:
         route_policy_assessment = "plan_diagnostics_unavailable"
