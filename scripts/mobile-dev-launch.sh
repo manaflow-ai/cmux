@@ -281,7 +281,10 @@ if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
 fi
 echo "==> launching $BUNDLE_ID on $TARGET (signed in as $SIGN_IN_ACCOUNT_LABEL${ATTACH_URL:+, auto-pairing})"
 READINESS_STARTED_MS=""
-if [[ -n "$READINESS_CURSOR" ]]; then
+# Ordinary dogfood needs this launcher to prove the app reached an authenticated
+# RPC session. Release-gate launches instead let the in-app runner own readiness,
+# path validation, and its longer relay-rollover deadline so its report survives.
+if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
   READINESS_STARTED_MS="$(cmux_attach_monotonic_milliseconds)"
 fi
 
@@ -357,7 +360,7 @@ else
   rm -f "$LAUNCH_ERR"
 fi
 
-if [[ -n "$READINESS_CURSOR" ]]; then
+if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
   if ! READY_EVENT="$(cmux_attach_wait_for_usable_session \
       "$TAG" \
       "$REPO_ROOT" \
@@ -399,6 +402,8 @@ if [[ -n "$READINESS_CURSOR" ]]; then
   if [[ "$TARGET" == "device" ]]; then
     echo "==> iPhone auth gate: PASS — $BUNDLE_ID on $DEVICE_ID verified signed in + paired"
   fi
+elif [[ -n "$READINESS_CURSOR" ]]; then
+  echo "==> release-gate app owns authenticated RPC readiness verification"
 elif [[ "$TARGET" == "device" ]]; then
   # Only reachable with --no-attach + CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1
   # (any other unverified device path already exited above). Say so loudly so
