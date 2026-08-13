@@ -4,7 +4,6 @@ import {
   makeEmailVerificationRecoveryHandler,
   type EmailVerificationRecoveryRouteDependencies,
 } from "../app/api/auth/email-verification/route";
-import { EmailVerificationRecoveryUnavailable } from "../services/auth/emailVerificationRecovery";
 
 function request(
   body: unknown,
@@ -88,16 +87,16 @@ describe("email verification recovery route", () => {
     expect(recover).not.toHaveBeenCalled();
   });
 
-  test("reports provider failure without exposing account state", async () => {
+  test("accepts provider failure without exposing account state", async () => {
     const response = await makeEmailVerificationRecoveryHandler(
       dependencies({
         recover: async () => {
-          throw new EmailVerificationRecoveryUnavailable({});
+          throw new Error("provider unavailable");
         },
       }),
     )(request({ email: "buyer@example.com" }));
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "recovery_unavailable" });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true });
   });
 });

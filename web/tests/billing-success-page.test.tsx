@@ -83,7 +83,6 @@ describe("billing success page", () => {
 
     expect(html).toContain("cmux Pro is active");
     expect(html).toContain("buyer@example.com");
-    expect(html).toContain("open the verification email before signing in to cmux");
     expect(html).toContain("What you unlocked");
     expect(html).toContain("Cloud agents on Cloud VMs");
     expect(html).toContain("Run agents in isolated remote sandboxes.");

@@ -7,16 +7,10 @@ let stripeConfigured = true;
 let retrievedSession: Record<string, unknown>;
 const retrieveSession = mock(async () => retrievedSession);
 let recordCheckoutCompletionResult: unknown = {
-  scope: "user",
   stackUserId: "user-1",
   subscriptionId: "sub_1",
 };
 const recordCheckoutCompletion = mock(async () => recordCheckoutCompletionResult);
-let requestEmailVerificationError: Error | null = null;
-const requestEmailVerification = mock(async () => {
-  if (requestEmailVerificationError) throw requestEmailVerificationError;
-  return { delivery: "sent" as const };
-});
 
 const GET = makeBillingCompleteHandler({
   isConfigured: () => stripeConfigured,
@@ -29,7 +23,6 @@ const GET = makeBillingCompleteHandler({
       },
     }) as never,
   recordCheckoutCompletion: recordCheckoutCompletion as never,
-  requestEmailVerification,
 });
 
 describe("billing complete route", () => {
@@ -40,16 +33,12 @@ describe("billing complete route", () => {
       payment_status: "paid",
       client_reference_id: "user-1",
       metadata: { app: "cmux", plan: "pro" },
-      customer_details: { email: "buyer@example.com" },
       subscription: { id: "sub_1" },
       customer: { id: "cus_1" },
     };
     retrieveSession.mockClear();
     recordCheckoutCompletion.mockClear();
-    requestEmailVerification.mockClear();
-    requestEmailVerificationError = null;
     recordCheckoutCompletionResult = {
-      scope: "user",
       stackUserId: "user-1",
       subscriptionId: "sub_1",
     };
@@ -71,47 +60,10 @@ describe("billing complete route", () => {
       subscription: retrievedSession.subscription,
       customer: retrievedSession.customer,
     });
-    expect(requestEmailVerification).toHaveBeenCalledWith({
-      email: "buyer@example.com",
-      callbackURL: "http://localhost:3777/handler/email-verification",
-    });
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
       "http://localhost:3777/billing/success?session_id=cs_123&cmux_scheme=cmux-dev-local",
     );
-  });
-
-  test("keeps checkout successful when the verification email provider is unavailable", async () => {
-    requestEmailVerificationError = new Error("provider unavailable");
-
-    const response = await GET(
-      new NextRequest("https://cmux.test/api/billing/complete?session_id=cs_123"),
-    );
-
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(
-      "https://cmux.test/billing/success?session_id=cs_123&cmux_scheme=cmux",
-    );
-  });
-
-  test("keeps an IPv6 loopback checkout verification callback local", async () => {
-    const request = new NextRequest(
-      "http://localhost:3777/api/billing/complete?session_id=cs_123",
-    );
-    // NextRequest rewrites bracketed IPv6 loopback to localhost in Bun, so
-    // preserve the actual platform URL shape that reaches the helper.
-    Object.defineProperty(request, "nextUrl", {
-      value: new URL(
-        "http://[::1]:3777/api/billing/complete?session_id=cs_123",
-      ),
-    });
-    const response = await GET(request);
-
-    expect(response.status).toBe(307);
-    expect(requestEmailVerification).toHaveBeenCalledWith({
-      email: "buyer@example.com",
-      callbackURL: "http://[::1]:3777/handler/email-verification",
-    });
   });
 
   test("uses the callback scheme trusted at checkout on a deployed completion host", async () => {

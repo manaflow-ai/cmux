@@ -2841,7 +2841,7 @@
   "billingSuccess": {
     "metaTitle": "cmux Pro が有効になりました",
     "title": "cmux Pro が有効になりました",
-    "body": "{email} のアカウントを作成またはアップグレードしました。新しいアカウントの場合は、cmux にサインインする前に確認メールを開いてください。",
+    "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
     "emailLabel": "購入メールアドレス",
     "whatUnlockedTitle": "利用できるようになった機能",
     "openCmux": "cmux を開く",

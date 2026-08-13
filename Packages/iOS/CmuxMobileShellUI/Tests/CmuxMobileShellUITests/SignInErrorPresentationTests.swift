@@ -51,6 +51,19 @@ import Testing
         #expect(!presentation.message(for: error).localizedCaseInsensitiveContains("password"))
     }
 
+    @Test func bridgedUnverifiedFlagRequestsEmailVerification() {
+        let error = StackAuthError(
+            code: "USER_EMAIL_ALREADY_EXISTS",
+            message: "email is unverified",
+            details: ["would_work_if_email_was_verified": NSNumber(value: true)]
+        )
+
+        #expect(
+            SignInEmailCodeFailurePolicy().action(for: error)
+                == .requestEmailVerification
+        )
+    }
+
     @Test func genericExistingEmailErrorRemainsAnError() {
         let error = StackAuthError(
             code: "USER_EMAIL_ALREADY_EXISTS",

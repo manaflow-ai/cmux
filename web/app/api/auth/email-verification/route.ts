@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect";
 import { getStackServerApp } from "../../../lib/stack";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
-  EmailVerificationRecoveryUnavailable,
   requestEmailVerificationRecovery,
   type EmailVerificationRecoveryResult,
 } from "../../../../services/auth/emailVerificationRecovery";
@@ -59,19 +58,14 @@ export function makeEmailVerificationRecoveryHandler(
         email,
         callbackURL: verificationCallbackURL(request),
       });
-      // Both a sent message and a missing/already-verified account deliberately
-      // share this response. The caller already saw Stack's unverified-email
-      // error, but this endpoint must remain non-enumerating on its own.
-      return json({ ok: true }, 202);
-    } catch (error) {
-      if (error instanceof EmailVerificationRecoveryUnavailable) {
-        return json({ error: "recovery_unavailable" }, 503);
-      }
+    } catch {
       console.error("auth.email_verification_recovery.unexpected", {
         failure: "unexpected",
       });
-      return json({ error: "recovery_unavailable" }, 503);
     }
+    // Sent, no-match, already-verified, and delivery-failure outcomes share the
+    // same public response so this endpoint cannot enumerate account state.
+    return json({ ok: true }, 202);
   };
 }
 
