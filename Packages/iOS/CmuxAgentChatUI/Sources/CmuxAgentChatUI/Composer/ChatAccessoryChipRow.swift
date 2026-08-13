@@ -161,18 +161,18 @@ public struct ChatAccessoryChipRow: View {
             chipContent(shortcut)
                 .font(.footnote)
                 .foregroundStyle(shortcut.tint ?? .primary)
-                .padding(.horizontal, shortcut.systemImage == nil ? 12 : 8)
+                .padding(.horizontal, shortcut.systemImage == nil ? 10 : 7)
                 .frame(minWidth: 32)
                 .frame(height: 32)
-                #if os(iOS)
-                .mobileGlassPill()
-                #else
                 .background(
-                    (shortcut.tint?.opacity(0.12) ?? Color.secondary.opacity(0.15)),
-                    in: .capsule
+                    shortcut.tint?.opacity(0.10) ?? Color.secondary.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
                 )
-                #endif
-                .contentShape(.capsule)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 0.5)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .fixedSize(horizontal: true, vertical: false)

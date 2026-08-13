@@ -29,7 +29,7 @@ public struct MobileComposerIconLabel: View {
         self.pulsesWhenActive = pulsesWhenActive
     }
 
-    /// The rendered icon and circular Liquid Glass backing.
+    /// The rendered icon and circular system control surface.
     public var body: some View {
         Image(systemName: isActive ? activeSystemImage ?? systemImage : systemImage)
             .font(.system(size: iconSize, weight: .semibold))

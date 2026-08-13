@@ -181,7 +181,7 @@ struct MacComputerDetailView: View {
         let isSelected = pendingCustomColor == "palette:\(index)"
         Button { applyColor("palette:\(index)") } label: {
             Circle()
-                .fill(MachineAvatarColors.gradient(index: index))
+                .fill(MachineAvatarColors.color(index: index))
                 .frame(width: 30, height: 30)
                 .overlay(Circle().strokeBorder(isSelected ? Color.primary : .clear, lineWidth: 2))
         }

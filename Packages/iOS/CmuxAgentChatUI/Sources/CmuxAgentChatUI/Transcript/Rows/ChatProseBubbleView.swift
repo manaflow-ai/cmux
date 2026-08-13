@@ -4,9 +4,9 @@ import SwiftUI
 import UIKit
 #endif
 
-/// The core prose bubble: user prompts render trailing-aligned plain text
-/// on the outgoing fill; agent prose renders leading-aligned with markdown
-/// text runs and embedded monospace code blocks.
+/// The core prose row: user prompts get a compact outgoing treatment, while
+/// agent prose stays on the transcript background so long answers read like
+/// a document instead of a stack of chat bubbles.
 public struct ChatProseBubbleView: View, Equatable {
     private let prose: ChatProse
     private let message: ChatMessage
@@ -58,7 +58,10 @@ public struct ChatProseBubbleView: View, Equatable {
             if isUser { Spacer(minLength: 64) }
             VStack(alignment: isUser ? .trailing : .leading, spacing: 3) {
                 bubble
-                    .frame(maxWidth: bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
+                    .frame(
+                        maxWidth: isUser ? bubbleMaxWidth : .infinity,
+                        alignment: isUser ? .trailing : .leading
+                    )
                     .contextMenu {
                         Button(action: copyProse) {
                             Label(
@@ -127,10 +130,10 @@ public struct ChatProseBubbleView: View, Equatable {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, isUser ? 12 : 0)
+        .padding(.vertical, isUser ? 8 : 4)
         .background(
-            isUser ? theme.outgoingBubbleFill : theme.incomingBubbleFill,
+            isUser ? theme.outgoingBubbleFill : .clear,
             in: bubbleShape
         )
     }

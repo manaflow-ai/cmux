@@ -244,14 +244,6 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTaskComposer")
-
-                    Toggle(isOn: $toasts.isEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.beta.toasts",
-                            defaultValue: "Toasts"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastsEnabled")
                 }
 
                 #if DEBUG

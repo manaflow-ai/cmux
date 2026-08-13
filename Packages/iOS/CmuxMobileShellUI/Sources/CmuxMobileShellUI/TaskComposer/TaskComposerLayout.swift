@@ -108,7 +108,7 @@ struct TaskComposerLayout: View {
     }
 
     private var accessoryBar: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 6) {
             if failureText != nil || completedOperationRecovery != nil {
                 TaskComposerFailureRecoveryContent(
                     isSubmitting: isSubmitting,
@@ -206,8 +206,8 @@ struct TaskComposerLayout: View {
             // (name, Mac, directory), it does not add anything.
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary)
                 .frame(width: 38, height: 38)
-                .background(Color.primary.opacity(0.07), in: Circle())
                 // Keep the compact 38pt visual while honoring the composer's
                 // 44pt activation-target contract.
                 .frame(width: 44, height: 44)
@@ -256,7 +256,14 @@ struct TaskComposerLayout: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
-            .background(Color.primary.opacity(0.07), in: Capsule())
+            .background(
+                Color(uiColor: .secondarySystemBackground),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+            }
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
@@ -290,7 +297,14 @@ struct TaskComposerLayout: View {
         .foregroundStyle(.primary)
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
-        .background(Color.primary.opacity(0.07), in: Capsule())
+        .background(
+            Color(uiColor: .secondarySystemBackground),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+        }
         .frame(minHeight: 44)
         .contentShape(Rectangle())
         .accessibilityHidden(true)
@@ -328,7 +342,14 @@ struct TaskComposerLayout: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
-        .background(Color.primary.opacity(0.07), in: Capsule())
+        .background(
+            Color(uiColor: .secondarySystemBackground),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+        }
         .frame(minHeight: 44)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L10n.string(

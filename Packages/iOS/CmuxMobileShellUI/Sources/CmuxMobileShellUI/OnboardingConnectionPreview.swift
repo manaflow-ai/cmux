@@ -30,12 +30,12 @@ struct OnboardingConnectionPreview: View {
         .padding(.vertical, density.previewVerticalPadding)
         .frame(maxWidth: .infinity)
         .background(
-            .regularMaterial,
+            Color(uiColor: .secondarySystemBackground),
             in: RoundedRectangle(cornerRadius: density.previewCornerRadius, style: .continuous)
         )
         .overlay {
             RoundedRectangle(cornerRadius: density.previewCornerRadius, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileOnboardingConnectionPreview")
@@ -43,7 +43,7 @@ struct OnboardingConnectionPreview: View {
 
     private func deviceIcon(systemImage: String, tint: Color) -> some View {
         Circle()
-            .fill(tint.gradient)
+            .fill(tint)
             .frame(width: density.previewDeviceSize, height: density.previewDeviceSize)
             .overlay {
                 Image(systemName: systemImage)
@@ -57,7 +57,7 @@ struct OnboardingConnectionPreview: View {
         VStack(spacing: 5) {
             ZStack {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(.thinMaterial)
+                    .fill(Color(uiColor: .tertiarySystemBackground))
                     .frame(width: density.previewAccountSize, height: density.previewAccountSize)
 
                 Image(systemName: phase == .ready
@@ -133,7 +133,7 @@ struct OnboardingConnectionPreview: View {
 private extension OnboardingConnectionVisualDensity {
     var previewContentSpacing: CGFloat {
         switch self {
-        case .regular: 20
+        case .regular: 14
         case .compact: 6
         }
     }
@@ -161,15 +161,15 @@ private extension OnboardingConnectionVisualDensity {
 
     var previewCornerRadius: CGFloat {
         switch self {
-        case .regular: 28
-        case .compact: 18
+        case .regular: 16
+        case .compact: 12
         }
     }
 
     var previewDeviceSize: CGFloat {
         switch self {
-        case .regular: 74
-        case .compact: 40
+        case .regular: 64
+        case .compact: 36
         }
     }
 

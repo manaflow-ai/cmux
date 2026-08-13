@@ -36,13 +36,15 @@ struct TaskComposerContextSection: View {
                 selectDirectory: selectDirectory
             )
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
                 .allowsHitTesting(false)
         }
-        .shadow(color: Color.black.opacity(0.04), radius: 12, y: 5)
     }
 }
 #endif

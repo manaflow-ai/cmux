@@ -145,7 +145,7 @@ private struct ComputerVisibilityRow: View {
     private func hiddenAvatar(_ computer: MobileHiddenComputer) -> some View {
         ZStack {
             Circle()
-                .fill(MachineAvatarColors.gradient(
+                .fill(MachineAvatarColors.color(
                     customColor: computer.customColor,
                     fallbackIndex: nil,
                     machineID: computer.macDeviceID,

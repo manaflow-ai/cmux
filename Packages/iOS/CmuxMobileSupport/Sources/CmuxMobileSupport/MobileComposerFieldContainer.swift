@@ -1,10 +1,9 @@
 public import SwiftUI
 
-/// Shared rounded glass shell for mobile composer text fields.
+/// Shared rounded shell for mobile composer text fields.
 ///
 /// Terminal rendering and GUI chat each own their text model, focus binding, and
-/// send behavior, but the field's shape, padding, and Liquid Glass treatment
-/// should stay identical.
+/// send behavior, but the field's shape and padding should stay identical.
 public struct MobileComposerFieldContainer<Field: View, Trailing: View>: View {
     private let minHeight: CGFloat
     private let cornerRadius: CGFloat
@@ -24,7 +23,7 @@ public struct MobileComposerFieldContainer<Field: View, Trailing: View>: View {
         self.trailing = trailing()
     }
 
-    /// The field row with shared padding, sizing, and glass treatment.
+    /// The field row with shared padding and sizing.
     public var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             field

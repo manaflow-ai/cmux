@@ -1,7 +1,7 @@
 import CmuxMobileSupport
 import SwiftUI
 
-struct GlassInputPill<Content: View>: View {
+struct MobileAuthField<Content: View>: View {
     let height: CGFloat
     let alignment: Alignment
     let content: Content

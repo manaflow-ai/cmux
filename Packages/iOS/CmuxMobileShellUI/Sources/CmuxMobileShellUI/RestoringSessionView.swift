@@ -5,7 +5,7 @@ struct RestoringSessionView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                GameOfLifeHeader()
+                PlatformPalette.systemBackground
                     .ignoresSafeArea()
 
                 VStack(spacing: 14) {

@@ -56,7 +56,10 @@ struct MobileMacConnectionStatusPill: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(.black.opacity(0.78), in: Capsule())
+        .background(
+            .black.opacity(0.78),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
     }
 
     private var accessibilityLabel: String {

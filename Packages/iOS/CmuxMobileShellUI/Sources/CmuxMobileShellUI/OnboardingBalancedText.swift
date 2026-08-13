@@ -11,14 +11,14 @@ struct OnboardingBalancedText: UIViewRepresentable {
 
         var textStyle: UIFont.TextStyle {
             switch self {
-            case .title: .largeTitle
+            case .title: .title2
             case .body: .body
             }
         }
 
         var weight: UIFont.Weight {
             switch self {
-            case .title: .bold
+            case .title: .semibold
             case .body: .regular
             }
         }

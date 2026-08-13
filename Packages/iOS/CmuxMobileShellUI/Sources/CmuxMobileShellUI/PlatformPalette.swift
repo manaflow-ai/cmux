@@ -34,14 +34,4 @@ struct PlatformPalette {
         #endif
     }
 
-    /// The cell color for the sign-in Game of Life backdrop, adapted to scheme.
-    static func gameOfLifeCell(colorScheme: ColorScheme) -> Color {
-        #if os(iOS)
-        Color(uiColor: colorScheme == .dark ? .systemGray4 : .systemGray2)
-        #elseif os(macOS)
-        Color(nsColor: colorScheme == .dark ? .systemGray : .secondaryLabelColor)
-        #else
-        Color.gray
-        #endif
-    }
 }
