@@ -464,22 +464,24 @@ public struct CMUXMobileRootScene: View {
         // authenticated against the current Stack session and pinned to the
         // selected team for each reconnect attempt.
         let deviceListLocalFirst = MobileDeviceListLocalFirst.resolved().isEnabled
-        let makeSyncTransport: (@Sendable (String, String) -> any SyncTransport)? =
-            PresenceClient.resolvedServiceBaseURL(
-                isDevelopmentAuthChannel: auth.authEnvironment == .development
-            ).map { baseURL in
-                { teamID, expectedUserID in
-                    PresenceSyncTransport(
-                        serviceBaseURL: baseURL,
-                        tokenSource: PresenceTokenSource(
-                            accessToken: { try? await coordinator.accessToken() },
-                            currentUserID: { await coordinator.currentUser?.id }
-                        ),
-                        expectedUserID: expectedUserID,
-                        teamID: teamID
-                    )
-                }
+        let makeSyncTransport: (@Sendable (String, String) -> any SyncTransport)?
+        if let baseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ) {
+            makeSyncTransport = { (teamID: String, expectedUserID: String) -> any SyncTransport in
+                PresenceSyncTransport(
+                    serviceBaseURL: baseURL,
+                    tokenSource: PresenceTokenSource(
+                        accessToken: { try? await coordinator.accessToken() },
+                        currentUserID: { await coordinator.currentUser?.id }
+                    ),
+                    expectedUserID: expectedUserID,
+                    teamID: teamID
+                )
             }
+        } else {
+            makeSyncTransport = nil
+        }
         let resolvedPersonalIrohForget: (any MobileIrohMacForgetting)?
         #if DEBUG
         if UITestConfig.successfulComputerForgetEnabled {
