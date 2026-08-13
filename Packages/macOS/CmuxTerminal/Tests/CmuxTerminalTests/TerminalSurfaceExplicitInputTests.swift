@@ -118,6 +118,19 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(acceptedInputCount == 1)
     }
 
+    @Test func userInputCancellationCallbackIsSeparateFromProgrammaticWrites() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        var userInputCount = 0
+        fixture.surface.onUserExplicitInput = { userInputCount += 1 }
+
+        _ = fixture.surface.sendText("programmatic")
+        #expect(userInputCount == 0)
+
+        fixture.surface.didReceiveExplicitInput(isUserInitiated: true)
+        #expect(userInputCount == 1)
+    }
+
     @Test func rejectedParsedInputDoesNotNotifyItsOwner() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
