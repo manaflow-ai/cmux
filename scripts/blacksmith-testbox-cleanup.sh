@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-  echo "usage: $0 <testbox-id> <evidence-directory> <confirmation-token>" >&2
+if [[ $# -ne 4 ]]; then
+  echo "usage: $0 <testbox-id> <evidence-directory> <confirmation-token> <operator-confirmation>" >&2
   exit 64
 fi
 
 testbox_id="$1"
 evidence_dir="$2"
 confirmation_token="$3"
+operator_confirmation="$4"
+if [[ "$operator_confirmation" != "STOP" ]]; then
+  echo "refusing destructive cleanup without explicit STOP confirmation" >&2
+  exit 64
+fi
 if [[ ! "$testbox_id" =~ ^tbx_[A-Za-z0-9_-]+$ ]]; then
   echo "invalid Testbox ID: $testbox_id" >&2
   exit 64
@@ -90,6 +95,8 @@ stop_log="$evidence_dir/stop.log"
 status_log="$evidence_dir/status-after-stop.log"
 list_log="$evidence_dir/list-after-stop.log"
 cleanup_status=0
+poll_deadline=$((SECONDS + 120))
+poll_attempt=0
 
 set +e
 blacksmith testbox stop --id "$testbox_id" >"$stop_log" 2>&1
@@ -109,32 +116,41 @@ fi
 # Status is diagnostic. The authoritative cleanup check below parses the
 # specific ID in `list --all`; terminal rows are accepted because --all may
 # retain completed boxes, while active rows remain failures.
-set +e
-blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
-status_status=$?
-set -e
-if (( status_status == 0 )); then
-  status_value="$(awk -v id="$testbox_id" '$1 == id { print tolower($2); exit }' "$status_log")"
-  case "$status_value" in
-    completed|stopped|cancelled|failed|terminated|hydration_failed)
-      ;;
-    ready|running|hydrating|in_progress|queued)
-      echo "Testbox $testbox_id is still active after cleanup" >&2
-      (( cleanup_status == 0 )) && cleanup_status=1
-      ;;
-    *)
-      if grep -Eiq 'status:[[:space:]]*(completed|stopped|cancelled|failed|terminated|hydration_failed)' "$status_log"; then
-        :
-      else
-        echo "could not establish a terminal status for Testbox $testbox_id; see $status_log" >&2
-        (( cleanup_status == 0 )) && cleanup_status=1
-      fi
-      ;;
-  esac
-elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$status_log"; then
-  echo "failed to inspect Testbox $testbox_id; see $status_log" >&2
-  (( cleanup_status == 0 )) && cleanup_status=$status_status
-fi
+while :; do
+  poll_attempt=$((poll_attempt + 1))
+  : >"$status_log"
+  set +e
+  blacksmith testbox status --id "$testbox_id" >"$status_log" 2>&1
+  status_status=$?
+  set -e
+  terminal=0
+  if (( status_status == 0 )); then
+    status_value="$(awk -v id="$testbox_id" '$1 == id { print tolower($2); exit }' "$status_log")"
+    case "$status_value" in
+      completed|stopped|cancelled|failed|terminated|hydration_failed) terminal=1 ;;
+      ready|running|hydrating|in_progress|queued) ;;
+      *)
+        grep -Eiq 'status:[[:space:]]*(completed|stopped|cancelled|failed|terminated|hydration_failed)' "$status_log" && terminal=1
+        ;;
+    esac
+  elif grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$status_log"; then
+    terminal=1
+  else
+    echo "failed to inspect Testbox $testbox_id; see $status_log" >&2
+    (( cleanup_status == 0 )) && cleanup_status=$status_status
+    break
+  fi
+  if (( terminal == 1 )); then
+    break
+  fi
+  if (( SECONDS >= poll_deadline )); then
+    echo "Testbox $testbox_id is still active after bounded cleanup polling" >&2
+    (( cleanup_status == 0 )) && cleanup_status=1
+    break
+  fi
+  sleep_seconds=$((poll_attempt < 6 ? poll_attempt * 2 : 10))
+  sleep "$sleep_seconds"
+done
 
 set +e
 blacksmith testbox list --all >"$list_log" 2>&1

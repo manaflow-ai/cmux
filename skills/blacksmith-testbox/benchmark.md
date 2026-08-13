@@ -145,7 +145,7 @@ cleanup() {
   trap - EXIT
   if [[ -n "$TBX" && -n "$cleanup_token" ]]; then
     set +e
-    scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token"
+    scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" STOP
     cleanup_status=$?
     set -e
   else
@@ -395,10 +395,11 @@ PY
 
 ## Cleanup and evidence
 
-Download all raw files and `timings.json` before cleanup. Then call the
-fail-safe helper, which previews the exact receipt context, preserves an
-already-completed 409, fails on other stop/status/list errors, and verifies this
-exact Testbox ID is no longer active:
+Download all raw files and `timings.json` before cleanup. Then, after an
+operator explicitly decides this exact box may be destroyed, call the fail-safe
+helper. It previews the exact receipt context, preserves an already-completed
+409, polls cancellation to a bounded deadline, fails on other stop/status/list
+errors, and verifies this exact Testbox ID is no longer active:
 
 ```bash
 cleanup_token="${cleanup_token:-}"
@@ -406,15 +407,15 @@ cleanup_token="${cleanup_token:-}"
   echo "use the confirmation token emitted by the warmup receipt" >&2
   exit 64
 }
-scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token"
+scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$cleanup_token" STOP
 ```
 
-A shell `EXIT` trap should call that helper while preserving the benchmark
-status. Warmup writes `testbox-receipt.json` and a confirmation token bound to
-the exact returned ID; cleanup refuses a mismatched ID or token. If warmup
-fails before returning an ID, retain before/after inventories but do not
-automatically stop a box, because an inventory diff cannot prove ownership
-across concurrent operators. Reconcile that orphan manually through the
+A shell `EXIT` trap may call that helper only after an independent operator
+sets the explicit `STOP` confirmation; preserve the benchmark status. Warmup
+writes `testbox-receipt.json` and an ownership token bound to the exact returned
+ID; cleanup refuses a mismatched ID or token. If warmup fails before returning
+an ID, retain before/after inventories but do not automatically stop a box,
+because an inventory diff cannot prove ownership across concurrent operators. Reconcile that orphan manually through the
 Blacksmith control plane. Keep both inventories and their command statuses,
 plus warmup/status/identity transcripts, every stage run and download
 transcript, raw JSON/time/log files, runner catalog, setup identity artifact,

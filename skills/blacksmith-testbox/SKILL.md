@@ -292,25 +292,28 @@ refuse to overwrite historical records. Do not add credentials or private keys.
 ## Fail-safe cleanup
 
 Always download before cleanup. Use the checked-in cleanup helper rather than
-ignoring errors with `|| true`. Pass the confirmation token generated with the
-warmup receipt; never print it:
+ignoring errors with `|| true`. After an independent operator decides the exact
+box may be destroyed, pass the ownership token generated with the warmup receipt
+and the literal `STOP`; never print the token:
 
 ```bash
 CLEANUP_TOKEN="${CLEANUP_TOKEN:-}"
 [[ "$CLEANUP_TOKEN" =~ ^[0-9a-f]{32}$ ]] || {
-  echo "use the confirmation token emitted by the warmup receipt" >&2
+  echo "use the ownership token emitted by the warmup receipt" >&2
   exit 64
 }
-scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$CLEANUP_TOKEN"
+scripts/blacksmith-testbox-cleanup.sh "$TBX" "$OUT" "$CLEANUP_TOKEN" STOP
 ```
 
 It records a pre-stop status preview, stop result, post-stop status, and
 `list --all` output. The preview must match the receipt's workflow, job, and
-branch before any stop is attempted. It verifies that the specific Testbox ID
-is terminal or absent from the active inventory, and accepts the known terminal
-states `completed`, `stopped`, `cancelled`, `failed`, `terminated`, and
-`hydration_failed`, plus a 409 saying the box is already stopped or completed.
-Other stop, status, or list failures remain failures.
+branch before any stop is attempted. Cleanup is destructive and requires the
+separate literal `STOP` operator confirmation in addition to the receipt token.
+It verifies that the specific Testbox ID is terminal or absent from the active
+inventory, accepts the known terminal states `completed`, `stopped`, `cancelled`,
+`failed`, `terminated`, and `hydration_failed`, plus a 409 saying the box is
+already stopped or completed, and polls for up to two minutes while cancellation
+propagates. Other stop, status, or list failures remain failures.
 Put it in an `EXIT` trap that preserves the benchmark's original exit status
 unless cleanup itself fails. The detailed benchmark writes a receipt and
 confirmation token for the exact ID returned by warmup; cleanup refuses an ID
