@@ -22,6 +22,7 @@ struct TaskComposerSheet: View {
     @State var explicitlySelectedModel: MobileTaskAgentModel?
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
+    @State var selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
     @State private var modelRefreshTask: Task<Void, Never>?
     @State private var modelRefreshOperationID: UUID?
     @State var displayedModels: [MobileTaskAgentModel]
@@ -50,6 +51,7 @@ struct TaskComposerSheet: View {
     let sessionGeneration: Int
     private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
+    private let availableWorkspaceGroups: [MobileWorkspaceGroupPreview]?
     let taskAttachmentsCapabilityOverride: Bool?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
@@ -72,6 +74,7 @@ struct TaskComposerSheet: View {
     init(
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,
+        availableWorkspaceGroups: [MobileWorkspaceGroupPreview]? = nil,
         taskAttachmentsCapabilityOverride: Bool? = nil,
         initialAttachments: [TaskComposerAttachment] = [],
         submitTaskComposer: (@MainActor (
@@ -94,6 +97,7 @@ struct TaskComposerSheet: View {
     ) {
         self.store = store
         self.availableMachines = availableMachines
+        self.availableWorkspaceGroups = availableWorkspaceGroups
         self.taskAttachmentsCapabilityOverride = taskAttachmentsCapabilityOverride
         self.sessionGeneration = store.currentSessionGeneration
         self.searchTaskDirectories = searchTaskDirectories
@@ -118,6 +122,9 @@ struct TaskComposerSheet: View {
         let foregroundMacInstanceTag = store.connectedMacInstanceTag
         // Restore persisted Mac IDs only while they remain paired.
         let availablePairedMacs = availableMachines ?? store.displayPairedMacs
+        let availableGroups = (availableWorkspaceGroups != nil || store.supportsWorkspaceCreateInGroup)
+            ? (availableWorkspaceGroups ?? store.workspaceGroups)
+            : []
         let pairedMacIDs = availablePairedMacs.map(\.macDeviceID)
         let restoredMacID = store.taskTemplateStore?.lastMacDeviceID()
             .flatMap { id in pairedMacIDs.contains(id) ? id : nil }
@@ -149,6 +156,12 @@ struct TaskComposerSheet: View {
         } ?? availablePairedMacs.first {
             $0.macDeviceID == selectedMacID
         }
+        let initialWorkspaceGroupID = Self.validWorkspaceGroupID(
+            draft?.workspaceGroupID,
+            groups: availableGroups,
+            macDeviceID: selectedMacID,
+            instanceTag: selectedMac?.instanceTag
+        )
         let draftTemplateID = draft?.templateID
             .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
         let selectedTemplateID = draftTemplateID
@@ -206,6 +219,7 @@ struct TaskComposerSheet: View {
         let restoredOperationID = (
             draft?.templateID == selectedTemplateID
                 && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
+                && draft?.workspaceGroupID == initialWorkspaceGroupID
                 && canRestoreDraftDirectory
                 && draftModelSurvivedValidation
         ) ? draft?.operationID : nil
@@ -221,12 +235,14 @@ struct TaskComposerSheet: View {
                 macInstanceTag: selectedMac?.instanceTag,
                 directory: initialDirectory,
                 workspaceName: initialWorkspaceName,
+                workspaceGroupID: initialWorkspaceGroupID,
                 didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
                 operationID: initialOperationID
             )
         }
         let canRestoreCompletedOperation = draft?.templateID == selectedTemplateID
             && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
+            && draft?.workspaceGroupID == initialWorkspaceGroupID
             && canRestoreDraftDirectory
             && draftModelSurvivedValidation
         let initialCompletedOperationRecovery = (canRestoreCompletedOperation
@@ -245,6 +261,7 @@ struct TaskComposerSheet: View {
         })
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
+        _selectedWorkspaceGroupID = State(initialValue: initialWorkspaceGroupID)
         _displayedModels = State(initialValue: initialDiscoveredModels ?? [])
         _attachments = State(initialValue: initialAttachments)
         _directory = State(initialValue: initialDirectory)
@@ -314,6 +331,9 @@ struct TaskComposerSheet: View {
             }
             .onChange(of: machines.map(\.id)) { _, _ in
                 validateMacSelection()
+            }
+            .onChange(of: workspaceGroupSelectionKey) { _, _ in
+                validateWorkspaceGroupSelection()
             }
             .modifier(TaskComposerStartAgainConfirmationModifier(
                 isPresented: $isStartAgainConfirmationPresented,
@@ -412,11 +432,15 @@ struct TaskComposerSheet: View {
             machines: machines,
             selectedMacPairingID: selectedMacPairingID,
             buildLabelsByID: machineBuildLabelsByID,
+            workspaceGroups: workspaceGroupsForSelectedMachine,
+            selectedWorkspaceGroupID: resolvedWorkspaceGroupID,
+            showsWorkspaceGroupPicker: canSelectWorkspaceGroup,
             directory: directory,
             isDisabled: submissionPhase.disablesRequestEditing,
             directoryCandidates: directoryCandidates,
             endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
             selectMachine: selectMachine,
+            selectWorkspaceGroup: selectWorkspaceGroup,
             selectDirectory: selectDirectory,
             searchMac: resolvedSearchTaskDirectories,
             listMac: resolvedListTaskDirectories
@@ -466,6 +490,39 @@ struct TaskComposerSheet: View {
 
     private var machines: [MobilePairedMac] {
         availableMachines ?? store.displayPairedMacs
+    }
+
+    private var workspaceGroups: [MobileWorkspaceGroupPreview] {
+        guard canSelectWorkspaceGroup else { return [] }
+        return availableWorkspaceGroups ?? store.workspaceGroups
+    }
+
+    private var canSelectWorkspaceGroup: Bool {
+        // The accessibility harness injects deterministic groups without a
+        // live host capability handshake. Production state must advertise the
+        // create-in-group RPC before exposing a control that can send it.
+        availableWorkspaceGroups != nil || store.supportsWorkspaceCreateInGroup
+    }
+
+    private var workspaceGroupsForSelectedMachine: [MobileWorkspaceGroupPreview] {
+        Self.workspaceGroups(
+            workspaceGroups,
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
+    }
+
+    var resolvedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID? {
+        Self.validWorkspaceGroupID(
+            selectedWorkspaceGroupID,
+            groups: workspaceGroups,
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag
+        )
+    }
+
+    private var workspaceGroupSelectionKey: [MobileWorkspaceGroupPreview.ID] {
+        workspaceGroupsForSelectedMachine.map(\.id)
     }
 
     var selectedMachine: MobilePairedMac? {
@@ -651,7 +708,24 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = macDeviceID
             selectedMacInstanceTag = instanceTag
+            selectedWorkspaceGroupID = Self.validWorkspaceGroupID(
+                selectedWorkspaceGroupID,
+                groups: workspaceGroups,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
             syncSuggestedDirectory()
+        }
+    }
+
+    private func selectWorkspaceGroup(_ groupID: MobileWorkspaceGroupPreview.ID?) {
+        guard !submissionPhase.disablesRequestEditing,
+              groupID == nil
+                || workspaceGroupsForSelectedMachine.contains(where: { $0.id == groupID }) else {
+            return
+        }
+        updateSubmissionRequest(reconcileRecovery: true) {
+            selectedWorkspaceGroupID = groupID
         }
     }
 
@@ -818,8 +892,63 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = machines.first?.macDeviceID ?? ""
             selectedMacInstanceTag = machines.first?.instanceTag
+            selectedWorkspaceGroupID = Self.validWorkspaceGroupID(
+                selectedWorkspaceGroupID,
+                groups: workspaceGroups,
+                macDeviceID: selectedMacDeviceID,
+                instanceTag: selectedMacInstanceTag
+            )
             syncSuggestedDirectory()
         }
+    }
+
+    private func validateWorkspaceGroupSelection() {
+        guard !submissionPhase.disablesRequestEditing,
+              selectedWorkspaceGroupID != nil else {
+            return
+        }
+        guard resolvedWorkspaceGroupID != nil else {
+            updateSubmissionRequest(reconcileRecovery: true) {
+                selectedWorkspaceGroupID = nil
+            }
+            return
+        }
+    }
+
+    private static func validWorkspaceGroupID(
+        _ candidate: MobileWorkspaceGroupPreview.ID?,
+        groups: [MobileWorkspaceGroupPreview],
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> MobileWorkspaceGroupPreview.ID? {
+        guard let candidate,
+              workspaceGroups(
+                  groups,
+                  macDeviceID: macDeviceID,
+                  instanceTag: instanceTag
+              ).contains(where: { $0.id == candidate }) else {
+            return nil
+        }
+        return candidate
+    }
+
+    private static func workspaceGroups(
+        _ groups: [MobileWorkspaceGroupPreview],
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> [MobileWorkspaceGroupPreview] {
+        groups.filter { group in
+            normalizedOwner(group.macDeviceID) == normalizedOwner(macDeviceID)
+                && normalizedOwner(group.macInstanceTag) == normalizedOwner(instanceTag)
+        }
+    }
+
+    private static func normalizedOwner(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private func persistDraft() {

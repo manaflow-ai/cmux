@@ -19,6 +19,9 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     public var didEditDirectory: Bool
     /// Optional workspace name exactly as entered by the user.
     public var workspaceName: String?
+    /// Selected workspace group, or `nil` for an ungrouped workspace. Missing
+    /// keys decode as `nil` so drafts written by older builds remain valid.
+    public var workspaceGroupID: MobileWorkspaceGroupPreview.ID?
     /// Stable identity for retrying this logical task creation without duplication.
     public var operationID: UUID?
     /// Accepted identity awaiting an explicit refresh before this draft may be
@@ -35,6 +38,7 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         directory: String,
         didEditDirectory: Bool,
         workspaceName: String? = nil,
+        workspaceGroupID: MobileWorkspaceGroupPreview.ID? = nil,
         operationID: UUID? = nil,
         completedOperationID: UUID? = nil
     ) {
@@ -46,6 +50,7 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         self.directory = directory
         self.didEditDirectory = didEditDirectory
         self.workspaceName = workspaceName
+        self.workspaceGroupID = workspaceGroupID
         self.operationID = operationID
         self.completedOperationID = completedOperationID
     }

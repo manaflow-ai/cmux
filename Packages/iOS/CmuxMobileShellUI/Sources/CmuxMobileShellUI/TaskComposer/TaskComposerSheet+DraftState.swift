@@ -36,6 +36,7 @@ extension TaskComposerSheet {
         explicitlySelectedModel = nil
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
+        selectedWorkspaceGroupID = snapshot.workspaceGroupID
         directory = snapshot.directory
         didEditDirectory = snapshot.didEditDirectory
         submissionIdentity.adoptResolvedRequest(snapshot)
@@ -143,6 +144,7 @@ extension TaskComposerSheet {
             directory: directory,
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName,
+            workspaceGroupID: resolved?.workspaceGroupID,
             operationID: resolved?.operationID ?? submissionIdentity.id,
             completedOperationID: completedOperationID
         )
@@ -158,6 +160,7 @@ extension TaskComposerSheet {
             macInstanceTag: selectedMacInstanceTag,
             directory: directory,
             workspaceName: workspaceName,
+            workspaceGroupID: resolvedWorkspaceGroupID,
             didEditDirectory: didEditDirectory,
             attachments: attachments.map(\.submissionAttachment),
             operationID: operationID

@@ -7,7 +7,7 @@ import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
-/// The composer's workspace name, Mac, and directory controls.
+/// The composer's workspace name, Mac, group, and directory controls.
 struct TaskComposerOptionsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -15,11 +15,15 @@ struct TaskComposerOptionsSheet: View {
     let machines: [MobilePairedMac]
     let selectedMacPairingID: String
     let buildLabelsByID: [String: String]
+    let workspaceGroups: [MobileWorkspaceGroupPreview]
+    let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    let showsWorkspaceGroupPicker: Bool
     let directory: String
     let isDisabled: Bool
     let directoryCandidates: [MobileTaskDirectoryCandidate]
     let endWorkspaceNameEditing: () -> Void
     let selectMachine: (String, String?) -> Void
+    let selectWorkspaceGroup: (MobileWorkspaceGroupPreview.ID?) -> Void
     let selectDirectory: (String) -> Void
     let searchMac: (
         String
@@ -39,10 +43,14 @@ struct TaskComposerOptionsSheet: View {
                     machines: machines,
                     selectedMacPairingID: selectedMacPairingID,
                     buildLabelsByID: buildLabelsByID,
+                    workspaceGroups: workspaceGroups,
+                    selectedWorkspaceGroupID: selectedWorkspaceGroupID,
+                    showsWorkspaceGroupPicker: showsWorkspaceGroupPicker,
                     directory: directory,
                     isDisabled: isDisabled,
                     endWorkspaceNameEditing: endWorkspaceNameEditing,
                     selectMachine: selectMachine,
+                    selectWorkspaceGroup: selectWorkspaceGroup,
                     selectDirectory: { isDirectoryPickerPresented = true }
                 )
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)

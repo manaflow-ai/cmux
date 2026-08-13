@@ -178,6 +178,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
                             Self.stablePreviewMac,
                             Self.backupPreviewMac,
                         ],
+                        availableWorkspaceGroups: [Self.previewWorkspaceGroup],
                         taskAttachmentsCapabilityOverride: advertisesTaskAttachments ? true : nil,
                         initialAttachments: stagedPreviewAttachments,
                         submitTaskComposer: { macDeviceID, _, spec, willStartCreate in
@@ -252,6 +253,14 @@ public struct TaskComposerAccessibilityPreviewView: View {
         isActive: true,
         stackUserID: nil,
         instanceTag: "nightly"
+    )
+
+    private static let previewWorkspaceGroup = MobileWorkspaceGroupPreview(
+        id: "task-composer-preview-group",
+        macDeviceID: previewMac.macDeviceID,
+        macInstanceTag: previewMac.instanceTag,
+        name: "Focus work",
+        anchorWorkspaceID: "task-composer-preview-group-anchor"
     )
 
     private static let longPrompt = (1...80)
@@ -616,6 +625,8 @@ private struct TaskComposerSubmissionProbe: View {
                 .accessibilityIdentifier("MobileTaskComposerSubmittedInitialCommand")
             Text(verbatim: spec.initialEnv?["CMUX_TASK_PROMPT"] ?? "<nil>")
                 .accessibilityIdentifier("MobileTaskComposerSubmittedPrompt")
+            Text(verbatim: spec.workspaceGroupID?.rawValue ?? "<nil>")
+                .accessibilityIdentifier("MobileTaskComposerSubmittedWorkspaceGroupID")
             Text(verbatim: spec.operationID?.uuidString ?? "<nil>")
                 .accessibilityIdentifier("MobileTaskComposerSubmittedOperationID")
         }

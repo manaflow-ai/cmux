@@ -11996,6 +11996,74 @@
         }
       }
     },
+    "mobile.taskComposer.workspaceGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループ"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.workspaceGroup.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspace groups on this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacにワークスペースグループはありません"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.workspaceGroup.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chooses where the new workspace appears on this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースをこのMacのどこに表示するか選択します。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.workspaceGroup.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.model": {
       "extractionState": "manual",
       "localizations": {
