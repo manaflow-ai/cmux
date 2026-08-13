@@ -79,15 +79,12 @@ struct TerminalLayoutPreviewView: View {
                 .navigationTitle(title)
                 // Match WorkspaceDetailView's terminal nav bar: a real cmux
                 // titlebar (back chevron + centered name + chat/terminal icons)
-                // over the translucent glass/material chrome, with the terminal
-                // color showing through behind it.
+                // over the terminal-colored navigation chrome.
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Image(systemName: "chevron.left").fontWeight(.semibold)
                     }
-                    // Title on its own Liquid Glass pill so it stays legible over
-                    // terminal text when the bar background is cleared (iOS 26),
-                    // matching WorkspaceDetailView.glassTitle.
+                    // Keep the title readable against the terminal-colored bar.
                     ToolbarItem(placement: .principal) {
                         Text(title)
                             .font(.headline)

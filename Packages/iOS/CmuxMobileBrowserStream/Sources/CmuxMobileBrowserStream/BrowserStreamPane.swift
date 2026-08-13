@@ -4,7 +4,7 @@ import CmuxMobileSupport
 
 /// Complete iOS chrome and interaction surface for one streamed Mac browser panel.
 ///
-/// Chrome is a single always-visible bottom glass bar in the thumb zone:
+/// Chrome is a single always-visible bottom bar in the thumb zone:
 /// back, forward, an editable address field, reload, and a keyboard toggle,
 /// like a phone browser's bottom bar. It never collapses to a pill and has no
 /// close affordance of its own; leaving the browser surface (via the workspace
@@ -97,7 +97,7 @@ public struct BrowserStreamPane: View {
         .padding(.vertical, 9)
         .mobileGlassPill()
         .overlay(alignment: .bottom) { pillProgress }
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
     }
@@ -124,7 +124,10 @@ public struct BrowserStreamPane: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(.quaternary.opacity(0.5), in: Capsule())
+        .background(
+            Color.secondary.opacity(0.12),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
         .onChange(of: addressFocused) { _, focused in
             isEditingAddress = focused
             // Show the full URL for editing, collapse back to the host on blur.

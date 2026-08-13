@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// Width math for the leading glass workspace title menu.
+/// Width math for the leading workspace title menu.
 ///
 /// The workspace title belongs beside the back button, not in the centered
 /// principal slot. Reserve the trailing toolbar cluster and the leading back

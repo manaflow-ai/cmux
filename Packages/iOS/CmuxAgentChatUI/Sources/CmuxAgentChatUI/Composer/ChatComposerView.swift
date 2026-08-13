@@ -439,7 +439,6 @@ public struct ChatComposerView: View {
             isActive: listening,
             foregroundStyle: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(Color.secondary.opacity(0.8)),
             size: controlHeight,
-            pulsesWhenActive: true,
             isDisabled: !dictation.isAvailable,
             accessibilityIdentifier: "ChatComposerMic",
             accessibilityLabel: listening

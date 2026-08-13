@@ -20,7 +20,8 @@ public final class ToastCenter {
     public struct Presented: Equatable, Sendable {
         public let toast: Toast
         /// Incremented when `present(_:)` refreshes the visible toast in place
-        /// (same ``Toast/coalescingKey``); the host animates a pulse per bump.
+        /// (same ``Toast/coalescingKey``); the host may refresh its haptic
+        /// feedback per bump.
         public let bumpCount: Int
     }
 

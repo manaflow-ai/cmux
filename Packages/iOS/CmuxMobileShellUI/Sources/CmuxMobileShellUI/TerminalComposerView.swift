@@ -496,7 +496,6 @@ struct TerminalComposerView: View {
                 ? AnyShapeStyle(Color.red)
                 : AnyShapeStyle(store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)),
             size: controlHeight,
-            pulsesWhenActive: true,
             isDisabled: !dictation.isAvailable,
             accessibilityIdentifier: "MobileComposerMic",
             accessibilityLabel: listening

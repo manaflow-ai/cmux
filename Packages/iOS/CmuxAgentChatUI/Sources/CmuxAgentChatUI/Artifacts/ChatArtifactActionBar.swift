@@ -29,7 +29,14 @@ struct ChatArtifactActionBar: View {
                 }
             }
             .padding(4)
-            .background(.thinMaterial, in: Capsule())
+            .background(
+                Color(uiColor: .secondarySystemBackground),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.5)
+            }
         }
     }
 

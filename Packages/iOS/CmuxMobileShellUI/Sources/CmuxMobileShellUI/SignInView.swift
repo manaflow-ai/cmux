@@ -126,7 +126,7 @@ struct SignInView: View {
                         Text(L10n.string("mobile.signIn.emailCode", defaultValue: "Email me a code"))
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
-                            .contentShape(.capsule)
+                            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthInProgress)
                     .mobileGlassProminentButton()
@@ -186,7 +186,7 @@ struct SignInView: View {
                     Text(L10n.string("mobile.signIn.verificationContinue", defaultValue: "I verified my email"))
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
-                        .contentShape(.capsule)
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .mobileButtonLoading(authManager.isLoading, tint: .primary)
                 }
                 .disabled(isAuthInProgress)
@@ -278,7 +278,7 @@ struct SignInView: View {
                     Text(L10n.string("mobile.signIn.verifyCode", defaultValue: "Verify code"))
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
-                        .contentShape(.capsule)
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .mobileButtonLoading(authManager.isLoading, tint: .primary)
                 }
                 .disabled(code.count != 6 || isAuthInProgress)
@@ -327,7 +327,7 @@ struct SignInView: View {
         } label: {
             provider.label(isLoading: signingInProviders.contains(provider))
                 .frame(maxWidth: .infinity)
-                .contentShape(.capsule)
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .disabled(isAuthInProgress)
         .mobileGlassButton()

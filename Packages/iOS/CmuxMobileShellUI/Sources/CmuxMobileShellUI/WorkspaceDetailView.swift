@@ -72,7 +72,7 @@ struct WorkspaceDetailView: View {
     @State var renameText = ""
     /// Drives the shared workspace identity editor from the title menu.
     @State var isCustomizationPresented = false
-    /// Live pane width for capping the leading glass title pill.
+    /// Live pane width for capping the leading title control.
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
@@ -657,7 +657,7 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Leading back-button island; iOS 26 supplies toolbar glass.
+    /// Leading back-button control.
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {

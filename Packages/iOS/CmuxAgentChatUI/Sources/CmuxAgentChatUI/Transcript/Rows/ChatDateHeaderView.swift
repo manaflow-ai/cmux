@@ -18,7 +18,14 @@ public struct ChatDateHeaderView: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .background(.thinMaterial, in: .capsule)
+            .background(
+                Color.secondary.opacity(0.12),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.separator.opacity(0.45), lineWidth: 0.5)
+            }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
             .accessibilityIdentifier("ChatDateHeader")

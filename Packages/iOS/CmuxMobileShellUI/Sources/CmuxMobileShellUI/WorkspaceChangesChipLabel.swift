@@ -20,7 +20,8 @@ struct WorkspaceChangesChipLabel: View {
         .padding(.vertical, 3)
         .background {
             if showsCapsuleBackground {
-                Capsule().fill(Color.secondary.opacity(0.12))
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.secondary.opacity(0.12))
             }
         }
         .accessibilityElement(children: .ignore)

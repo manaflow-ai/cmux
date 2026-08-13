@@ -19,8 +19,8 @@ public struct ChatScrollToBottomButton: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 38, height: 38)
-                .background(.thinMaterial, in: .circle)
-                .overlay(Circle().strokeBorder(.separator.opacity(0.4), lineWidth: 0.5))
+                .background(Color.secondary.opacity(0.16), in: .circle)
+                .overlay(Circle().strokeBorder(.separator.opacity(0.45), lineWidth: 0.5))
                 .contentShape(Circle().inset(by: -3))
         }
         .buttonStyle(.plain)

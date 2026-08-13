@@ -34,10 +34,10 @@ struct OnboardingSceneFooter: View {
     private var actions: some View {
         if let primaryTitle {
             Button(action: onPrimary) {
-                Text(primaryTitle)
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .contentShape(.capsule)
+                    Text(primaryTitle)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
             .mobileGlassProminentButton()
             .accessibilityIdentifier("MobileOnboardingPrimaryButton")
