@@ -10,9 +10,7 @@ struct ChatAttachmentStagingTaskOwnerTests {
         let owner = ChatAttachmentStagingTaskOwner()
         #expect(owner.canAcceptExternalAttachment)
 
-        owner.start { _ in
-            try? await ContinuousClock().sleep(for: .seconds(60))
-        }
+        owner.start { _ in }
         #expect(!owner.canAcceptExternalAttachment)
 
         owner.cancel()
@@ -23,16 +21,12 @@ struct ChatAttachmentStagingTaskOwnerTests {
     func replacementAndCancellationOwnBusyState() {
         let owner = ChatAttachmentStagingTaskOwner()
 
-        owner.start { _ in
-            try? await ContinuousClock().sleep(for: .seconds(60))
-        }
+        owner.start { _ in }
         let firstGeneration = owner.generation
         #expect(owner.isBusy)
         #expect(owner.task != nil)
 
-        owner.start { _ in
-            try? await ContinuousClock().sleep(for: .seconds(60))
-        }
+        owner.start { _ in }
         #expect(owner.generation != firstGeneration)
         #expect(owner.isBusy)
         #expect(owner.task != nil)
