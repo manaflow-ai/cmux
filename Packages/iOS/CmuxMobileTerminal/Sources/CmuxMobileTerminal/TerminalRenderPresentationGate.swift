@@ -56,6 +56,32 @@ struct TerminalRenderPresentationGate: Sendable {
         token: UInt64,
         generation: UInt64
     ) -> TerminalRenderPresentationGateAction {
+        transitionAfterMatchingSubmission(
+            token: token,
+            generation: generation
+        )
+    }
+
+    /// Drops a submission that could not reach Ghostty's presentation layer.
+    ///
+    /// This is distinct from `complete`: an export/readback failure can be
+    /// known synchronously even though no render-presented callback will ever
+    /// arrive. Keeping that failed token in flight would block every later
+    /// output and scroll frame until the watchdog tears down the surface.
+    mutating func cancel(
+        token: UInt64,
+        generation: UInt64
+    ) -> TerminalRenderPresentationGateAction {
+        transitionAfterMatchingSubmission(
+            token: token,
+            generation: generation
+        )
+    }
+
+    private mutating func transitionAfterMatchingSubmission(
+        token: UInt64,
+        generation: UInt64
+    ) -> TerminalRenderPresentationGateAction {
         guard let current = inFlight,
               current.token == token,
               current.generation == generation else {

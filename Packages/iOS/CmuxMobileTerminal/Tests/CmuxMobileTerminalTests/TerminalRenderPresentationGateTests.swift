@@ -52,5 +52,27 @@ struct TerminalRenderPresentationGateTests {
         #expect(gate.setSuppressed(false) == .started(ordinary))
         #expect(gate.inFlight == ordinary)
     }
+
+    @Test("cancelling a failed frame releases the newest pending frame")
+    func failedFrameDoesNotStarveOutput() {
+        var gate = TerminalRenderPresentationGate()
+        let failed = TerminalRenderSubmission(
+            token: 30,
+            generation: 5,
+            kind: .verifiedReplay
+        )
+        let ordinary = TerminalRenderSubmission(
+            token: 31,
+            generation: 5,
+            kind: .ordinary
+        )
+
+        #expect(gate.enqueue(failed) == .started(failed))
+        #expect(gate.enqueue(ordinary) == .queued(ordinary))
+        #expect(gate.cancel(token: 99, generation: 5) == .ignored)
+        #expect(gate.cancel(token: 30, generation: 5) == .started(ordinary))
+        #expect(gate.inFlight == ordinary)
+        #expect(gate.pending == nil)
+    }
 }
 #endif
