@@ -1,12 +1,12 @@
-/// Owns the beta preference and capability checks for the terminal files chip.
+/// Owns the remote feature flag and capability checks for the terminal files chip.
 ///
 /// The coordinator uses this single seam both to decide whether the chip can
 /// mount and to guard the count-only artifact scan that feeds it.
 struct TerminalArtifactChipFeatureGate: Equatable, Sendable {
     let isEnabled: Bool
 
-    init(artifactsAvailable: Bool, preferenceEnabled: Bool) {
-        self.isEnabled = artifactsAvailable && preferenceEnabled
+    init(artifactsAvailable: Bool, featureEnabled: Bool) {
+        self.isEnabled = artifactsAvailable && featureEnabled
     }
 
     /// Runs the chip's count scan only while the feature gate is enabled.
