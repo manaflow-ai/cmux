@@ -55,16 +55,25 @@ struct PaneMapOverlay: View {
             zoomNamespace: zoomNamespace,
             overflowLabels: overflowLabels,
             allowsReordering: allowsReordering,
+            isVisible: isVisible,
             selectPreviewSurface: selectPreviewSurface,
             jumpToTerminal: jumpToTerminal,
             reorderPanes: reorderPanes
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
+            // In push hosting the map stays mounted under the terminal's
+            // full-screen cover, and SwiftUI's subtree-level
+            // `accessibilityHidden` is not honored across that covered
+            // boundary (the whole map tree stayed queryable). Swap the marker
+            // identifier while covered so "map is presented" queries cannot
+            // match; the collection's own elements hide at the UIKit level.
             terminalTheme.terminalBackgroundColor
                 .ignoresSafeArea()
                 .accessibilityElement()
-                .accessibilityIdentifier("MobilePaneMapOverlay")
+                .accessibilityIdentifier(
+                    isVisible ? "MobilePaneMapOverlay" : "MobilePaneMapOverlayCovered"
+                )
         }
         .onAppear {
             if isVisible {

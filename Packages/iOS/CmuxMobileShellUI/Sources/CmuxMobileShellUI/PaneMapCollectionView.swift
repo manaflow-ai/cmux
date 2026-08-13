@@ -55,6 +55,11 @@ struct PaneMapCollectionView: UIViewRepresentable {
     let zoomNamespace: Namespace.ID
     let overflowLabels: PaneMapOverflowLabels
     let allowsReordering: Bool
+    /// Whether the map is the visible layer. While the terminal's full-screen
+    /// cover is up the map stays mounted underneath, and its UIKit elements
+    /// must leave the accessibility tree: SwiftUI's `accessibilityHidden` on
+    /// an ancestor is not honored for bridged UIKit content under a cover.
+    let isVisible: Bool
     let selectPreviewSurface: (_ paneID: String, _ surfaceID: String) -> Void
     let jumpToTerminal: (_ surfaceID: String) -> Void
     let reorderPanes: (_ orderedPaneIDs: [String], _ baseLayoutRevision: Int) async -> Bool
@@ -87,6 +92,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
             labels: overflowLabels,
             scrollStep: context.coordinator.scrollOneViewport
         )
+        container.accessibilityElementsHidden = !isVisible
         context.coordinator.attach(collectionView: collectionView, container: container)
         context.coordinator.reconcile(items: items)
         return container
@@ -104,6 +110,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
             labels: overflowLabels,
             scrollStep: context.coordinator.scrollOneViewport
         )
+        container.accessibilityElementsHidden = !isVisible
         context.coordinator.reconcile(items: items)
     }
 

@@ -272,6 +272,7 @@ import UIKit
                 bottom: "bottom"
             ),
             allowsReordering: true,
+            isVisible: false,
             selectPreviewSurface: { _, _ in },
             jumpToTerminal: { _ in },
             reorderPanes: { _, _ in true }
