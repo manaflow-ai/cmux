@@ -112,36 +112,91 @@ source "$SCRIPT_DIR/lib/mobile-attach.sh"
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 cmux_attach_validate_dev_tag "$TAG"
 
+ACTIVE_BUILD_WRAPPER_PID=""
+
 # Hosted logs are bounded, while a cold optimized iOS build can emit several
 # megabytes before it links. Keep the full build output on the runner, expose a
 # heartbeat to the job log, and print a bounded diagnostic tail only on failure.
-# The child command still owns its exit status and receives signals normally.
+# Python owns the child process group so cancellation is forwarded and reaped.
 run_build_with_heartbeat() {
   local label="$1"
   shift
-  local child_pid heartbeat_pid status build_log
+  local status build_log
 
   build_log="${RUNNER_TEMP:-/tmp}/cmux-iroh-${TAG}-${label}.log"
 
-  "$@" >"$build_log" 2>&1 &
-  child_pid=$!
-  (
-    while kill -0 "$child_pid" 2>/dev/null; do
-      sleep 60
-      if kill -0 "$child_pid" 2>/dev/null; then
-        printf '==> %s build still running\n' "$label"
-      fi
-    done
-  ) &
-  heartbeat_pid=$!
+  /usr/bin/python3 - "$label" "$build_log" "$@" <<'PY' &
+import os
+import signal
+import subprocess
+import sys
+import time
 
-  if wait "$child_pid"; then
+label, build_log, *command = sys.argv[1:]
+interrupted_by = None
+termination_deadline = None
+process = None
+
+def forward_signal(signum, _frame):
+    global interrupted_by, termination_deadline
+    if interrupted_by is None:
+        interrupted_by = signum
+        termination_deadline = time.monotonic() + 10
+    if process is None:
+        return
+    try:
+        os.killpg(process.pid, signum)
+    except ProcessLookupError:
+        pass
+
+signal.signal(signal.SIGINT, forward_signal)
+signal.signal(signal.SIGTERM, forward_signal)
+
+with open(build_log, "wb") as output:
+    process = subprocess.Popen(
+        command,
+        stdout=output,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    if interrupted_by is not None:
+        try:
+            os.killpg(process.pid, interrupted_by)
+        except ProcessLookupError:
+            pass
+
+    while True:
+        timeout = 60
+        if termination_deadline is not None:
+            timeout = max(0.1, termination_deadline - time.monotonic())
+        try:
+            return_code = process.wait(timeout=timeout)
+            break
+        except subprocess.TimeoutExpired:
+            if termination_deadline is None:
+                print(f"==> {label} build still running", flush=True)
+                continue
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            return_code = process.wait()
+            break
+
+if interrupted_by is not None:
+    raise SystemExit(128 + interrupted_by)
+if return_code < 0:
+    raise SystemExit(128 - return_code)
+raise SystemExit(return_code)
+PY
+  ACTIVE_BUILD_WRAPPER_PID=$!
+  if wait "$ACTIVE_BUILD_WRAPPER_PID"
+  then
     status=0
   else
     status=$?
   fi
-  kill "$heartbeat_pid" 2>/dev/null || true
-  wait "$heartbeat_pid" 2>/dev/null || true
+  ACTIVE_BUILD_WRAPPER_PID=""
   if [[ "$status" -ne 0 ]]; then
     printf 'error: %s build failed with status %s; tail of %s follows\n' \
       "$label" "$status" "$build_log" >&2
@@ -283,11 +338,22 @@ cleanup() {
   exit "$exit_code"
 }
 
+stop_active_build() {
+  local signal_name="$1"
+  local wrapper_pid="$ACTIVE_BUILD_WRAPPER_PID"
+  [[ -n "$wrapper_pid" ]] || return
+  kill -s "$signal_name" "$wrapper_pid" >/dev/null 2>&1 || true
+  wait "$wrapper_pid" >/dev/null 2>&1 || true
+  ACTIVE_BUILD_WRAPPER_PID=""
+}
+
 handle_interrupt() {
+  stop_active_build INT
   exit 130
 }
 
 handle_termination() {
+  stop_active_build TERM
   exit 143
 }
 
