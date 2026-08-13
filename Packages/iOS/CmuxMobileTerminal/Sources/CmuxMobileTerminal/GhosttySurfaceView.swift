@@ -139,17 +139,39 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// settled layer size rather than leaving a stale mid-animation surface.
     /// Bounded to avoid a perpetual main-queue present flood.
     private var pendingRenderFrames: Int = 0
-    /// At most one `render_now` is in flight on `outputQueue` at a time. The
+    /// At most one tokened render is in flight on `outputQueue` at a time. The
     /// display link can fire at 120Hz and previously enqueued a render every
     /// frame with no guard, so during a continuous pinch renders piled up
     /// faster than the serial queue drained them. Each op stayed fast, but the
     /// DISPLAYED frame fell seconds behind the live font and only caught up
     /// when zoom stopped and the backlog drained — the "frozen, no updates"
     /// symptom. Coalescing caps the backlog: while a render is in flight, mark
-    /// `needsAnotherRender` and re-enqueue exactly one when it completes.
+    /// `needsAnotherRender` and re-enqueue exactly one after the platform layer
+    /// acknowledges the current frame.
     var renderInFlight: Bool = false
     var renderInFlightSince: CFTimeInterval?
     var needsAnotherRender: Bool = false
+    /// The one frame currently allowed to reach the renderer. The callback is
+    /// delivered only after Ghostty assigns the matching IOSurface, so output,
+    /// local scrolling, geometry, and verified replay share one barrier.
+    typealias RenderSubmissionKind = TerminalRenderSubmissionKind
+    struct RenderSubmission: @unchecked Sendable {
+        let token: UInt64
+        let generation: UInt64
+        let kind: RenderSubmissionKind
+        let surface: ghostty_surface_t
+        let verifiedReplayRead: VerifiedReplaySurfaceRead?
+
+        var ticket: TerminalRenderSubmission {
+            TerminalRenderSubmission(token: token, generation: generation, kind: kind)
+        }
+    }
+    var renderPresentationGate = TerminalRenderPresentationGate()
+    var renderSubmission: RenderSubmission?
+    var pendingRenderSubmission: RenderSubmission?
+    /// Set once output has changed the local model. The fallback remains visible
+    /// until a tokened frame carrying that model is actually presented.
+    var hasAppliedOutput = false
     private let surfaceFreeDrainWatchdog = SurfaceFreeDrainWatchdog()
     /// True while the app is inactive/backgrounded. On iOS `render_now`
     /// produces a frame synchronously on `outputQueue` and acquires a
@@ -256,8 +278,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var userViewportInteractionGeneration: UInt64 {
         viewportRestoreGate.withLock { $0.interactionGeneration }
     }
-    func bumpUserViewportInteractionGeneration() {
-        viewportRestoreGate.withLock { $0.interactionGeneration &+= 1 }
+    @discardableResult
+    func bumpUserViewportInteractionGeneration() -> UInt64 {
+        viewportRestoreGate.withLock {
+            $0.interactionGeneration &+= 1
+            return $0.interactionGeneration
+        }
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -925,6 +951,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
+        renderPresentationGate.reset()
+        renderSubmission = nil
+        pendingRenderSubmission = nil
         guard let surface, window != nil else { return }
         ghostty_surface_set_occlusion(surface, true)  // true = visible
         setFocus(true)
@@ -2069,6 +2098,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
         guard deltaY != 0 else { return }
+        let interactionGeneration = bumpUserViewportInteractionGeneration()
         // User-driven movement reveals the chip; this is guard-only work per
         // frame (the linger is armed by the gesture-end callbacks).
         noteArtifactChipScrollActivity()
@@ -2076,20 +2106,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
         pendingScrollCell = scrollCell(at: touchPoint)
+        pendingScrollInteractionGeneration = interactionGeneration
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    private var pendingScrollInteractionGeneration: UInt64?
     var pendingLocalScrollLines: Double = 0
     var pendingLocalScrollCell: (col: Int, row: Int) = (0, 0)
+    var pendingLocalScrollInteractionGeneration: UInt64?
     var localScrollApplyInFlight = false
+    var pendingLocalScrollDrains: [(generation: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
         pendingScrollLines = 0
+        pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
+        pendingLocalScrollInteractionGeneration = nil
         localScrollApplyInFlight = false
+        completePendingLocalScrollDrains(returning: false)
     }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -2103,16 +2140,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return (col, row)
     }
 
-    private func flushPendingScrollIfNeeded() {
-        guard pendingScrollLines != 0 else { return }
+    @discardableResult
+    private func flushPendingScrollIfNeeded() -> (generation: UInt64, appliedLocally: Bool)? {
+        guard pendingScrollLines != 0 else { return nil }
         let lines = pendingScrollLines
         let cell = pendingScrollCell
+        let generation = pendingScrollInteractionGeneration
+            ?? bumpUserViewportInteractionGeneration()
         pendingScrollLines = 0
-        bumpUserViewportInteractionGeneration()
+        pendingScrollInteractionGeneration = nil
+        let appliedLocally = scrollPresentationAuthority.appliesLocally
         if scrollPresentationAuthority.appliesLocally {
-            applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+            applyLocalScrollbackScroll(
+                lines: lines,
+                col: cell.col,
+                row: cell.row,
+                interactionGeneration: generation
+            )
         }
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+        return (generation, appliedLocally)
+    }
+
+    /// Pulls a pending native scroll batch into the replay transaction before
+    /// revealing the verified renderer. Without this drain, a render-grid
+    /// update can reveal the pre-scroll viewport for one frame while the
+    /// display-link batch is still waiting behind the frozen presentation.
+    @discardableResult
+    func drainPendingScrollForVerifiedReplayReveal() async -> Bool {
+        var drained = false
+        while let flushed = flushPendingScrollIfNeeded() {
+            guard flushed.appliedLocally else { return drained }
+            guard await waitForLocalScrollApplied(upTo: flushed.generation) else {
+                return drained
+            }
+            drained = true
+        }
+        return drained
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -2406,6 +2470,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// hammer the zoom path and reproduce the fast-zoom crash locally.
     func debugStressZoomStep(_ direction: TerminalFontZoomDirection) {
         performFontZoom(direction)
+    }
+
+    func debugEnqueueScrollForTesting(deltaY: CGFloat, touchPoint: CGPoint) {
+        enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
     }
 
     private func recordBottomViewportMismatchIfNeeded() {
@@ -2730,14 +2798,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     return
                 }
                 self.consecutiveOutputTimeoutRecoveries = 0
+                // The model is now newer, but its pixels are not visible yet.
+                // Keep this distinction until the matching render-presented
+                // callback so UIKit never scrolls ahead of the frame it shows.
+                self.hasAppliedOutput = true
                 self.needsDraw = true
                 self.scheduleVisibleArtifactCountUpdate()
                 #if DEBUG
                 self.lastOutputAppliedTime = CACurrentMediaTime()
                 #endif
                 if !self.surfaceHasReceivedOutput {
-                    self.surfaceHasReceivedOutput = true
-                    self.snapshotFallbackView.isHidden = true
                     self.scrollInitialOutputToBottomIfNeeded()
                 }
                 let now = CACurrentMediaTime()
@@ -2985,6 +3055,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
+        renderPresentationGate.reset()
+        renderSubmission = nil
+        pendingRenderSubmission = nil
+        hasAppliedOutput = false
+        surfaceHasReceivedOutput = false
         inputSession.send(.surfaceDetached)
         bottomDockTransitionObserved = false
         stopDisplayLink()
@@ -3229,10 +3304,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             GhosttySurfaceView.register(surface: surface, for: self)
             appliedTerminalConfigTheme = nil
             applyTerminalConfigTheme()
-            // Hide the snapshot fallback immediately. The Metal renderer
-            // handles all rendering once the surface exists.
-            snapshotFallbackView.isHidden = true
-            surfaceHasReceivedOutput = true
+            // A live C surface is not proof that its first pixels reached the
+            // IOSurface layer. Keep the fallback visible until a tokened frame
+            // is acknowledged by Ghostty.
+            surfaceHasReceivedOutput = false
+            hasAppliedOutput = false
         }
         setNeedsGeometrySync()
         startDisplayLink()
@@ -3270,7 +3346,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // pending deltas and freeze the scroll mechanics at the current offset
         // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
+        pendingScrollInteractionGeneration = nil
         pendingLocalScrollLines = 0
+        pendingLocalScrollInteractionGeneration = nil
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }
@@ -3435,8 +3513,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Drive a full render cycle via `ghostty_surface_render_now`, dispatched
-    /// to the off-main surface queue.
+    /// Drive one render through the surface's presentation gate.
     ///
     /// On iOS libghostty's renderer-thread event loop does not pump frames
     /// (it's a platform-display-driven embedder), so `ghostty_surface_refresh`
@@ -3464,52 +3541,173 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               !verifiedReplayRenderSuppressed,
               let surface,
               !isDismantled else { return }
-        // Coalesce: never let more than one render_now sit on the serial queue.
-        // (Called on main from the display link.)
-        if renderInFlight {
-            needsAnotherRender = true
-            return
+        enqueueRenderSubmission(
+            RenderSubmission(
+                token: makeSurfaceOperationID(),
+                generation: surfaceGeneration,
+                kind: .ordinary,
+                surface: surface,
+                verifiedReplayRead: nil
+            )
+        )
+    }
+
+    /// Queues a frame behind the currently presented frame. Every producer uses
+    /// this path, so a model update and a local scroll cannot publish separate
+    /// layer assignments in the same presentation window.
+    func enqueueRenderSubmission(_ submission: RenderSubmission) {
+        guard surface == submission.surface,
+              surfaceGeneration == submission.generation,
+              !isDismantled else { return }
+        let action = renderPresentationGate.enqueue(submission.ticket)
+        switch action {
+        case .started:
+            startRenderSubmission(submission)
+        case .queued:
+            if shouldReplacePendingRenderSubmission(with: submission) {
+                pendingRenderSubmission = submission
+            }
+        case .ignored, .idle:
+            break
         }
+    }
+
+    private func shouldReplacePendingRenderSubmission(
+        with submission: RenderSubmission
+    ) -> Bool {
+        guard let pendingRenderSubmission else { return true }
+        return pendingRenderSubmission.kind != .verifiedReplay
+            || submission.kind == .verifiedReplay
+    }
+
+    private func startRenderSubmission(_ submission: RenderSubmission) {
+        guard renderSubmission == nil,
+              renderPresentationGate.inFlight == submission.ticket,
+              surface == submission.surface,
+              surfaceGeneration == submission.generation,
+              !isDismantled else { return }
+        renderSubmission = submission
         renderInFlight = true
         renderInFlightSince = CACurrentMediaTime()
-        let generation = surfaceGeneration
         let enqueuedAt = CACurrentMediaTime()
         outputQueue.async { [weak self] in
-            // Queue LAG = how long this render waited behind other ops. If this
-            // climbs into hundreds of ms the queue is backlogged (the freeze).
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
-            ghostty_surface_render_now(surface)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                guard self.surfaceGeneration == generation else { return }
-                #if DEBUG
-                if let surfaceID = self.hostSurfaceID {
-                    if let sequence = self.latencyLastAppliedSequence {
-                        MobileLatencyTrace.stamp(
-                            "rd.present",
-                            "s=\(surfaceID.prefix(8).lowercased()) seq=\(sequence)"
-                        )
-                    } else {
-                        MobileLatencyTrace.stamp(
-                            "rd.present",
-                            "s=\(surfaceID.prefix(8).lowercased())"
-                        )
-                    }
-                }
-                #endif
-                self.renderInFlight = false
-                self.renderInFlightSince = nil
-                guard !self.isDismantled else {
-                    self.needsAnotherRender = false
+            switch submission.kind {
+            case .ordinary, .localScroll:
+                ghostty_surface_render_now_with_token(submission.surface, submission.token)
+            case .verifiedReplay:
+                guard let read = submission.verifiedReplayRead else {
+                    ghostty_surface_render_now_with_token(
+                        submission.surface,
+                        submission.token
+                    )
                     return
                 }
-                if self.needsAnotherRender {
-                    self.needsAnotherRender = false
-                    self.requestRender()
+                let observed = verifiedReplayExportThenSubmit(
+                    export: { exportVerifiedReplayGridSynchronously(read) },
+                    submit: {
+                        ghostty_surface_render_now_with_token(
+                            submission.surface,
+                            submission.token
+                        )
+                    }
+                )
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.acceptVerifiedReplayObservedFrame(
+                        observed,
+                        submission: VerifiedReplayRenderSubmission(
+                            surface: submission.surface,
+                            token: submission.token
+                        ),
+                        generation: submission.generation
+                    )
+                    // A failed read-back never submits a tokened render, so
+                    // Ghostty cannot deliver the callback that normally
+                    // releases the presentation gate.
+                    if observed == nil {
+                        self.cancelRenderSubmission(token: submission.token)
+                    }
                 }
             }
         }
+    }
+
+    /// Called only from the render-presented bridge callback. A stale callback
+    /// cannot release the gate or advance fallback visibility.
+    func finishRenderSubmission(token: UInt64) {
+        releaseRenderSubmission(token: token, presented: true)
+    }
+
+    /// Releases a submission that failed before Ghostty could present it.
+    private func cancelRenderSubmission(token: UInt64) {
+        releaseRenderSubmission(token: token, presented: false)
+    }
+
+    private func releaseRenderSubmission(token: UInt64, presented: Bool) {
+        guard let submission = renderSubmission,
+              submission.token == token,
+              submission.generation == surfaceGeneration else { return }
+        let action = presented
+            ? renderPresentationGate.complete(
+                token: token,
+                generation: submission.generation
+            )
+            : renderPresentationGate.cancel(
+                token: token,
+                generation: submission.generation
+            )
+        guard action != .ignored else { return }
+        renderSubmission = nil
+        renderInFlight = false
+        renderInFlightSince = nil
+        if presented && hasAppliedOutput {
+            surfaceHasReceivedOutput = true
+            snapshotFallbackView.isHidden = true
+        }
+        #if DEBUG
+        if let surfaceID = hostSurfaceID {
+            if let sequence = latencyLastAppliedSequence {
+                MobileLatencyTrace.stamp(
+                    presented ? "rd.present" : "rd.cancel",
+                    "s=\(surfaceID.prefix(8).lowercased()) seq=\(sequence)"
+                )
+            } else {
+                MobileLatencyTrace.stamp(
+                    presented ? "rd.present" : "rd.cancel",
+                    "s=\(surfaceID.prefix(8).lowercased())"
+                )
+            }
+        }
+        #endif
+        guard !isDismantled else {
+            pendingRenderSubmission = nil
+            needsAnotherRender = false
+            return
+        }
+        if case .started(let ticket) = action,
+           let pending = pendingRenderSubmission,
+           pending.ticket == ticket {
+            pendingRenderSubmission = nil
+            startRenderSubmission(pending)
+        } else if needsAnotherRender {
+            needsAnotherRender = false
+            requestRender()
+        }
+    }
+
+    /// Restarts the queued non-replay frame once the frozen presentation is
+    /// removed. This is also used when a replay completion resumes an output
+    /// frame that arrived while suppression was active.
+    func resumeQueuedRenderAfterReplaySuppression() {
+        guard !verifiedReplayRenderSuppressed else { return }
+        let action = renderPresentationGate.setSuppressed(false)
+        guard case .started(let ticket) = action,
+              let pending = pendingRenderSubmission,
+              pending.ticket == ticket else { return }
+        pendingRenderSubmission = nil
+        startRenderSubmission(pending)
     }
 
     /// Request a geometry recompute on the next display-link frame. Triggers
@@ -4275,7 +4473,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
 
-        let rendererHasContents = !prefersSnapshotFallbackRendering &&
+        // Existing IOSurface contents may belong to the previous model while a
+        // newer output batch is waiting behind the presentation gate. They are
+        // not evidence that the newer model is visible, so never use them to
+        // hide the fallback before the matching token callback.
+        let rendererHasContents = !hasAppliedOutput &&
+            !prefersSnapshotFallbackRendering &&
             (layer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
         if rendererHasContents {
             snapshotFallbackView.isHidden = true
