@@ -138,6 +138,9 @@ struct TaskComposerLayout: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         agentPill
+                            // Keep the provider readable before compressing
+                            // the model label on compact rows.
+                            .layoutPriority(1)
 
                         if !models.isEmpty {
                             modelPill
@@ -145,6 +148,12 @@ struct TaskComposerLayout: View {
                             modelLoadingPill
                         }
                     }
+                    // Give the pills the viewport's finite width so their
+                    // one-line labels compress inside their own capsules.
+                    // Without this, ScrollView proposes infinite width and a
+                    // long selected model extends beneath the fixed submit
+                    // control before clipping at the viewport edge.
+                    .containerRelativeFrame(.horizontal, alignment: .leading)
                 }
                 .scrollIndicators(.hidden)
                 // The pills are the row's only compressible region. A zero
@@ -245,9 +254,6 @@ struct TaskComposerLayout: View {
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.primary)
-            // A longer title must widen the capsule immediately; animating the
-            // frame clips the label against the stale width until it settles.
-            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
             .background(Color.primary.opacity(0.07), in: Capsule())
@@ -282,9 +288,6 @@ struct TaskComposerLayout: View {
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.primary)
-        // See agentPill: adopt the new title's width immediately instead of
-        // animating (and clipping) into it.
-        .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
         .background(Color.primary.opacity(0.07), in: Capsule())
@@ -323,7 +326,6 @@ struct TaskComposerLayout: View {
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
-        .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 12)
         .frame(minHeight: 38)
         .background(Color.primary.opacity(0.07), in: Capsule())
