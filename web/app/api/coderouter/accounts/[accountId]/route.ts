@@ -64,6 +64,7 @@ export function createDeleteAccountHandler(dependencies: {
       userId: resolved.value.user.id,
       teamId: resolved.value.team.teamId,
       properties: {
+        source: "native_api",
         last_account: result.lastAccount,
         legacy_cleanup_pending: result.legacyCleanupPending,
       },

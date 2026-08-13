@@ -61,6 +61,7 @@ final class CmuxFeatureFlags {
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
     private static let mobileTerminalFilesChipDefault = true
+    private nonisolated static let mobileTaskComposerDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -146,6 +147,25 @@ final class CmuxFeatureFlags {
             defaultValue: "Enables iPhone and iPad Simulator panes, commands, and automation."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
+    )
+
+    // FLAG(key: mobile-task-composer-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Controls the iOS Task Composer from the Mac host. When off, the Mac stops
+    // advertising task-create/model/directory/attachment capabilities and
+    // task-specific RPCs fail with capability_disabled, so paired phones hide
+    // the composer without needing a user-visible Beta toggle.
+    nonisolated static let mobileTaskComposerFlag = CmuxFeatureFlagDefinition(
+        key: "mobile-task-composer-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileTaskComposer.title",
+            defaultValue: "Mobile Task Composer"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileTaskComposer.description",
+            defaultValue: "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
     )
 
     // Order is load-bearing for the positional typed accessors below. Flags
@@ -271,6 +291,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
 
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
+            CmuxFeatureFlags.mobileTaskComposerFlag,
         ]
     }()
 
@@ -316,6 +337,10 @@ final class CmuxFeatureFlags {
 
     var isMobileTerminalFilesChipEnabled: Bool {
         effectiveValue(for: Self.mobileTerminalFilesChipFlag)
+    }
+
+    var isMobileTaskComposerEnabled: Bool {
+        effectiveValue(for: Self.mobileTaskComposerFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host

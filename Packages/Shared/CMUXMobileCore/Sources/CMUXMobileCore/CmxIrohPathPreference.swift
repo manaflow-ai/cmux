@@ -8,6 +8,9 @@ public enum CmxIrohPathPreference: String, CaseIterable, Equatable, Sendable {
     /// Keeps Iroh connections on relay paths.
     case relayOnly
 
+    /// Prevents this device from listening or dialing through Iroh relays.
+    case neverUseRelays
+
     /// Shared defaults key used independently by the macOS and iOS apps.
     public static let defaultsKey = "cmux.iroh.pathPreference"
 
@@ -16,6 +19,7 @@ public enum CmxIrohPathPreference: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .automatic: .automatic
         case .relayOnly: .relayOnly
+        case .neverUseRelays: .directOnly
         }
     }
 

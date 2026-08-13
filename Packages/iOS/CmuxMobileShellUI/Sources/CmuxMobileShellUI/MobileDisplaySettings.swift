@@ -158,7 +158,6 @@ public final class MobileDisplaySettings {
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
-        self.taskComposerEnabled = defaults.bool(forKey: Self.taskComposerEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount

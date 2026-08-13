@@ -297,7 +297,10 @@ struct MobileIrohSettingsView: View {
         if let editedPrivatePath {
             return [.init(
                 id: editedPrivatePath.macDeviceID,
-                displayName: editedPrivatePath.macDisplayName
+                displayName: editedPrivatePath.macDisplayName,
+                supportsPrivatePaths: model.snapshot.privateNetworkMacs.first {
+                    $0.id == editedPrivatePath.macDeviceID
+                }?.supportsPrivatePaths ?? false
             )]
         }
         let configuredIDs = Set(model.snapshot.customPrivateNetworks.map(\.macDeviceID))
