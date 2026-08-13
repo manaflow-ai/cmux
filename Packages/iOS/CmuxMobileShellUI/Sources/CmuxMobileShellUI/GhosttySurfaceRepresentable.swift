@@ -13,6 +13,8 @@ import UIKit
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
+    @Environment(\.scenePhase) private var scenePhase
+
     let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
@@ -50,6 +52,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             store: store,
+            terminalPresentationIsActive: scenePhase == .active,
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFolderTapEnabled: terminalFolderTapEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,
@@ -123,6 +126,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // coordinator mounts/unmounts the hosted compose field into the surface's
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIView`.
+        context.coordinator.setTerminalPresentationActive(scenePhase == .active)
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
@@ -182,6 +186,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
+        var terminalPresentationIsActive: Bool
         var outputStartContinuation: AsyncStream<Void>.Continuation?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
@@ -229,6 +234,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             workspaceID: String,
             surfaceID: String,
             store: CMUXMobileShellStore,
+            terminalPresentationIsActive: Bool = true,
             artifactFilesEnabled: Bool,
             terminalFolderTapEnabled: Bool,
             terminalFilesChipEnabled: Bool,
@@ -244,6 +250,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
+            self.terminalPresentationIsActive = terminalPresentationIsActive
             self.artifactFilesEnabled = artifactFilesEnabled
             self.terminalFolderTapEnabled = terminalFolderTapEnabled
             self.artifactChipGate = TerminalArtifactChipFeatureGate(
@@ -266,11 +273,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
             updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
-            guard surfaceView.window != nil else { return }
+            guard terminalPresentationIsActive, surfaceView.window != nil else { return }
             startMountedTasks(surfaceView: surfaceView)
         }
 
         private func startMountedTasks(surfaceView: GhosttySurfaceView) {
+            guard terminalPresentationIsActive else { return }
             guard outputTask == nil else { return }
             guard let store else { return }
             let surfaceID = surfaceID
@@ -479,6 +487,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         private func stopMountedTasks() {
+            let releasesViewport = outputTask != nil || viewportReportScheduler != nil
             clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
@@ -492,11 +501,26 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
             activeViewportPolicy = .natural
+            if releasesViewport {
+                store?.clearTerminalViewport(surfaceID: surfaceID)
+            }
+        }
+
+        func setTerminalPresentationActive(_ isActive: Bool) {
+            guard terminalPresentationIsActive != isActive else { return }
+            terminalPresentationIsActive = isActive
+            guard let surfaceView else { return }
+            if isActive {
+                guard surfaceView.window != nil else { return }
+                startMountedTasks(surfaceView: surfaceView)
+            } else {
+                stopMountedTasks()
+            }
         }
 
         func detach() {
-            surfaceView = nil
             stopMountedTasks()
+            surfaceView = nil
             themeApplicationScheduler.cancel()
             artifactCountTask?.cancel()
             artifactCountTask = nil
