@@ -19,11 +19,16 @@ setup-only GitHub job on the remote Linux runner.
 | Remote output | `testbox-benchmark/` |
 
 A repository administrator must configure the protected environment with
-required reviewers, no secrets, administrator bypass disabled, and a trusted
-branch policy before this plan is usable. Verify that configuration before each
-run. The lane must never run untrusted PR or fork code. If the configuration is
-missing or drifts, stop instead of treating the environment name as a guard. `begin-testbox` exposes its auth token to
-commands in the Testbox, so `contents: read` is not a trust boundary. The
+required reviewers, no secrets, administrator bypass disabled, and an exact
+selected-branch policy before this plan is usable. The environment must also
+set the non-secret variables `BLACKSMITH_TESTBOX_REVIEWED_REF` (one branch name
+without `refs/heads/`) and `BLACKSMITH_TESTBOX_REVIEWED_SHA` (one lowercase
+40-character SHA). Both variables and the environment branch rule must point to
+the same exact reviewed commit. Verify that configuration before each run. The
+lane must never run untrusted PR or fork code. If the configuration is missing
+or drifts, stop instead of treating the environment name as a guard.
+`begin-testbox` exposes its auth token to commands in the Testbox, so
+`contents: read` is not a trust boundary and the token is not sandboxed. The
 repository does not currently pin a checksum-verified Blacksmith CLI artifact;
 that is a trusted-lane operational limitation. Use only the organization-
 approved CLI, record `blacksmith --version`, and stop rather than silently
@@ -51,8 +56,10 @@ set -euo pipefail
 git submodule update --init ghostty
 cd "$(git rev-parse --show-toplevel)"
 SOURCE_REF="$(git symbolic-ref --short HEAD)"
-[[ "$SOURCE_REF" == "main" ]] || {
-  echo "the token-bearing Testbox lane only accepts reviewed main; use a PR workflow for feature branches" >&2
+REVIEWED_REF="$(gh variable get BLACKSMITH_TESTBOX_REVIEWED_REF --env blacksmith-testbox-trusted --repo manaflow-ai/cmux --json value --jq .value)"
+REVIEWED_SHA="$(gh variable get BLACKSMITH_TESTBOX_REVIEWED_SHA --env blacksmith-testbox-trusted --repo manaflow-ai/cmux --json value --jq .value)"
+[[ "$SOURCE_REF" == "$REVIEWED_REF" ]] || {
+  echo "HEAD is not the exact branch pinned by blacksmith-testbox-trusted" >&2
   exit 1
 }
 if [[ ! "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || "$SOURCE_REF" == *..* || "$SOURCE_REF" == */ || "$SOURCE_REF" == *//* ]]; then
@@ -60,6 +67,10 @@ if [[ ! "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || "$SOURCE_REF" == *..* || "$SOURCE
   exit 1
 fi
 SOURCE_SHA="$(git rev-parse HEAD)"
+[[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ && "$SOURCE_SHA" == "$REVIEWED_SHA" ]] || {
+  echo "HEAD is not the exact commit pinned by blacksmith-testbox-trusted" >&2
+  exit 1
+}
 SOURCE_TREE_SHA="$(git rev-parse 'HEAD^{tree}')"
 ghostty_entry="$(git ls-tree HEAD ghostty)"
 [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
@@ -270,12 +281,13 @@ if (( status_ready != 0 )); then
 fi
 ```
 
-The workflow validates that the dispatch ref is reviewed `main`, is a pushed
-branch, that `github.sha` is a full SHA, and that the branch still resolves to
-that SHA. If a direct GitHub dispatch supplies the optional `source_sha` input,
-it must equal `github.sha`. The Blacksmith CLI path relies on the same full SHA
-passed to the remote helper because the CLI only supplies `testbox_id` to
-workflow inputs.
+The workflow validates that the dispatch ref exactly matches the protected
+reviewed branch, that `github.sha` exactly matches the protected reviewed SHA,
+and that the remote branch still resolves to that SHA. If a direct GitHub
+dispatch supplies the optional `source_sha` input, it is an assertion and must
+equal the protected SHA. The Blacksmith CLI path needs no arbitrary workflow
+input: it supplies `testbox_id`, while `--ref` selects the explicitly reviewed
+branch and `github.sha` carries the pinned candidate.
 The workflow concurrency group serializes setup requests by Testbox ID, even
 when source SHAs differ. The remote `flock` begins after Blacksmith's rsync, so
 it protects stage/build/artifact writes only. Blacksmith exposes no pre-rsync

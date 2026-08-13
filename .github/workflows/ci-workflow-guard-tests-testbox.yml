@@ -8,16 +8,16 @@ on:
         required: true
         type: string
       source_sha:
-        description: "Optional full source SHA; if set, it must equal the pushed branch head"
+        description: "Optional SHA assertion; it cannot select a candidate revision"
         required: false
         default: ""
         type: string
 
-# The Blacksmith CLI supplies testbox_id and dispatches the selected pushed
-# branch. It does not expose arbitrary workflow inputs, so source_sha is an
-# optional manual-dispatch assertion; the benchmark's remote guard is required
-# for the CLI path below. The protected environment is configured out of band;
-# this workflow is intentionally unusable unless that repository policy exists.
+# This is an explicitly allowlisted reviewed-branch lane. Blacksmith supplies
+# only testbox_id, so the selected --ref and github.sha identify the candidate.
+# The protected environment pins both values in its non-secret
+# BLACKSMITH_TESTBOX_REVIEWED_REF and BLACKSMITH_TESTBOX_REVIEWED_SHA variables.
+# The workflow must never be dispatched for an untrusted PR, fork, or branch.
 permissions: {}
 
 concurrency:
@@ -42,17 +42,59 @@ jobs:
     # cleanup; the Testbox itself still has its separate idle timeout.
     timeout-minutes: 120
     steps:
-      # begin-testbox must be the first step. GitHub environment approval and
-      # its trusted-branch policy are evaluated before this step; do not weaken
-      # those external controls or move this action into branch-controlled code.
-      # It attaches the VM requested by `blacksmith testbox warmup` and leaves
-      # it alive after this setup job.
-      - name: Guard trusted repository and source ref
-        if: github.repository != 'manaflow-ai/cmux' || github.ref != 'refs/heads/main'
+      # Environment approval and its exact branch policy are evaluated before
+      # this preflight. Keep every candidate-controlled check before
+      # begin-testbox, and keep begin-testbox pinned in this reviewed workflow.
+      # The action attaches the VM requested by `blacksmith testbox warmup` and
+      # leaves it alive after this setup job.
+      - name: Validate reviewed branch and exact candidate SHA
+        env:
+          EXPECTED_INPUT_SHA: ${{ inputs.source_sha }}
+          REVIEWED_REF: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_REF }}
+          REVIEWED_SHA: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_SHA }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
-          echo "::error::Testbox token-bearing setup is restricted to manaflow-ai/cmux reviewed main" >&2
-          exit 1
+          set -euo pipefail
+          [[ "$REPOSITORY" == "manaflow-ai/cmux" ]] || {
+            echo "::error::this Testbox lane is only valid for manaflow-ai/cmux" >&2
+            exit 1
+          }
+          [[ "$EVENT_NAME" == "workflow_dispatch" ]] || {
+            echo "::error::Testbox setup must be dispatched manually, never from a PR event" >&2
+            exit 1
+          }
+          [[ "$REVIEWED_REF" =~ ^[A-Za-z0-9._/-]+$ && "$REVIEWED_REF" != *..* && "$REVIEWED_REF" != */ && "$REVIEWED_REF" != *//* ]] || {
+            echo "::error::protected environment must pin one valid branch name in BLACKSMITH_TESTBOX_REVIEWED_REF" >&2
+            exit 1
+          }
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::protected environment must pin one lowercase full SHA in BLACKSMITH_TESTBOX_REVIEWED_SHA" >&2
+            exit 1
+          }
+          [[ "$DISPATCH_REF" == "refs/heads/$REVIEWED_REF" ]] || {
+            echo "::error::Testbox warmup ref is not the protected reviewed branch" >&2
+            exit 1
+          }
+          [[ "$DISPATCH_SHA" == "$REVIEWED_SHA" ]] || {
+            echo "::error::workflow SHA is not the protected reviewed candidate SHA" >&2
+            exit 1
+          }
+          remote_sha="$(git ls-remote --exit-code "https://github.com/${REPOSITORY}.git" "refs/heads/$REVIEWED_REF" | awk 'NR == 1 { print $1 }')"
+          [[ "$remote_sha" == "$REVIEWED_SHA" ]] || {
+            echo "::error::the reviewed branch moved during dispatch: remote=$remote_sha expected=$REVIEWED_SHA" >&2
+            exit 1
+          }
+          if [[ -n "$EXPECTED_INPUT_SHA" ]]; then
+            [[ "$EXPECTED_INPUT_SHA" =~ ^[0-9a-f]{40}$ && "$EXPECTED_INPUT_SHA" == "$REVIEWED_SHA" ]] || {
+              echo "::error::source_sha is only an assertion and must equal the protected reviewed SHA" >&2
+              exit 1
+            }
+          fi
+          printf 'reviewed source ref: %s\nreviewed source SHA: %s\n' "$REVIEWED_REF" "$REVIEWED_SHA"
 
       - name: Validate Testbox ID before token-bearing action
         env:
@@ -70,11 +112,14 @@ jobs:
         with:
           testbox_id: ${{ inputs.testbox_id }}
 
-      - name: Validate trusted branch dispatch and source identity
+      - name: Revalidate reviewed branch and source identity
         env:
           EXPECTED_INPUT_SHA: ${{ inputs.source_sha }}
+          REVIEWED_REF: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_REF }}
+          REVIEWED_SHA: ${{ vars.BLACKSMITH_TESTBOX_REVIEWED_SHA }}
           DISPATCH_SHA: ${{ github.sha }}
           DISPATCH_REF: ${{ github.ref }}
+          EVENT_NAME: ${{ github.event_name }}
           TESTBOX_ID: ${{ inputs.testbox_id }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
@@ -84,38 +129,38 @@ jobs:
             echo "::error::this Testbox lane is only valid for manaflow-ai/cmux" >&2
             exit 1
           }
+          [[ "$EVENT_NAME" == "workflow_dispatch" ]] || {
+            echo "::error::Testbox setup must be dispatched manually, never from a PR event" >&2
+            exit 1
+          }
           [[ "$TESTBOX_ID" =~ ^tbx_[A-Za-z0-9_-]+$ ]] || {
             echo "::error::malformed Testbox ID" >&2
             exit 1
           }
-          [[ "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "::error::github.sha must be a lowercase full commit SHA" >&2
+          [[ "$REVIEWED_REF" =~ ^[A-Za-z0-9._/-]+$ && "$REVIEWED_REF" != *..* && "$REVIEWED_REF" != */ && "$REVIEWED_REF" != *//* ]] || {
+            echo "::error::protected environment reviewed ref is malformed" >&2
             exit 1
           }
-          if [[ ! "$DISPATCH_REF" =~ ^refs/heads/[A-Za-z0-9._/-]+$ || "$DISPATCH_REF" == *..* || "$DISPATCH_REF" == */ || "$DISPATCH_REF" == *//* ]]; then
-            echo "::error::Testbox warmup must dispatch a pushed branch ref, not a raw SHA, tag, or malformed ref" >&2
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::protected environment reviewed SHA is malformed" >&2
             exit 1
-          fi
+          }
+          [[ "$DISPATCH_REF" == "refs/heads/$REVIEWED_REF" && "$DISPATCH_SHA" == "$REVIEWED_SHA" ]] || {
+            echo "::error::reviewed branch or candidate SHA changed during setup" >&2
+            exit 1
+          }
+          remote_sha="$(git ls-remote --exit-code "https://github.com/${REPOSITORY}.git" "refs/heads/$REVIEWED_REF" | awk 'NR == 1 { print $1 }')"
+          [[ "$remote_sha" == "$REVIEWED_SHA" ]] || {
+            echo "::error::the reviewed branch moved during setup: remote=$remote_sha expected=$REVIEWED_SHA" >&2
+            exit 1
+          }
           if [[ -n "$EXPECTED_INPUT_SHA" ]]; then
-            [[ "$EXPECTED_INPUT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-              echo "::error::source_sha must be a lowercase full commit SHA" >&2
-              exit 1
-            }
-            [[ "$EXPECTED_INPUT_SHA" == "$DISPATCH_SHA" ]] || {
-              echo "::error::source_sha does not equal the workflow dispatch SHA" >&2
+            [[ "$EXPECTED_INPUT_SHA" == "$REVIEWED_SHA" ]] || {
+              echo "::error::source_sha does not equal the protected reviewed SHA" >&2
               exit 1
             }
           fi
-          remote_sha="$(git ls-remote --exit-code "https://github.com/${REPOSITORY}.git" "$DISPATCH_REF" | awk 'NR == 1 { print $1 }')"
-          [[ "$remote_sha" == "$DISPATCH_SHA" ]] || {
-            echo "::error::the pushed branch moved during dispatch: remote=$remote_sha workflow=$DISPATCH_SHA" >&2
-            exit 1
-          }
-          # The workflow's source SHA is the only attestation Blacksmith can
-          # carry through workflow_dispatch. The local preflight and every
-          # remote stage must compare against this exact value; never infer an
-          # older revision from the mutable branch after begin-testbox.
-          printf 'trusted source ref: %s\ntrusted source SHA: %s\n' "$DISPATCH_REF" "$DISPATCH_SHA"
+          printf 'reviewed source ref: %s\nreviewed source SHA: %s\n' "$REVIEWED_REF" "$REVIEWED_SHA"
 
       - name: Checkout exact dispatch commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

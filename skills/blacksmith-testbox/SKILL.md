@@ -35,32 +35,43 @@ workflow intentionally grants no other GitHub permissions or workflow secrets.
 
 Before using the lane, a repository administrator must create the
 `blacksmith-testbox-trusted` GitHub environment, configure required reviewers
-(or an equivalent manual approval rule), disable administrator bypass, and leave
-the environment secret set empty. Treat this as a required repository control,
-not a setting this workflow can create: if the environment is deleted, renamed,
-or unconfigured, disable the workflow before any dispatch. GitHub evaluates that approval before the
-job's first step, including `begin-testbox`. The workflow additionally rejects every ref except reviewed `main` before
-`begin-testbox`. It cannot verify the environment's reviewer configuration
-inside the token-bearing job without exposing the same token, so a missing or
-drifting environment remains an operational stop condition, not a recoverable
-workflow state. Repository policy must prevent dispatch or merge of this lane
-until that control is restored. If the environment does not exist or has no
-required reviewer, stop: the lane is not production-safe. Never dispatch it
-for an untrusted PR, fork, branch containing unreviewed workflow/helper changes,
-or source supplied by an external contributor. When trust changes, stop the old box and warm a
-fresh one.
+(or an equivalent manual approval rule), disable administrator bypass, leave the
+environment secret set empty, and set these two **environment configuration
+variables**:
+
+* `BLACKSMITH_TESTBOX_REVIEWED_REF`, one exact branch name without the
+  `refs/heads/` prefix;
+* `BLACKSMITH_TESTBOX_REVIEWED_SHA`, one exact lowercase 40-character commit
+  SHA for that branch.
+
+Configure the environment's deployment branch rule to the same exact branch,
+with no wildcard or fork rule. Update the two variables only after an
+independent maintainer has reviewed that exact commit, including this workflow
+and the remote helper. Treat the environment, its variables, and its branch
+rule as required repository controls, not settings this workflow can create.
+GitHub evaluates reviewer approval and the branch rule before the job's first
+step, including `begin-testbox`. The workflow then compares `github.ref`,
+`github.sha`, and a fresh `git ls-remote` result to those exact pins before
+exposing the Testbox token. If the environment is deleted, renamed,
+unconfigured, or stale, disable the lane and stop rather than changing the
+workflow to proceed. If it has no required reviewer, no exact branch rule, or
+no exact ref/SHA pins, the lane is not production-safe.
+
+This is reviewed-branch mode, not PR validation. Never dispatch it for an
+untrusted PR, fork, external contributor, wildcard branch, or commit whose
+workflow/helper changes have not been independently reviewed. The Testbox
+command environment can read `/tmp/.testbox/auth_token` and anything else
+exposed to the GitHub job. The token is not sandboxed, and `permissions:
+contents: read` does not change that trust boundary. When the reviewed commit
+or trust context changes, stop the old box and warm a fresh one.
 
 The helper retains the `CMUX_TESTBOX_REMOTE=1` guard for accidental local
 launches, and additionally requires the Blacksmith VM kernel metadata marker
 and matching `/tmp/.testbox` state. The environment flag remains caller
-controlled and is not an authentication mechanism. The protected environment
-and trusted-maintainer policy are the security boundary. Verify before every
-use that `blacksmith-testbox-trusted` still has required reviewers, no secrets,
-administrator bypass disabled, and no broad branch policy admitting unreviewed
-refs. The checked-in workflow independently permits only reviewed `main`; the
-feature branch is for code review and cannot expose a Testbox token. The
-workflow cannot manufacture the environment settings, so drift makes the lane
-unavailable rather than safe.
+controlled and is not an authentication mechanism. The protected environment,
+its exact ref/SHA pins, and trusted-maintainer review are the security boundary.
+The workflow cannot manufacture those controls, so configuration drift makes
+the lane unavailable rather than safe.
 
 * Never run `cargo`, `rustc`, `rustup`, `zig build`, or another Rust/Zig build
   command on Lawrence's Mac. This includes local fallback builds and local
@@ -106,8 +117,10 @@ set -euo pipefail
 git submodule update --init ghostty
 cd "$(git rev-parse --show-toplevel)"
 SOURCE_REF="$(git symbolic-ref --short HEAD)"
-[[ "$SOURCE_REF" == "main" ]] || {
-  echo "the token-bearing Testbox lane only accepts reviewed main; use a PR workflow for feature branches" >&2
+REVIEWED_REF="$(gh variable get BLACKSMITH_TESTBOX_REVIEWED_REF --env blacksmith-testbox-trusted --repo manaflow-ai/cmux --json value --jq .value)"
+REVIEWED_SHA="$(gh variable get BLACKSMITH_TESTBOX_REVIEWED_SHA --env blacksmith-testbox-trusted --repo manaflow-ai/cmux --json value --jq .value)"
+[[ "$SOURCE_REF" == "$REVIEWED_REF" ]] || {
+  echo "HEAD is not the exact branch pinned by blacksmith-testbox-trusted" >&2
   exit 1
 }
 if [[ ! "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || "$SOURCE_REF" == *..* || "$SOURCE_REF" == */ || "$SOURCE_REF" == *//* ]]; then
@@ -115,6 +128,10 @@ if [[ ! "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ || "$SOURCE_REF" == *..* || "$SOURCE
   exit 1
 fi
 SOURCE_SHA="$(git rev-parse HEAD)"
+[[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ && "$SOURCE_SHA" == "$REVIEWED_SHA" ]] || {
+  echo "HEAD is not the exact commit pinned by blacksmith-testbox-trusted" >&2
+  exit 1
+}
 ghostty_entry="$(git ls-tree HEAD ghostty)"
 [[ "$ghostty_entry" =~ ^160000[[:space:]]commit[[:space:]][0-9a-f]{40}[[:space:]]ghostty$ ]] || {
   echo "HEAD:ghostty is not a gitlink" >&2
@@ -140,15 +157,18 @@ source SHA, commit tree, GitHub `ghostty` gitlink, initialized Ghostty HEAD,
 and clean status before building. A moved branch or dirty/mismatched checkout
 fails closed; do not silently warm another revision.
 
-The workflow has an optional `source_sha` workflow-dispatch input for a direct
-GitHub dispatch. The Blacksmith CLI supplies `testbox_id` but does not expose
-arbitrary workflow inputs, so the normal CLI path uses `github.sha` plus the
-remote assertion in the helper. A supplied `source_sha` must be a lowercase
-40-character SHA equal to the branch dispatch SHA.
+The workflow's optional `source_sha` input is an assertion only; it cannot
+select a candidate because Blacksmith supplies only `testbox_id`. The CLI
+warmup selects `SOURCE_REF`, while GitHub supplies `github.sha`; the protected
+environment pins both and the workflow checks the remote branch again. A
+supplied `source_sha` must equal that same protected SHA. This is the mechanism
+that permits a reviewed feature branch to validate its final PR head without
+executing an unreviewed branch.
 
 ## Warmup and identity capture
 
-Warm the validated branch, never its SHA:
+Warm the exact branch pinned by the protected environment, never an
+unreviewed branch or a raw SHA:
 
 ```bash
 WORKFLOW=.github/workflows/ci-workflow-guard-tests-testbox.yml
@@ -196,7 +216,8 @@ cleanup token, setup artifact capture, and cleanup preview state. Do not copy
 only this stage loop into an ad hoc shell without those prerequisites.
 
 Before each stage, recompute `SOURCE_SHA` and `GHOSTTY_SHA` and repeat the
-clean pushed-branch preflight. Pass the expected values as validated arguments;
+clean pushed-branch preflight, including the protected reviewed ref/SHA pins.
+Pass the expected values as validated arguments;
 the helper does not trust the remote checkout or a caller-supplied expected SHA
 without comparing it to Git metadata:
 
