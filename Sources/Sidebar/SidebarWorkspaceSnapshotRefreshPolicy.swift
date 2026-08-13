@@ -51,6 +51,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             showsRemoteReconnectAffordance: showsRemoteReconnectAffordance,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: latestConversationMessage,
+            lastInteractionAt: lastInteractionAt,
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,

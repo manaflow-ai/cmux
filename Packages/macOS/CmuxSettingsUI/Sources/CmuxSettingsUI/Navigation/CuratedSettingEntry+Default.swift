@@ -166,6 +166,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-notification-message", title: "Show Notification Message in Sidebar", synonyms: "sidebar.showNotificationMessage latest message unread notification text sidebar"),
             .init(section: .sidebarAppearance, id: "notification-message-line-limit", title: String(localized: "settings.app.notificationMessageLineLimit", defaultValue: "Notification Preview Lines"), synonyms: "sidebar.notificationMessageLineLimit notification message preview lines limit sidebar"),
             .init(section: .sidebarAppearance, id: "show-branch-directory", title: "Show Branch + Directory in Sidebar", synonyms: "sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar"),
+            .init(section: .sidebarAppearance, id: "show-last-interaction", title: "Show Last Interaction Instead of Path", synonyms: "sidebar.showLastInteractionInsteadOfPath last interaction relative time ago prompt submitted timestamp sidebar"),
             .init(section: .sidebarAppearance, id: "show-pull-requests", title: "Show Pull Requests in Sidebar", synonyms: "sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge request"),
             .init(section: .sidebarAppearance, id: "watch-git-status", title: "Watch Git Status in Sidebar", synonyms: "sidebar.watchGitStatus git status branch watcher index lock"),
             .init(section: .sidebarAppearance, id: "make-pr-clickable", title: "Make Sidebar PR Clickable", synonyms: "sidebar.makePullRequestsClickable clickable pull requests pr mr reviews links select workspace row"),
@@ -198,6 +199,14 @@ extension Array where Element == CuratedSettingEntry {
                 detailText: String(localized: "settings.app.notificationBadgePosition.subtitle", defaultValue: "Show the unread notification badge on the left or the right of the workspace row."),
                 paths: ["sidebar.notificationBadgePosition"],
                 synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
+            ),
+            .init(
+                section: .sidebarAppearance,
+                id: "last-interaction-timestamp-style",
+                title: String(localized: "settings.app.lastInteractionTimestampStyle", defaultValue: "Last Interaction Timestamp Style"),
+                detailText: String(localized: "settings.app.lastInteractionTimestampStyle.subtitle", defaultValue: "Show a ticking relative time, or a fixed time-of-day with seconds so same-minute prompts can still be ordered."),
+                paths: ["sidebar.lastInteractionTimestampStyle"],
+                synonyms: "sidebar.lastInteractionTimestampStyle relative absolute timestamp seconds ordering"
             ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),

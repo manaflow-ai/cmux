@@ -43,6 +43,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsRemoteReconnectAffordance: Bool
         let copyableSidebarSSHError: String?
         let latestConversationMessage: String?
+        // When the user last submitted a prompt in this workspace
+        // (`Workspace.latestSubmittedAt`); nil until the first submit.
+        let lastInteractionAt: Date?
         let metadataEntries: [SidebarStatusEntry]
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?

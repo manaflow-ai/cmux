@@ -143,6 +143,25 @@ Shows a loading spinner on sidebar workspace rows that currently have running co
 
 The spinner is compositor-driven (a Core Animation transform run by the render server), so it costs no per-frame CPU and pauses automatically while the window is occluded or Reduce Motion is on. Toggle it manually per workspace with `cmux workspace loading <on|off> [--id <name>]`; each `--id` is a separate loader and the command prints the workspace state as `before=ON;after=OFF`.
 
+## `sidebar.showLastInteractionInsteadOfPath`
+
+Replaces the branch/directory line on sidebar workspace rows with a relative "time since you last submitted a prompt" label ("now", "12m", "3h", "2d"), with the absolute time as the tooltip. The timestamp is `Workspace.latestSubmittedAt` — it updates whenever you submit a prompt in that workspace, and the label keeps ticking on its own between submits.
+
+```json
+{
+  "sidebar": {
+    "showLastInteractionInsteadOfPath": true,
+    "lastInteractionTimestampStyle": "relative"
+  }
+}
+```
+
+- Default: `false` (rows keep showing the branch/directory line).
+- Workspaces where you have not submitted a prompt yet keep the branch/directory line, so a fresh workspace still shows where it lives.
+- Requires `sidebar.showBranchDirectory` (the line it replaces): when that is off — or `sidebar.hideAllDetails` is on — nothing is shown, matching today's behavior.
+- Toggle it from **Settings > Sidebar > Show Last Interaction Instead of Path**.
+- `lastInteractionTimestampStyle`: `relative` (default; the ticking "now/12m/3h/2d" bucket above) or `absolute` — a static time-of-day with seconds (e.g. `15:47:12`), so two prompts submitted within the same minute can still be ordered right on the row without hovering for the tooltip. Unlike `relative`, an `absolute` label never ticks — it is fixed once painted. Toggle it from **Settings > Sidebar > Last Interaction Timestamp Style**.
+
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
 `terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.

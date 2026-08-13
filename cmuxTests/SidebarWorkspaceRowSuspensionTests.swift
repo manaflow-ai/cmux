@@ -28,6 +28,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
             latestConversationMessage: nil,
+            lastInteractionAt: nil,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,

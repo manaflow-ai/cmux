@@ -270,6 +270,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey
         ),
         .init(
+            jsonKey: "showLastInteractionInsteadOfPath",
+            defaultsKey: sidebar.showLastInteractionInsteadOfPath.userDefaultsKey
+        ),
+        .init(
             jsonKey: "showPullRequests",
             defaultsKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey
         ),
@@ -458,6 +462,8 @@ extension CmuxSettingsFileStore {
         "sidebar.showNotificationMessage",
         "sidebar.notificationMessageLineLimit",
         "sidebar.showBranchDirectory",
+        "sidebar.showLastInteractionInsteadOfPath",
+        "sidebar.lastInteractionTimestampStyle",
         "sidebar.showPullRequests",
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",

@@ -24,6 +24,14 @@ struct SidebarWorkspaceBranchDirectorySettings: Equatable {
     let branchLayout: BranchLayout
     let branchDirectoryPlacement: BranchDirectoryPlacement
     let usesLastSegmentPath: Bool
+    /// Replaces the branch/directory line with a relative "time since the
+    /// last submitted prompt" label; rows with no submitted prompt keep the
+    /// branch/directory presentation.
+    let showsLastInteractionInsteadOfPath: Bool
+    /// How that label renders the timestamp when
+    /// `showsLastInteractionInsteadOfPath` is on: the ticking relative
+    /// bucket, or a static absolute time-of-day with seconds.
+    let lastInteractionTimestampStyle: SidebarLastInteractionTimestampStyle
 
     init(defaults: UserDefaults) {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
@@ -40,5 +48,7 @@ struct SidebarWorkspaceBranchDirectorySettings: Equatable {
             ? .stacked
             : .inline
         usesLastSegmentPath = settings.value(for: sidebar.pathLastSegmentOnly)
+        showsLastInteractionInsteadOfPath = settings.value(for: sidebar.showLastInteractionInsteadOfPath)
+        lastInteractionTimestampStyle = settings.value(for: sidebar.lastInteractionTimestampStyle)
     }
 }
