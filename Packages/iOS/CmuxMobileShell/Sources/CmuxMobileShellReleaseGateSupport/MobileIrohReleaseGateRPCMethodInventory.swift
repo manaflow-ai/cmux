@@ -1,4 +1,6 @@
 #if DEBUG
+internal import CmuxMobileShell
+
 /// Mobile RPC names whose availability must negotiate over the authenticated
 /// Iroh control stream before a release-gate run can pass.
 extension MobileShellComposite {
