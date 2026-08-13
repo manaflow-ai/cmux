@@ -34,6 +34,41 @@ struct MobileIrohReleaseGateResponseValidatorTests {
             duplicate,
             required: required
         ))
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                complete,
+                required: required
+            ) == nil
+        )
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                missing,
+                required: required
+            ) == .missingMethods
+        )
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                duplicate,
+                required: required
+            ) == .duplicateMethods
+        )
+
+        let wrongSchema = try JSONSerialization.data(withJSONObject: [
+            "schema_version": 2,
+            "methods": ["terminal.input", "workspace.list"],
+        ])
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                wrongSchema,
+                required: required
+            ) == .schemaMismatch
+        )
+        #expect(
+            MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+                Data("[]".utf8),
+                required: required
+            ) == .malformed
+        )
     }
 
     @Test

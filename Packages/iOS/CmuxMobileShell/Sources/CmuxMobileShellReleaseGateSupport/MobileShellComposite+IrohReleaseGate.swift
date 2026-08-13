@@ -163,20 +163,36 @@ extension MobileShellComposite {
     }
 
     private func verifyRPCMethodInventory(client: MobileCoreRPCClient) async throws {
+        let response: Data
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.rpc.methods",
                 params: [:]
             )
-            let response = try await client.sendRequest(request)
-            guard MobileIrohReleaseGateResponseValidator.rpcMethodInventory(
-                response,
-                required: Self.irohReleaseGateRequiredRPCMethods
-            ) else {
-                throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryFailed
+            response = try await client.sendRequest(request)
+        } catch let error as MobileShellConnectionError {
+            if case .rpcError = error {
+                throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryRejected
             }
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryTransportFailed
         } catch {
-            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryFailed
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryTransportFailed
+        }
+
+        switch MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+            response,
+            required: Self.irohReleaseGateRequiredRPCMethods
+        ) {
+        case nil:
+            return
+        case .malformed:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryMalformed
+        case .schemaMismatch:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventorySchemaMismatch
+        case .duplicateMethods:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryDuplicateMethods
+        case .missingMethods:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryMissingMethods
         }
     }
 
