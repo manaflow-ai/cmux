@@ -19,7 +19,7 @@ Usage:
   cr opencode [arguments...]    Run OpenCode through coderouter
   cr pi [arguments...]          Run Pi through coderouter (experimental)
   cr naked [arguments...]       Run the real Codex without coderouter
-  cr direct [arguments...]      Alias for `cr naked`
+  cr direct [arguments...]      Alias for `coderouter naked`
   cr add                        Add a subscription interactively
   cr add codex                  Add ChatGPT Plus or Pro
   cr add opencode               Add OpenCode Go
@@ -82,7 +82,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
         Some("pi") => run_routed_pi(&remaining[1..]),
         None => run_accounts(&[]),
         Some(value) => Err(Error::Usage(format!(
-            "unknown coderouter command `{value}`; run Codex explicitly with `cr codex [arguments...]`"
+            "unknown coderouter command `{value}`; run Codex explicitly with `coderouter codex [arguments...]` (or shorthand `cr codex [arguments...]`)"
         ))),
     }
 }
@@ -95,12 +95,14 @@ fn run_routed_pi(args: &[OsString]) -> Result<i32, Error> {
                 .is_some_and(|value| value.starts_with("--provider="))
     }) {
         return Err(Error::Usage(
-            "`cr pi` fixes the provider to coderouter; use bare `pi` for another provider".into(),
+            "`coderouter pi` fixes the provider to coderouter; use bare `pi` for another provider"
+                .into(),
         ));
     }
     let pi = process::find_on_path("pi").ok_or_else(|| {
         Error::Usage(
-            "Pi is not installed or is not on PATH; install Pi before running `cr pi`".into(),
+            "Pi is not installed or is not on PATH; install Pi before running `coderouter pi`"
+                .into(),
         )
     })?;
     let loading = crate::loading::DelayedSpinner::new("Preparing Pi");
@@ -169,7 +171,7 @@ fn pi_provider_extension(
 fn run_routed_opencode(args: &[OsString]) -> Result<i32, Error> {
     let opencode = process::find_on_path("opencode").ok_or_else(|| {
         Error::Usage(
-            "OpenCode is not installed or is not on PATH; install OpenCode before running `cr opencode`"
+            "OpenCode is not installed or is not on PATH; install OpenCode before running `coderouter opencode`"
                 .into(),
         )
     })?;
@@ -280,7 +282,9 @@ fn run_add(args: &[OsString]) -> Result<i32, Error> {
         }
         Some("cancel") if args.len() == 1 => AddChoice::Cancel,
         _ => {
-            return Err(Error::Usage("usage: cr add [codex|opencode]".into()));
+            return Err(Error::Usage(
+                "usage: coderouter add [codex|opencode]".into(),
+            ));
         }
     };
     if choice == AddChoice::Cancel {
@@ -323,7 +327,7 @@ fn run_remove(args: &[OsString]) -> Result<i32, Error> {
         })
     {
         return Err(Error::Usage(
-            "usage: cr remove [account-id-or-label] [--yes]".into(),
+            "usage: coderouter remove [account-id-or-label] [--yes]".into(),
         ));
     }
     let loading = crate::loading::DelayedSpinner::new("Loading subscriptions");
@@ -352,7 +356,7 @@ fn run_remove(args: &[OsString]) -> Result<i32, Error> {
             [account] => (*account).clone(),
             [] => {
                 return Err(Error::Usage(format!(
-                    "no subscription matches `{selector}`; run `cr accounts`"
+                    "no subscription matches `{selector}`; run `coderouter accounts`"
                 )));
             }
             _ => {
@@ -427,7 +431,7 @@ fn run_login(rest: &[OsString]) -> Result<i32, Error> {
     if rest.first().and_then(|arg| arg.to_str()) == Some("--code") {
         if rest.len() > 2 {
             return Err(Error::Usage(
-                "usage: cr login [--server URL] [--no-browser|--device-auth|--code [code-or-URL]]"
+                "usage: coderouter login [--server URL] [--no-browser|--device-auth|--code [code-or-URL]]"
                     .into(),
             ));
         }
@@ -451,7 +455,7 @@ fn run_login(rest: &[OsString]) -> Result<i32, Error> {
         )
     }) {
         return Err(Error::Usage(
-            "usage: cr login [--server URL] [--no-browser|--device-auth|--code [code-or-URL]]"
+            "usage: coderouter login [--server URL] [--no-browser|--device-auth|--code [code-or-URL]]"
                 .into(),
         ));
     }
@@ -503,7 +507,7 @@ fn prompt_login_code() -> Result<String, Error> {
 
 fn run_logout(rest: &[OsString]) -> Result<i32, Error> {
     if !rest.is_empty() {
-        return Err(Error::Usage("usage: cr logout".into()));
+        return Err(Error::Usage("usage: coderouter logout".into()));
     }
     control_plane::logout()?;
     Ok(0)
@@ -515,7 +519,7 @@ fn run_org(rest: &[OsString]) -> Result<i32, Error> {
         None | Some("current" | "status") if rest.len() <= 1 => {
             let current = crate::config::load()?;
             if !current.logged_in() {
-                return Err(Error::Usage("not signed in; run `cr login`".into()));
+                return Err(Error::Usage("not signed in; run `coderouter login`".into()));
             }
             println!("{} ({})", current.team_name, current.team_id);
             Ok(0)
@@ -543,7 +547,7 @@ fn run_org(rest: &[OsString]) -> Result<i32, Error> {
             Ok(0)
         }
         _ => Err(Error::Usage(
-            "usage: cr org [current|list|switch <organization-name-or-id>]".into(),
+            "usage: coderouter org [current|list|switch <organization-name-or-id>]".into(),
         )),
     }
 }
@@ -552,7 +556,11 @@ fn run_upgrade(rest: &[OsString]) -> Result<i32, Error> {
     let no_browser = match rest {
         [] => false,
         [value] if value.to_str() == Some("--no-browser") => true,
-        _ => return Err(Error::Usage("usage: cr upgrade [--no-browser]".into())),
+        _ => {
+            return Err(Error::Usage(
+                "usage: coderouter upgrade [--no-browser]".into(),
+            ));
+        }
     };
     const PRICING_URL: &str = "https://cmux.com/pricing";
     println!("Upgrade cmux Pro or Team:\n  {PRICING_URL}");
@@ -564,7 +572,7 @@ fn run_upgrade(rest: &[OsString]) -> Result<i32, Error> {
 
 fn run_accounts(rest: &[OsString]) -> Result<i32, Error> {
     if !rest.is_empty() {
-        return Err(Error::Usage("usage: cr accounts".into()));
+        return Err(Error::Usage("usage: coderouter accounts".into()));
     }
     let loading = crate::loading::DelayedSpinner::new("Loading account usage");
     let result = control_plane::accounts();
@@ -577,7 +585,7 @@ fn run_accounts(rest: &[OsString]) -> Result<i32, Error> {
 
 fn run_doctor(rest: &[OsString]) -> Result<i32, Error> {
     if !rest.is_empty() {
-        return Err(Error::Usage("usage: cr doctor".into()));
+        return Err(Error::Usage("usage: coderouter doctor".into()));
     }
     let config = crate::config::load()?;
     println!(
@@ -613,7 +621,7 @@ fn codex_args(args: &[OsString], provider: &[OsString]) -> Vec<OsString> {
 fn resolve_real_codex() -> Result<PathBuf, Error> {
     let codex = process::find_on_path("codex").ok_or_else(|| {
         Error::Usage(
-            "Codex is not installed or is not on PATH; install Codex before running `cr naked`"
+            "Codex is not installed or is not on PATH; install Codex before running `coderouter naked`"
                 .into(),
         )
     })?;
@@ -643,7 +651,7 @@ mod tests {
     #[test]
     fn add_rejects_unknown_mode_without_starting_backend() {
         let error = run(args(&["cr", "add", "wat"])).unwrap_err();
-        assert!(error.to_string().contains("usage: cr add"));
+        assert!(error.to_string().contains("usage: coderouter add"));
     }
 
     #[test]

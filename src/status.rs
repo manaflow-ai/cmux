@@ -58,7 +58,7 @@ pub fn render(value: &Value, team_name: &str, team_id: &str) {
         .map(Vec::as_slice)
         .unwrap_or_default();
     if accounts.is_empty() {
-        println!("\nNo accounts configured. Run `cr add`.");
+        println!("\nNo accounts configured. Run `coderouter add`.");
         return;
     }
 

@@ -16,7 +16,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> i32 {
     let exit_code = match &result {
         Ok(code) => *code,
         Err(error) => {
-            eprintln!("cr: {error}");
+            eprintln!("coderouter: {error}");
             1
         }
     };

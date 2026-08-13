@@ -312,7 +312,7 @@ pub fn logout() -> Result<(), Error> {
 pub fn refreshed_config() -> Result<Config, Error> {
     let mut current = config::load()?;
     if !current.logged_in() {
-        return Err(Error::Usage("not signed in; run `cr login`".into()));
+        return Err(Error::Usage("not signed in; run `coderouter login`".into()));
     }
     let auth = auth_from_config(&current);
     let tokens = refresh_stack_tokens(
@@ -347,7 +347,7 @@ pub fn switch_organization(selector: &str) -> Result<Organization, Error> {
     let selector = selector.trim();
     if selector.is_empty() {
         return Err(Error::Usage(
-            "usage: cr org switch <organization-name-or-id>".into(),
+            "usage: coderouter org switch <organization-name-or-id>".into(),
         ));
     }
 
@@ -366,13 +366,13 @@ pub fn switch_organization(selector: &str) -> Result<Organization, Error> {
     let team = match matching.as_slice() {
         [] => {
             return Err(Error::Usage(format!(
-                "organization `{selector}` was not found; run `cr org list`"
+                "organization `{selector}` was not found; run `coderouter org list`"
             )));
         }
         [team] => team,
         _ => {
             return Err(Error::Usage(format!(
-                "organization name `{selector}` is ambiguous; use its ID from `cr org list`"
+                "organization name `{selector}` is ambiguous; use its ID from `coderouter org list`"
             )));
         }
     };
@@ -476,7 +476,7 @@ pub fn ensure_route_config() -> Result<Config, Error> {
 fn current_route_config() -> Result<Config, Error> {
     let current = config::load()?;
     if !current.logged_in() {
-        return Err(Error::Usage("not signed in; run `cr login`".into()));
+        return Err(Error::Usage("not signed in; run `coderouter login`".into()));
     }
     Ok(current)
 }
@@ -919,7 +919,7 @@ fn response_error(status: reqwest::StatusCode, parsed: Option<&Value>, action: &
         .and_then(Value::as_str);
     if status.as_u16() == 402 && code == Some("pro_required") {
         return Error::Usage(
-            "hosted coderouter requires cmux Pro or Team; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`".into(),
+            "hosted coderouter requires cmux Pro or Team; upgrade at https://cmux.com/pricing or connect a self-hosted server with `coderouter login --server <URL>`".into(),
         );
     }
     let server_message = parsed
@@ -932,11 +932,13 @@ fn response_error(status: reqwest::StatusCode, parsed: Option<&Value>, action: &
             format!("{action} rejected the request; verify the supplied code or input")
         }),
         401 => {
-            format!("{action}: your authorization expired or was revoked; run `cr login` and retry")
+            format!(
+                "{action}: your authorization expired or was revoked; run `coderouter login` and retry"
+            )
         }
         403 => format!("{action}: your account does not have permission for this team"),
         404 => format!(
-            "{action}: coderouter endpoint not found; verify `cr login --server <URL>` and update `cr`"
+            "{action}: coderouter endpoint not found; verify `coderouter login --server <URL>` and update `cr`"
         ),
         409 => format!("{action}: another update won the race; refresh with `cr` and retry"),
         429 => format!("{action}: temporarily rate limited; retry shortly"),
@@ -1004,7 +1006,7 @@ mod fault_matrix_tests {
             ),
             (
                 401,
-                "test action: your authorization expired or was revoked; run `cr login` and retry [HTTP 401]",
+                "test action: your authorization expired or was revoked; run `coderouter login` and retry [HTTP 401]",
             ),
             (
                 403,
@@ -1012,7 +1014,7 @@ mod fault_matrix_tests {
             ),
             (
                 404,
-                "test action: coderouter endpoint not found; verify `cr login --server <URL>` and update `cr` [HTTP 404]",
+                "test action: coderouter endpoint not found; verify `coderouter login --server <URL>` and update `cr` [HTTP 404]",
             ),
             (
                 409,
@@ -1040,7 +1042,7 @@ mod fault_matrix_tests {
     fn snapshots_hosted_pro_self_hosting_guidance() {
         assert_eq!(
             message(402, Some(json!({ "error": "pro_required" }))),
-            "hosted coderouter requires cmux Pro or Team; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`"
+            "hosted coderouter requires cmux Pro or Team; upgrade at https://cmux.com/pricing or connect a self-hosted server with `coderouter login --server <URL>`"
         );
     }
 

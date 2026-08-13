@@ -50,7 +50,7 @@ const ITEMS: &[(AddChoice, &str, &str)] = &[
 pub fn choose_add_action() -> Result<AddChoice, Error> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(Error::Usage(
-            "`cr add` needs an interactive terminal; use `cr add codex` or `cr add opencode`"
+            "`coderouter add` needs an interactive terminal; use `coderouter add codex` or `coderouter add opencode`"
                 .into(),
         ));
     }
@@ -92,7 +92,8 @@ pub fn choose_remove_account(accounts: &[RemoveChoice]) -> Result<Option<RemoveC
     }
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(Error::Usage(
-            "`cr remove` needs an interactive terminal; pass an account ID or exact label".into(),
+            "`coderouter remove` needs an interactive terminal; pass an account ID or exact label"
+                .into(),
         ));
     }
     crossterm::terminal::enable_raw_mode()?;

@@ -338,8 +338,8 @@ mod tests {
         ];
         for (top, expected) in cases {
             let values = match top {
-                Some(top) => vec!["cr", top],
-                None => vec!["cr"],
+                Some(top) => vec!["coderouter", top],
+                None => vec!["coderouter"],
             };
             assert_eq!(classify_command(&args(&values)).command, expected);
         }
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn classification_never_serializes_child_arguments_or_sensitive_values() {
         let sensitive = [
-            "cr",
+            "coderouter",
             "naked",
             "private-child-subcommand",
             "/Users/alice/private/project",
