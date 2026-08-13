@@ -78,37 +78,67 @@ if (( inventory_status != 0 )); then
   exit "$inventory_status"
 fi
 
-# `status --id` is the ownership source of truth. Its row has the stable
-# columns ID STATUS IP WORKFLOW JOB REF, so compare only this exact ID with the
-# warmup receipt. Never infer ownership from another row in --all output.
+# The CLI has emitted both table-shaped and summary-shaped `status --id`
+# responses over time. Extract state without treating either response as an
+# ownership table. Ownership context comes only from the exact ID row in the
+# successful inventory preview below.
+status_from_log() {
+  local log_path="$1"
+  local value
+  value="$(awk -v id="$testbox_id" '$1 == id { print tolower($2); exit }' "$log_path")"
+  if [[ -z "$value" ]]; then
+    value="$(awk '{
+      for (i = 1; i <= NF; i++) {
+        token = tolower($i)
+        if (token == "status:" && i < NF) {
+          print tolower($(i + 1))
+          exit
+        }
+        if (token ~ /^status:/) {
+          sub(/^status:/, "", token)
+          if (token != "") {
+            print token
+            exit
+          }
+        }
+      }
+    }' "$log_path")"
+  fi
+  printf '%s' "$value"
+}
+
+inventory_row="$(awk -v id="$testbox_id" '$1 == id { print; exit }' "$inventory_log")"
 pre_status_log="$evidence_dir/status-before-stop.log"
 set +e
 blacksmith testbox status --id "$testbox_id" >"$pre_status_log" 2>&1
 pre_status=$?
 set -e
 skip_stop=0
-if (( pre_status == 0 )); then
-  pre_row="$(awk -v id="$testbox_id" '$1 == id { print; exit }' "$pre_status_log")"
-  if [[ -z "$pre_row" ]]; then
-    echo "status did not contain the owned Testbox row; refusing cleanup" >&2
-    exit 66
-  fi
-  pre_status_value="$(awk '{print tolower($2)}' <<<"$pre_row")"
-  pre_workflow="$(awk '{print $4}' <<<"$pre_row")"
-  pre_job="$(awk '{print $5}' <<<"$pre_row")"
-  pre_ref="$(awk '{print $6}' <<<"$pre_row")"
+if [[ -n "$inventory_row" ]]; then
+  # `list --all` is ID STATUS IP WORKFLOW JOB REF ...; compare this exact row
+  # to the warmup receipt before any destructive operation.
+  pre_workflow="$(awk '{print $4}' <<<"$inventory_row")"
+  pre_job="$(awk '{print $5}' <<<"$inventory_row")"
+  pre_ref="$(awk '{print $6}' <<<"$inventory_row")"
   if [[ "$pre_workflow" != "$receipt_workflow" || "$pre_job" != "$receipt_job" || "$pre_ref" != "$receipt_ref" ]]; then
     echo "owned Testbox context differs from the warmup receipt; refusing cleanup" >&2
     exit 66
   fi
+fi
+if (( pre_status == 0 )); then
+  pre_status_value="$(status_from_log "$pre_status_log")"
   case "$pre_status_value" in
     completed|stopped|cancelled|failed|terminated|hydration_failed)
       skip_stop=1
       ;;
     ready|running|hydrating|in_progress|queued)
+      [[ -n "$inventory_row" ]] || {
+        echo "owned Testbox is active but absent from inventory; refusing cleanup" >&2
+        exit 66
+      }
       ;;
     *)
-      echo "unknown status for owned Testbox $testbox_id; refusing cleanup" >&2
+      echo "could not parse status for owned Testbox $testbox_id; refusing cleanup" >&2
       exit 66
       ;;
   esac
@@ -160,7 +190,7 @@ while :; do
   set -e
   terminal=0
   if (( status_status == 0 )); then
-    status_value="$(awk -v id="$testbox_id" '$1 == id { print tolower($2); exit }' "$status_log")"
+    status_value="$(status_from_log "$status_log")"
     case "$status_value" in
       completed|stopped|cancelled|failed|terminated|hydration_failed) terminal=1 ;;
       ready|running|hydrating|in_progress|queued) ;;
