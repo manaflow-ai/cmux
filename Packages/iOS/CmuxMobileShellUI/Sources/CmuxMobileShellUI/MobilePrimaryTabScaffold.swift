@@ -14,7 +14,9 @@ struct MobilePrimaryTabScaffold<
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
+    let feedAttentionCount: Int
     let taskComposerAction: (() -> Void)?
+    let feed: AnyView
     let workspaces: Workspaces
     let notifications: Notifications
     let workspaceSearch: WorkspaceSearch
@@ -24,7 +26,9 @@ struct MobilePrimaryTabScaffold<
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
+        feedAttentionCount: Int = 0,
         taskComposerAction: (() -> Void)? = nil,
+        feed: AnyView = AnyView(EmptyView()),
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder notifications: () -> Notifications,
         @ViewBuilder workspaceSearch: () -> WorkspaceSearch,
@@ -33,7 +37,9 @@ struct MobilePrimaryTabScaffold<
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
+        self.feedAttentionCount = feedAttentionCount
         self.taskComposerAction = taskComposerAction
+        self.feed = feed
         self.workspaces = workspaces()
         self.notifications = notifications()
         self.workspaceSearch = workspaceSearch()
@@ -188,6 +194,17 @@ struct MobilePrimaryTabScaffold<
             )
             .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
         }
+
+        Tab(value: MobilePrimaryTab.feed) {
+            feed
+        } label: {
+            Label(
+                L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+                systemImage: "sparkles"
+            )
+            .accessibilityIdentifier("MobilePrimaryTabFeed")
+        }
+        .badge(feedAttentionCount)
 
         Tab(value: MobilePrimaryTab.notifications) {
             notifications

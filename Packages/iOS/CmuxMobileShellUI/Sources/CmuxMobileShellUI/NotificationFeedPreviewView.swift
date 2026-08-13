@@ -41,7 +41,8 @@ public struct NotificationFeedPreviewView: View {
             MobilePrimaryTabScaffold(
                 selection: $selectedTab,
                 searchCoordinator: primarySearchCoordinator,
-                notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
+                notificationUnreadCount: items.lazy.filter { !$0.isRead }.count,
+                feed: AnyView(AgentFeedView(store: .fixture(), variant: .orbit))
             ) {
                 NotificationFeedPreviewWorkspacesView()
             } notifications: {

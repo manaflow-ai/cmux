@@ -381,6 +381,22 @@ import Testing
         ).agentChatPreviewEnabled == false)
     }
 
+    @Test func agentFeedPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_AGENT_FEED_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.agentFeedPreviewEnabled(from: env) == true)
+        #else
+        #expect(UITestConfig.agentFeedPreviewEnabled(from: env) == false)
+        #endif
+    }
+
+    @Test func agentFeedPreviewFlagRequiresOne() {
+        #expect(UITestConfig.agentFeedPreviewEnabled(from: [:]) == false)
+        #expect(UITestConfig.agentFeedPreviewEnabled(
+            from: ["CMUX_UITEST_AGENT_FEED_PREVIEW": "0"]
+        ) == false)
+    }
+
     @Test func agentChatInlinePreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "1"]
         let config = UITestEnvironmentConfig(environment: env)

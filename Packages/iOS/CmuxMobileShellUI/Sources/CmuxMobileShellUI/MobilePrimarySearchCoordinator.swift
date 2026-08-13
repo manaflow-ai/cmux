@@ -210,6 +210,8 @@ extension MobilePrimaryTab {
         switch self {
         case .workspaces:
             .workspaces
+        case .feed:
+            nil
         case .notifications:
             .notifications
         case .search:

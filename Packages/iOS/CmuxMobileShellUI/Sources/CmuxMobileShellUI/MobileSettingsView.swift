@@ -341,6 +341,19 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
+
+                    NavigationLink {
+                        AgentFeedVariantLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.agentFeedLab",
+                                defaultValue: "Agent Feed Lab"
+                            ),
+                            systemImage: "sparkles"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsAgentFeedLab")
                 }
                 #endif
 

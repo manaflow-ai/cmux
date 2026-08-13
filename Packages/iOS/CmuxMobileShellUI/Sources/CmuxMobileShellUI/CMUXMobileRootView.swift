@@ -144,6 +144,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowAgentFeedPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.agentFeedPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowHiddenComputersPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.hiddenComputersPreviewEnabled
@@ -183,6 +191,16 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var streamingChatPreview: some View {
         #if os(iOS) && DEBUG
         StreamingChatPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var agentFeedPreview: some View {
+        #if os(iOS) && DEBUG
+        NavigationStack {
+            AgentFeedVariantLabView()
+        }
         #else
         EmptyView()
         #endif
@@ -457,6 +475,8 @@ struct CMUXMobileRootView: View {
             changesPreview
         } else if shouldShowHideComputersVerifier {
             hideComputersVerifier
+        } else if shouldShowAgentFeedPreview {
+            agentFeedPreview
         } else if shouldShowAgentChatDemoPreview {
             agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
