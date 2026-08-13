@@ -20,6 +20,38 @@ import Foundation
 @MainActor
 @Suite(.serialized)
 struct MobileWorkspaceListFidelityTests {
+    @Test func nonTerminalSurfaceResolutionKeepsPanelIdentity() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let controller = TerminalController.shared
+        let manager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let previousActiveManager = controller.activeTabManagerForCallerNotification()
+        controller.setActiveTabManager(manager)
+        defer {
+            controller.setActiveTabManager(previousActiveManager)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let filePreview = try #require(workspace.newFilePreviewSurface(
+            inPane: paneID,
+            filePath: "/tmp/iosrf-panel-resolution.txt",
+            focus: false
+        ))
+
+        let resolved = controller.mobileResolveWorkspaceAndSurface(
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": filePreview.id.uuidString,
+            ],
+            requireTerminal: false
+        )
+
+        #expect(resolved?.workspace.id == workspace.id)
+        #expect(resolved?.surfaceId == filePreview.id)
+    }
+
     @Test func legacyAndStateSyncSurfaceInventoriesMatch() throws {
         let controller = TerminalController.shared
         let manager = TabManager()
