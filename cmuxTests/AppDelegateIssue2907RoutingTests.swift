@@ -1055,6 +1055,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             restoreRecord["prepared_arguments_working_directory"] as? String,
             "/tmp/current"
         )
+        let preparedArguments = try XCTUnwrap(
+            restoreRecord["prepared_arguments"] as? [String]
+        )
+        XCTAssertTrue(preparedArguments.contains(currentSessionID), "\(preparedArguments)")
+        XCTAssertFalse(preparedArguments.contains(staleSessionID), "\(preparedArguments)")
         let launch = try XCTUnwrap(restoreRecord["launch_command"] as? [String: Any])
         XCTAssertEqual(launch["arguments"] as? [String], currentLaunch.arguments)
         let launchEnvironment = try XCTUnwrap(launch["environment"] as? [String: Any])
@@ -1074,7 +1079,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         XCTAssertNil(resumeLaunchEnvironment["OPENAI_API_KEY"])
         let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
-        XCTAssertTrue(legacyCommand.contains("codex resume \(currentSessionID)"))
+        XCTAssertTrue(legacyCommand.contains(currentSessionID), legacyCommand)
+        XCTAssertFalse(legacyCommand.contains(staleSessionID), legacyCommand)
 
         let ompSessionID = UUID().uuidString.lowercased()
         XCTAssertTrue(workspace.setSurfaceResumeBinding(

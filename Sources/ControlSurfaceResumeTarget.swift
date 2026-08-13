@@ -346,14 +346,23 @@ extension TerminalController {
         let mode: AgentRestoreRequestMode = binding.isAgentHookBinding
             ? .resumeAgent
             : .direct
+        // Once a newer hook binding supersedes a restored agent snapshot, none
+        // of the rejected snapshot's identity-scoped restore data may leak into
+        // the record. Rebuild the typed argv from the authoritative binding so
+        // `cmux restore` keeps its shell-free path even during that handoff.
+        let workingDirectory = binding.cwd ?? binding.launchCommand?.workingDirectory
+        let preparedArguments = preparedResumeArguments(
+            binding: binding,
+            normalizedKind: normalizedKind,
+            workingDirectory: workingDirectory,
+            registration: target.restorableAgent?.registration
+        )
         return ControlSurfaceRestoreRecord(
             modeRawValue: mode.rawValue,
             kind: normalizedKind,
             checkpointID: binding.checkpointId,
             source: binding.source,
-            workingDirectory: target.restoredResumeWorkingDirectory
-                ?? binding.cwd
-                ?? binding.launchCommand?.workingDirectory,
+            workingDirectory: workingDirectory,
             environment: binding.environment ?? [:],
             launchCommand: binding.launchCommand.map {
                 controlAgentLaunchCommand(
@@ -361,10 +370,47 @@ extension TerminalController {
                     replaySafeEnvironmentFor: normalizedKind
                 )
             },
-            preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,
-            preparedArgumentsWorkingDirectory: nil,
+            preparedArguments: mode == .direct
+                ? binding.launchCommand?.arguments
+                : preparedArguments,
+            preparedArgumentsWorkingDirectory: preparedArguments == nil
+                ? nil
+                : workingDirectory,
             permissionMode: binding.permissionMode,
             legacyCommand: compatibilityBinding?.inlineStartupInput
+        )
+    }
+
+    private func preparedResumeArguments(
+        binding: SurfaceResumeBindingSnapshot,
+        normalizedKind: String,
+        workingDirectory: String?,
+        registration: CmuxVaultAgentRegistration?
+    ) -> [String]? {
+        guard binding.isAgentHookBinding,
+              let checkpointID = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !checkpointID.isEmpty else {
+            return nil
+        }
+        let matchingRegistration = registration?.id == normalizedKind ? registration : nil
+        guard let kind = RestorableAgentKind(
+            persistedRawValue: normalizedKind,
+            registration: matchingRegistration
+        ),
+        kind.restoreMode == .resumeSession else {
+            return nil
+        }
+        return SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: checkpointID,
+            workingDirectory: workingDirectory,
+            launchCommand: binding.launchCommand,
+            registration: matchingRegistration,
+            permissionMode: binding.permissionMode
+        ).preparedResumeArguments(
+            launchCommand: binding.launchCommand,
+            workingDirectory: workingDirectory,
+            observedPermissionMode: binding.permissionMode
         )
     }
 
