@@ -118,6 +118,13 @@ private extension GhosttySurfaceView {
         pendingVerifiedReplayPresentation = pending
     }
 
+}
+
+extension GhosttySurfaceView {
+    /// Accepts the read-back result after the unified render submission has
+    /// been serialized on the surface gate. The submission driver lives in
+    /// `GhosttySurfaceView.swift`, so this entry point is module-visible while
+    /// the fence-building helpers above remain private to this file.
     func acceptVerifiedReplayObservedFrame(
         _ observed: MobileTerminalRenderGridFrame?,
         submission: VerifiedReplayRenderSubmission,
