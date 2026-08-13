@@ -78,14 +78,31 @@ if (( pre_status == 0 )); then
   if [[ -z "$pre_row" ]]; then
     # --all can omit a terminal box. A missing row is safe only when the
     # single-box status endpoint independently reports a known terminal state.
+    pre_lookup_log="$evidence_dir/status-before-stop-id.log"
     set +e
-    blacksmith testbox status --id "$testbox_id" >>"$pre_status_log" 2>&1
+    blacksmith testbox status --id "$testbox_id" >"$pre_lookup_log" 2>&1
     pre_lookup_status=$?
     set -e
-    if (( pre_lookup_status == 0 )) && ! grep -Eiq '(completed|stopped|cancelled|failed|terminated|hydration_failed)' "$pre_status_log"; then
-      echo "inventory omitted an active or unknown Testbox; refusing cleanup" >&2
-      exit 66
-    elif (( pre_lookup_status != 0 )) && ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_status_log"; then
+    if (( pre_lookup_status == 0 )); then
+      pre_lookup_row="$(awk -v id="$testbox_id" '$1 == id { print; exit }' "$pre_lookup_log")"
+      if [[ -z "$pre_lookup_row" ]]; then
+        echo "single-box status omitted the owned Testbox; refusing cleanup" >&2
+        exit 66
+      fi
+      pre_lookup_status_value="$(awk '{print tolower($2)}' <<<"$pre_lookup_row")"
+      case "$pre_lookup_status_value" in
+        completed|stopped|cancelled|failed|terminated|hydration_failed)
+          ;;
+        ready|running|hydrating|in_progress|queued)
+          echo "owned Testbox is active but absent from inventory; refusing cleanup" >&2
+          exit 66
+          ;;
+        *)
+          echo "could not establish the owned Testbox terminal state; refusing cleanup" >&2
+          exit 66
+          ;;
+      esac
+    elif ! grep -Eiq '(not found|already[[:space:]]+(stopped|completed)|hydration_failed|HTTP[[:space:]]+409|status[[:space:]]+code[[:space:]]+409)' "$pre_lookup_log"; then
       echo "could not establish ownership before cleanup; refusing cleanup" >&2
       exit "$pre_lookup_status"
     fi

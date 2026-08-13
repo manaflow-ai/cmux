@@ -51,6 +51,17 @@ jobs:
           echo "::error::Testbox token-bearing setup is restricted to reviewed main" >&2
           exit 1
 
+      - name: Validate Testbox ID before token-bearing action
+        env:
+          TESTBOX_ID: ${{ inputs.testbox_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TESTBOX_ID" =~ ^tbx_[A-Za-z0-9_-]+$ ]] || {
+            echo "::error::malformed Testbox ID" >&2
+            exit 1
+          }
+
       - name: Begin Testbox
         uses: useblacksmith/begin-testbox@233448af4bfdc6fca509a7f0974411ac6d8a8043 # v2
         with:
