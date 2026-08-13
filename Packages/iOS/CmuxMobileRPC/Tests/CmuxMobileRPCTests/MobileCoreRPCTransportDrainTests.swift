@@ -100,11 +100,10 @@ import Testing
             await completion.finish()
         }
         #expect(await transport.waitUntilCloseCount(1))
-        try await Task.sleep(nanoseconds: 10_000_000)
+        await drain.value
         #expect(await completion.isFinished)
 
         await transport.releaseConnects()
-        await drain.value
         #expect(await transport.waitUntilCloseCount(2))
         request.cancel()
         _ = await request.result

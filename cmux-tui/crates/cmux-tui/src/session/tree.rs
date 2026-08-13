@@ -3,10 +3,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use cmux_tui_core::resource::{
+    BrowserPublicId, ContentPublicId, PanePublicId, ScreenPublicId, TabPublicId, TerminalPublicId,
+    WorkspacePublicId,
+};
 use cmux_tui_core::{
-    BrowserSource, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Node, PaneId, ScreenId,
-    SplitDir, SplitId, State, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId,
-    assign_short_ids,
+    BrowserSource, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Node, PaneId,
+    ResourceSelectors, ScreenId, SplitDir, SplitId, State, SurfaceId, SurfaceKind,
+    SurfaceNotification, WorkspaceId, assign_short_ids,
 };
 use serde_json::Value;
 
@@ -19,12 +23,10 @@ pub struct TreeView {
     pub active_workspace: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AmbiguousSurfaceReference;
-
 #[derive(Clone)]
 pub struct WorkspaceView {
     pub id: WorkspaceId,
+    pub resource_id: Option<WorkspacePublicId>,
     #[allow(dead_code)]
     pub key: String,
     pub short_id: String,
@@ -36,6 +38,7 @@ pub struct WorkspaceView {
 #[derive(Clone)]
 pub struct ScreenView {
     pub id: ScreenId,
+    pub resource_id: Option<ScreenPublicId>,
     #[allow(dead_code)]
     pub short_id: String,
     /// User-assigned name, if any (display falls back to the number).
@@ -51,6 +54,7 @@ pub struct ScreenView {
 #[derive(Clone)]
 pub struct PaneView {
     pub id: PaneId,
+    pub resource_id: Option<PanePublicId>,
     pub short_id: String,
     /// User-assigned name, if any (display falls back to the active
     /// tab's title).
@@ -63,6 +67,9 @@ pub struct PaneView {
 #[derive(Clone)]
 pub struct TabView {
     pub surface: SurfaceId,
+    pub public_id: Option<TabPublicId>,
+    pub content_id: Option<ContentPublicId>,
+    pub terminal_id: Option<TerminalPublicId>,
     pub short_id: String,
     pub name: Option<String>,
     pub title: String,
@@ -80,6 +87,46 @@ pub struct TabNotificationView {
 }
 
 impl TreeView {
+    pub fn session_resource_selectors() -> ResourceSelectors {
+        ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            ..ResourceSelectors::default()
+        }
+    }
+
+    pub fn resource_selectors_for_workspace(
+        &self,
+        workspace: Option<WorkspaceId>,
+    ) -> Option<ResourceSelectors> {
+        let workspace = match workspace {
+            Some(id) => self.workspaces.iter().find(|workspace| workspace.id == id)?,
+            None => self.active_workspace()?,
+        };
+        Some(ResourceSelectors {
+            workspace: Some(workspace.resource_id.as_ref()?.to_string()),
+            ..Self::session_resource_selectors()
+        })
+    }
+
+    pub fn resource_selectors_for_pane(&self, pane: Option<PaneId>) -> Option<ResourceSelectors> {
+        let pane = pane.or_else(|| self.active_screen().map(|screen| screen.active_pane))?;
+        for workspace in &self.workspaces {
+            for screen in &workspace.screens {
+                let Some(pane) = screen.panes.iter().find(|candidate| candidate.id == pane) else {
+                    continue;
+                };
+                return Some(ResourceSelectors {
+                    workspace: Some(workspace.resource_id.as_ref()?.to_string()),
+                    screen: Some(screen.resource_id.as_ref()?.to_string()),
+                    pane: Some(pane.resource_id.as_ref()?.to_string()),
+                    ..Self::session_resource_selectors()
+                });
+            }
+        }
+        None
+    }
+
     pub fn active_workspace(&self) -> Option<&WorkspaceView> {
         self.workspaces.get(self.active_workspace)
     }
@@ -123,41 +170,16 @@ impl TreeView {
             .find(|tab| tab.surface == id)
     }
 
-    /// Resolve either a canonical decimal protocol id or the six-character
-    /// short id shown by the TUI and CLI. A digit-only six-character value
-    /// can inhabit both namespaces, so conflicting live matches are rejected
-    /// instead of silently routing input to either surface.
-    pub fn resolve_surface(
-        &self,
-        reference: &str,
-    ) -> Result<Option<SurfaceId>, AmbiguousSurfaceReference> {
-        let tabs = || {
-            self.workspaces
-                .iter()
-                .flat_map(|workspace| workspace.screens.iter())
-                .flat_map(|screen| screen.panes.iter())
-                .flat_map(|pane| pane.tabs.iter())
-        };
-        if reference.bytes().all(|byte| byte.is_ascii_digit()) {
-            if reference.len() == 6 && reference.starts_with('0') {
-                return Ok(tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface));
-            }
-            if reference.len() > 1 && reference.starts_with('0') {
-                return Err(AmbiguousSurfaceReference);
-            }
-            let numeric_match = reference.parse::<SurfaceId>().ok().and_then(|numeric| {
-                tabs().find(|tab| tab.surface == numeric).map(|tab| tab.surface)
-            });
-            let short_match = (reference.len() == 6)
-                .then(|| tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface))
-                .flatten();
-            return match (numeric_match, short_match) {
-                (Some(numeric), Some(short)) if numeric != short => Err(AmbiguousSurfaceReference),
-                (Some(surface), _) | (_, Some(surface)) => Ok(Some(surface)),
-                (None, None) => Ok(None),
-            };
-        }
-        Ok(tabs().find(|tab| tab.short_id == reference).map(|tab| tab.surface))
+    /// Resolve the stable public terminal identity to the current internal
+    /// surface slot used by the renderer and filtered event subscription.
+    pub fn resolve_terminal(&self, terminal_id: &TerminalPublicId) -> Option<SurfaceId> {
+        self.workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.terminal_id.as_ref() == Some(terminal_id))
+            .map(|tab| tab.surface)
     }
 
     /// Select the workspace, screen, pane, and tab containing a surface.
@@ -265,6 +287,7 @@ pub fn tree_from_state_with_notifications(
     let pane_view = |id: &PaneId| {
         state.panes.get(id).map(|pane| PaneView {
             id: pane.id,
+            resource_id: Some(pane.public_id.clone()),
             short_id: short_ids.get(&pane.id).cloned().unwrap_or_default(),
             name: pane.name.clone(),
             active_tab: pane.active_tab,
@@ -274,6 +297,24 @@ pub fn tree_from_state_with_notifications(
                 .iter()
                 .map(|sid| TabView {
                     surface: *sid,
+                    public_id: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.resource_identity())
+                        .map(|identity| identity.tab_id.clone()),
+                    content_id: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.resource_identity())
+                        .map(|identity| identity.content_id.clone()),
+                    terminal_id: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.resource_identity())
+                        .and_then(|identity| match &identity.content_id {
+                            ContentPublicId::Terminal(id) => Some(id.clone()),
+                            ContentPublicId::Browser(_) => None,
+                        }),
                     short_id: short_ids.get(sid).cloned().unwrap_or_default(),
                     name: state.surfaces.get(sid).and_then(|s| s.name()),
                     title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
@@ -305,6 +346,7 @@ pub fn tree_from_state_with_notifications(
             .iter()
             .map(|ws| WorkspaceView {
                 id: ws.id,
+                resource_id: Some(ws.public_id.clone()),
                 key: ws.key.clone(),
                 short_id: short_ids.get(&ws.id).cloned().unwrap_or_default(),
                 name: ws.name.clone(),
@@ -317,6 +359,7 @@ pub fn tree_from_state_with_notifications(
                         screen.root.pane_ids(&mut pane_ids);
                         ScreenView {
                             id: screen.id,
+                            resource_id: Some(screen.public_id.clone()),
                             short_id: short_ids.get(&screen.id).cloned().unwrap_or_default(),
                             name: screen.name.clone(),
                             layout: screen.root.clone(),
@@ -367,6 +410,10 @@ fn parse_layout(value: &Value) -> Option<Node> {
 fn parse_pane(value: &Value) -> Option<PaneView> {
     Some(PaneView {
         id: value.get("id")?.as_u64()?,
+        resource_id: value
+            .get("resource_id")
+            .and_then(Value::as_str)
+            .and_then(|value| PanePublicId::parse(value.to_string()).ok()),
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
         active_tab: value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
@@ -379,6 +426,26 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .filter_map(|tab| {
                         Some(TabView {
                             surface: tab.get("surface")?.as_u64()?,
+                            public_id: tab
+                                .get("tab_resource_id")
+                                .and_then(Value::as_str)
+                                .and_then(|value| TabPublicId::parse(value.to_string()).ok()),
+                            content_id: tab
+                                .get("content_resource_id")
+                                .and_then(Value::as_str)
+                                .and_then(|value| {
+                                    TerminalPublicId::parse(value.to_string())
+                                        .map(ContentPublicId::Terminal)
+                                        .or_else(|_| {
+                                            BrowserPublicId::parse(value.to_string())
+                                                .map(ContentPublicId::Browser)
+                                        })
+                                        .ok()
+                                }),
+                            terminal_id: tab
+                                .get("terminal_resource_id")
+                                .and_then(Value::as_str)
+                                .and_then(|value| TerminalPublicId::parse(value.to_string()).ok()),
                             short_id: tab
                                 .get("short_id")
                                 .and_then(|v| v.as_str())
@@ -438,6 +505,10 @@ pub(super) struct TreeCapabilities {
 fn parse_screen(value: &Value, capabilities: TreeCapabilities) -> Option<ScreenView> {
     Some(ScreenView {
         id: value.get("id")?.as_u64()?,
+        resource_id: value
+            .get("resource_id")
+            .and_then(Value::as_str)
+            .and_then(|value| ScreenPublicId::parse(value.to_string()).ok()),
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
         layout: value.get("layout").and_then(parse_layout)?,
@@ -511,6 +582,10 @@ pub(super) fn parse_tree_with_capabilities(
         }
         let mut view = WorkspaceView {
             id: ws.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
+            resource_id: ws
+                .get("resource_id")
+                .and_then(Value::as_str)
+                .and_then(|value| WorkspacePublicId::parse(value.to_string()).ok()),
             key: ws.get("key").and_then(Value::as_str).unwrap_or_default().to_string(),
             short_id: ws.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
             name: ws.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
@@ -541,6 +616,7 @@ mod tests {
     fn unnamed_screens_use_zero_based_display_names() {
         let screen = ScreenView {
             id: 1,
+            resource_id: None,
             short_id: "1".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -644,6 +720,41 @@ mod tests {
     }
 
     #[test]
+    fn parser_builds_stable_resource_selectors_for_creation_receipts() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "resource_id": "ws_00000000000000000000000000000001",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "resource_id": "screen_00000000000000000000000000000002",
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "resource_id": "pane_00000000000000000000000000000003",
+                        "tabs": []
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(
+            tree.resource_selectors_for_pane(Some(3)),
+            Some(ResourceSelectors {
+                machine: Some("current".to_string()),
+                session: Some("current".to_string()),
+                workspace: Some("ws_00000000000000000000000000000001".to_string()),
+                screen: Some("screen_00000000000000000000000000000002".to_string()),
+                pane: Some("pane_00000000000000000000000000000003".to_string()),
+                ..ResourceSelectors::default()
+            })
+        );
+    }
+
+    #[test]
     fn protocol_v9_parser_preserves_stack_expansion() {
         let layout = parse_layout(&json!({
             "type": "stack",
@@ -656,7 +767,7 @@ mod tests {
     }
 
     #[test]
-    fn selecting_surface_updates_the_full_active_path() {
+    fn resolving_terminal_and_selecting_surface_update_the_full_active_path() {
         let mut tree = parse_tree(&json!({
             "workspaces": [{
                 "id": 1,
@@ -670,24 +781,30 @@ mod tests {
                         "id": 3,
                         "active_tab": 0,
                         "tabs": [
-                            {"surface": 4, "short_id": "aaa004"},
-                            {"surface": 5, "short_id": "bbb005"}
+                            {
+                                "surface": 4,
+                                "terminal_resource_id": "term_00000000000000000000000000000004"
+                            },
+                            {
+                                "surface": 5,
+                                "terminal_resource_id": "term_00000000000000000000000000000005"
+                            }
                         ]
                     }]
                 }]
             }]
         }));
 
-        assert_eq!(tree.resolve_surface("bbb005"), Ok(Some(5)));
-        assert_eq!(tree.resolve_surface("4"), Ok(Some(4)));
+        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000005").unwrap();
+        assert_eq!(tree.resolve_terminal(&terminal), Some(5));
         assert!(tree.select_surface(5));
         assert_eq!(tree.active_surface(), Some(5));
         assert!(!tree.select_surface(99));
     }
 
     #[test]
-    fn padded_numeric_surface_reference_resolves_stably_as_short_id() {
-        let mut tree = parse_tree(&json!({
+    fn terminal_resolution_ignores_internal_ids_and_browser_tabs() {
+        let tree = parse_tree(&json!({
             "workspaces": [{
                 "id": 1,
                 "active": true,
@@ -700,66 +817,18 @@ mod tests {
                         "id": 3,
                         "active_tab": 0,
                         "tabs": [
-                            {"surface": 10, "short_id": "ten010"},
-                            {"surface": 36, "short_id": "000010"}
+                            {
+                                "surface": 10,
+                                "short_id": "term_0000000000000000000000000000000a",
+                                "kind": "browser"
+                            }
                         ]
                     }]
                 }]
             }]
         }));
-        tree.workspaces[0].screens[0].panes[0].tabs[1].short_id = "000010".to_string();
-
-        assert_eq!(tree.resolve_surface("000010"), Ok(Some(36)));
-        assert_eq!(tree.resolve_surface("10"), Ok(Some(10)));
-
-        tree.workspaces[0].screens[0].panes[0].tabs.remove(0);
-        assert_eq!(tree.resolve_surface("000010"), Ok(Some(36)));
-    }
-
-    #[test]
-    fn digit_only_short_surface_id_resolves_or_reports_a_namespace_collision() {
-        let short_only = parse_tree(&json!({
-            "workspaces": [{
-                "id": 1,
-                "active": true,
-                "screens": [{
-                    "id": 2,
-                    "active": true,
-                    "active_pane": 3,
-                    "layout": {"type": "leaf", "pane": 3},
-                    "panes": [{
-                        "id": 3,
-                        "active_tab": 0,
-                        "tabs": [
-                            {"surface": 60466176, "short_id": "100000"}
-                        ]
-                    }]
-                }]
-            }]
-        }));
-        assert_eq!(short_only.resolve_surface("100000"), Ok(Some(60_466_176)));
-
-        let colliding = parse_tree(&json!({
-            "workspaces": [{
-                "id": 1,
-                "active": true,
-                "screens": [{
-                    "id": 2,
-                    "active": true,
-                    "active_pane": 3,
-                    "layout": {"type": "leaf", "pane": 3},
-                    "panes": [{
-                        "id": 3,
-                        "active_tab": 0,
-                        "tabs": [
-                            {"surface": 60466176, "short_id": "100000"},
-                            {"surface": 100000, "short_id": "00255s"}
-                        ]
-                    }]
-                }]
-            }]
-        }));
-        assert_eq!(colliding.resolve_surface("100000"), Err(AmbiguousSurfaceReference));
+        let id = TerminalPublicId::parse("term_0000000000000000000000000000000a").unwrap();
+        assert_eq!(tree.resolve_terminal(&id), None);
     }
 
     #[test]

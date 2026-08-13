@@ -4,11 +4,17 @@ extension MobileMacConnectionRegistry {
     struct FocusedConnections {
         unowned let registry: MobileMacConnectionRegistry
 
-        subscript(macDeviceID: String) -> MacConnection? {
-            get { registry.focusedConnection(for: macDeviceID) }
+        subscript(ownerKey: MacPairingKey) -> MacConnection? {
+            get { registry.focusedConnection(for: ownerKey) }
             nonmutating set {
-                registry.setFocusedConnection(newValue, for: macDeviceID)
+                registry.setFocusedConnection(newValue, for: ownerKey)
             }
+        }
+
+        /// Device-level read of the single focused connection. Get-only:
+        /// installing or removing a focus must name the exact pairing key.
+        subscript(macDeviceID: String) -> MacConnection? {
+            registry.focusedConnection(onDevice: macDeviceID)
         }
 
         func removeAll() {

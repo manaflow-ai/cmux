@@ -21,6 +21,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         var allowsAutomaticResume: Bool
         var requiresPromptApproval: Bool
         var autoResume: Bool?
+        var usesLocalRestoreVerb: Bool
         var startupInputPrefix = "input"
 
         init(
@@ -33,7 +34,8 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             isAgentHookBinding: Bool = false,
             allowsAutomaticResume: Bool = true,
             requiresPromptApproval: Bool = false,
-            autoResume: Bool? = nil
+            autoResume: Bool? = nil,
+            usesLocalRestoreVerb: Bool = true
         ) {
             self.source = source
             self.kind = kind
@@ -45,15 +47,11 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             self.allowsAutomaticResume = allowsAutomaticResume
             self.requiresPromptApproval = requiresPromptApproval
             self.autoResume = autoResume
+            self.usesLocalRestoreVerb = usesLocalRestoreVerb
         }
 
-        func startupInputWithLauncherScript(
-            fileManager: FileManager,
-            temporaryDirectory: URL,
-            allowLauncherScript: Bool,
-            restoringWorkingDirectory: String?
-        ) -> String? {
-            "\(startupInputPrefix):\(command):launcher=\(allowLauncherScript):cwd=\(restoringWorkingDirectory ?? "<nil>")"
+        func restoreStartupInput() -> String? {
+            "\(startupInputPrefix):\(command)"
         }
     }
 
@@ -89,8 +87,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
                 codexResponsesAPIMode: "responses",
                 applyingDefaultCodexBaseURL: applyingDefaultCodexBaseURL,
                 resolvingDefaultCodexModel: resolvingDefaultCodexModel
-            ),
-            temporaryDirectory: URL(fileURLWithPath: "/tmp", isDirectory: true)
+            )
         )
     }
 
@@ -115,7 +112,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             approvalSigningSecret: Data("secret".utf8)
         )
 
-        #expect(result == "input:echo ok:launcher=false:cwd=<nil>")
+        #expect(result == "input:echo ok")
         #expect(observation.url == approvalURL)
         #expect(observation.secret == Data("secret".utf8))
     }
@@ -151,7 +148,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             binding,
             autoResumeAgentSessions: true,
             approvalStoreURL: approvalURL
-        ) == "input:echo ok:launcher=false:cwd=<nil>")
+        ) == "input:echo ok")
         #expect(approved.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
@@ -180,21 +177,17 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             binding,
             autoResumeAgentSessions: true,
             approvalStoreURL: approvalURL
-        ) == "input:claude --resume:launcher=false:cwd=<nil>")
+        ) == "input:claude --resume")
     }
 
-    @Test("post-start launch forwards the resolved resume working directory")
-    func postStartLaunchForwardsWorkingDirectory() throws {
+    @Test("post-start launch uses the binding restore input")
+    func postStartLaunchUsesBindingRestoreInput() throws {
         let service = makeService()
         let launch = try #require(service.surfaceResumeStartupLaunch(
-            forApprovedBinding: FakeBinding(),
-            restoringWorkingDirectory: "/tmp/restored project"
+            forApprovedBinding: FakeBinding()
         ))
 
-        #expect(
-            launch.initialInput ==
-                "input:echo ok:launcher=true:cwd=/tmp/restored project"
-        )
+        #expect(launch.initialInput == "input:echo ok")
     }
 
     @Test("Hermes agent bindings receive Codex bootstrap and provider rewrite")
@@ -212,7 +205,8 @@ struct WorkspaceSessionRestorePolicyServiceTests {
             kind: "hermes-agent",
             command: "cd /repo && hermes --provider openai-codex run",
             isAgentHookBinding: true,
-            allowsAutomaticResume: true
+            allowsAutomaticResume: true,
+            usesLocalRestoreVerb: false
         )
 
         let launch = try #require(service.surfaceResumeStartupLaunch(
@@ -228,6 +222,65 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(input.contains("'hermes' config set model.api_mode 'responses' >/dev/null"))
         #expect(input.contains("'hermes' config set model.default 'gpt-5' >/dev/null"))
         #expect(input.contains("hermes --provider 'codex' run"))
+    }
+
+    @Test("local Hermes bindings stay untouched behind the restore verb")
+    func localHermesBindingsSkipShellBootstrap() throws {
+        let service = makeService()
+        let command = "cd /repo && hermes --provider openai-codex run"
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: command,
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true,
+            usesLocalRestoreVerb: true
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json")
+        ))
+
+        #expect(launch.initialInput == "input:\(command)")
+        #expect(launch.initialInput.contains("config set") == false)
+    }
+
+    @Test("compatibility-shell preparation refreshes local legacy Hermes bindings")
+    func compatibilityShellPreparationRefreshesLocalLegacyHermesBindings() {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            },
+            resolvingDefaultCodexModel: { _ in "gpt-5" }
+        )
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: "cd /repo && hermes --provider openai-codex run",
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true,
+            usesLocalRestoreVerb: true
+        )
+
+        let compatibilityBinding = service.bindingForCompatibilityShellRestore(binding)
+
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.provider 'codex' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.base_url 'https://codex.example.test' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.api_mode 'responses' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.default 'gpt-5' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains("hermes --provider 'codex' run"))
     }
 
     @Test("remote reconnect waits when restored terminals can authenticate")

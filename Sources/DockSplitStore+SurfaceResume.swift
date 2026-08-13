@@ -79,10 +79,8 @@ extension DockSplitStore {
     }
 
     private func clearRestoredAgentContinuationState(panelId: UUID) {
-        restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
     }
 
     @discardableResult

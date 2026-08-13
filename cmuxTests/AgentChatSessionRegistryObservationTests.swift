@@ -279,7 +279,11 @@ struct AgentChatSessionRegistryObservationTests {
 
         let session = try #require(observed.first)
         #expect(observed.count == 1)
-        #expect(detailReadCount == 0)
+        // The scan reads a matched agent's process details exactly once and memoizes
+        // them (it needs the environment for the working directory and argv for the
+        // session-id fallback), so one read is correct here; a regression that re-read
+        // per use would push this past 1.
+        #expect(detailReadCount == 1)
         #expect(session.sessionID == sessionID)
         #expect(session.agentKind == .codex)
         #expect(session.workspaceID == workspaceID.uuidString)

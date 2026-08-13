@@ -35,8 +35,8 @@ func secondaryControlAttemptIsTransient(_ error: any Error) -> Bool {
     case .connectionClosed, .requestTimedOut, .transportWriteTimedOut,
          .routeCleanupBlocked:
         return true
-    case .invalidResponse, .insecureManualRoute, .attachTicketExpired,
-         .authorizationFailed, .accountMismatch:
+    case .invalidResponse, .connectAttemptGated, .insecureManualRoute,
+         .attachTicketExpired, .authorizationFailed, .accountMismatch:
         return false
     case let .rpcError(code, _):
         let permanentCodes: Set<String> = [

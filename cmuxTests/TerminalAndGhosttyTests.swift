@@ -1413,6 +1413,36 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNil(payload["workspace_count"])
     }
 
+#if DEBUG
+    func testMobileRPCMethodInventoryReturnsUniqueSortedCatalog() async throws {
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "rpc-methods",
+                method: "mobile.rpc.methods",
+                params: [:],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let methods = payload["methods"] as? [String] else {
+            XCTFail("Expected the debug Iroh RPC inventory")
+            return
+        }
+        XCTAssertEqual(payload["schema_version"] as? Int, 1)
+        XCTAssertEqual(methods, methods.sorted())
+        XCTAssertEqual(Set(methods).count, methods.count)
+        XCTAssertTrue(methods.contains("mobile.host.status"))
+        XCTAssertTrue(methods.contains("mobile.rpc.methods"))
+        XCTAssertTrue(methods.contains("workspace.list"))
+        XCTAssertTrue(methods.contains("terminal.input"))
+        XCTAssertTrue(methods.contains("mobile.browser.stream.start"))
+        XCTAssertTrue(methods.contains("mobile.simulator.stream.start"))
+        XCTAssertTrue(methods.contains("mobile.chat.sessions"))
+    }
+#endif
+
     func testMobileRPCRejectsMalformedWorkspaceIDBeforeImplicitFallback() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
@@ -1754,6 +1784,48 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertTrue(
             manager.scheduledMetadataRefreshes.isEmpty,
             "Mobile background terminal creation should not schedule sidebar metadata probes on the macOS main path."
+        )
+    }
+
+    func testMobileBrowserCreateReturnsStreamableDescriptorAndKeepsMacSelection() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = RecordingMobileTabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mobileWorkspace = manager.addWorkspace(
+            title: "Mobile Browser Workspace",
+            select: false,
+            eagerLoadTerminal: false,
+            autoRefreshMetadata: false
+        )
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "browser-create",
+                method: "mobile.browser.create",
+                params: ["workspace_id": mobileWorkspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let panelID = payload["panel_id"] as? String,
+              let panelUUID = UUID(uuidString: panelID) else {
+            XCTFail("Expected mobile browser.create to return the created panel descriptor")
+            return
+        }
+
+        XCTAssertEqual(payload["workspace_id"] as? String, mobileWorkspace.id.uuidString)
+        XCTAssertNotNil(mobileWorkspace.browserPanel(for: panelUUID))
+        XCTAssertEqual(
+            manager.selectedWorkspace?.id,
+            selectedWorkspace.id,
+            "Mobile background browser creation should not steal the Mac's workspace selection."
         )
     }
 #endif
@@ -2575,69 +2647,119 @@ struct TerminalKeyboardCopyModeCursorAppearanceTests {
     }
 }
 
+/// Blends `foreground` over `base` the way src-over compositing does.
+///
+/// cmux composites terminal background colors over the window background, so a
+/// configured opacity ends up in the RGB blend and the resulting color is
+/// opaque. The arithmetic is written out here on purpose: calling the app's own
+/// resolver to build the expectation would make these assertions agree with the
+/// product by construction and they could never catch a compositing regression.
+private func expectedCompositeOverWindowBackground(
+    foreground: NSColor,
+    opacity: CGFloat,
+    base: NSColor = .windowBackgroundColor
+) throws -> (red: CGFloat, green: CGFloat, blue: CGFloat) {
+    let foregroundSRGB = try XCTUnwrap(foreground.usingColorSpace(.sRGB))
+    let baseSRGB = try XCTUnwrap(base.usingColorSpace(.sRGB))
+    let alpha = max(0.0, min(opacity, 1.0))
+    return (
+        red: foregroundSRGB.redComponent * alpha + baseSRGB.redComponent * (1 - alpha),
+        green: foregroundSRGB.greenComponent * alpha + baseSRGB.greenComponent * (1 - alpha),
+        blue: foregroundSRGB.blueComponent * alpha + baseSRGB.blueComponent * (1 - alpha)
+    )
+}
+
+private func assertOpaqueColor(
+    _ actual: NSColor,
+    equals expected: (red: CGFloat, green: CGFloat, blue: CGFloat),
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws {
+    let srgb = try XCTUnwrap(
+        actual.usingColorSpace(.sRGB),
+        "Expected sRGB-convertible color",
+        file: file,
+        line: line
+    )
+    XCTAssertEqual(srgb.redComponent, expected.red, accuracy: 0.005, file: file, line: line)
+    XCTAssertEqual(srgb.greenComponent, expected.green, accuracy: 0.005, file: file, line: line)
+    XCTAssertEqual(srgb.blueComponent, expected.blue, accuracy: 0.005, file: file, line: line)
+    XCTAssertEqual(srgb.alphaComponent, 1.0, accuracy: 0.005, file: file, line: line)
+}
+
 final class GhosttyBackgroundThemeTests: XCTestCase {
-    func testColorClampsOpacity() {
+    func testColorClampsOpacity() throws {
         let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
 
+        // An opacity below zero clamps to 0, so none of `base` survives the
+        // blend and the result is the window background it composites onto.
+        // Without the clamp the negative weight would push the channels out of
+        // range instead.
         let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
-        XCTAssertEqual(lowerClamped.alphaComponent, 0.0, accuracy: 0.0001)
+        try assertOpaqueColor(
+            lowerClamped,
+            equals: try expectedCompositeOverWindowBackground(foreground: base, opacity: 0.0)
+        )
 
+        // An opacity above one clamps to 1, so `base` covers the window
+        // background completely.
         let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
-        XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
+        try assertOpaqueColor(
+            upperClamped,
+            equals: try expectedCompositeOverWindowBackground(foreground: base, opacity: 1.0)
+        )
     }
 
-    func testColorFromNotificationUsesBackgroundAndOpacity() {
-        let fallbackColor = NSColor.black
-        let fallbackOpacity = 1.0
+    func testColorFromNotificationUsesBackgroundAndOpacity() throws {
+        let notificationColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
         let notification = Notification(
             name: .ghosttyDefaultBackgroundDidChange,
             object: nil,
             userInfo: [
-                GhosttyNotificationKey.backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
+                GhosttyNotificationKey.backgroundColor: notificationColor,
                 GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
             ]
         )
 
+        // The fallbacks differ from the payload, so a color built from them
+        // instead would fail these assertions.
         let actual = GhosttyBackgroundTheme.color(
             from: notification,
-            fallbackColor: fallbackColor,
-            fallbackOpacity: fallbackOpacity
+            fallbackColor: .black,
+            fallbackOpacity: 1.0
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
 
-        XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.44, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
+        try assertOpaqueColor(
+            actual,
+            equals: try expectedCompositeOverWindowBackground(
+                foreground: notificationColor,
+                opacity: 0.57
+            )
+        )
     }
 
-    func testColorFromNotificationFallsBackWhenPayloadMissing() {
+    func testColorFromNotificationFallsBackWhenPayloadMissing() throws {
         let fallbackColor = NSColor(srgbRed: 0.12, green: 0.34, blue: 0.56, alpha: 1.0)
-        let fallbackOpacity = 0.42
         let notification = Notification(name: .ghosttyDefaultBackgroundDidChange)
 
         let actual = GhosttyBackgroundTheme.color(
             from: notification,
             fallbackColor: fallbackColor,
-            fallbackOpacity: fallbackOpacity
+            fallbackOpacity: 0.42
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
 
-        XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.56, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.42, accuracy: 0.005)
+        try assertOpaqueColor(
+            actual,
+            equals: try expectedCompositeOverWindowBackground(
+                foreground: fallbackColor,
+                opacity: 0.42
+            )
+        )
     }
 }
 
 final class PanelAppearanceBackgroundTests: XCTestCase {
-    func testTransparentGhosttyOpacityUsesClearContentBackground() {
+    func testTransparentGhosttyOpacityUsesClearContentBackground() throws {
         var config = GhosttyConfig()
         config.backgroundColor = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
         config.backgroundOpacity = 0.42
@@ -2647,7 +2769,17 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
+        // The panel fill is the configured color composited over the window
+        // background, so the 0.42 opacity shows up in the blend and the fill
+        // itself is opaque. The transparency the test is named for comes from
+        // the clear content background below.
+        try assertOpaqueColor(
+            appearance.backgroundColor,
+            equals: try expectedCompositeOverWindowBackground(
+                foreground: config.backgroundColor,
+                opacity: 0.42
+            )
+        )
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 
@@ -6241,9 +6373,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     private let transport = SocketTransport()
 
     @MainActor
-    func testStartPreservesRefusedSocketFileWhenLockHasNoReusableMarker() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+    func testStartReclaimsRefusedSocketFileWhenLockHasNoReusableMarker() throws {
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
@@ -6259,23 +6391,17 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
+        // The lock is unheld even though its marker was never written. The
+        // refused probe plus exclusive flock is enough to reclaim the orphan.
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
-        TerminalController.shared.start(
-            tabManager: TabManager(),
-            socketPath: path,
-            accessMode: .allowAll
-        )
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(transport.pathAcceptsConnections(path))
+        XCTAssertTrue(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
     func testStartReclaimsTaggedRefusedSocketFileWithoutReusableLockMarker() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = "/tmp/cmux-debug-reclaim-\(UUID().uuidString.lowercased()).sock"
         let listenerFD = try bindUnixSocket(at: path)
@@ -6296,9 +6422,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
     @MainActor
-    func testStartReclaimsRefusedSocketFileWhenReusableLockExists() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+    func testCleanStopRemovesReusableLockBeforeAnotherSocketClaimsPath() throws {
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         TerminalController.shared.start(
@@ -6308,14 +6434,15 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
         XCTAssertTrue(transport.pathAcceptsConnections(path))
 
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path + ".lock"))
         let listenerFD = try bindUnixSocket(at: path)
         Darwin.close(listenerFD)
         defer {
             unlink(path)
             unlink(path + ".lock")
         }
-        XCTAssertTrue(transport.pathCanBeReclaimedForStartup(path))
+        XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
 
         TerminalController.shared.start(
             tabManager: TabManager(),
@@ -6323,13 +6450,13 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertTrue(transport.pathAcceptsConnections(path))
+        XCTAssertFalse(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
     func testStartRejectsSymlinkedSocketPathLockWithoutTouchingTarget() throws {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let path = makeTempSocketPath()
         let lockPath = path + ".lock"
@@ -6357,8 +6484,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testReservedStartupSocketPathFeedsActivePathBeforeListenerStarts() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let reservedPath = "/tmp/cmux-reserved-startup-\(UUID().uuidString).sock"
         defer {
@@ -6384,8 +6511,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testActiveSocketPathPreservesRunningFallbackPathForSettingsRestart() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let fallbackPath = makeTempSocketPath()
         TerminalController.shared.start(
@@ -6415,8 +6542,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
     @MainActor
     func testReserveStartupSocketPathDoesNotCreateLockWhileListenerRuns() {
-        TerminalController.shared.stop()
-        defer { TerminalController.shared.stop() }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
         let activePath = makeTempSocketPath()
         let reservedPath = makeTempSocketPath()

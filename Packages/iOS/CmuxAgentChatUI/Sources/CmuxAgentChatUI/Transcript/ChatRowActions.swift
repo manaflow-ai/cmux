@@ -10,6 +10,12 @@ public struct ChatRowActions {
     /// Answers the pending question or permission card by option index.
     public var answerOption: (Int) -> Void
 
+    /// Answers a permission request, preserving the card kind for diagnostics.
+    public var answerPermission: (Int) -> Void
+
+    /// Answers a multiple-choice question, preserving the card kind for diagnostics.
+    public var answerQuestion: (Int) -> Void
+
     /// Retries a failed pending send, keyed by pending id.
     public var retryPending: (String) -> Void
 
@@ -49,6 +55,8 @@ public struct ChatRowActions {
     ///   - showCodeBlockDetail: Presents full details for prose code blocks.
     public init(
         answerOption: @escaping (Int) -> Void = { _ in },
+        answerPermission: ((Int) -> Void)? = nil,
+        answerQuestion: ((Int) -> Void)? = nil,
         retryPending: @escaping (String) -> Void = { _ in },
         discardPending: @escaping (String) -> Void = { _ in },
         openTerminal: @escaping () -> Void = {},
@@ -59,6 +67,8 @@ public struct ChatRowActions {
         notifyCopied: @escaping () -> Void = {}
     ) {
         self.answerOption = answerOption
+        self.answerPermission = answerPermission ?? answerOption
+        self.answerQuestion = answerQuestion ?? answerOption
         self.retryPending = retryPending
         self.discardPending = discardPending
         self.openTerminal = openTerminal

@@ -23,6 +23,7 @@ import {
 import {
   RelayConfigurationError,
   RelayDatabaseError,
+  relayAuthenticationError,
 } from "../../../../services/relay/errors";
 import {
   productionRelayWorkflowConfig,
@@ -47,11 +48,9 @@ import {
   type AuthedUser,
 } from "../../../../services/vms/auth";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 4 * 1_024;
-const RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS = 10 * 60;
+const RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS = 60;
 
 export interface RelayTokenDeps {
   readonly verifyRequest: (request: Request) => Promise<AuthedUser | null>;
@@ -78,6 +77,7 @@ export interface RelayTokenDeps {
   readonly checkRateLimit: RelayRateLimitCheck;
   readonly rateLimitRuleId: () => string | undefined;
   readonly isVercel: () => boolean;
+  readonly credentialSigningRequired: () => boolean;
 }
 
 const productionDeps: RelayTokenDeps = {
@@ -131,13 +131,40 @@ const productionDeps: RelayTokenDeps = {
   checkRateLimit,
   rateLimitRuleId: () => process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID,
   isVercel: () => process.env.VERCEL === "1",
+  credentialSigningRequired: () =>
+    process.env.VERCEL === "1" && process.env.VERCEL_ENV !== "preview",
 };
 
 export async function handleRelayTokenRequest(
   request: Request,
   deps: RelayTokenDeps,
 ): Promise<Response> {
-  const user = await deps.verifyRequest(request);
+  // Apply the cheap IP-scoped gate before calling Stack Auth. A storming
+  // client must not spend one upstream users/me request per retry. The clone
+  // preserves the existing auth-first semantics for malformed requests, which
+  // must not consume a valid relay-token budget.
+  if (await hasValidRelayEndpoint(request)) {
+    try {
+      await runRelayEffect(enforceRelayRateLimit({
+        request,
+        accountId: "pre-auth",
+        rateLimitKey: null,
+        ruleId: deps.rateLimitRuleId(),
+        check: deps.checkRateLimit,
+        isVercel: deps.isVercel(),
+        retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS,
+      }));
+    } catch (error) {
+      return relayErrorResponse(error);
+    }
+  }
+
+  let user: AuthedUser | null;
+  try {
+    user = await deps.verifyRequest(request);
+  } catch (error) {
+    return relayErrorResponse(relayAuthenticationError(error));
+  }
   if (!user) return unauthorized();
   const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
   if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace)) {
@@ -147,8 +174,6 @@ export async function handleRelayTokenRequest(
 
   try {
     const key = deps.signingKey();
-    if (!key) return jsonResponse({ error: "relay_token_not_configured" }, 503);
-
     const body = await readBoundedJsonObject(request, MAX_BODY_BYTES);
     if (!body.ok) {
       return jsonResponse(
@@ -182,22 +207,39 @@ export async function handleRelayTokenRequest(
       return jsonResponse({ error: "invalid_binding_request_proof" }, 403);
     }
 
-    // Rate limited per account+endpoint so one storming device only starves
-    // itself; runs after validation so malformed requests never consume the
-    // per-device budget.
+    const policy = await deps.signedPolicy(user.id, nowSeconds);
+    if (!key && deps.credentialSigningRequired()) {
+      return jsonResponse({ error: "relay_token_not_configured" }, 503);
+    }
+    const relayUrls = policy.payload.relays.map((relay) => relay.url);
+    // A fresh endpoint must fetch policy before registration, then fetch its
+    // bound credential immediately after registration. Renewals happen every
+    // four minutes because both artifacts expire after five. Give bootstrap
+    // and credential issuance separate one-minute partitions so the external
+    // rule cannot make the valid two-leg bootstrap or renewal cadence
+    // impossible. Duplicate work inside one phase and minute is still bounded.
+    const rateLimitBucket = Math.floor(
+      nowSeconds / RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS,
+    );
+    const rateLimitPhase = isEndpointAuthorized ? "credential" : "bootstrap";
+    const retryAfterSeconds = RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS -
+      (nowSeconds % RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS);
     await runRelayEffect(enforceRelayRateLimit({
       request,
       accountId: user.id,
-      devicePartition: rawEndpointId.toLowerCase(),
+      devicePartition:
+        `${endpointId}:${rateLimitPhase}:${rateLimitBucket}`,
       ruleId: deps.rateLimitRuleId(),
       check: deps.checkRateLimit,
       isVercel: deps.isVercel(),
-      retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS,
+      retryAfterSeconds,
     }));
 
-    const policy = await deps.signedPolicy(user.id, nowSeconds);
-    const relayUrls = policy.payload.relays.map((relay) => relay.url);
-    const relayCredentials = isEndpointAuthorized
+    // Local and preview runtimes intentionally operate without the private
+    // relay JWT signer. They still return the signed fleet policy so clients
+    // install one coherent account preference and continue with direct/LAN
+    // paths. Deployed non-preview runtimes fail closed above.
+    const relayCredentials = isEndpointAuthorized && key
       ? deps.issueCredentials({
         accountId: user.id,
         endpointId,
@@ -280,4 +322,14 @@ function homogeneousLegacyCredential(
 
 export function POST(request: Request): Promise<Response> {
   return handleRelayTokenRequest(request, productionDeps);
+}
+
+async function hasValidRelayEndpoint(request: Request): Promise<boolean> {
+  try {
+    const body = await readBoundedJsonObject(request.clone(), MAX_BODY_BYTES);
+    const endpointId = body.ok ? body.value.endpointId : undefined;
+    return typeof endpointId === "string" && isValidEndpointId(endpointId);
+  } catch {
+    return false;
+  }
 }

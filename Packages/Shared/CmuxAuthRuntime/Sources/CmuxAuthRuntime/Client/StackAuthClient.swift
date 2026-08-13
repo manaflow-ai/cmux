@@ -24,16 +24,23 @@ public struct StackAuthClient: AuthClient {
     ///   - tokenStore: Where Stack persists tokens. Pass `.memory` for the
     ///     simulator DEBUG flow and `.keychain` for real devices/release.
     ///   - oauthBrowserSessionPrivacy: Whether OAuth may reuse Safari cookies.
+    ///   - baseURL: Stack API origin. Defaults to Stack's production API.
+    ///   - noAutomaticPrefetch: Disables Stack project prefetch when the host
+    ///     owns startup sequencing.
     public init(
         config: AuthConfig,
         tokenStore: TokenStoreInit,
-        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared,
+        baseURL: String = "https://api.stack-auth.com",
+        noAutomaticPrefetch: Bool = false
     ) {
         self.init(
             stack: StackClientApp(
                 projectId: config.stack.projectId,
                 publishableClientKey: config.stack.publishableClientKey,
+                baseUrl: baseURL,
                 tokenStore: tokenStore,
+                noAutomaticPrefetch: noAutomaticPrefetch,
                 oauthBrowserSessionPrivacy: oauthBrowserSessionPrivacy
             )
         )
@@ -126,6 +133,12 @@ public struct StackAuthClient: AuthClient {
         let id = await user.id
         let email = await user.primaryEmail
         let name = await user.displayName
-        return CMUXAuthUser(id: id, primaryEmail: email, displayName: name)
+        let profileImageURL = await user.profileImageUrl
+        return CMUXAuthUser(
+            id: id,
+            primaryEmail: email,
+            displayName: name,
+            profileImageURL: profileImageURL
+        )
     }
 }

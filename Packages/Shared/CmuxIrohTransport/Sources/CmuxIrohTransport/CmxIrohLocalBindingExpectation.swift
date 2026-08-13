@@ -5,6 +5,7 @@ import Foundation
 public struct CmxIrohLocalBindingExpectation: Equatable, Sendable {
     public let deviceID: String
     public let appInstanceID: String
+    public let clientNamespace: String
     public let tag: String
     public let platform: CmxIrohPlatform
     public let endpointID: CmxIrohPeerIdentity
@@ -15,6 +16,7 @@ public struct CmxIrohLocalBindingExpectation: Equatable, Sendable {
     public init(
         deviceID: String,
         appInstanceID: String,
+        clientNamespace: String = "legacy",
         tag: String,
         platform: CmxIrohPlatform,
         endpointID: CmxIrohPeerIdentity,
@@ -24,15 +26,17 @@ public struct CmxIrohLocalBindingExpectation: Equatable, Sendable {
     ) throws {
         guard Self.isCanonicalUUID(deviceID),
               Self.isCanonicalUUID(appInstanceID),
+              Self.isSafeToken(clientNamespace, maximum: 255),
               Self.isSafeToken(tag),
               (1 ... Int(Int32.max)).contains(identityGeneration),
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
-              capabilities.allSatisfy(Self.isSafeToken) else {
+              capabilities.allSatisfy({ Self.isSafeToken($0) }) else {
             throw CmxIrohLocalBindingExpectationError.invalidExpectation
         }
         self.deviceID = deviceID
         self.appInstanceID = appInstanceID
+        self.clientNamespace = clientNamespace
         self.tag = tag
         self.platform = platform
         self.endpointID = endpointID
@@ -45,6 +49,7 @@ public struct CmxIrohLocalBindingExpectation: Equatable, Sendable {
     public func matches(_ binding: CmxIrohBrokerBinding) -> Bool {
         binding.deviceID == deviceID
             && binding.appInstanceID == appInstanceID
+            && binding.clientNamespace == clientNamespace
             && binding.tag == tag
             && binding.platform == platform
             && binding.endpointID == endpointID
@@ -58,8 +63,11 @@ public struct CmxIrohLocalBindingExpectation: Equatable, Sendable {
         UUID(uuidString: value)?.uuidString.lowercased() == value
     }
 
-    private static func isSafeToken(_ value: String) -> Bool {
-        guard (1 ... 64).contains(value.utf8.count) else { return false }
+    private static func isSafeToken(
+        _ value: String,
+        maximum: Int = 64
+    ) -> Bool {
+        guard (1 ... maximum).contains(value.utf8.count) else { return false }
         return value.utf8.allSatisfy { byte in
             (48 ... 57).contains(byte)
                 || (65 ... 90).contains(byte)

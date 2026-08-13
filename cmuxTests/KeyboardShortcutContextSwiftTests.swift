@@ -14,6 +14,52 @@ private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
+    @Test("focus history and browser history partition their shared default shortcuts by focus")
+    func focusAndBrowserHistoryContextsAreMutuallyExclusive() throws {
+        let pairs: [(KeyboardShortcutSettings.Action, KeyboardShortcutSettings.Action)] = [
+            (.focusHistoryBack, .browserBack),
+            (.focusHistoryForward, .browserForward),
+        ]
+        let outsideBrowserWhen: ShortcutWhenClause = .not(.atom(.browserFocus))
+
+        for (focusHistoryAction, browserAction) in pairs {
+            let focusHistoryContext = focusHistoryAction.shortcutContext
+            let browserContext = browserAction.shortcutContext
+            let sharedDefault = focusHistoryAction.defaultShortcut
+            let settingsAction = try #require(ShortcutAction(rawValue: focusHistoryAction.rawValue))
+
+            #expect(sharedDefault == browserAction.defaultShortcut)
+            #expect(focusHistoryContext.isAvailable(
+                focusedBrowserPanel: false,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: false
+            ))
+            #expect(focusHistoryContext.isAvailable(
+                focusedBrowserPanel: false,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: true
+            ))
+            #expect(!focusHistoryContext.isAvailable(
+                focusedBrowserPanel: true,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: false
+            ))
+            #expect(browserContext.isAvailable(
+                focusedBrowserPanel: true,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: false
+            ))
+            #expect(!focusHistoryContext.overlaps(browserContext))
+            #expect(focusHistoryContext.defaultWhenClause == outsideBrowserWhen)
+            #expect(settingsAction.defaultFocusWhenClause == outsideBrowserWhen)
+            #expect(!focusHistoryAction.conflicts(
+                with: browserAction.defaultShortcut,
+                proposedAction: browserAction,
+                configuredShortcut: sharedDefault
+            ))
+        }
+    }
+
     @Test("Simulator shortcuts are configurable, scoped, and priority routed")
     func simulatorShortcutPolicy() throws {
         let actions = KeyboardShortcutSettings.Action.simulatorActions

@@ -72,6 +72,17 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         }
     }
 
+    init?(persistedRawValue rawValue: String, registration: CmuxVaultAgentRegistration?) {
+        guard let kind = RestorableAgentKind(rawValue: rawValue) else { return nil }
+        guard let registration,
+              registration.id == kind.rawValue,
+              !Self.allCases.contains(where: { $0.rawValue == kind.rawValue }) else {
+            self = kind
+            return
+        }
+        self = .custom(registration.id)
+    }
+
     var rawValue: String {
         switch self {
         case .claude: return "claude"
@@ -198,12 +209,4 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     }
 }
 
-struct AgentLaunchCommandSnapshot: Codable, Equatable, Sendable {
-    var launcher: String?
-    var executablePath: String?
-    var arguments: [String]
-    var workingDirectory: String?
-    var environment: [String: String]?
-    var capturedAt: TimeInterval?
-    var source: String?
-}
+typealias AgentLaunchCommandSnapshot = AgentLaunchCommand

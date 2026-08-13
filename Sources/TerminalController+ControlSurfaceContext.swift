@@ -95,6 +95,13 @@ extension TerminalController: ControlSurfaceContext {
             checkpointID: effective.checkpointId,
             source: effective.source,
             environment: effective.environment,
+            launchCommand: effective.launchCommand.map {
+                controlAgentLaunchCommand(
+                    $0,
+                    replaySafeEnvironmentFor: effective.kind
+                )
+            },
+            permissionMode: effective.permissionMode,
             autoResume: effective.allowsAutomaticResume,
             approvalPolicyRawValue: effective.approvalPolicy?.rawValue,
             approvalRecordID: effective.approvalRecordId,
@@ -259,7 +266,9 @@ extension TerminalController: ControlSurfaceContext {
             if windowDockMismatchesExplicitSelectors(routing, dock: windowDock, aliasTabManager: tabManager) {
                 return .surfaceNotFound(surfaceID)
             }
-            focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
+            guard focusAndRevealWindowDock(for: windowDock, fallback: tabManager) else {
+                return .dockUnavailable(message: dockFocusUnavailableMessage())
+            }
             windowDock.focusPanel(surfaceID)
             return .focused(
                 windowID: windowDock.workspaceId,
@@ -289,6 +298,16 @@ extension TerminalController: ControlSurfaceContext {
         case .notRemote:
             break
         }
+        let isWorkspaceSurface = ws.panels[surfaceID] != nil
+        if ws.containsDockPanel(surfaceID) {
+            // Workspace-scoped Docks are retained only for compatibility and
+            // have no renderable owner. Revealing the window Dock would expose
+            // a different store, so explicit focus must fail closed.
+            return .dockUnavailable(message: dockUnavailableMessage())
+        }
+        guard isWorkspaceSurface else {
+            return .surfaceNotFound(surfaceID)
+        }
         if let windowId = v2ResolveWindowId(tabManager: tabManager) {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
@@ -296,14 +315,7 @@ extension TerminalController: ControlSurfaceContext {
         if tabManager.selectedTabId != ws.id {
             tabManager.selectWorkspace(ws)
         }
-        if ws.panels[surfaceID] != nil {
-            ws.focusPanel(surfaceID)
-        } else if ws.containsDockPanel(surfaceID) {
-            revealDockForFocus(tabManager: tabManager)
-            ws.dockSplit.focusPanel(surfaceID)
-        } else {
-            return .surfaceNotFound(surfaceID)
-        }
+        ws.focusPanel(surfaceID)
         return .focused(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,

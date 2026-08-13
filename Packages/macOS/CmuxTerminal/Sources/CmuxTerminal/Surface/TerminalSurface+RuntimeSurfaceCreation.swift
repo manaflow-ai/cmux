@@ -16,7 +16,7 @@ extension TerminalSurface {
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        claudeShim: ClaudeCommandShim?
+        agentCommandShims: AgentCommandShimSet?
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         let baseConfig = runtimeCreationConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
@@ -34,6 +34,7 @@ extension TerminalSurface {
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: view,
             surfaceController: self,
+            terminalLifecycleID: terminalLifecycleId,
             rendererMailboxDidDrain: { surfaceID in
                 Task { @MainActor in
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
@@ -42,11 +43,13 @@ extension TerminalSurface {
         ))
         surfaceConfig.userdata = callbackContext.toOpaque()
         surfaceConfig.renderer_event_cb = terminalRendererEventCallback
+        invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
-        if manualIO {
+        surfaceConfig.io_mode = ioMode.ghosttyMode
+        if ioMode.usesManualIO {
             // MANUAL I/O: ghostty spawns no process; typed input is delivered
             // to our callback and output is injected through
             // ghostty_surface_process_output.
@@ -55,7 +58,6 @@ extension TerminalSurface {
                 TerminalManualIOWriteBox(onWrite: manualInputHandler ?? { _ in })
             )
             manualIOContext = box
-            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
             surfaceConfig.io_write_cb = terminalManualIOWriteCallback
             surfaceConfig.io_write_userdata = box.toOpaque()
         }
@@ -179,19 +181,11 @@ extension TerminalSurface {
             }
         }
 
-        if let claudeShim {
-            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM", claudeShim.executablePath)
-            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", claudeShim.directoryPath)
-            // Carry the sibling codex wrapper-shim path into the managed env too,
-            // mirroring the claude shim. The auto-resume command for a codex
-            // session resolves the codex executable through CMUX_CODEX_WRAPPER_SHIM
-            // (see AgentResumeArgv.codexWrapperShellExecutableToken), so without
-            // this the resumed codex bypasses cmux-codex-wrapper and loses its
-            // hooks (iOS GUI stays read-only). The shim lives in the same
-            // per-surface directory already prepended to PATH below.
-            if let codexShim = claudeShim.codexCommandShim {
-                setManagedEnvironmentValue("CMUX_CODEX_WRAPPER_SHIM", codexShim.executablePath)
-                setManagedEnvironmentValue("CMUX_CODEX_WRAPPER_SHIM_ROOT", codexShim.directoryPath)
+        if let agentCommandShims {
+            setManagedEnvironmentValue("CMUX_AGENT_COMMAND_SHIM_ROOT", agentCommandShims.directoryPath)
+            for shim in agentCommandShims.shims {
+                setManagedEnvironmentValue(shim.wrapperShimEnvironmentKey, shim.executablePath)
+                setManagedEnvironmentValue(shim.wrapperShimRootEnvironmentKey, shim.directoryPath)
             }
             let currentPath = env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
@@ -199,7 +193,7 @@ extension TerminalSurface {
                 ?? ""
             setManagedEnvironmentValue(
                 "PATH",
-                Self.pathByPrependingUniqueDirectory(claudeShim.directoryPath, to: currentPath)
+                Self.pathByPrependingUniqueDirectory(agentCommandShims.directoryPath, to: currentPath)
             )
         }
 
@@ -281,7 +275,6 @@ extension TerminalSurface {
                 }
             }
         }
-
         return (createdSurface, runtimeInitialInput)
     }
 

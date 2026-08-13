@@ -2,15 +2,36 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
 final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    private struct DeferredRowClick {
+        let rowId: SidebarWorkspaceRenderItemID
+        let modifiers: NSEvent.ModifierFlags
+    }
+
+    private enum RowClickDispatchOutcome {
+        case dispatched
+        case awaitingActions
+        case invalid
+    }
+
     private weak var containerView: SidebarWorkspaceTableContainerView?
     private let createdCellViews = NSHashTable<NSView>.weakObjects()
     private var rows: [SidebarWorkspaceTableRowConfiguration] = []
     private var actions: SidebarWorkspaceTableActions?
+    private var deferredRowClick: DeferredRowClick?
+    /// SwiftUI-side wake-up for a parked click. A deferred click only lands
+    /// through the next authoritative apply, and applies only happen when
+    /// the deliberately Equatable-gated sidebar body re-evaluates. The park
+    /// itself mutates no SwiftUI-tracked state, so without requesting an
+    /// apply an idle app never re-arms the rows and the click waits on
+    /// unrelated invalidation — historically an app deactivate/reactivate
+    /// (issue #9690).
+    var onDeferredRowClickAwaitingApply: (() -> Void)?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
@@ -19,8 +40,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
+    private weak var unreadSource: SidebarUnreadModel?
+    private var unreadSnapshot = SidebarUnreadSnapshot()
+    private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
+    /// Latest immutable input offered while an interactive resize owns this
+    /// window. Already-applied rows stay authoritative until the real end signal.
+    private var deferredInteractiveResizeApply: SidebarWorkspaceTableApplyInput?
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) },
         viewportChangeFlush: { [weak self] in self?.flushViewportChange() },
@@ -80,12 +107,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.doubleAction = #selector(didDoubleClickTableRow)
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask(.move, forLocal: false)
-        table.registerForDraggedTypes([
-            NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier),
-        ])
-        // The row cells and the container's empty-indicator bar own all drop
-        // visuals; the built-in gap/highlight feedback must never draw.
-        table.draggingDestinationFeedbackStyle = .none
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("workspace"))
         column.resizingMask = .autoresizingMask
@@ -108,6 +129,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         )
         scrollView.applySidebarOverlayScrollerConfiguration()
 
+        container.reorderDropView.registerForDraggedTypes([
+            SidebarWorkspaceReorderDropOverlay.pasteboardType,
+        ])
         dropTargetGeometry.attach(containerView: container)
         container.bonsplitDropView.targetBridge = dropTargetGeometry.bonsplitTargetBridge
 
@@ -127,7 +151,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.performWidthRemeasureNow()
+                self?.interactiveGeometryResizeDidEnd()
             }
         }
 
@@ -137,6 +161,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func dismantleContainerView(_ container: SidebarWorkspaceTableContainerView) {
         guard containerView === container else { return }
         mutationScheduler.cancelPendingApplyAndViewport()
+        deferredInteractiveResizeApply = nil
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -144,12 +169,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let postUpdateActions = detachLoadedCells()
         workspaceDragSessionDidEnd()
         actions = nil
+        unreadObservation?.cancel()
+        unreadObservation = nil
+        unreadSource = nil
+        unreadSnapshot = SidebarUnreadSnapshot()
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
         selectedScrollTargetWorkspaceId = nil
         hoveredRowId = nil
         contextMenuRowId = nil
-        selectionCoalescer.cancel()
+        cancelSelectionIntent()
         clearDropViewActions(in: container)
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
         container.tableView.workspaceController = nil
@@ -158,6 +187,58 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         container.tableView.delegate = nil
         containerView = nil
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
+    }
+
+    /// Installs one unread subscription for the native table. Snapshot changes
+    /// are projected directly into affected visible cells, bypassing SwiftUI's
+    /// `VerticalTabsSidebar.body` and its O(workspaces) row construction.
+    func setUnreadSource(_ source: SidebarUnreadModel) {
+        guard unreadSource !== source else { return }
+        unreadObservation?.cancel()
+        unreadSource = source
+        applyUnreadSnapshot(source.snapshot)
+        unreadObservation = source.observeSummaryChanges(owner: self) { controller, snapshot in
+            controller.applyUnreadSnapshot(snapshot)
+        }
+    }
+
+    private func applyUnreadSnapshot(_ nextSnapshot: SidebarUnreadSnapshot) {
+        let previousSnapshot = unreadSnapshot
+        unreadSnapshot = nextSnapshot
+        guard isPresentationActive, let table = containerView?.tableView else { return }
+
+        let candidateIds = Set(previousSnapshot.summaryByWorkspaceId.keys)
+            .union(nextSnapshot.summaryByWorkspaceId.keys)
+        let changedWorkspaceIds = Set(candidateIds.filter {
+            previousSnapshot.summary(forWorkspaceId: $0)
+                != nextSnapshot.summary(forWorkspaceId: $0)
+        })
+        guard !changedWorkspaceIds.isEmpty else { return }
+
+        var changedRows = IndexSet()
+        for row in rows.indices {
+            let configuration = rows[row]
+            guard !configuration.appKitUnreadDependencyWorkspaceIds.isDisjoint(
+                with: changedWorkspaceIds
+            ) else {
+                continue
+            }
+            let updated = configuration.applyingUnreadSnapshot(nextSnapshot)
+            guard !configuration.hasEquivalentContent(to: updated) else { continue }
+            rows[row] = updated
+            changedRows.insert(row)
+        }
+        guard !changedRows.isEmpty else { return }
+
+        let heightChanges = rowHeightCache.prepareRows(
+            at: changedRows,
+            in: rows,
+            columnWidth: currentColumnWidth()
+        )
+        reconfigureVisibleRows(changedRows)
+        if !heightChanges.isEmpty {
+            noteHeightOfRowsWithoutAnimation(table, heightChanges)
+        }
     }
 
     func setPresentationActive(_ isActive: Bool, workspaceIds liveWorkspaceIds: [UUID]) {
@@ -173,6 +254,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return
         }
         mutationScheduler.cancelPendingApplyAndViewport()
+        deferredInteractiveResizeApply = nil
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
@@ -207,7 +289,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         contextMenuRowId = nil
         optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         pumpHeightOverrides.removeAll(keepingCapacity: true)
-        selectionCoalescer.cancel()
+        cancelSelectionIntent()
         rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
         if let containerView {
             clearDropViewActions(in: containerView)
@@ -244,6 +326,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return []
     }
 
+    private func retirePresentation(
+        from cell: NSView,
+        commitEdits: Bool
+    ) -> [@MainActor () -> Void] {
+        if let cell = cell as? SidebarWorkspaceRowTableCellView {
+            return cell.retirePresentation(commitEdits: commitEdits)
+        }
+        return detachPresentation(from: cell, commitEdits: commitEdits)
+    }
+
     func apply(
         rows nextRows: [SidebarWorkspaceTableRowConfiguration],
         actions: SidebarWorkspaceTableActions,
@@ -265,7 +357,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
         guard isPresentationActive, let containerView else { return }
-        let nextRows = input.rows
+        guard !TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(
+            in: containerView.window
+        ) else {
+            deferredInteractiveResizeApply = input
+            return
+        }
+        deferredInteractiveResizeApply = nil
+        let nextRows = input.rows.map { $0.applyingUnreadSnapshot(unreadSnapshot) }
         let actions = input.actions
         let nextWorkspaceIds = input.workspaceIds
         let selectedWorkspaceId = input.selectedWorkspaceId
@@ -327,6 +426,35 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         }
         pumpHeightOverrides.removeAll(keepingCapacity: true)
+
+        var previousIds: [SidebarWorkspaceRenderItemID] = []
+        var nextIds: [SidebarWorkspaceRenderItemID] = []
+        var isSmallPureReorder = false
+        if hasStructuralChanges {
+            previousIds = previousRows.map(\.id)
+            nextIds = nextRows.map(\.id)
+            // Positional mismatches bound the number of moveRow calls a drag
+            // needs (a single dragged row misaligns one contiguous span).
+            // Multiset equality (not Set) so duplicate ids — corrupt state —
+            // never masquerade as a pure reorder; and past the threshold the
+            // move planner's rescans would go quadratic, so bulk permutations
+            // take the reload path (they gain nothing from animation).
+            let mismatches = zip(previousIds, nextIds).reduce(into: 0) { count, pair in
+                if pair.0 != pair.1 { count += 1 }
+            }
+            isSmallPureReorder = previousIds.count == nextIds.count
+                && mismatches <= Self.maxAnimatedReorderMoves
+                && Self.multisetEqual(previousIds, nextIds)
+        }
+        let requiresAtomicReorderReload =
+            hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
+        let viewportAnchor = requiresAtomicReorderReload
+            ? SidebarWorkspaceTableViewportAnchor.capture(
+                table: containerView.tableView,
+                previousRows: previousRows,
+                nextRows: nextRows
+            )
+            : nil
         rows = nextRows
 
 #if DEBUG
@@ -338,24 +466,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
 #endif
         if hasStructuralChanges {
-            let previousIds = previousRows.map(\.id)
-            let nextIds = nextRows.map(\.id)
-            // Positional mismatches bound the number of moveRow calls a drag
-            // needs (a single dragged row misaligns one contiguous span).
-            // Multiset equality (not Set) so duplicate ids — corrupt state —
-            // never masquerade as a pure reorder; and past the threshold the
-            // move planner's rescans would go quadratic, so bulk permutations
-            // take the reload path (they gain nothing from animation).
-            let mismatches = zip(previousIds, nextIds).reduce(into: 0) { count, pair in
-                if pair.0 != pair.1 { count += 1 }
-            }
-            if previousIds.count == nextIds.count,
-               mismatches <= Self.maxAnimatedReorderMoves,
-               Self.multisetEqual(previousIds, nextIds) {
-                // Pure reorder (drag-drop): move rows in place. reloadData
-                // tears down every visible cell and snaps the scroll
-                // position — the "click to reorder is jank" report — while
-                // moves keep cells alive and settle smoothly.
+            if heightChanges.isEmpty, isSmallPureReorder {
+                // Stable-geometry reorder (drag-drop): move rows in place.
+                // reloadData tears down every visible cell and snaps the
+                // scroll position, while moves keep cells alive and settle
+                // smoothly. A reorder that also changes height must reload:
+                // AppKit can otherwise reuse a moved cell at its old frame
+                // before the separate height notification takes effect,
+                // clipping checklist or notification content.
                 let table = containerView.tableView
                 table.beginUpdates()
                 var current = previousIds
@@ -374,11 +492,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                         IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
                     )
                 }
-                if !heightChanges.isEmpty {
-                    noteHeightOfRowsWithoutAnimation(table, heightChanges)
-                }
             } else {
-                containerView.tableView.reloadData()
+                let table = containerView.tableView
+                // The atomic height-changing reorder path replaces visible
+                // cells. Capture active rename/checklist drafts before AppKit
+                // calls prepareForReuse, then commit them through the existing
+                // post-update scheduler once the reload has settled.
+                let postUpdateActions = requiresAtomicReorderReload
+                    ? detachLoadedCells()
+                    : []
+                table.reloadData()
+                // A height-changing reorder needs the atomic reload above to
+                // avoid stale moved-row frames. Preserve a stable visible row's
+                // pixel offset so that correctness does not jump the viewport.
+                viewportAnchor?.restore(table: table, rows: nextRows)
+                mutationScheduler.stagePostUpdateActions(postUpdateActions)
             }
         } else {
             reconfigureVisibleRows(contentChanges)
@@ -436,6 +564,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         enforceHoverOnVisibleCells()
         updateDropTargets()
         replanReorderDragIfActive()
+        replayDeferredRowClickIfPossible()
+    }
+
+    private func interactiveGeometryResizeDidEnd() {
+        guard let containerView,
+              !TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(
+                  in: containerView.window
+              ) else {
+            return
+        }
+        if let deferredInteractiveResizeApply {
+            self.deferredInteractiveResizeApply = nil
+            mutationScheduler.stageApply(deferredInteractiveResizeApply)
+        }
+        performWidthRemeasureNow()
     }
 
     /// Row clicks route through the table's action (NSTableView owns the
@@ -447,43 +590,86 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
 #endif
         guard rows.indices.contains(row) else { return }
-        if let actions = rows[row].appKitWorkspaceRowActions {
-            // Capture modifiers from the clicking EVENT at action time: a
-            // coalesced (trailing) apply must not re-read the keyboard
-            // ~100ms later, and the global NSEvent.modifierFlags reads
-            // hardware state, which misses event-carried flags (synthetic
-            // clicks, exotic input methods).
-            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-            // Down-then-up highlight: the optimistic paint bridges the model
-            // round trip, applied here (action == completed click), never on
-            // the press.
+        // Capture modifiers from the clicking EVENT at action time: a
+        // deferred or coalesced apply must not re-read the keyboard later,
+        // and the global NSEvent.modifierFlags reads hardware state, which
+        // misses event-carried flags (synthetic clicks, exotic input methods).
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        let click = DeferredRowClick(rowId: rows[row].id, modifiers: modifiers)
+        switch dispatchRowClick(click) {
+        case .dispatched:
+            deferredRowClick = nil
+        case .awaitingActions:
+            // Presentation snapshots intentionally release their live action
+            // captures while hidden. The retained row can become visible
+            // before SwiftUI supplies its first authoritative reveal apply,
+            // so preserve the completed click by stable row identity.
             previewSelection(row: row, modifiers: modifiers, hitView: nil)
-            if modifiers.contains(.command) || modifiers.contains(.shift) {
-                // Multi-select mutations are order-dependent and extend the
-                // selection the user currently sees: flush (not drop) a
-                // plain click still in the coalescing window first.
-                selectionCoalescer.flushNow()
-                actions.commands.updateSelection(modifiers: modifiers)
-            } else {
-                selectionCoalescer.request {
-                    actions.commands.updateSelection(modifiers: modifiers)
-                }
-            }
-        } else if let headerActions = rows[row].appKitGroupHeaderActions {
-            // Group headers focus their anchor workspace: same fast path as
-            // workspace rows (burst coalescing; the completed click paints
-            // the optimistic anchor-active treatment).
-            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-            previewSelection(row: row, modifiers: modifiers, hitView: nil)
-            if modifiers.contains(.command) || modifiers.contains(.shift) {
-                selectionCoalescer.flushNow()
-                headerActions.onFocusAnchor(modifiers)
-            } else {
-                selectionCoalescer.request {
-                    headerActions.onFocusAnchor(modifiers)
-                }
-            }
+            deferredRowClick = click
+            // Request the apply the replay depends on. Fired only from a
+            // physical click (never from a replay re-park), so a request per
+            // click is the ceiling and a pathological apply cannot loop.
+#if DEBUG
+            cmuxDebugLog("sidebar.table.applyRequest row=\(row)")
+#endif
+            onDeferredRowClickAwaitingApply?()
+        case .invalid:
+            deferredRowClick = nil
         }
+    }
+
+    private func dispatchRowClick(_ click: DeferredRowClick) -> RowClickDispatchOutcome {
+        guard let row = rows.firstIndex(where: { $0.id == click.rowId }) else {
+            return .invalid
+        }
+        let configuration = rows[row]
+        if let actions = configuration.appKitWorkspaceRowActions {
+            previewSelection(row: row, modifiers: click.modifiers, hitView: nil)
+            dispatchSelection(modifiers: click.modifiers) {
+                actions.commands.updateSelection(modifiers: click.modifiers)
+            }
+            return .dispatched
+        }
+        if let headerActions = configuration.appKitGroupHeaderActions {
+            previewSelection(row: row, modifiers: click.modifiers, hitView: nil)
+            dispatchSelection(modifiers: click.modifiers) {
+                headerActions.onFocusAnchor(click.modifiers)
+            }
+            return .dispatched
+        }
+        if configuration.appKitWorkspaceRowModel != nil
+            || configuration.appKitGroupHeaderModel != nil {
+            return .awaitingActions
+        }
+        return .invalid
+    }
+
+    private func dispatchSelection(
+        modifiers: NSEvent.ModifierFlags,
+        action: @escaping @MainActor () -> Void
+    ) {
+        if modifiers.contains(.command) || modifiers.contains(.shift) {
+            // Multi-select mutations are order-dependent and extend the
+            // selection the user currently sees: flush (not drop) a plain
+            // click still in the coalescing window first.
+            selectionCoalescer.flushNow()
+            action()
+        } else {
+            selectionCoalescer.request(action)
+        }
+    }
+
+    private func replayDeferredRowClickIfPossible() {
+        guard let click = deferredRowClick else { return }
+        deferredRowClick = nil
+        if case .awaitingActions = dispatchRowClick(click) {
+            deferredRowClick = click
+        }
+    }
+
+    private func cancelSelectionIntent() {
+        deferredRowClick = nil
+        selectionCoalescer.cancel()
     }
 
     @objc private func didDoubleClickTableRow() {
@@ -503,7 +689,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // end-editing commits the untouched title — the field flashes and
         // vanishes. A double-click is a rename gesture: drop the queued
         // selection before starting the edit.
-        selectionCoalescer.cancel()
+        cancelSelectionIntent()
         cell.beginInlineRename()
     }
 
@@ -562,7 +748,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Row retirement is the authoritative cleanup signal. A temporary
         // whole-table window reparent leaves its row views installed, while
         // an actual deletion/reload removes them through this callback.
-        let postUpdateActions = detachPresentation(from: cell, commitEdits: true)
+        let postUpdateActions = retirePresentation(from: cell, commitEdits: true)
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
     }
 
@@ -682,7 +868,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // fast drag leaves the grabbed row painted selected and every other
         // visible row peeled. Drop the queued selection and restore visible
         // cells from their stored models before drop targets paint.
-        selectionCoalescer.cancel()
+        cancelSelectionIntent()
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         restoreVisibleCellPaint()
@@ -694,10 +880,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         retireReorderIndicator()
     }
 
-    // MARK: Workspace reorder drop (native NSTableView destination)
+    // MARK: Workspace reorder drop
 
     /// Window-space location of the live reorder drag. Present only between
-    /// an accepted validateDrop and the drop/exit/end that retires it; while
+    /// an accepted overlay update and the drop/exit/end that retires it; while
     /// present, every viewport change re-plans against it so the indicator
     /// tracks rows sliding under a stationary pointer during edge autoscroll.
     private var reorderDragWindowPoint: NSPoint?
@@ -708,17 +894,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// the controller paints the affected cells directly instead.
     private var reorderIndicatorPainter: SidebarWorkspaceTableReorderIndicatorPainter?
 
-    /// Workspace id parsed from the drag pasteboard at validateDrop time.
+    /// Workspace id parsed from the live drag pasteboard by the overlay.
     /// Survives dragState teardown (app-resign failsafe) so re-plans and the
     /// final drop can re-arm the drag instead of silently no-oping.
     private var reorderDragPayloadWorkspaceId: UUID?
-
-    /// True while a reorder drop session is hovering the table (between an
-    /// accepted validateDrop and drop/exit/end). Gates the table's refusal of
-    /// AppKit's built-in drag autoscroll to drop sessions only.
-    var isReorderDropSessionActive: Bool {
-        reorderDragWindowPoint != nil || reorderIndicatorPainter != nil
-    }
 
     /// The plan whose indicator is currently painted. The drop commits this
     /// plan verbatim so the outcome always matches the line the user saw;
@@ -732,29 +911,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// the release position.
     private var suppressSelectedScrollAfterLocalDrop = false
 
-    func tableView(
-        _ tableView: NSTableView,
-        validateDrop info: any NSDraggingInfo,
-        proposedRow row: Int,
-        proposedDropOperation dropOperation: NSTableView.DropOperation
-    ) -> NSDragOperation {
-        guard pasteboardCarriesReorderPayload(info) else { return [] }
-        reorderDragPayloadWorkspaceId = Self.reorderPayloadWorkspaceId(info.draggingPasteboard)
-        return updateReorderDrag(windowPoint: info.draggingLocation) ? .move : []
-    }
-
-    func tableView(
-        _ tableView: NSTableView,
-        acceptDrop info: any NSDraggingInfo,
-        row: Int,
-        dropOperation: NSTableView.DropOperation
+    private func performReorderDrop(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlay.Target],
+        payloadWorkspaceId: UUID?
     ) -> Bool {
         reorderDragWindowPoint = nil
-        guard pasteboardCarriesReorderPayload(info),
-              let actions,
-              let table = containerView?.tableView else { return false }
-        let payloadWorkspaceId = Self.reorderPayloadWorkspaceId(info.draggingPasteboard)
-        let point = table.convert(info.draggingLocation, from: nil)
+        guard let actions else {
+            retireReorderIndicator()
+            return false
+        }
         let performed: Bool
         let commitSource: String
         if let plan = lastAcceptedReorderDropPlan {
@@ -762,9 +928,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             performed = actions.commitWorkspaceDropPlan(plan)
             commitSource = "paintedPlan"
         } else {
-            // No accepted hover reached this table (drop without a preceding
-            // validateDrop plan): resolve from the release point.
-            performed = actions.performWorkspaceDrop(point, reorderDropTargets(), payloadWorkspaceId)
+            // No accepted hover plan exists: resolve from the release point.
+            performed = actions.performWorkspaceDrop(point, targets, payloadWorkspaceId)
             commitSource = "releasePoint"
         }
 #if DEBUG
@@ -790,27 +955,43 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         retireReorderIndicator()
     }
 
-    func reorderDropSessionEnded() {
-        reorderDropDragExited()
-    }
-
     /// Runs the shared reorder planner for a drag hovering at `windowPoint`
     /// and paints the resulting indicator. An accepted position is remembered
     /// (window space) so viewport changes can re-plan it; a rejected one
-    /// stops the re-plan loop until the pointer produces a new validateDrop.
+    /// stops the re-plan loop until the pointer produces a new overlay update.
     @discardableResult
     func updateReorderDrag(windowPoint: NSPoint) -> Bool {
-        guard let actions, let table = containerView?.tableView else {
+        guard let dropView = containerView?.reorderDropView else {
             reorderDragWindowPoint = nil
             retireReorderIndicator()
             return false
         }
-        let targets = reorderDropTargets()
+        let targets = refreshReorderDropTargets()
+        return updateReorderDrag(
+            point: dropView.convert(windowPoint, from: nil),
+            targets: targets,
+            windowPoint: windowPoint,
+            payloadWorkspaceId: reorderDragPayloadWorkspaceId
+        )
+    }
+
+    private func updateReorderDrag(
+        point: CGPoint,
+        targets: [SidebarWorkspaceReorderDropOverlay.Target],
+        windowPoint: NSPoint,
+        payloadWorkspaceId: UUID?
+    ) -> Bool {
+        guard let actions else {
+            reorderDragWindowPoint = nil
+            retireReorderIndicator()
+            return false
+        }
+        reorderDragPayloadWorkspaceId = payloadWorkspaceId
         guard !targets.isEmpty,
               let update = actions.updateWorkspaceDrag(
-                  table.convert(windowPoint, from: nil),
+                  point,
                   targets,
-                  reorderDragPayloadWorkspaceId
+                  payloadWorkspaceId
               )
         else {
             reorderDragWindowPoint = nil
@@ -873,31 +1054,40 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
     }
 
-    /// Visible-row drop targets in table coordinates, built synchronously at
-    /// hit-test time. The drag point is converted into the same space, so the
-    /// planner's point/frame comparisons stay coherent.
-    private func reorderDropTargets() -> [SidebarWorkspaceReorderDropOverlay.Target] {
-        guard let table = containerView?.tableView else { return [] }
+    /// Refreshes visible-row targets in the overlay's coordinate space.
+    @discardableResult
+    private func refreshReorderDropTargets() -> [SidebarWorkspaceReorderDropOverlay.Target] {
+        guard let container = containerView else { return [] }
+        let table = container.tableView
         let visibleRange = table.rows(in: table.visibleRect)
-        guard visibleRange.location != NSNotFound, visibleRange.length > 0 else { return [] }
+        guard visibleRange.location != NSNotFound, visibleRange.length > 0 else {
+            clearReorderDropTargets()
+            return []
+        }
         let lower = max(0, visibleRange.location)
         let upper = min(rows.count, visibleRange.location + visibleRange.length)
-        guard lower < upper else { return [] }
-        return (lower..<upper).map { row in
+        guard lower < upper else {
+            clearReorderDropTargets()
+            return []
+        }
+        let targets = (lower..<upper).map { row in
             let configuration = rows[row]
             return SidebarWorkspaceReorderDropOverlay.Target(
                 workspaceId: configuration.workspaceId,
                 groupId: configuration.groupId,
                 isGroupHeader: configuration.isGroupHeader,
-                frame: table.rect(ofRow: row)
+                frame: table.convert(table.rect(ofRow: row), to: container.reorderDropView)
             )
         }
+        container.reorderDropView.targets = targets
+        container.reorderDropView.targetsDidUpdate()
+        return targets
     }
 
-    private func pasteboardCarriesReorderPayload(_ info: any NSDraggingInfo) -> Bool {
-        info.draggingPasteboard.types?.contains(
-            NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-        ) == true
+    private func clearReorderDropTargets() {
+        guard let reorderDropView = containerView?.reorderDropView else { return }
+        reorderDropView.targets = []
+        reorderDropView.targetsDidUpdate()
     }
 
     /// Item-provider drag sources promise data rather than strings, so fall
@@ -1410,6 +1600,42 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         in container: SidebarWorkspaceTableContainerView,
         actions: SidebarWorkspaceTableActions
     ) {
+        let reorder = container.reorderDropView
+        let livePayloadWorkspaceId = {
+            Self.reorderPayloadWorkspaceId(NSPasteboard(name: .drag))
+        }
+        reorder.isValidDrag = {
+            actions.isValidWorkspaceDrag() || livePayloadWorkspaceId() != nil
+        }
+        reorder.updateDrag = { [weak self, weak reorder] point, _ in
+            guard let self, let reorder else { return false }
+            let targets = self.refreshReorderDropTargets()
+            return self.updateReorderDrag(
+                point: point,
+                targets: targets,
+                windowPoint: reorder.convert(point, to: nil),
+                payloadWorkspaceId: livePayloadWorkspaceId()
+            )
+        }
+        reorder.performDropAtPoint = { [weak self] point, _ in
+            guard let self else { return false }
+            return self.performReorderDrop(
+                point: point,
+                targets: self.refreshReorderDropTargets(),
+                payloadWorkspaceId: livePayloadWorkspaceId()
+            )
+        }
+        reorder.clearDropIndicator = { [weak self] in
+            self?.reorderDropDragExited()
+        }
+        reorder.setWorkspaceDropTargetCollectionActive = { [weak self] isActive in
+            if isActive {
+                self?.refreshReorderDropTargets()
+            } else {
+                self?.clearReorderDropTargets()
+            }
+        }
+
         let bonsplit = container.bonsplitDropView
         bonsplit.canPerformAction = actions.canPerformBonsplitAction
         bonsplit.updateAutoscroll = actions.updateDragAutoscroll
@@ -1439,6 +1665,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func clearDropViewActions(in container: SidebarWorkspaceTableContainerView) {
+        let reorder = container.reorderDropView
+        reorder.suspendPresentation()
+        reorder.isValidDrag = { false }
+        reorder.updateDrag = { _, _ in false }
+        reorder.performDropAtPoint = { _, _ in false }
+        reorder.clearDropIndicator = {}
+        reorder.setWorkspaceDropTargetCollectionActive = { _ in }
+
         let bonsplit = container.bonsplitDropView
         bonsplit.suspendPresentation()
         bonsplit.canPerformAction = { _, _ in false }

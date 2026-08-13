@@ -33,11 +33,11 @@ import Security
 ///   locked, fail toward MINT-safe `false` is wrong (it would rotate an
 ///   upgrading device), so the probe reports `.unavailable` and resolution
 ///   defers, mirroring the device-id store's own fail-closed behavior.
-protocol SameDeviceEvidenceProbing: Sendable {
+public protocol SameDeviceEvidenceProbing: Sendable {
     func probe() -> SameDeviceEvidence
 }
 
-enum SameDeviceEvidence: Equatable, Sendable {
+public enum SameDeviceEvidence: Equatable, Sendable {
     /// A ThisDeviceOnly artifact from the prior install exists on this device.
     case present
     /// No such artifact exists (fresh install, or restore onto new hardware).
@@ -54,14 +54,14 @@ enum SameDeviceEvidence: Equatable, Sendable {
 /// on CmuxIrohTransport, so the constant is duplicated here deliberately; both
 /// sites carry a comment pointing at the other. The probe only asks "does any
 /// item exist" — it never reads key material (`kSecReturnData` is not set).
-struct IrohEndpointIdentityEvidenceProbe: SameDeviceEvidenceProbing {
+public struct IrohEndpointIdentityEvidenceProbe: SameDeviceEvidenceProbing {
     private let service: String
 
-    init(service: String = "com.cmuxterm.iroh.endpoint-identity.v1") {
+    public init(service: String = "com.cmuxterm.iroh.endpoint-identity.v1") {
         self.service = service
     }
 
-    func probe() -> SameDeviceEvidence {
+    public func probe() -> SameDeviceEvidence {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

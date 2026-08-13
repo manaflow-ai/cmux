@@ -70,6 +70,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.focusRight`
 - `shortcuts.bindings.focusUp`
 - `shortcuts.bindings.focusDown`
+- `shortcuts.bindings.focusPreviousPane`
+- `shortcuts.bindings.focusNextPane`
 - `shortcuts.bindings.splitRight`
 - `shortcuts.bindings.splitDown`
 - `shortcuts.bindings.toggleSplitZoom`
@@ -121,6 +123,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.switchRightSidebarToDock`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.prevSidebarTab`
+- `shortcuts.bindings.nextSidebarTabInGroup`
+- `shortcuts.bindings.prevSidebarTabInGroup`
 
 ## Browser
 

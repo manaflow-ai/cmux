@@ -146,6 +146,23 @@ extension MobileShellComposite {
         _ hostInstances: [PresenceInstance],
         scope: MobileShellScopeSnapshot
     ) async {
+        // A route push is broker-grade evidence that the Mac's endpoint state
+        // changed (relaunch, re-registration). Drop any reusable transport
+        // discovery snapshot for those Macs before recovery dials, so the
+        // next dial rebuilds its plan from a fresh broker fetch instead of
+        // redialing corpse route state (docs/transport-plane.md, D5).
+        if let personalIrohDiscovery {
+            var invalidatedDeviceIDs = Set<String>()
+            for instance in hostInstances where instance.routes?.isEmpty == false {
+                let deviceID = cmxCanonicalDeviceID(instance.deviceId)
+                guard invalidatedDeviceIDs.insert(deviceID).inserted else {
+                    continue
+                }
+                await personalIrohDiscovery.invalidateDiscovery(
+                    forMacDeviceID: instance.deviceId
+                )
+            }
+        }
         await performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
             guard let self, await self.isScopeCurrent(scope) else { return }
             // Presence can arrive after another path paired or restored a Mac
@@ -216,6 +233,14 @@ extension MobileShellComposite {
         }
         // Presence is only a wake-up signal. The recovery pass still obtains
         // first-pair candidates from the authenticated personal broker.
+        // Unchanged heartbeats are throttled so a persistent outage cannot
+        // restart an in-flight recovery on the presence cadence.
+        guard presencePushRecoveryThrottle.shouldRecover(
+            evidenceChanged: evidenceChanged,
+            now: runtime?.now() ?? Date()
+        ) else {
+            return
+        }
         recoverMobileConnection(trigger: .presencePush)
     }
 

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import CmuxCore
 import Testing
@@ -9,6 +10,92 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
+    @Test func structuredLaunchCaptureRoundTripsAdditively() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume legacy-display-command",
+            cwd: "/tmp/项目 with 'quotes'",
+            checkpointId: "a22293b7-bcef-4707-8439-2f538c8517a4",
+            source: "agent-hook",
+            environment: ["CODEX_HOME": "/tmp/配置"],
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/company bin/codex",
+                arguments: [
+                    "/opt/company bin/codex",
+                    "--model",
+                    "gpt-5.6-sol",
+                    "日本語",
+                ],
+                workingDirectory: "/tmp/项目 with 'quotes'",
+                environment: ["CODEX_HOME": "/tmp/配置"],
+                capturedAt: 123,
+                source: "process"
+            ),
+            autoResume: true
+        )
+
+        let decoded = try JSONDecoder().decode(
+            SurfaceResumeBindingSnapshot.self,
+            from: JSONEncoder().encode(binding)
+        )
+
+        #expect(decoded == binding)
+        #expect(decoded.launchCommand?.arguments == binding.launchCommand?.arguments)
+        #expect(decoded.command.contains("codex resume legacy-display-command"))
+    }
+
+    @Test func v06420CommandOnlyBindingStillProducesRestoreVerb() throws {
+        let json = """
+        {
+          "name": "Legacy custom agent",
+          "kind": "custom-agent",
+          "command": "legacy-agent --resume 'old checkpoint'",
+          "cwd": "/tmp/legacy",
+          "checkpointId": "old checkpoint",
+          "source": "agent-hook",
+          "environment": {"LEGACY_VALUE": "preserved"},
+          "autoResume": true,
+          "approvalPolicy": "auto",
+          "approvalRecordId": "legacy-approval",
+          "updatedAt": 1
+        }
+        """
+        let binding = try JSONDecoder().decode(
+            SurfaceResumeBindingSnapshot.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(binding.launchCommand == nil)
+        #expect(binding.permissionMode == nil)
+        #expect(binding.launchFlavor == .local)
+        #expect(binding.wasDecodedWithoutLaunchFlavor)
+        #expect(binding.environment == ["LEGACY_VALUE": "preserved"])
+        #expect(
+            binding.restoreStartupInput()
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore --surface\n"
+        )
+    }
+
+    @Test func localRestoreUsesOneShortCLICommandRegardlessOfBindingSize() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(sessionId) " + String(repeating: "--config model_provider=subrouter ", count: 80),
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.restoreStartupInput())
+
+        #expect(
+            startupInput
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionId)\n"
+        )
+    }
+
     @Test(arguments: ["codex", "claude"])
     func agentHookRestoreBindingCarriesProviderAndSessionBoundAuthorization(kind: String) throws {
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
@@ -314,8 +401,7 @@ import Testing
                 autoResume: true
             )
 
-            let startupInput = try #require(binding.startupInputWithLauncherScript(
-                allowLauncherScript: false,
+            let startupInput = try #require(binding.inlineStartupInput(
                 repairPortableAgentExecutable: false
             ))
             #expect(
@@ -325,23 +411,13 @@ import Testing
         }
     }
 
-    @Test @MainActor func remoteWorkspaceLocalTerminalResumeBindingUsesLocalRepair() throws {
+    @Test @MainActor func remoteWorkspaceLocalTerminalResumeBindingUsesShortLocalRestoreVerb() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-local-resume-binding-\(UUID().uuidString)", isDirectory: true)
         let localDirectoryURL = root.appendingPathComponent("local repo", isDirectory: true)
-        let binURL = root.appendingPathComponent("bin", isDirectory: true)
-        let codexOutputURL = root.appendingPathComponent("codex-output.txt", isDirectory: false)
         try fileManager.createDirectory(at: localDirectoryURL, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: binURL, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
-
-        let fakeCodexURL = binURL.appendingPathComponent("codex", isDirectory: false)
-        try """
-        #!/bin/sh
-        printf '%s|%s\\n' "$PWD" "$*" > "$CMUX_FAKE_CODEX_OUTPUT"
-        """.write(to: fakeCodexURL, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCodexURL.path)
 
         let suiteName = "cmux-session-resume-binding-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -387,7 +463,7 @@ import Testing
         )
         let oversizedArgument = String(
             repeating: "x",
-            count: SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes + 1
+            count: 901
         )
         let quotedDirectory = "'\(localDirectory)'"
         #expect(remoteWorkspace.setSurfaceResumeBinding(
@@ -422,22 +498,12 @@ import Testing
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
         let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
         #expect(restoredPanel.requestedWorkingDirectory == localDirectory)
-        let launcherScriptPath = try launcherScriptPath(from: restoredInput)
-        let launcherEnvironment = try makeOhMyZshLauncherEnvironment(
-            root: root,
-            integrationDir: shellIntegrationDirectory(),
-            pathPrefix: binURL.path,
-            codexShimURL: fakeCodexURL,
-            codexOutputURL: codexOutputURL
+        #expect(
+            restoredInput
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex session-local-resume\n"
         )
-        try runLauncherUntilOutput(
-            scriptPath: launcherScriptPath,
-            environment: launcherEnvironment,
-            outputURL: codexOutputURL
-        )
-        let codexOutput = try String(contentsOf: codexOutputURL, encoding: .utf8)
-        #expect(codexOutput.contains("\(localDirectory)|resume session-local-resume"), "\(codexOutput)")
-        #expect(!codexOutput.contains(staleExecutablePath), "\(codexOutput)")
+        #expect(!restoredInput.contains(staleExecutablePath))
+        #expect(!restoredInput.contains(oversizedArgument))
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
@@ -550,159 +616,6 @@ import Testing
             _ = exited.wait(timeout: .now() + 2)
             throw ResumeShellTimeout(shellDescription: shellDescription, timeout: timeout)
         }
-    }
-
-    private func runLauncherUntilOutput(
-        scriptPath: String,
-        environment: [String: String],
-        outputURL: URL,
-        timeout: TimeInterval = 10
-    ) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [scriptPath]
-        process.environment = environment
-        let stderr = Pipe()
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderr
-
-        try process.run()
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let output = try? String(contentsOf: outputURL, encoding: .utf8),
-               !output.isEmpty {
-                if process.isRunning {
-                    process.terminate()
-                    process.waitUntilExit()
-                }
-                return
-            }
-            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-
-        if process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
-        }
-        let errorText = String(
-            data: stderr.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
-        Issue.record("Launcher did not produce Codex output within \(Int(timeout))s. stderr: \(errorText)")
-        throw ResumeShellTimeout(shellDescription: "/bin/zsh \(scriptPath)", timeout: timeout)
-    }
-
-    private func launcherScriptPath(from input: String) throws -> String {
-        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
-        let launcherIndex = try #require(
-            words.lastIndex(of: "/bin/zsh"),
-            "Expected /bin/zsh launcher script input, saw: \(input)"
-        )
-        return try #require(
-            words.dropFirst(launcherIndex + 1).first,
-            "Expected launcher script path after /bin/zsh, saw: \(input)"
-        )
-    }
-
-    private func shellIntegrationDirectory() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Resources/shell-integration", isDirectory: true)
-    }
-
-    private func makeOhMyZshLauncherEnvironment(
-        root: URL,
-        integrationDir: URL,
-        pathPrefix: String,
-        codexShimURL: URL,
-        codexOutputURL: URL
-    ) throws -> [String: String] {
-        let homeURL = root.appendingPathComponent("home", isDirectory: true)
-        let userZdotdirURL = root.appendingPathComponent("zdotdir", isDirectory: true)
-        let ohMyZshURL = root.appendingPathComponent("oh-my-zsh", isDirectory: true)
-        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: userZdotdirURL, withIntermediateDirectories: true)
-        try writeOhMyZshFixture(at: ohMyZshURL)
-        try "\n".write(
-            to: userZdotdirURL.appendingPathComponent(".zshenv", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        export ZSH="\(ohMyZshURL.path)"
-        export ZSH_DISABLE_COMPFIX=true
-        export DISABLE_AUTO_UPDATE=true
-        ZSH_THEME=""
-        plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
-        source "$ZSH/oh-my-zsh.sh"
-        """.write(
-            to: userZdotdirURL.appendingPathComponent(".zshrc", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        return [
-            "HOME": homeURL.path,
-            "TERM": "xterm-256color",
-            "SHELL": "/bin/zsh",
-            "USER": NSUserName(),
-            "PATH": "\(pathPrefix):/usr/bin:/bin",
-            "ZDOTDIR": integrationDir.path,
-            "CMUX_ZSH_ZDOTDIR": userZdotdirURL.path,
-            "CMUX_SHELL_INTEGRATION": "1",
-            "CMUX_SHELL_INTEGRATION_DIR": integrationDir.path,
-            "CMUX_ZSH_RESTORE_TERM": "xterm-256color",
-            "CMUX_CODEX_WRAPPER_SHIM": codexShimURL.path,
-            "CMUX_FAKE_CODEX_OUTPUT": codexOutputURL.path,
-            "ZSH_DISABLE_COMPFIX": "true",
-            "DISABLE_AUTO_UPDATE": "true",
-        ]
-    }
-
-    private func writeOhMyZshFixture(at root: URL) throws {
-        let customPluginRoot = root.appendingPathComponent("custom/plugins", isDirectory: true)
-        let autosuggestionsURL = customPluginRoot
-            .appendingPathComponent("zsh-autosuggestions", isDirectory: true)
-        let syntaxHighlightingURL = customPluginRoot
-            .appendingPathComponent("zsh-syntax-highlighting", isDirectory: true)
-        try FileManager.default.createDirectory(at: autosuggestionsURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: syntaxHighlightingURL, withIntermediateDirectories: true)
-
-        try """
-        autoload -Uz add-zsh-hook
-        for plugin in $plugins; do
-          plugin_file="$ZSH/custom/plugins/$plugin/$plugin.plugin.zsh"
-          [[ -r "$plugin_file" ]] && source "$plugin_file"
-        done
-        """.write(
-            to: root.appendingPathComponent("oh-my-zsh.sh", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        autoload -Uz add-zsh-hook
-        _cmux_test_autosuggest_precmd() { :; }
-        _cmux_test_autosuggest_preexec() { :; }
-        add-zsh-hook precmd _cmux_test_autosuggest_precmd
-        add-zsh-hook preexec _cmux_test_autosuggest_preexec
-        _cmux_test_autosuggest_self_insert() { zle .self-insert }
-        zle -N self-insert _cmux_test_autosuggest_self_insert
-        """.write(
-            to: autosuggestionsURL.appendingPathComponent("zsh-autosuggestions.plugin.zsh", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        _cmux_test_syntax_highlighting_line_init() { :; }
-        _cmux_test_syntax_highlighting_line_finish() { :; }
-        zle -N zle-line-init _cmux_test_syntax_highlighting_line_init
-        zle -N zle-line-finish _cmux_test_syntax_highlighting_line_finish
-        """.write(
-            to: syntaxHighlightingURL.appendingPathComponent("zsh-syntax-highlighting.plugin.zsh", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
     }
 
     private static func homeManagedExecutablePath(executableName: String, _ components: String...) -> String {

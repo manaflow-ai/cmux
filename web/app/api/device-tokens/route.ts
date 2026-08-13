@@ -3,8 +3,10 @@
 // user explicitly opts in on their device, so presence == "wants phone pushes".
 
 import { and, count, eq, ne, or, sql } from "drizzle-orm";
+import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceTokens } from "../../../db/schema";
+import { resolveApnsProviderConfiguration } from "../../../services/apns/config";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
 import { withApnsApiRoute } from "../../../services/apns/routeHandler";
@@ -20,8 +22,6 @@ import {
   assertAccountDeletionUserMutationAllowed,
 } from "../../../services/account/deletionLock";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const HEX_TOKEN = /^[0-9a-fA-F]{64,200}$/;
 
@@ -60,9 +60,12 @@ async function registerDeviceToken(request: Request): Promise<Response> {
 
   const db = cloudDb();
 
-  let result: "registered" | "too_many_devices";
+  let registration: {
+    limitReached: boolean;
+    deliveryBusyRetryAfterSeconds?: number;
+  };
   try {
-    result = await db.transaction(async (tx) => {
+    registration = await db.transaction(async (tx) => {
       await assertAccountDeletionUserMutationAllowed(tx, user.id);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
 
@@ -70,18 +73,29 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         .select({
           userId: deviceTokens.userId,
           bundleId: deviceTokens.bundleId,
+          deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
         })
         .from(deviceTokens)
         .where(and(
           eq(deviceTokens.bundleId, bundle.bundleId),
           eq(deviceTokens.deviceToken, deviceToken),
         ))
-        .limit(1);
+        .limit(1)
+        .for("update");
 
-      if (
-        existingToken?.userId !== user.id ||
-        existingToken.bundleId !== bundle.bundleId
-      ) {
+      const deliveryLeaseUntilMs =
+        existingToken?.deliveryLeaseUntil?.getTime() ?? 0;
+      if (deliveryLeaseUntilMs > Date.now()) {
+        return {
+          limitReached: false,
+          deliveryBusyRetryAfterSeconds: Math.max(
+            1,
+            Math.ceil((deliveryLeaseUntilMs - Date.now()) / 1_000),
+          ),
+        };
+      }
+
+      if (existingToken?.userId !== user.id) {
         const [accountRegistrationCount] = await tx
           .select({ total: count() })
           .from(deviceTokens)
@@ -96,7 +110,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           Number(accountRegistrationCount?.total ?? 0)
           >= MAX_DEVICE_TOKENS_PER_ACCOUNT
         ) {
-          return "too_many_devices" as const;
+          return { limitReached: true };
         }
         const [registrationCount] = await tx
           .select({ total: count() })
@@ -107,7 +121,12 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             ne(deviceTokens.deviceToken, deviceToken),
           ));
         if (Number(registrationCount?.total ?? 0) >= MAX_DEVICE_TOKENS_PER_USER) {
-          return "too_many_devices" as const;
+          // Never guess that an old-looking token is dead. Only an APNs
+          // terminal response proves that and the send route prunes it there.
+          // Re-registering a known current token still succeeds above; a new
+          // token receives a typed repair rather than silently evicting a
+          // potentially live device.
+          return { limitReached: true };
         }
       }
 
@@ -134,7 +153,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           },
         });
 
-      return "registered" as const;
+      return { limitReached: false };
     });
   } catch (error) {
     if (error instanceof AccountDeletionMutationBlockedError) {
@@ -143,11 +162,39 @@ async function registerDeviceToken(request: Request): Promise<Response> {
     throw error;
   }
 
-  if (result === "too_many_devices") {
-    return jsonResponse({ error: "too_many_devices" }, 429);
+  if (registration.limitReached) {
+    return jsonResponse(
+      {
+        error: "too_many_devices",
+        limit: MAX_DEVICE_TOKENS_PER_USER,
+        action: "disable_push_on_another_device",
+      },
+      429,
+    );
   }
-
-  return jsonResponse({ ok: true });
+  if (registration.deliveryBusyRetryAfterSeconds != null) {
+    return new Response(
+      JSON.stringify({
+        error: "push_delivery_in_progress",
+        retryAfterSeconds: registration.deliveryBusyRetryAfterSeconds,
+      }),
+      {
+        status: 409,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": String(registration.deliveryBusyRetryAfterSeconds),
+        },
+      },
+    );
+  }
+  return jsonResponse({
+    ok: true,
+    pushServiceConfigured: resolveApnsProviderConfiguration(
+      env.CMUX_APNS_KEY_P8,
+      env.CMUX_APNS_KEY_ID,
+      env.CMUX_APNS_TEAM_ID,
+    ) !== null,
+  });
 }
 
 export async function DELETE(request: Request): Promise<Response> {
@@ -179,45 +226,72 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
   }
 
   const db = cloudDb();
-  if (!clientNamespace) {
-    const result = await db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`,
-      );
-      const matches = await tx
-        .select({ bundleId: deviceTokens.bundleId })
-        .from(deviceTokens)
-        .where(and(
+  const deletion = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`,
+    );
+    const matches = await tx
+      .select({
+        bundleId: deviceTokens.bundleId,
+        deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
+      })
+      .from(deviceTokens)
+      .where(clientNamespace
+        ? and(
+          eq(deviceTokens.deviceToken, deviceToken),
+          eq(deviceTokens.userId, user.id),
+          eq(deviceTokens.bundleId, clientNamespace),
+        )
+        : and(
           eq(deviceTokens.deviceToken, deviceToken),
           eq(deviceTokens.userId, user.id),
         ))
-        .limit(2);
-      if (matches.length > 1) return "ambiguous" as const;
-      const match = matches[0];
-      if (match) {
-        await tx
-          .delete(deviceTokens)
-          .where(and(
-            eq(deviceTokens.deviceToken, deviceToken),
-            eq(deviceTokens.userId, user.id),
-            eq(deviceTokens.bundleId, match.bundleId),
-          ));
-      }
-      return "deleted" as const;
-    });
-    if (result === "ambiguous") {
-      return jsonResponse({ error: "ambiguous_legacy_device_token" }, 409);
+      .limit(clientNamespace ? 1 : 2)
+      .for("update");
+    if (!clientNamespace && matches.length > 1) {
+      return { outcome: "ambiguous" as const };
     }
-    return jsonResponse({ ok: true });
+    const existingToken = matches[0];
+    const deliveryLeaseUntilMs =
+      existingToken?.deliveryLeaseUntil?.getTime() ?? 0;
+    if (deliveryLeaseUntilMs > Date.now()) {
+      return {
+        outcome: "busy" as const,
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil((deliveryLeaseUntilMs - Date.now()) / 1_000),
+        ),
+      };
+    }
+    if (existingToken) {
+      await tx
+        .delete(deviceTokens)
+        .where(and(
+          eq(deviceTokens.deviceToken, deviceToken),
+          eq(deviceTokens.userId, user.id),
+          eq(deviceTokens.bundleId, existingToken.bundleId),
+        ));
+    }
+    return { outcome: "deleted" as const };
+  });
+  if (deletion.outcome === "ambiguous") {
+    return jsonResponse({ error: "ambiguous_legacy_device_token" }, 409);
   }
-
-  await db
-    .delete(deviceTokens)
-    .where(and(
-      eq(deviceTokens.deviceToken, deviceToken),
-      eq(deviceTokens.userId, user.id),
-      eq(deviceTokens.bundleId, clientNamespace),
-    ));
+  if (deletion.outcome === "busy") {
+    return new Response(
+      JSON.stringify({
+        error: "push_delivery_in_progress",
+        retryAfterSeconds: deletion.retryAfterSeconds,
+      }),
+      {
+        status: 409,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": String(deletion.retryAfterSeconds),
+        },
+      },
+    );
+  }
 
   return jsonResponse({ ok: true });
 }

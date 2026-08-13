@@ -993,6 +993,39 @@ describe("SEO middleware", () => {
     }
   });
 
+  test("passes the negotiated locale into the unprefixed app Pro welcome route", () => {
+    const negotiated = middleware(
+      requestFor("/app-pro-welcome", { "accept-language": "ja,en;q=0.8" }),
+    );
+    expect(
+      negotiated.headers.get("x-middleware-request-x-next-intl-locale"),
+    ).toBe("ja");
+
+    const cookieOverride = middleware(
+      requestFor("/app-pro-welcome", {
+        cookie: "NEXT_LOCALE=fr",
+        "accept-language": "ja,en;q=0.8",
+      }),
+    );
+    expect(
+      cookieOverride.headers.get("x-middleware-request-x-next-intl-locale"),
+    ).toBe("fr");
+  });
+
+  test("strips the native browser-split marker when a web request reaches the server", () => {
+    const response = middleware(
+      requestFor(
+        "/dashboard/testflight?cmux_open_in_browser=split-right&source=welcome",
+      ),
+    );
+    const location = new URL(response.headers.get("location")!);
+
+    expect(response.status).toBe(307);
+    expect(location.pathname).toBe("/dashboard/testflight");
+    expect(location.searchParams.get("source")).toBe("welcome");
+    expect(location.searchParams.has("cmux_open_in_browser")).toBe(false);
+  });
+
   test("does not advertise unsupported locale variants globally", () => {
     const response = middleware(requestFor("/ja/docs/remote-tmux"));
 

@@ -1,11 +1,12 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import PhotosUI
 import SwiftUI
-import UIKit
 
 struct TaskComposerSheet: View {
     @Environment(\.dismiss) var dismiss
@@ -17,8 +18,13 @@ struct TaskComposerSheet: View {
     @State var workspaceName = ""
     @State private var templates: [MobileTaskTemplate]
     @State var selectedTemplateID: MobileTaskTemplate.ID?
+    @State var selectedModelID: String?
+    @State var explicitlySelectedModel: MobileTaskAgentModel?
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
+    @State private var modelRefreshTask: Task<Void, Never>?
+    @State private var modelRefreshOperationID: UUID?
+    @State var displayedModels: [MobileTaskAgentModel]
     @State var directory: String
     @State var didEditDirectory = false
     @State var submissionPhase: TaskComposerSubmissionPhase = .idle
@@ -26,15 +32,25 @@ struct TaskComposerSheet: View {
     @State var failureText: String?
     @State var failureTitleStyle: TaskComposerFailureTitleStyle = .launchFailed
     @State private var isEditorPresented = false
-    @State var isDirectoryPickerPresented = false
     @State var shouldPersistDraftOnDisappear = true
     @State var submissionIdentity: MobileTaskSubmissionIdentity
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
     @State var completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     @State var isStartAgainConfirmationPresented = false
+    @State var attachments: [TaskComposerAttachment]
+    @State var isAttachmentPhotoPickerPresented = false
+    @State var attachmentPhotoSelection: [PhotosPickerItem] = []
+    @State var isAttachmentFileImporterPresented = false
+    @State var attachmentStagingTask: Task<Void, Never>?
+    @State var attachmentAlertMessage: String?
+    /// Draft typing is sampled once per composer presentation so this bounded
+    /// log records that editing occurred without one event per keystroke.
+    @State var hasRecordedDraftChange = false
 
     let sessionGeneration: Int
+    private let restoredDraftAtInitialization: Bool
     private let availableMachines: [MobilePairedMac]?
+    let taskAttachmentsCapabilityOverride: Bool?
     let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
         _ instanceTag: String?,
@@ -56,6 +72,8 @@ struct TaskComposerSheet: View {
     init(
         store: CMUXMobileShellStore,
         availableMachines: [MobilePairedMac]? = nil,
+        taskAttachmentsCapabilityOverride: Bool? = nil,
+        initialAttachments: [TaskComposerAttachment] = [],
         submitTaskComposer: (@MainActor (
             _ macDeviceID: String,
             _ instanceTag: String?,
@@ -76,6 +94,7 @@ struct TaskComposerSheet: View {
     ) {
         self.store = store
         self.availableMachines = availableMachines
+        self.taskAttachmentsCapabilityOverride = taskAttachmentsCapabilityOverride
         self.sessionGeneration = store.currentSessionGeneration
         self.searchTaskDirectories = searchTaskDirectories
         self.listTaskDirectories = listTaskDirectories
@@ -94,7 +113,9 @@ struct TaskComposerSheet: View {
         let loadedTemplates = store.taskTemplateStore?.listTemplates() ?? []
         let templates = loadedTemplates
         let draft = store.taskTemplateStore?.composerDraft()
+        self.restoredDraftAtInitialization = draft != nil
         let foregroundMacID = store.connectedMacDeviceID
+        let foregroundMacInstanceTag = store.connectedMacInstanceTag
         // Restore persisted Mac IDs only while they remain paired.
         let availablePairedMacs = availableMachines ?? store.displayPairedMacs
         let pairedMacIDs = availablePairedMacs.map(\.macDeviceID)
@@ -109,13 +130,21 @@ struct TaskComposerSheet: View {
             ?? foregroundMacID
             ?? ""
         // A draft that named a specific paired build restores that exact
-        // pairing; otherwise prefer the active pairing for the device.
+        // pairing. Otherwise the authenticated foreground tag is authoritative;
+        // a persisted `isActive` flag can lag a reconnect or app rebuild.
         let draftInstanceTag = draftMacID != nil ? draft?.macInstanceTag : nil
-        let selectedMac = draftInstanceTag.flatMap { tag in
+        let draftMac = draftInstanceTag.flatMap { tag in
             availablePairedMacs.first {
                 $0.macDeviceID == selectedMacID && $0.instanceTag == tag
             }
-        } ?? availablePairedMacs.first {
+        }
+        let foregroundMac = (draftInstanceTag == nil && selectedMacID == foregroundMacID)
+            ? availablePairedMacs.first {
+                $0.macDeviceID == selectedMacID
+                    && $0.instanceTag == foregroundMacInstanceTag
+            }
+            : nil
+        let selectedMac = draftMac ?? foregroundMac ?? availablePairedMacs.first {
             $0.macDeviceID == selectedMacID && $0.isActive
         } ?? availablePairedMacs.first {
             $0.macDeviceID == selectedMacID
@@ -127,6 +156,31 @@ struct TaskComposerSheet: View {
             .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
             ?? templates.first?.id
         let selectedTemplate = selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
+        let initialProvider = selectedTemplate.flatMap {
+            MobileTaskAgentProvider(command: $0.command)
+        }
+        let initialDiscoveredModels = initialProvider.flatMap {
+            store.discoveredTaskModels(
+                provider: $0,
+                macDeviceID: selectedMacID,
+                instanceTag: selectedMac?.instanceTag
+            )
+        }
+        let initialModelAvailability = MobileTaskModelAvailability(
+            template: selectedTemplate,
+            discoveredModels: initialDiscoveredModels
+        )
+        // A model persisted by this composer was already validated when the
+        // user selected it. Preserve that explicit choice across a cold cache
+        // or later delisting instead of changing the request while discovery
+        // is still loading.
+        let restoredDraftModelID = (draft?.templateID == selectedTemplateID)
+            ? draft?.modelID
+            : nil
+        let initialModelID = initialModelAvailability.validatedModelID(
+            restoredDraftModelID,
+            previouslyValidModelID: restoredDraftModelID
+        )
         let openDirectory = Self.preferredOpenDirectory(
             workspaces: store.workspaces,
             selectedWorkspaceID: store.selectedWorkspaceID,
@@ -145,10 +199,15 @@ struct TaskComposerSheet: View {
                 templateStore: store.taskTemplateStore,
                 openDirectory: openDirectory
             )
+        // A draft model that fails the cached effective-list validation changes the request
+        // bytes, so its operation ID (and any recovery bound to it) must not
+        // be reused for the resulting default-model command.
+        let draftModelSurvivedValidation = draft?.modelID == nil || initialModelID != nil
         let restoredOperationID = (
             draft?.templateID == selectedTemplateID
                 && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
                 && canRestoreDraftDirectory
+                && draftModelSurvivedValidation
         ) ? draft?.operationID : nil
         let initialPrompt = draft?.prompt ?? ""
         let initialWorkspaceName = draft?.workspaceName ?? ""
@@ -157,6 +216,7 @@ struct TaskComposerSheet: View {
             MobileTaskSubmissionSnapshot(
                 template: $0,
                 prompt: initialPrompt,
+                modelID: initialModelID,
                 macDeviceID: selectedMacID,
                 macInstanceTag: selectedMac?.instanceTag,
                 directory: initialDirectory,
@@ -168,6 +228,7 @@ struct TaskComposerSheet: View {
         let canRestoreCompletedOperation = draft?.templateID == selectedTemplateID
             && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
             && canRestoreDraftDirectory
+            && draftModelSurvivedValidation
         let initialCompletedOperationRecovery = (canRestoreCompletedOperation
             ? draft?.completedOperationID
             : nil)
@@ -178,8 +239,14 @@ struct TaskComposerSheet: View {
         _workspaceName = State(initialValue: initialWorkspaceName)
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
+        _selectedModelID = State(initialValue: initialModelID)
+        _explicitlySelectedModel = State(initialValue: initialModelAvailability.models.first {
+            $0.id == initialModelID
+        })
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMac?.instanceTag)
+        _displayedModels = State(initialValue: initialDiscoveredModels ?? [])
+        _attachments = State(initialValue: initialAttachments)
         _directory = State(initialValue: initialDirectory)
         _didEditDirectory = State(initialValue: canRestoreDraftDirectory && draft?.didEditDirectory == true)
         _submissionIdentity = State(initialValue: MobileTaskSubmissionIdentity(
@@ -203,79 +270,7 @@ struct TaskComposerSheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color(uiColor: .systemGroupedBackground)
-                    .ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: 12) {
-                        TaskComposerPromptCard(
-                            prompt: promptBinding,
-                            placeholder: promptPlaceholder,
-                            isDisabled: submissionPhase.disablesRequestEditing,
-                            endEditing: resolveCompletedOperationRecoveryAfterEditing,
-                            templates: templates,
-                            selectedTemplateID: selectedTemplateID,
-                            selectTemplate: selectTemplateFromPicker,
-                            editTemplates: presentTemplateEditor
-                        )
-
-                        TaskComposerContextSection(
-                            workspaceName: workspaceNameBinding,
-                            machines: machines,
-                            selectedMacPairingID: selectedMacPairingID,
-                            buildLabelsByID: machineBuildLabelsByID,
-                            directory: directory,
-                            isDisabled: submissionPhase.disablesRequestEditing,
-                            endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
-                            selectMachine: selectMachine,
-                            selectDirectory: { isDirectoryPickerPresented = true }
-                        )
-                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                    }
-                    .frame(maxWidth: 680)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 14)
-                    .padding(.bottom, 20)
-                }
-                .scrollDismissesKeyboard(.interactively)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                TaskComposerPrimaryAction(
-                    isSubmitting: submissionPhase.showsProgress,
-                    isEnabled: selectedMachine != nil && canLaunchSelectedTemplate,
-                    templateIcon: selectedTemplate?.icon,
-                    actionTitle: primaryActionTitle,
-                    progressTitle: primaryActionProgressTitle,
-                    caption: primaryActionCaption,
-                    failureTitle: failureTitleStyle.title,
-                    failureText: failureText,
-                    completedOperationRecovery: blockingCompletedOperationRecovery,
-                    action: startSubmission,
-                    refreshCompletedOperation: startCompletedOperationReconciliation,
-                    requestStartAgain: { isStartAgainConfirmationPresented = true }
-                )
-            }
-            .navigationTitle(L10n.string("mobile.taskComposer.title", defaultValue: "New Task"))
-            .mobileInlineNavigationTitle()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        submitTask?.cancel()
-                        shouldPersistDraftOnDisappear = false
-                        store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    // Cancellation remains safe while routing and capability
-                    // checks run. Lock only once the create boundary commits.
-                    .disabled(submissionPhase.locksDismissal)
-                    .accessibilityLabel(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
-                    .accessibilityIdentifier("MobileTaskComposerCancelButton")
-                }
-            }
+            composerLayout
             .sheet(isPresented: $isEditorPresented) {
                 TaskTemplateEditorView(
                     templates: templates,
@@ -285,50 +280,32 @@ struct TaskComposerSheet: View {
                     refresh: refreshTemplates
                 )
             }
-            .sheet(isPresented: $isDirectoryPickerPresented) {
-                TaskComposerDirectoryPickerView(
-                    candidates: directoryCandidates,
-                    selectedPath: directory,
-                    select: selectDirectory,
-                    searchMac: { query in
-                        if let searchTaskDirectories {
-                            return await searchTaskDirectories(
-                                selectedMacDeviceID,
-                                selectedMacInstanceTag,
-                                query
-                            )
-                        }
-                        return await store.searchTaskDirectories(
-                            macDeviceID: selectedMacDeviceID,
-                            instanceTag: selectedMacInstanceTag,
-                            query: query
-                        )
-                    },
-                    listMac: { path, offset in
-                        if let listTaskDirectories {
-                            return await listTaskDirectories(
-                                selectedMacDeviceID,
-                                selectedMacInstanceTag,
-                                path,
-                                offset
-                            )
-                        }
-                        return await store.listTaskDirectories(
-                            macDeviceID: selectedMacDeviceID,
-                            instanceTag: selectedMacInstanceTag,
-                            path: path,
-                            offset: offset
-                        )
-                    }
-                )
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-            }
             .onDisappear {
+                store.recordAppEvent(
+                    .taskComposerClosed,
+                    correlationID: submissionIdentity.id.uuidString
+                )
                 // Parent-driven dismissal must cancel result application.
                 submitTask?.cancel()
+                modelRefreshTask?.cancel()
+                modelRefreshOperationID = nil
+                attachmentStagingTask?.cancel()
+                removeStagedAttachmentFiles()
                 if shouldPersistDraftOnDisappear {
                     persistDraft()
+                }
+            }
+            .onAppear {
+                store.recordAppEvent(
+                    .taskComposerOpened,
+                    correlationID: submissionIdentity.id.uuidString
+                )
+                store.recordAppEvent(
+                    .taskTemplateListLoaded,
+                    count: templates.count
+                )
+                if restoredDraftAtInitialization {
+                    store.recordAppEvent(.draftRestored)
                 }
             }
             .onChange(of: scenePhase) { _, newPhase in
@@ -342,13 +319,145 @@ struct TaskComposerSheet: View {
                 isPresented: $isStartAgainConfirmationPresented,
                 confirm: confirmStartAgain
             ))
+            .modifier(TaskComposerAttachmentPickerModifier(
+                isPhotoPickerPresented: $isAttachmentPhotoPickerPresented,
+                photoSelection: $attachmentPhotoSelection,
+                isFileImporterPresented: $isAttachmentFileImporterPresented,
+                remainingCount: remainingAttachmentCount,
+                selectedPhotos: stageSelectedPhotos,
+                dismissedPhotos: {
+                    store.recordAppEvent(.photoPickerDismissed)
+                },
+                selectedFiles: stageSelectedFiles
+            ))
+            .alert(
+                L10n.string(
+                    "mobile.taskComposer.attachments.alert.title",
+                    defaultValue: "Couldn’t Add Attachment"
+                ),
+                isPresented: Binding(
+                    get: { attachmentAlertMessage != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            attachmentAlertMessage = nil
+                        }
+                    }
+                )
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK")) {
+                    attachmentAlertMessage = nil
+                }
+            } message: {
+                Text(attachmentAlertMessage ?? "")
+            }
         }
         .presentationDetents([.large])
+        // Swipes inside the prompt belong to its scroll view. The drag
+        // indicator remains the explicit affordance for moving or dismissing
+        // the sheet, so the two vertical gestures no longer compete.
+        .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(submissionPhase.locksDismissal)
         .background(TaskComposerInitialFocusCoordinator(
             isEnabled: !submissionPhase.disablesRequestEditing
         ))
+        // Provider/Mac changes replace ownership and cancel obsolete work.
+        .onChange(of: modelRefreshID, initial: true) { _, _ in
+            restartModelRefresh()
+        }
+    }
+
+    private var composerLayout: some View {
+        TaskComposerLayout(
+            prompt: promptBinding,
+            genericPromptPlaceholder: promptPlaceholder,
+            workspaceName: workspaceName,
+            directory: directory,
+            isDisabled: submissionPhase.disablesRequestEditing,
+            locksDismissal: submissionPhase.locksDismissal,
+            templates: templates,
+            selectedTemplateID: selectedTemplateID,
+            models: availableModels,
+            selectedModelID: selectedModelID,
+            isModelLoading: isModelLoading,
+            isSubmitting: submissionPhase.showsProgress,
+            isSubmitEnabled: selectedMachine != nil
+                && canLaunchSelectedTemplate
+                && submissionPhase.allowsSubmission
+                && attachmentStagingTask == nil
+                && blockingCompletedOperationRecovery == nil,
+            failureTitle: failureTitleStyle.title,
+            failureText: failureText,
+            completedOperationRecovery: blockingCompletedOperationRecovery,
+            attachments: attachments,
+            showsAttachmentButton: showsAttachmentButton,
+            optionsSheet: { optionsSheet },
+            endEditing: resolveCompletedOperationRecoveryAfterEditing,
+            selectTemplate: selectTemplateFromPicker,
+            selectModel: selectModel,
+            editTemplates: presentTemplateEditor,
+            cancel: cancelComposer,
+            submit: startSubmission,
+            refreshCompletedOperation: startCompletedOperationReconciliation,
+            requestStartAgain: { isStartAgainConfirmationPresented = true },
+            chooseAttachmentPhotos: presentAttachmentPhotoPicker,
+            chooseAttachmentFiles: presentAttachmentFileImporter,
+            removeAttachment: removeAttachment
+        )
+    }
+
+    private var optionsSheet: TaskComposerOptionsSheet {
+        TaskComposerOptionsSheet(
+            workspaceName: workspaceNameBinding,
+            machines: machines,
+            selectedMacPairingID: selectedMacPairingID,
+            buildLabelsByID: machineBuildLabelsByID,
+            directory: directory,
+            isDisabled: submissionPhase.disablesRequestEditing,
+            directoryCandidates: directoryCandidates,
+            endWorkspaceNameEditing: resolveCompletedOperationRecoveryAfterEditing,
+            selectMachine: selectMachine,
+            selectDirectory: selectDirectory,
+            searchMac: resolvedSearchTaskDirectories,
+            listMac: resolvedListTaskDirectories
+        )
+    }
+
+    private func resolvedSearchTaskDirectories(
+        query: String
+    ) async -> Result<MobileTaskDirectorySearchResponse, MobileTaskDirectorySearchFailure> {
+        if let searchTaskDirectories {
+            return await searchTaskDirectories(
+                selectedMacDeviceID,
+                selectedMacInstanceTag,
+                query
+            )
+        }
+        return await store.searchTaskDirectories(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag,
+            query: query
+        )
+    }
+
+    private func resolvedListTaskDirectories(
+        path: String,
+        offset: Int
+    ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure> {
+        if let listTaskDirectories {
+            return await listTaskDirectories(
+                selectedMacDeviceID,
+                selectedMacInstanceTag,
+                path,
+                offset
+            )
+        }
+        return await store.listTaskDirectories(
+            macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag,
+            path: path,
+            offset: offset
+        )
     }
 
     var selectedTemplate: MobileTaskTemplate? {
@@ -371,6 +480,71 @@ struct TaskComposerSheet: View {
             macDeviceID: selectedMacDeviceID,
             instanceTag: selectedMacInstanceTag
         )
+    }
+
+    private var modelRefreshID: TaskComposerModelRefreshID {
+        TaskComposerModelRefreshID(
+            provider: selectedTemplate.flatMap {
+                MobileTaskAgentProvider(command: $0.command)
+            },
+            macPairingID: selectedMacPairingID,
+            connectionIdentity: store.taskModelConnectionIdentity(
+                macDeviceID: selectedMacDeviceID,
+                instanceTag: selectedMacInstanceTag
+            )
+        )
+    }
+
+    private var isModelLoading: Bool {
+        displayedModels.isEmpty && modelRefreshOperationID != nil
+    }
+
+    private func restartModelRefresh() {
+        modelRefreshTask?.cancel()
+        modelRefreshOperationID = nil
+        guard let provider = modelRefreshID.provider,
+              !selectedMacDeviceID.isEmpty else {
+            displayedModels = []
+            modelRefreshTask = nil
+            return
+        }
+        let macDeviceID = selectedMacDeviceID
+        let instanceTag = selectedMacInstanceTag
+        let refreshID = modelRefreshID
+        let operationID = UUID()
+        modelRefreshOperationID = operationID
+        let cachedModels = store.discoveredTaskModels(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) ?? []
+        // Keep a usable cached catalog visible while the host and backend are
+        // refreshed. An authoritative host result replaces it in place.
+        displayedModels = cachedModels
+        modelRefreshTask = Task {
+            await store.refreshTaskModels(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ) { result in
+                guard !Task.isCancelled,
+                      modelRefreshOperationID == operationID,
+                      modelRefreshID == refreshID else { return }
+                displayedModels = result.models
+            }
+            guard !Task.isCancelled,
+                  modelRefreshOperationID == operationID,
+                  modelRefreshID == refreshID else { return }
+            if let refreshedModels = store.discoveredTaskModels(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ) {
+                displayedModels = refreshedModels
+            }
+            modelRefreshOperationID = nil
+            modelRefreshTask = nil
+        }
     }
 
     private var machineBuildLabelsByID: [String: String] {
@@ -412,82 +586,6 @@ struct TaskComposerSheet: View {
         )
     }
 
-    private var primaryActionTitle: String {
-        if submissionPhase.offersRetry {
-            return L10n.string(
-                "mobile.taskComposer.tryAgain",
-                defaultValue: "Try Again"
-            )
-        }
-        guard let selectedTemplate else {
-            return L10n.string("mobile.taskComposer.startTask", defaultValue: "Start Task")
-        }
-        if selectedTemplate.isPlainShell {
-            return L10n.string("mobile.taskComposer.openShell", defaultValue: "Open Shell")
-        }
-        return String(
-            format: L10n.string(
-                "mobile.taskComposer.startAgentFormat",
-                defaultValue: "Start %@"
-            ),
-            selectedTemplate.name
-        )
-    }
-
-    private var primaryActionProgressTitle: String {
-        if submissionPhase == .preparing {
-            return L10n.string(
-                "mobile.taskComposer.preparingWorkspace",
-                defaultValue: "Preparing workspace…"
-            )
-        }
-        guard let selectedTemplate else {
-            return L10n.string("mobile.taskComposer.startingTask", defaultValue: "Starting Task…")
-        }
-        if selectedTemplate.isPlainShell {
-            return L10n.string("mobile.taskComposer.openingShell", defaultValue: "Opening Shell…")
-        }
-        return String(
-            format: L10n.string(
-                "mobile.taskComposer.startingAgentFormat",
-                defaultValue: "Starting %@…"
-            ),
-            selectedTemplate.name
-        )
-    }
-
-    private var primaryActionCaption: String {
-        guard let selectedTemplate else {
-            return L10n.string(
-                "mobile.taskComposer.action.caption",
-                defaultValue: "Creates a workspace and sends your prompt immediately."
-            )
-        }
-        if !selectedTemplate.isPlainShell, !canLaunchSelectedTemplate {
-            return String(
-                format: L10n.string(
-                    "mobile.taskComposer.action.promptRequiredFormat",
-                    defaultValue: "Add a prompt to put %@ to work."
-                ),
-                selectedTemplate.name
-            )
-        }
-        guard let selectedMachine else {
-            return L10n.string(
-                "mobile.taskComposer.action.caption",
-                defaultValue: "Creates a workspace and sends your prompt immediately."
-            )
-        }
-        return String(
-            format: L10n.string(
-                "mobile.taskComposer.action.routeCaptionFormat",
-                defaultValue: "New workspace on %@ in %@."
-            ),
-            selectedMachine.resolvedName,
-            TaskComposerDirectoryDisplayPath(path: directory).name
-        )
-    }
-
     private var promptBinding: Binding<String> {
         Binding(
             get: { prompt },
@@ -525,11 +623,31 @@ struct TaskComposerSheet: View {
         isEditorPresented = true
     }
 
+    private func cancelComposer() {
+        store.recordAppEvent(
+            .taskSubmitCancelled,
+            correlationID: submissionIdentity.id.uuidString,
+            failure: .cancelled
+        )
+        submitTask?.cancel()
+        shouldPersistDraftOnDisappear = false
+        store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
+        dismiss()
+    }
+
     private func selectMachine(_ macDeviceID: String, _ instanceTag: String?) {
         guard !submissionPhase.disablesRequestEditing,
               machines.contains(where: {
                   $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
               }) else { return }
+        store.recordAppEvent(
+            .taskMachineSelected,
+            correlationID: macDeviceID
+        )
+        store.recordAppEvent(
+            .taskRouteSelected,
+            correlationID: instanceTag ?? macDeviceID
+        )
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedMacDeviceID = macDeviceID
             selectedMacInstanceTag = instanceTag
@@ -540,6 +658,7 @@ struct TaskComposerSheet: View {
     func startSubmission() {
         resolveCompletedOperationRecoveryAfterEditing()
         guard submitTask == nil,
+              attachmentStagingTask == nil,
               blockingCompletedOperationRecovery == nil,
               submissionPhase.allowsSubmission else { return }
         // Once the user sends a genuinely different request, the prior
@@ -570,7 +689,35 @@ struct TaskComposerSheet: View {
         submissionPhase = .preparing
         activeSubmissionSnapshot = snapshot
         failureText = nil
-        let spec = workspaceCreateSpec(for: snapshot)
+        let attachmentPaths: [String]
+        switch await uploadAttachments(for: snapshot) {
+        case .success(let paths):
+            attachmentPaths = paths
+        case .failure(let failure):
+            submissionPhase = .idle
+            activeSubmissionSnapshot = nil
+            guard !Task.isCancelled else { return }
+            restoreSubmittedDraft(snapshot)
+            _ = store.persistTaskComposerDraft(
+                snapshot.draft,
+                ifSessionGeneration: sessionGeneration
+            )
+            submissionPhase = .retryReady
+            failureTitleStyle = .launchFailed
+            let message = Self.attachmentUploadFailureMessage(failure)
+            failureText = message
+            announceFailure(message)
+            return
+        }
+        guard !Task.isCancelled else {
+            submissionPhase = .idle
+            activeSubmissionSnapshot = nil
+            return
+        }
+        let spec = workspaceCreateSpec(
+            for: snapshot,
+            attachmentPaths: attachmentPaths
+        )
         let result = await submitTaskComposer(
             snapshot.macDeviceID,
             snapshot.macInstanceTag,
@@ -619,19 +766,33 @@ struct TaskComposerSheet: View {
         updateSubmissionRequest(reconcileRecovery: true) {
             store.taskTemplateStore?.addTemplate(template)
             selectedTemplateID = template.id
+            selectedModelID = nil
+            explicitlySelectedModel = nil
             syncSuggestedDirectory()
         }
+        store.recordAppEvent(
+            .taskTemplateCreated,
+            correlationID: template.id.uuidString
+        )
     }
 
     private func updateTemplate(_ template: MobileTaskTemplate) {
         guard !submissionPhase.disablesRequestEditing else { return }
         store.taskTemplateStore?.updateTemplate(template)
+        store.recordAppEvent(
+            .taskTemplateUpdated,
+            correlationID: template.id.uuidString
+        )
     }
 
     private func deleteTemplates(_ offsets: IndexSet) {
         guard !submissionPhase.disablesRequestEditing else { return }
         let ids = Set(offsets.map { templates[$0].id })
         store.taskTemplateStore?.deleteTemplates(ids: ids)
+        store.recordAppEvent(
+            .taskTemplateDeleted,
+            count: ids.count
+        )
     }
 
     private func refreshTemplates() {
@@ -641,9 +802,14 @@ struct TaskComposerSheet: View {
             if let selectedTemplateID, !templates.contains(where: { $0.id == selectedTemplateID }) {
                 self.selectedTemplateID = templates.first?.id
             }
+            selectedModelID = selectedModel?.id
             // Sync template edits unless the user typed the directory.
             syncSuggestedDirectory()
         }
+        store.recordAppEvent(
+            .taskTemplateListLoaded,
+            count: templates.count
+        )
     }
 
     private func validateMacSelection() {

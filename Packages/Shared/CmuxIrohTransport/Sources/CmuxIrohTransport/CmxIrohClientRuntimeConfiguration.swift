@@ -37,6 +37,13 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     /// A previously validated endpoint-scoped relay credential, when available.
     public let cachedRelayCredential: CmxIrohRelayTokenResponse?
 
+    /// The exact locally persisted binding tuple from a prior verified discovery.
+    ///
+    /// When it still appears exactly once in an authenticated connectivity
+    /// snapshot, startup can install that snapshot while endpoint binding is in
+    /// flight. A signed registration refresh follows after activation.
+    public let cachedBinding: CmxIrohBrokerBindingMetadata?
+
     /// Creates an immutable iOS client lifecycle configuration.
     ///
     /// Broker-facing validation occurs when ``CmxIrohClientRuntime/start()``
@@ -52,6 +59,7 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     ///   - managedRelayURLs: The exact managed relay fleet.
     ///   - endpointRelayProfile: An optional local selection or custom override.
     ///   - cachedRelayCredential: A validated cached relay capability.
+    ///   - cachedBinding: A previously verified exact local binding tuple.
     public init(
         accountID: String,
         deviceID: String,
@@ -63,7 +71,8 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         capabilities: [String],
         managedRelayURLs: Set<String>,
         endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
-        cachedRelayCredential: CmxIrohRelayTokenResponse? = nil
+        cachedRelayCredential: CmxIrohRelayTokenResponse? = nil,
+        cachedBinding: CmxIrohBrokerBindingMetadata? = nil
     ) {
         self.accountID = accountID
         self.deviceID = cmxCanonicalDeviceID(deviceID)
@@ -76,5 +85,6 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         self.managedRelayURLs = managedRelayURLs
         self.endpointRelayProfile = endpointRelayProfile
         self.cachedRelayCredential = cachedRelayCredential
+        self.cachedBinding = cachedBinding
     }
 }

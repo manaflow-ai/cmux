@@ -1,42 +1,51 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
 /// A short product tour that routes into authentication after the tour, then
-/// same-account computer discovery, with QR available only as fallback.
+/// same-account computer discovery, with pairing available for Tailscale.
 struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
     let connectionPhase: OnboardingConnectionPhase
+    let connectionMethod: MobileConnectionMethod
+    let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     let onReachedConnection: () -> Void
     let onSkip: () -> Void
     let onRetryConnection: () -> Void
-    let onStartFallbackPairing: () -> Void
+    let onStartTailscalePairing: () -> Void
     let onComplete: () -> Void
 
     @State private var stage: OnboardingStage
     @State private var didReachConnection = false
+    @State private var didRecordStart = false
     @Environment(\.analytics) private var analytics
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
 
     init(
         initialStage: OnboardingStage,
         context: OnboardingContext,
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
+        connectionMethod: MobileConnectionMethod = .automatic,
+        onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
         onReachedConnection: @escaping () -> Void,
         onSkip: @escaping () -> Void,
         onRetryConnection: @escaping () -> Void,
-        onStartFallbackPairing: @escaping () -> Void,
+        onStartTailscalePairing: @escaping () -> Void,
         onComplete: @escaping () -> Void
     ) {
         self.context = context
         self.isAuthenticated = isAuthenticated
         self.connectionPhase = connectionPhase
+        self.connectionMethod = connectionMethod
+        self.onSelectConnectionMethod = onSelectConnectionMethod
         self.onReachedConnection = onReachedConnection
         self.onSkip = onSkip
         self.onRetryConnection = onRetryConnection
-        self.onStartFallbackPairing = onStartFallbackPairing
+        self.onStartTailscalePairing = onStartTailscalePairing
         self.onComplete = onComplete
         _stage = State(initialValue: initialStage)
     }
@@ -48,7 +57,7 @@ struct OnboardingFlowView: View {
             onBack: handleBack,
             onSkip: skip,
             onPrimary: handlePrimary,
-            onSecondary: startFallbackPairing,
+            onSecondary: handleSecondary,
             pageContent: OnboardingPageViewport(
                 stage: stage,
                 onNavigate: { navigate(to: $0) }
@@ -58,6 +67,10 @@ struct OnboardingFlowView: View {
         )
         .interactiveDismissDisabled()
         .onAppear {
+            if !didRecordStart {
+                didRecordStart = true
+                diagnosticLog?.recordAppEvent(.onboardingStarted)
+            }
             captureSceneViewed()
             reachConnectionIfNeeded()
         }
@@ -78,7 +91,8 @@ struct OnboardingFlowView: View {
         OnboardingSceneChrome(
             stage: stage,
             isAuthenticated: isAuthenticated,
-            connectionPhase: connectionPhase
+            connectionPhase: connectionPhase,
+            connectionMethod: connectionMethod
         )
     }
 
@@ -90,7 +104,11 @@ struct OnboardingFlowView: View {
         case .notifications:
             OnboardingNotificationsView()
         case .connect:
-            OnboardingConnectionView(phase: connectionPhase)
+            OnboardingConnectionView(
+                phase: connectionPhase,
+                connectionMethod: connectionMethod,
+                onSelectConnectionMethod: selectConnectionMethod
+            )
         }
     }
 
@@ -144,6 +162,7 @@ struct OnboardingFlowView: View {
     }
 
     private func skip() {
+        diagnosticLog?.recordAppEvent(.onboardingSkipped)
         analytics.capture("ios_onboarding_skipped", eventProperties)
         onSkip()
     }
@@ -151,16 +170,53 @@ struct OnboardingFlowView: View {
     private func finishOrRetry() {
         switch connectionPhase {
         case .idle:
-            onRetryConnection()
+            if connectionMethod == .tailscale {
+                startTailscalePairing()
+            } else {
+                diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
+                onRetryConnection()
+            }
         case .searching:
             break
         case .fallback:
-            analytics.capture("ios_onboarding_connection_retried", eventProperties)
-            onRetryConnection()
+            if connectionMethod == .tailscale {
+                startTailscalePairing()
+            } else {
+                diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
+                analytics.capture("ios_onboarding_connection_retried", eventProperties)
+                onRetryConnection()
+            }
         case .ready:
+            diagnosticLog?.recordAppEvent(.onboardingCompleted)
             analytics.capture("ios_onboarding_completed", eventProperties)
             onComplete()
         }
+    }
+
+    /// Tailscale's secondary action retries discovery. Auto-Connect has no
+    /// secondary manual-pairing action.
+    private func handleSecondary() {
+        guard connectionMethod == .tailscale, connectionPhase == .fallback else { return }
+        diagnosticLog?.recordAppEvent(.onboardingConnectionRetried)
+        analytics.capture("ios_onboarding_connection_retried", eventProperties)
+        onRetryConnection()
+    }
+
+    private func selectConnectionMethod(_ method: MobileConnectionMethod) {
+        guard method != connectionMethod else { return }
+        diagnosticLog?.recordAppEvent(.onboardingConnectionMethodChanged)
+        var properties = eventProperties
+        properties["connection_method"] = .string(method.rawValue)
+        analytics.capture("ios_onboarding_connection_method_selected", properties)
+        onSelectConnectionMethod(method)
+    }
+
+    private func startTailscalePairing() {
+        diagnosticLog?.recordAppEvent(.onboardingPairingStarted)
+        var properties = eventProperties
+        properties["source"] = .string("tailscale_choice")
+        analytics.capture("ios_onboarding_pairing_started", properties)
+        onStartTailscalePairing()
     }
 
     private func finishBeforeAuthentication() {
@@ -168,14 +224,8 @@ struct OnboardingFlowView: View {
         onComplete()
     }
 
-    private func startFallbackPairing() {
-        var properties = eventProperties
-        properties["source"] = .string("qr_fallback")
-        analytics.capture("ios_onboarding_pairing_started", properties)
-        onStartFallbackPairing()
-    }
-
     private func captureSceneViewed() {
+        diagnosticLog?.recordAppEvent(.onboardingStageViewed)
         var properties = eventProperties
         properties["surface"] = .string(stage.analyticsValue)
         analytics.capture("ios_onboarding_scene_viewed", properties)

@@ -270,4 +270,85 @@ import Testing
         #expect(failure.stage == "lock")
         #expect(failure.errnoCode == EWOULDBLOCK)
     }
+
+    @Test func staleLockIsRemovedOnlyAfterNonblockingReclaim() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        guard case .acquired(let fd, _) = transport.acquireSocketPathLock(for: path) else {
+            Issue.record("expected lock acquisition to succeed")
+            return
+        }
+        transport.releaseSocketPathLock(fd)
+        #expect(FileManager.default.fileExists(atPath: path + ".lock"))
+        #expect(transport.removeSocketPathLockIfAvailable(for: path))
+        #expect(!FileManager.default.fileExists(atPath: path))
+        #expect(!FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @Test func refusedSocketNodeIsRemovedBeforeItsLock() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        guard case .acquired(let fd, _) = transport.acquireSocketPathLock(for: path) else {
+            Issue.record("expected lock acquisition to succeed")
+            return
+        }
+        transport.releaseSocketPathLock(fd)
+
+        #expect(transport.removeSocketPathLockIfAvailable(for: path))
+        #expect(!FileManager.default.fileExists(atPath: path))
+        #expect(!FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @Test func refusedSocketNodeWithoutExistingLockIsRemoved() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: path + ".lock"))
+        #expect(transport.removeSocketPathLockIfAvailable(for: path))
+        #expect(!FileManager.default.fileExists(atPath: path))
+        #expect(!FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @Test func liveLockHolderIsNeverRemoved() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        guard case .acquired(let fd, _) = transport.acquireSocketPathLock(for: path) else {
+            Issue.record("expected lock acquisition to succeed")
+            return
+        }
+        defer { transport.releaseSocketPathLock(fd) }
+        #expect(!transport.removeSocketPathLockIfAvailable(for: path))
+        #expect(FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @Test func liveSocketPreventsLockCleanup() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            close(listenerFD)
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        #expect(!transport.removeSocketPathLockIfAvailable(for: path))
+    }
 }

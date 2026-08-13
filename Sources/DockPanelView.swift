@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxNotifications
 import CmuxTerminal
 import SwiftUI
 
@@ -44,7 +45,8 @@ struct DockPanelView: View {
             source: unreadSource,
             workspaceID: store.workspaceId,
             panelIDs: Set(store.panels.keys),
-            isActive: isSidebarVisible && mode == .dock
+            isActive: isSidebarVisible && mode == .dock,
+            agentAttentionSource: store.agentNeedsInputAttention
         ))
     }
 

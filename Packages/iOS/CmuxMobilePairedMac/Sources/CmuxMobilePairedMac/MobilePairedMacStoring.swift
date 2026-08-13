@@ -164,29 +164,43 @@ public protocol MobilePairedMacStoring: Sendable {
         teamID: String?
     ) async throws
 
-    /// Remove one exact tagged Mac app instance whose LOCAL row lives in
-    /// `teamID` but whose server backup lives in `backupTeamID`.
+    /// Every stored instance of one physical device owned by one account,
+    /// across ALL team scopes and instance tags.
     ///
-    /// A team-less local row (`teamID == nil`) can be shown under, and forgotten
-    /// from, a selected team (legacy visibility). Its backup, however, is stored
-    /// in a per-team Durable Object, so the tombstone must be routed to the team
-    /// the row was DISPLAYED under (`backupTeamID`, captured up front) rather than
-    /// re-using the nil local team, which the server would resolve to whatever
-    /// team is selected when the delete flushes and could wipe a same-device
-    /// record from the wrong team's backup. The local delete still honors `teamID`
-    /// verbatim so the exact captured row is the one removed. Only the
-    /// backup-mirroring decorator distinguishes the two scopes; every other store
-    /// ignores `backupTeamID` and deletes the local `teamID` row.
-    func removeExactScope(
+    /// The forget flow's wildcard revoke kills the device's bindings for the
+    /// whole account, so its local cleanup must be able to see the device's
+    /// rows in OTHER teams than the one currently displayed — the ordinary
+    /// `loadAll(stackUserID:teamID:)` is deliberately team-scoped and cannot.
+    /// Team-substituting decorators override this to bypass their live-team
+    /// resolution and forward verbatim.
+    func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac]
+
+    /// Remove several exact row scopes as one batch, so stores with per-delete
+    /// side effects (the backup-mirroring decorator's tombstone flush) can
+    /// coalesce them instead of paying one network round-trip per row.
+    func removeExactScopes(_ scopes: [MobilePairedMacExactScope]) async throws
+
+    /// Remove all paired Macs.
+    func removeAll() async throws
+
+    /// Record device-local authorization for Tailscale routes the user entered
+    /// as a pairing code from their Mac.
+    ///
+    /// The authorization event is the user reading the compatibility code off
+    /// the Mac's pairing window; only the exact scanned destinations become
+    /// dialable, only on this device (grants never sync or back up). Rows for
+    /// non-Tailscale or non-host/port routes are ignored. The scoped paired-Mac
+    /// row must already exist.
+    func authorizeUserTailscaleRoutes(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        backupTeamID: String?
+        routes: [CmxAttachRoute]
     ) async throws
-
-    /// Remove all paired Macs.
-    func removeAll() async throws
 }
 
 extension MobilePairedMacStoring {
@@ -261,23 +275,35 @@ extension MobilePairedMacStoring {
         )
     }
 
-    /// Default: a store with no separate server backup deletes only the local
-    /// `teamID` row and ignores `backupTeamID`. The backup-mirroring decorator
-    /// (``BackingUpPairedMacStore``) overrides this to route its tombstone to
-    /// `backupTeamID` while still deleting the exact `teamID` local row.
-    public func removeExactScope(
+    /// Default cross-team instance enumeration: a nil `teamID` on the BASE
+    /// store's `loadAll` returns every team's rows, so filtering by the
+    /// canonical device id yields all of the device's instances. Correct for
+    /// the base SQLite store and simple in-memory stores ONLY — any decorator
+    /// that substitutes a nil team with the live selection, or that re-scopes
+    /// team ids, must override this to keep the enumeration genuinely
+    /// cross-team.
+    public func loadAllInstances(
         macDeviceID: String,
-        instanceTag: String?,
-        stackUserID: String?,
-        teamID: String?,
-        backupTeamID _: String?
-    ) async throws {
-        try await removeExactScope(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
-            stackUserID: stackUserID,
-            teamID: teamID
-        )
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        let canonical = cmxCanonicalDeviceID(macDeviceID)
+        return try await loadAll(stackUserID: stackUserID, teamID: nil)
+            .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonical }
+    }
+
+    /// Default batch removal: each scope through this store's own
+    /// `removeExactScope`, in order. Stores whose per-delete side effects are
+    /// expensive (the backup-mirroring decorator's tombstone flush) override
+    /// this to coalesce.
+    public func removeExactScopes(_ scopes: [MobilePairedMacExactScope]) async throws {
+        for scope in scopes {
+            try await removeExactScope(
+                macDeviceID: scope.macDeviceID,
+                instanceTag: scope.instanceTag,
+                stackUserID: scope.stackUserID,
+                teamID: scope.teamID
+            )
+        }
     }
 
     /// In-memory/test fallback. Production SQLite and scope decorators override

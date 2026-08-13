@@ -764,6 +764,20 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(setEnvironment["SPACED"] as? String, "  keep exact  ")
         XCTAssertNil(setEnvironment["ANTHROPIC_API_KEY"])
         XCTAssertEqual(setBinding["auto_resume"] as? Bool, false)
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: UUID().uuidString.lowercased(),
+                workingDirectory: "/tmp/stale-agent",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/opt/stale/codex",
+                    arguments: ["/opt/stale/codex"],
+                    workingDirectory: "/tmp/stale-agent"
+                )
+            ),
+            panelId: panelId
+        )
 
         let getResult = try v2Result(
             method: "surface.resume.get",
@@ -779,6 +793,498 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(getEnvironment["SPACED"] as? String, "  keep exact  ")
         XCTAssertNil(getEnvironment["ANTHROPIC_API_KEY"])
         XCTAssertEqual(getBinding["auto_resume"] as? Bool, false)
+        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
+        XCTAssertEqual(restoreRecord["mode"] as? String, "direct")
+        XCTAssertEqual(restoreRecord["kind"] as? String, "command")
+        XCTAssertNil(restoreRecord["launch_command"] as? [String: Any])
+        let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
+        XCTAssertTrue(legacyCommand.contains("tmux attach -t dogfood"), legacyCommand)
+        XCTAssertTrue(legacyCommand.contains("SPACED=  keep exact  "), legacyCommand)
+    }
+
+    func testManualAgentRestoreRecordSurvivesShellPreexecInvalidation() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let checkpointID = UUID().uuidString.lowercased()
+        let workingDirectory = "/tmp/grok-manual-restore"
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "grok",
+            executablePath: "/usr/local/bin/grok",
+            arguments: ["/usr/local/bin/grok", "--no-alt-screen"],
+            workingDirectory: workingDirectory
+        )
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                name: "Grok",
+                kind: "grok",
+                command: "grok -r \(checkpointID) --no-alt-screen",
+                cwd: workingDirectory,
+                checkpointId: checkpointID,
+                source: "agent-hook",
+                launchCommand: launchCommand,
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .grok,
+                sessionId: checkpointID,
+                workingDirectory: workingDirectory,
+                launchCommand: launchCommand
+            ),
+            panelId: panelId
+        )
+        workspace.restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
+
+        // Shell integration reports commandRunning before `cmux restore` starts.
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        XCTAssertNil(workspace.restoredAgentSnapshotsByPanelId[panelId])
+        let retainedBinding = try XCTUnwrap(workspace.surfaceResumeBinding(panelId: panelId))
+        XCTAssertEqual(retainedBinding.checkpointId, checkpointID)
+        XCTAssertEqual(retainedBinding.autoResume, false)
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
+        XCTAssertEqual(restoreRecord["kind"] as? String, "grok")
+        XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, checkpointID)
+        let resumeBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        XCTAssertEqual(resumeBinding["auto_resume"] as? Bool, false)
+    }
+
+    func testSurfaceRestoreRecordBootstrapsCommandOnlyLocalHermesBinding() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let checkpointID = UUID().uuidString.lowercased()
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "hermes-agent",
+                command: "hermes --provider openai-codex --resume \(checkpointID)",
+                cwd: "/tmp/hermes-legacy",
+                checkpointId: checkpointID,
+                source: "agent-hook",
+                environment: ["CUSTOM_BASE_URL": "https://codex.example.test/v1"],
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
+        XCTAssertEqual(restoreRecord["kind"] as? String, "hermes-agent")
+        XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, checkpointID)
+        XCTAssertNil(restoreRecord["launch_command"] as? [String: Any])
+        // A binding-only record keeps the compatibility-shell path. Typed argv
+        // is rebuilt only when a newer binding supersedes a stale snapshot.
+        XCTAssertNil(restoreRecord["prepared_arguments"] as? [String])
+        let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
+        XCTAssertTrue(
+            legacyCommand.contains("config set model.provider"),
+            legacyCommand
+        )
+        XCTAssertTrue(
+            legacyCommand.contains("config set model.base_url")
+                && legacyCommand.contains("https://codex.example.test/v1"),
+            legacyCommand
+        )
+        XCTAssertTrue(
+            legacyCommand.contains("config set model.api_mode"),
+            legacyCommand
+        )
+        XCTAssertTrue(
+            legacyCommand.contains("--provider")
+                && legacyCommand.contains("custom")
+                && legacyCommand.contains(checkpointID),
+            legacyCommand
+        )
+    }
+
+    func testSurfaceRestoreRecordPrefersNewerBindingOverStaleRestoredAgent() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let currentSessionID = UUID().uuidString.lowercased()
+        let currentLaunch = AgentLaunchCommandSnapshot(
+            launcher: "codex",
+            executablePath: "/opt/current/codex",
+            arguments: ["/opt/current/codex", "--model", "gpt-current"],
+            workingDirectory: "/tmp/current",
+            environment: [
+                "CODEX_HOME": "/tmp/current-codex-home",
+                "OPENAI_API_KEY": "must-not-cross-socket",
+            ]
+        )
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "codex resume \(currentSessionID)",
+                cwd: "/tmp/current",
+                checkpointId: currentSessionID,
+                source: "agent-hook",
+                launchCommand: currentLaunch,
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+
+        let staleSessionID = UUID().uuidString.lowercased()
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: staleSessionID,
+                workingDirectory: "/tmp/stale",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/opt/stale/codex",
+                    arguments: ["/opt/stale/codex", "--model", "gpt-stale"],
+                    workingDirectory: "/tmp/stale",
+                    environment: [
+                        "CODEX_HOME": "/tmp/stale-codex-home",
+                        "OPENAI_API_KEY": "must-not-cross-socket",
+                    ]
+                )
+            ),
+            panelId: panelId
+        )
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
+        XCTAssertEqual(restoreRecord["kind"] as? String, "codex")
+        XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, currentSessionID)
+        XCTAssertEqual(restoreRecord["source"] as? String, "agent-hook")
+        XCTAssertEqual(restoreRecord["working_directory"] as? String, "/tmp/current")
+        XCTAssertEqual(
+            restoreRecord["prepared_arguments_working_directory"] as? String,
+            "/tmp/current"
+        )
+        let preparedArguments = try XCTUnwrap(
+            restoreRecord["prepared_arguments"] as? [String]
+        )
+        XCTAssertTrue(preparedArguments.contains(currentSessionID), "\(preparedArguments)")
+        XCTAssertFalse(preparedArguments.contains(staleSessionID), "\(preparedArguments)")
+        let launch = try XCTUnwrap(restoreRecord["launch_command"] as? [String: Any])
+        XCTAssertEqual(launch["arguments"] as? [String], currentLaunch.arguments)
+        let launchEnvironment = try XCTUnwrap(launch["environment"] as? [String: Any])
+        XCTAssertEqual(
+            launchEnvironment["CODEX_HOME"] as? String,
+            "/tmp/current-codex-home"
+        )
+        XCTAssertNil(launchEnvironment["OPENAI_API_KEY"])
+        let resumeBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        let resumeLaunch = try XCTUnwrap(resumeBinding["launch_command"] as? [String: Any])
+        let resumeLaunchEnvironment = try XCTUnwrap(
+            resumeLaunch["environment"] as? [String: Any]
+        )
+        XCTAssertEqual(
+            resumeLaunchEnvironment["CODEX_HOME"] as? String,
+            "/tmp/current-codex-home"
+        )
+        XCTAssertNil(resumeLaunchEnvironment["OPENAI_API_KEY"])
+        let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
+        XCTAssertTrue(legacyCommand.contains(currentSessionID), legacyCommand)
+        XCTAssertFalse(legacyCommand.contains(staleSessionID), legacyCommand)
+
+        let ompSessionID = UUID().uuidString.lowercased()
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "OMP",
+                command: "omp --session \(ompSessionID)",
+                checkpointId: ompSessionID,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "omp",
+                    executablePath: "/opt/current/omp",
+                    arguments: ["/opt/current/omp", "--session", ompSessionID],
+                    environment: [
+                        "PATH": "/opt/omp/bin:/usr/bin:/bin",
+                        "OPENAI_API_KEY": "must-not-cross-socket",
+                    ]
+                ),
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+        let ompResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let ompRecord = try XCTUnwrap(ompResult["restore_record"] as? [String: Any])
+        let ompLaunch = try XCTUnwrap(ompRecord["launch_command"] as? [String: Any])
+        let ompEnvironment = try XCTUnwrap(ompLaunch["environment"] as? [String: Any])
+        XCTAssertEqual(ompEnvironment["PATH"] as? String, "/opt/omp/bin:/usr/bin:/bin")
+        XCTAssertNil(ompEnvironment["OPENAI_API_KEY"])
+
+        XCTAssertTrue(workspace.clearSurfaceResumeBinding(panelId: panelId))
+        let snapshotResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let snapshotRecord = try XCTUnwrap(
+            snapshotResult["restore_record"] as? [String: Any]
+        )
+        let snapshotLaunch = try XCTUnwrap(
+            snapshotRecord["launch_command"] as? [String: Any]
+        )
+        let snapshotEnvironment = try XCTUnwrap(
+            snapshotLaunch["environment"] as? [String: Any]
+        )
+        XCTAssertEqual(
+            snapshotEnvironment["CODEX_HOME"] as? String,
+            "/tmp/stale-codex-home"
+        )
+        XCTAssertNil(snapshotEnvironment["OPENAI_API_KEY"])
+    }
+
+    func testSurfaceRestoreRecordAppliesBindingEnvironmentAndRestoreTimeCwd() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sessionID = "cwd-session"
+        let savedDirectory = "/tmp/saved-project"
+        let restoredDirectory = "/tmp/restored-project"
+        let launch = AgentLaunchCommandSnapshot(
+            launcher: "cwd-agent",
+            executablePath: "/opt/cwd-agent",
+            arguments: ["/opt/cwd-agent"],
+            workingDirectory: savedDirectory,
+            environment: ["RESTORE_OVERRIDE": "captured"]
+        )
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "cwd-agent",
+                command: "/opt/cwd-agent --cwd \(savedDirectory) --session \(sessionID)",
+                cwd: savedDirectory,
+                checkpointId: sessionID,
+                source: "agent-hook",
+                environment: ["RESTORE_OVERRIDE": "binding"],
+                launchCommand: launch,
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .custom("cwd-agent"),
+                sessionId: sessionID,
+                workingDirectory: savedDirectory,
+                launchCommand: launch,
+                registration: CmuxVaultAgentRegistration(
+                    id: "cwd-agent",
+                    name: "CWD Agent",
+                    detect: CmuxVaultAgentDetectRule(processName: "cwd-agent"),
+                    sessionIdSource: .argvOption("--session"),
+                    resumeCommand: "{{executable}} --cwd {{cwd}} --session {{sessionId}}",
+                    cwd: .preserve
+                )
+            ),
+            panelId: panelId
+        )
+        workspace.restoredResumeSessionWorkingDirectoriesByPanelId[panelId] =
+            restoredDirectory
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
+        XCTAssertEqual(restoreRecord["working_directory"] as? String, restoredDirectory)
+        let environment = try XCTUnwrap(restoreRecord["environment"] as? [String: Any])
+        XCTAssertEqual(environment["RESTORE_OVERRIDE"] as? String, "binding")
+        let preparedArguments = try XCTUnwrap(
+            restoreRecord["prepared_arguments"] as? [String]
+        )
+        XCTAssertTrue(preparedArguments.contains(restoredDirectory), "\(preparedArguments)")
+        XCTAssertFalse(preparedArguments.contains(savedDirectory), "\(preparedArguments)")
+
+        let replacementSessionID = "replacement-current-session"
+        let replacementDirectory = "/tmp/replacement-project"
+        let replacementLaunch = AgentLaunchCommandSnapshot(
+            launcher: "cwd-agent",
+            executablePath: "/opt/cwd-agent",
+            arguments: ["/opt/cwd-agent"],
+            workingDirectory: replacementDirectory
+        )
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "cwd-agent",
+                command: "/opt/cwd-agent --cwd \(replacementDirectory) --session \(replacementSessionID)",
+                cwd: replacementDirectory,
+                checkpointId: replacementSessionID,
+                source: "agent-hook",
+                launchCommand: replacementLaunch,
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+
+        let replacementResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let replacementRecord = try XCTUnwrap(
+            replacementResult["restore_record"] as? [String: Any]
+        )
+        XCTAssertEqual(
+            replacementRecord["working_directory"] as? String,
+            replacementDirectory
+        )
+        XCTAssertNotEqual(
+            replacementRecord["working_directory"] as? String,
+            restoredDirectory
+        )
+        XCTAssertNil(replacementRecord["prepared_arguments"] as? [String])
+        let replacementLegacyCommand = try XCTUnwrap(
+            replacementRecord["legacy_command"] as? String
+        )
+        XCTAssertTrue(
+            replacementLegacyCommand.contains(replacementSessionID),
+            replacementLegacyCommand
+        )
+        XCTAssertFalse(
+            replacementLegacyCommand.contains(sessionID),
+            replacementLegacyCommand
+        )
     }
 
     func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {

@@ -1,7 +1,12 @@
+internal import CmuxMobilePairedMac
+
 /// Read-only status for one live connection in the iOS per-Mac pool.
 public struct MobileMacConnectionSnapshot: Identifiable, Equatable, Sendable {
-    /// Stable identity of the Mac connection.
-    public var id: String { macDeviceID }
+    /// Stable identity of the Mac APP INSTANCE: sibling builds on one physical
+    /// Mac are distinct pool entries, so identity must carry the tag.
+    public var id: String {
+        MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag)
+    }
 
     /// The authenticated Mac device identifier.
     public let macDeviceID: String

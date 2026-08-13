@@ -80,6 +80,26 @@ public final class CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring, @
         }
     }
 
+    /// Whether ANY identity record exists under this store's service, without
+    /// reading or creating one.
+    ///
+    /// Items here are `AfterFirstUnlockThisDeviceOnly`: they never travel in a
+    /// device backup, so a present record is proof the app previously ran (and
+    /// activated iroh) on THIS physical device — the non-migrating continuity
+    /// signal the device-registry mirror adoption gates on. Any error
+    /// (including a locked Keychain) reports `false`: absence of proof, never
+    /// proof of absence, so callers stay fail-safe.
+    public func containsAnyRecord() -> Bool {
+        func containsRecord(service: String) -> Bool {
+            var query = baseQuery(service: service)
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+            return SecItemCopyMatching(query as CFDictionary, nil)
+                == errSecSuccess
+        }
+        return containsRecord(service: service)
+            || legacyService.map { containsRecord(service: $0) } == true
+    }
+
     public func deleteAll() throws {
         try delete(query: baseQuery(service: service))
         if let legacyService {

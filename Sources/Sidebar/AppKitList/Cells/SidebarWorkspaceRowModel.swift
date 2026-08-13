@@ -19,10 +19,15 @@ struct SidebarWorkspaceRowModel: Equatable {
     // authoritative and reconciles on the next configure.
     var isActive: Bool
     var isMultiSelected: Bool
+    /// Whether the workspace already has a user-owned custom title; baseline
+    /// input for the inline-rename commit policy (committing an unchanged
+    /// automatic title must not convert it into a user title, which would
+    /// freeze auto-naming).
+    let hasUserCustomTitle: Bool
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
-    let unreadCount: Int
-    let latestNotificationText: String?
+    var unreadCount: Int
+    var latestNotificationText: String?
     let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let isBeingDragged: Bool
@@ -70,6 +75,7 @@ struct SidebarWorkspaceRowModel: Equatable {
 struct SidebarAppKitRowActions {
     let commands: SidebarWorkspaceRowCommands
     let onOpenStatusURL: (URL) -> Void
+    let onOpenWorkspaceDescriptionURL: (URL) -> Void
     let onOpenPullRequest: (URL) -> Void
     let onOpenPort: (Int) -> Void
     let onToggleChecklistExpansion: () -> Void

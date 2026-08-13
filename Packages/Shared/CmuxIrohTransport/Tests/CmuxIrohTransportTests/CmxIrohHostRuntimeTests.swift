@@ -5,6 +5,36 @@ import Testing
 
 @Suite
 struct CmxIrohHostRuntimeTests {
+    @Test
+    func startupConsumesEmbeddedDiscoveryWithoutAThirdBrokerRoundTrip() async throws {
+        let fixture = try HostRuntimeFixture()
+        let discovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            revision: 1
+        )
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: discovery,
+            embedDiscoveryInRegistration: true
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await broker.observedDiscoveryCount() == 0)
+        await runtime.stop()
+    }
+
     @Test("direct-only startup does not wait for relay readiness")
     func directOnlyStartupSkipsRelayReadiness() async throws {
         let fixture = try HostRuntimeFixture()
@@ -29,6 +59,34 @@ struct CmxIrohHostRuntimeTests {
 
         #expect(await runtime.snapshot().state == .active)
         #expect(await broker.observedRelayIssueCount() == 0)
+        await runtime.stop()
+    }
+
+    @Test
+    func unavailableRelayPolicyStillAllowsDirectDiscovery() async throws {
+        let fixture = try HostRuntimeFixture()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration(
+                endpointRelayProfile: .unavailableManagedSelection,
+                managedRelayURLs: []
+            ),
+            pendingRevocations: fixture.pendingRevocations(),
+            protocolConfiguration: .testDirectOnlyApplicationLanes,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await broker.observedDiscoveryCount() == 1)
         await runtime.stop()
     }
 
@@ -289,12 +347,17 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let registrationHook: (@Sendable () async -> Bool)?
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
     private let relayIssueHook: (@Sendable () async -> Void)?
+    private let embedDiscoveryStartingAtRegistrationCount: Int?
+    private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
+    private let embeddedRegistrationDiscoveryIsComplete: Bool?
+    private let registrationRevision: UInt64?
     private var preflightErrors: [CmxIrohBrokerCooldownError]
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var preflightOperations: [CmxIrohBrokerOperation] = []
     private var registrationCount = 0
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var relayIssueCount = 0
+    private var discoveryCount = 0
     private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
     private var registrationCountWaiters: [
@@ -312,6 +375,11 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         registrationHook: (@Sendable () async -> Bool)? = nil,
         subsequentRegistrationHook: (@Sendable () async -> Void)? = nil,
         relayIssueHook: (@Sendable () async -> Void)? = nil,
+        embedDiscoveryInRegistration: Bool = false,
+        embedDiscoveryStartingAtRegistrationCount: Int? = nil,
+        embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse? = nil,
+        embeddedRegistrationDiscoveryIsComplete: Bool? = nil,
+        registrationRevision: UInt64? = nil,
         preflightErrors: [CmxIrohBrokerCooldownError] = [],
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
@@ -323,6 +391,14 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         self.registrationHook = registrationHook
         self.subsequentRegistrationHook = subsequentRegistrationHook
         self.relayIssueHook = relayIssueHook
+        self.embedDiscoveryStartingAtRegistrationCount =
+            embedDiscoveryInRegistration
+                ? 1
+                : embedDiscoveryStartingAtRegistrationCount
+        self.embeddedRegistrationDiscovery = embeddedRegistrationDiscovery
+        self.embeddedRegistrationDiscoveryIsComplete =
+            embeddedRegistrationDiscoveryIsComplete
+        self.registrationRevision = registrationRevision
         self.preflightErrors = preflightErrors
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
     }
@@ -360,13 +436,25 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         let binding = registrationBindings.count > 1
             ? registrationBindings.removeFirst()
             : registrationBindings[0]
+        let embedsDiscovery = embedDiscoveryStartingAtRegistrationCount
+            .map { registrationCount >= $0 }
+            ?? false
+        let embeddedDiscovery = embeddedRegistrationDiscovery
+            ?? (embedsDiscovery ? discoveryResponses[0] : nil)
         return CmxIrohRegistrationResponse(
+            revision: registrationRevision
+                ?? embeddedDiscovery?.revision,
             binding: binding,
-            relay: .unavailable
+            relay: .unavailable,
+            discovery: embeddedDiscovery,
+            discoveryComplete: embeddedRegistrationDiscovery == nil
+                ? (embedsDiscovery ? true : nil)
+                : embeddedRegistrationDiscoveryIsComplete
         )
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
+        discoveryCount += 1
         if let discoveryError { throw discoveryError }
         guard discoveryResponses.count > 1 else {
             return discoveryResponses[0]
@@ -409,6 +497,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         preparedRegistrations
     }
     func observedRelayIssueCount() -> Int { relayIssueCount }
+    func observedDiscoveryCount() -> Int { discoveryCount }
 
     func enqueueSubsequentRegistrationError(
         _ error: CmxIrohTrustBrokerClientError
@@ -463,9 +552,80 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
 
 actor HostRuntimeBindingRecorder {
     private var recordedCount = 0
+    private var waiters: [
+        UUID: (minimum: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = [:]
 
-    func record() { recordedCount += 1 }
+    func record() {
+        recordedCount += 1
+        let readyIDs = waiters.compactMap { id, waiter in
+            recordedCount >= waiter.minimum ? id : nil
+        }
+        for id in readyIDs {
+            waiters.removeValue(forKey: id)?.continuation.resume()
+        }
+    }
+
     func count() -> Int { recordedCount }
+
+    func waitForCount(_ count: Int, timeout: Duration) async -> Bool {
+        if recordedCount >= count { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitForCount(count)
+                return !Task.isCancelled
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {
+                    return false
+                }
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private func waitForCount(_ count: Int) async {
+        if recordedCount >= count { return }
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    waiters[id] = (count, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
+        }
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.continuation.resume()
+    }
+}
+
+actor HostRuntimeRouteRecorder {
+    struct Value: Equatable, Sendable {
+        let binding: CmxIrohBrokerBindingMetadata
+        let pathHints: [CmxIrohPathHint]
+    }
+
+    private var recorded: [Value] = []
+
+    func record(
+        binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint]
+    ) {
+        recorded.append(Value(binding: binding, pathHints: pathHints))
+    }
+
+    func values() -> [Value] { recorded }
 }
 
 actor HostRuntimeLANRefreshRecorder {

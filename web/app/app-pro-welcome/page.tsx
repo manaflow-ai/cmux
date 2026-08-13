@@ -1,32 +1,40 @@
 import { redirect } from "next/navigation";
+import { getLocale } from "./locale";
 
-import enMessages from "../../messages/en.json";
+import { loadMessages } from "../../i18n/messages";
+import { routing, type Locale } from "../../i18n/routing";
 import {
-  appPricingAppearance,
   appPricingFirstParam,
-  appPricingPageBackground,
+  appPricingTheme,
   appPricingStyle,
 } from "../app-pricing/appearance";
 
-const welcome = enMessages.appProWelcome;
+const APP_BROWSER_QUERY = "cmux_open_in_browser=split-right";
 
-type WelcomeStepKey = "modelGateway" | "aiAccounts" | "iosApp" | "billing";
+type WelcomeStepKey = "iosApp" | "billing";
 
-const STEP_HREFS: Record<WelcomeStepKey, string> = {
-  modelGateway: "/dashboard/subrouter",
-  aiAccounts: "/dashboard/ai-accounts",
+type AppProWelcomeMessages = {
+  eyebrow: string;
+  title: string;
+  body: string;
+  done: string;
+  steps: Record<WelcomeStepKey, {
+    title: string;
+    body: string;
+    action: string;
+  }>;
+};
+
+const STEP_PATHS: Record<WelcomeStepKey, string> = {
   iosApp: "/dashboard/testflight",
   billing: "/dashboard/billing",
 };
 
 const STEP_ORDER: readonly WelcomeStepKey[] = [
-  "modelGateway",
-  "aiAccounts",
   "iosApp",
   "billing",
 ];
 
-export const dynamic = "force-dynamic";
 
 export default async function AppProWelcomePage({
   searchParams,
@@ -42,20 +50,26 @@ export default async function AppProWelcomePage({
   // route tree.
   if (appPricingFirstParam(params.cmux_app) !== "1") redirect("/dashboard/billing");
 
-  const appearance = appPricingAppearance(params);
-  const pageBackground = appPricingPageBackground(params, appearance);
+  const theme = appPricingTheme(params);
+  const locale = supportedLocale(await getLocale());
+  const catalog = await loadMessages(locale) as {
+    appProWelcome: AppProWelcomeMessages;
+  };
+  const welcome = catalog.appProWelcome;
 
   return (
     <>
       <style>{`
         html, body {
-          background: ${pageBackground} !important;
+          background: ${theme.background} !important;
         }
       `}</style>
       <main
         className="min-h-screen w-full px-6 py-10 text-foreground sm:py-12"
-        data-app-pro-welcome-appearance={appearance}
-        style={appPricingStyle(appearance, pageBackground)}
+        data-cmux-app-theme="true"
+        data-cmux-app-theme-appearance={theme.appearance}
+        data-app-pro-welcome-appearance={theme.appearance}
+        style={appPricingStyle(theme)}
       >
         <div className="mx-auto w-full max-w-3xl">
           <p className="text-sm font-medium text-muted">{welcome.eyebrow}</p>
@@ -72,7 +86,7 @@ export default async function AppProWelcomePage({
                 >
                   <div>
                     <h2 className="text-base font-medium">{step.title}</h2>
-                    <p className="mt-2 text-sm leading-6 text-muted">{step.body}</p>
+                    <p className="mt-2 text-sm leading-5 text-muted">{step.body}</p>
                   </div>
                   <a
                     className="mt-4 inline-flex w-fit px-3 py-2 text-sm font-medium"
@@ -80,7 +94,7 @@ export default async function AppProWelcomePage({
                       backgroundColor: "var(--foreground)",
                       color: "var(--button-foreground)",
                     }}
-                    href={STEP_HREFS[key]}
+                    href={localizedDashboardHref(locale, STEP_PATHS[key])}
                   >
                     {step.action}
                   </a>
@@ -90,9 +104,11 @@ export default async function AppProWelcomePage({
           </div>
 
           <div className="mt-8 border-t border-border pt-6">
+            {/* Keep app-web navigation as a full document load in WKWebView. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
             <a
               className="inline-flex border border-border px-4 py-2 text-sm font-medium text-foreground"
-              href="/dashboard"
+              href={localizedDashboardHref(locale, "/dashboard")}
             >
               {welcome.done}
             </a>
@@ -101,4 +117,14 @@ export default async function AppProWelcomePage({
       </main>
     </>
   );
+}
+
+function supportedLocale(locale: string): Locale {
+  return routing.locales.find((candidate) => candidate === locale)
+    ?? routing.defaultLocale;
+}
+
+function localizedDashboardHref(locale: Locale, path: string): string {
+  const prefix = locale === routing.defaultLocale ? "" : `/${locale}`;
+  return `${prefix}${path}?${APP_BROWSER_QUERY}`;
 }

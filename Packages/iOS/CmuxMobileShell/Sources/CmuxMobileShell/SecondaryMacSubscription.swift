@@ -3,7 +3,8 @@ import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 
-/// One non-focused Mac's persistent control connection plus its event consumer.
+/// One peer session's persistent control capability plus its event consumer.
+/// The same client may concurrently own the focused terminal capability.
 @MainActor
 final class SecondaryMacSubscription {
     /// Control-plane topics intentionally exclude terminal render and byte traffic.
@@ -13,6 +14,11 @@ final class SecondaryMacSubscription {
     ]
 
     let macDeviceID: String
+    /// The typed pool identity: canonical device + STORED tag (the paired
+    /// row's authority; adopted/authenticated tags never re-key a live entry).
+    var ownerKey: MacPairingKey {
+        MacPairingKey(macDeviceID: macDeviceID, instanceTag: storedInstanceTag)
+    }
     let client: MobileCoreRPCClient
     /// The route and ticket this client was dialed on, kept for promotion.
     let route: CmxAttachRoute

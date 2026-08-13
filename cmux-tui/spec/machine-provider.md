@@ -1,6 +1,6 @@
 # Machine Provider Contract
 
-This document versions the client-side machine catalog boundary. It is separate from the mux control protocol: a selected machine still speaks the implemented cmux protocol v10, while a machine provider decides which machines exist and how to open that protocol transport.
+This document versions the client-side machine catalog boundary. It is separate from the mux control protocol: a selected machine still speaks the implemented cmux protocol v12, while a machine provider decides which machines exist and how to open that protocol transport.
 
 ## Versions
 
@@ -35,16 +35,16 @@ The app owns focus, selection, the shared rail renderer, terminal mirrors, and m
 - `Connect machine` accepts `host` or `user@host`, creates a process-local SSH target with default session `main`, and does not persist it.
 - Catalog changes, cloud VM creation, wake/suspend, team membership, quotas, and billing are outside v0.
 
-The static connector validates the selected server through the normal protocol-v10 `identify` exchange. EOF cancels pending requests and closes the connector process. Switching away performs the normal terminal input drain before the client attaches to the next session.
+The static connector validates the selected server through the normal protocol-v12 `identify` exchange. EOF cancels pending requests and closes the connector process. Switching away performs the normal terminal input drain before the client attaches to the next session.
 
 ## Implemented v1
 
 Start the client with one provider connector:
 
 ```text
-cmux-tui --machine-provider <socket>
-cmux-tui --machine-provider-command <program> [arg ...] --
-cmux-tui --cloud [--cloud-host <host>] [--cloud-user <user>]
+cmux --machine-provider <socket>
+cmux --machine-provider-command <program> [arg ...] --
+cmux --cloud [--cloud-host <host>] [--cloud-user <user>]
                    [--cloud-port <port>] [--cloud-identity <path>]
 ```
 
@@ -81,6 +81,18 @@ V1 implements these requests:
 | `invoke_action` | Revision plus optional notice, URL, and selected scope or machine |
 | `close_machine` | Revision after idempotently closing one provider connection |
 
+`create_machine`, `create_workspace`, `invoke_action`, and every rename,
+delete, restore, or purge request carry a provider-opaque `mutation_id`. A
+provider must use it as the durable idempotency key for one logical mutation:
+repeating the same id and request returns the committed result, while reusing
+the id with a different operation or payload returns `conflict`. Lifecycle
+mutations also carry the descriptor's `expected_version`; a fresh request with
+a stale version returns `conflict`, but replay lookup precedes that fence so a
+lost successful response remains recoverable. The successful response is the
+durability boundary. A later snapshot refresh failure must not turn an
+accepted mutation into a failed mutation or cause the client to issue it
+again.
+
 The provider emits `snapshot_changed`, `connection_closed`, and `notice` events. Snapshot changes are invalidations: the client fetches the latest snapshot instead of applying deltas. A bounded full subscriber queue may coalesce invalidations without unsubscribing. Provider disconnect cancels pending requests and closes subscribers.
 
 When `durable-notices-v1` is negotiated, each durable `notice` event includes additive outer `delivery` metadata with the stable notice id and the consumer's monotonic sequence. Legacy clients ignore the outer field and continue decoding the unchanged notice payload. After capability negotiation, a durable-notice client persists one random consumer id per workspace state root, holds exclusive ownership of that identity for the rest of its process lifetime, reuses it across control reconnects and process restarts, subscribes once per generation, and accepts only exact sequence order. A second live client using the same state root fails before subscribing so it cannot advance the shared cursor. Clients connected to providers without this capability do not access or lease durable notice identity state. The `subscribe_notices` response reports the consumer's last acknowledged sequence. Replayed deliveries may precede that response, so the client buffers them without exposing them until it can validate the first replay as the next sequence after the reported cursor. The provider keeps at most one notice in flight for each consumer until the matching id and sequence are acknowledged.
@@ -91,18 +103,23 @@ Snapshots contain provider-stable opaque ids. Scopes distinguish personal and te
 
 `connect_external_machine` carries the selected `scope_id`, a provider-opaque `specifier`, and an opaque `mutation_id`. The specifier may be a host address or a human-readable pairing code. cmux trims only surrounding prompt whitespace, retains internal whitespace and punctuation, never passes it to a shell, and limits it to 512 UTF-8 bytes without control bytes. Providers validate its domain meaning and authorize enrollment against the exact scope in the request. A provider must bind `mutation_id` to that scope and the exact request, select the enrolled machine before replying, and return the same result for an exact replay. Reusing one mutation id with a different scope or specifier must fail with `conflict`.
 
-`open_machine` does not return an upstream address or general cloud credentials. It returns a short-lived bearer ticket. The client opens a fresh stream through the generation's connector and sends exactly one transport handshake containing the generation bearer and ticket. On acceptance, that transport becomes the normal protocol-v10 JSON-lines stream consumed by `RemoteSession`. Tickets are single use; close, expiry, control disconnect, or provider cancellation closes the corresponding upstream connection.
+`open_machine` does not return an upstream address or general cloud credentials. It returns a short-lived bearer ticket. The client opens a fresh stream through the generation's connector and sends exactly one transport handshake containing the generation bearer and ticket. On acceptance, that transport becomes the normal protocol-v12 JSON-lines stream consumed by `RemoteSession`. Tickets are single use; close, expiry, control disconnect, or provider cancellation closes the corresponding upstream connection.
 
 When a machine declares provider-owned workspaces, the provider must advertise `workspace-mirror-authority-v1`. After seeing that capability, the client sets `workspace_mirror_authority: true` in `open_machine`; the provider includes the result field only for that opt-in request. An older client omits the request field, so a new provider can return an upgrade-required error without sending a result that the strict v1 client cannot decode. An updated client connected to a legacy or rolled-back provider sees no capability and refuses to open a provider-owned machine before sending an incompatible request.
 
-The authority is a random value of at least 32 bytes scoped to one long-lived mux. The provider persists it server-side, provisions the same value as `CMUX_PROVIDER_WORKSPACE_AUTHORITY` when starting that mux, and returns it to every authorized team member who opens the machine. It stays stable across frontend reconnects, concurrent team members, and mux software upgrades. A provider rotates it only when it can restart the mux generation and update its persisted record atomically. A session-owned machine must omit the result field. The client rejects either a missing provider-owned authority or an authority attached to a session-owned machine.
+The authority is a random value of at least 32 bytes scoped to one long-lived mux. The provider persists it server-side, provisions the same value as `CMUX_PROVIDER_WORKSPACE_AUTHORITY` when starting that mux, and returns it to every authorized team member who opens the machine. It stays stable across frontend reconnects, concurrent team members, and mux software upgrades. On Linux, a root-owned manager may rotate it live through [`provider-management-v1`](provider-management.md) using mux-generation and authority-generation fences. Without that protocol, rotation requires an atomic mux restart and persisted-record update. A session-owned machine must omit the result field. The client rejects either a missing provider-owned authority or an authority attached to a session-owned machine.
+
+V1 treats that shared value as a bearer capability. Any frontend that receives it
+and can reach the mux socket can invoke provider-authority commands directly.
+vNext must replace the shared bearer with a provider-authenticated channel or
+scoped per-frontend or per-operation capabilities.
 
 A provider-authorized mux starts in provider-managed mode before accepting its first control connection. Ordinary rename and close commands are blocked immediately. The provider frontend includes the authority only in the private mirror handshake and post-provider rename or close commit; the mux compares it in constant time. This prevents an ordinary control-socket client from claiming ownership or forging a mirror commit after a provider mutation succeeds.
 
-Control requests time out after 30 seconds. Machine open may wait up to three minutes for provisioning or wake. Control frames are limited to 1 MiB, while machine transport frames are limited to 64 MiB for browser and scrollback payloads. Opaque ids, external-machine specifiers, and bearer values are bounded. Bearer, external-machine specifier, and mux-authority debug output is redacted. Their owned allocations and serialized control buffers are overwritten when no longer needed.
+Control requests time out after 30 seconds. Machine open may wait up to five minutes for provisioning or wake. Control frames are limited to 1 MiB, while machine transport frames are limited to 64 MiB for browser and scrollback payloads. Opaque ids, external-machine specifiers, and bearer values are bounded. Bearer, external-machine specifier, and mux-authority debug output is redacted. Their owned allocations and serialized control buffers are overwritten when no longer needed.
 
 On Linux, a mux with `CMUX_PROVIDER_WORKSPACE_AUTHORITY` must set `PR_SET_DUMPABLE=0` before retaining the authority, overwrite the value in the original environment block, and unset the variable before spawning terminals or helpers. Startup fails closed when the non-dumpable state cannot be established. This blocks same-UID host-workspace shells from reading the authority through `/proc/<pid>/environ`, `/proc/<pid>/mem`, or ptrace. The VM's root user remains trusted and can replace or inspect the mux process.
 
-A cloud implementation may authenticate at the SSH edge, project a team-scoped catalog, create or wake a VM, and proxy `cmux-tui relay` from that VM. The app must receive only descriptors, capabilities, action results, and an opened message transport. Cloud credentials, billing decisions, and provider API objects must not enter `App`, `RemoteSession`, or the shared rail renderer.
+A cloud implementation may authenticate at the SSH edge, project a team-scoped catalog, create or wake a VM, and proxy `cmux relay` from that VM. The app must receive only descriptors, capabilities, action results, and an opened message transport. Cloud credentials, billing decisions, and provider API objects must not enter `App`, `RemoteSession`, or the shared rail renderer.
 
 V1 lets a provider withdraw a machine, change status, revoke an open connection, and use capability checks to hide unsupported actions such as `new machine`. User-owned machines and cloud VMs use the same descriptor and open boundary. The reference client preserves process-local keys across snapshots by reconciling provider-stable ids.

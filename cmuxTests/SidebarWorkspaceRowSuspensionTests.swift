@@ -9,6 +9,7 @@ import Testing
 @MainActor
 struct SidebarWorkspaceRowSuspensionTests {
     private static func makeSnapshot(
+        customDescription: String? = nil,
         manualTaskStatus: WorkspaceTaskStatus? = nil,
         checklistItems: [WorkspaceChecklistItem] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -18,7 +19,7 @@ struct SidebarWorkspaceRowSuspensionTests {
                 showsAgentActivity: false
             ),
             title: "Workspace",
-            customDescription: nil,
+            customDescription: customDescription,
             isPinned: false,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
@@ -57,6 +58,7 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     static func makeModel(
+        customDescription: String? = nil,
         checklistAddFieldActivationToken: Int = 0,
         manualTaskStatus: WorkspaceTaskStatus? = nil,
         checklistItems: [WorkspaceChecklistItem] = [],
@@ -78,12 +80,14 @@ struct SidebarWorkspaceRowSuspensionTests {
             workspaceId: workspaceId,
             index: 0,
             snapshot: makeSnapshot(
+                customDescription: customDescription,
                 manualTaskStatus: manualTaskStatus,
                 checklistItems: checklistItems
             ),
             settings: settings,
             isActive: false,
             isMultiSelected: false,
+            hasUserCustomTitle: false,
             canCloseWorkspace: true,
             accessibilityWorkspaceCount: 1,
             unreadCount: 0,
@@ -114,6 +118,7 @@ struct SidebarWorkspaceRowSuspensionTests {
     static func makeActions(
         model: SidebarWorkspaceRowModel,
         workspace: Workspace? = nil,
+        tabManager: TabManager? = nil,
         onCommitRename: @escaping (String) -> Void = { _ in },
         onConsumeChecklistAddFieldActivation: @escaping () -> Void = {},
         onChecklistAddItem: @escaping (String) -> Void = { _ in },
@@ -124,7 +129,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         let workspace = workspace ?? Workspace()
         let commands = SidebarWorkspaceRowCommands(
             tab: workspace,
-            tabManager: nil,
+            tabManager: tabManager,
             notificationStore: nil,
             index: model.index,
             contextMenuWorkspaceIds: [model.workspaceId],
@@ -144,6 +149,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         return SidebarAppKitRowActions(
             commands: commands,
             onOpenStatusURL: { _ in },
+            onOpenWorkspaceDescriptionURL: { _ in },
             onOpenPullRequest: { _ in },
             onOpenPort: { _ in },
             onToggleChecklistExpansion: {},
@@ -202,14 +208,15 @@ struct SidebarWorkspaceRowSuspensionTests {
         )
         cell.beginInlineRename()
         let field = try #require(
-            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
+            Self.descendants(of: cell).compactMap { $0 as? SidebarInlineRenameTextField }.first
         )
         field.stringValue = "Renamed while closing"
 
         cell.suspendPresentation(commitEdits: true)
 
         #expect(committedTitle == "Renamed while closing")
-        #expect(field.isHidden)
+        #expect(field.superview == nil)
+        #expect(!cell.isEditing)
     }
 
     @Test

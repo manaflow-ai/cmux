@@ -15,6 +15,40 @@ struct CmxIrohClientSessionTests {
         credential = try .pairGrant("e30.e30.AA")
     }
 
+    @Test("a hung dial fails at its phase bound and records both legs")
+    func hungDialFailsAtThePhaseBound() async throws {
+        let diagnostics = DiagnosticLog(capacity: 8, role: .mobileClient)
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.hang]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [try publicRelayHint()]),
+            credential: credential,
+            dialPhaseTimeout: .milliseconds(40),
+            diagnostics: diagnostics
+        )
+        let clock = ContinuousClock()
+        let started = clock.now
+        await #expect(throws: CmxIrohClientSessionError.dialTimedOut) {
+            try await session.connect()
+        }
+        #expect(clock.now - started < .seconds(2))
+        #expect(await waitForDiagnosticProcessedCount(diagnostics, atLeast: 3))
+        let report = await diagnostics.snapshot()
+        #expect(report.events.map(\.code) == [
+            .transportDialPlanBuilt,
+            .transportDialLegFailed,
+            .transportDialLegFailed,
+        ])
+        #expect(report.events[1].b == DiagnosticFailureKind.timedOut.rawValue)
+        #expect(report.events[2].b == DiagnosticFailureKind.noRoute.rawValue)
+        #expect(report.events[0].c == 1)
+        #expect(report.events[1].ms != nil)
+    }
+
     @Test
     func publicDialAdmitsControlAndPreservesFollowingRPCBytes() async throws {
         let events = TestIrohEventRecorder()

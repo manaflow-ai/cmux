@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// A lightweight, `Sendable` snapshot of a remote workspace shown in the mobile shell.
@@ -88,6 +89,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// The Simulator panes contained in the workspace, in display order.
+    public var simulators: [MobileSimulatorPanelDescriptor]
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
     /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
     /// share one avatar color and different Macs are guaranteed distinct. `nil`
@@ -95,6 +98,11 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// id). Not part of the Mac's reported data, so it has a default and is set by
     /// derivation, not the decoders.
     public var machineColorIndex: Int? = nil
+    /// The app-instance tag of the Mac pairing that reported this row
+    /// ("default", "nightly", a dev tag), stamped from the connection's pairing
+    /// during ingest/derivation, never decoded from the wire. `nil` for rows
+    /// from a legacy untagged pairing or outside a per-Mac derivation.
+    public var macInstanceTag: String? = nil
     /// The owning Mac's user color override ("palette:<n>" or "#RRGGBB"), stamped
     /// during aggregation so the workspace avatar matches the computer's color.
     /// `nil` = use ``machineColorIndex`` (the automatic color).
@@ -142,7 +150,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
+        terminals: [MobileTerminalPreview],
+        simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
         self.remoteWorkspaceID = nil
@@ -161,5 +170,6 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.terminals = terminals
+        self.simulators = simulators
     }
 }

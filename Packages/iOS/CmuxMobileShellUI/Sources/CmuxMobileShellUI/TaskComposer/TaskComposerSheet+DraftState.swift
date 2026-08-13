@@ -1,19 +1,39 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Foundation
 
 extension TaskComposerSheet {
-    func selectTemplate(_ template: MobileTaskTemplate) {
+    func selectTemplate(_ template: MobileTaskTemplate, modelID: String? = nil) {
+        let validatedModelID = validatedModelID(modelID, for: template)
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
+            selectedModelID = validatedModelID
+            explicitlySelectedModel = nil
+            if template.isPlainShell {
+                removeStagedAttachmentFiles()
+                attachments.removeAll()
+            }
             syncSuggestedDirectory()
         }
+        store.recordAppEvent(
+            .taskProviderSelected,
+            correlationID: template.id.uuidString
+        )
     }
 
     func restoreSubmittedDraft(_ snapshot: MobileTaskSubmissionSnapshot) {
         prompt = snapshot.prompt
         workspaceName = snapshot.workspaceName
         selectedTemplateID = snapshot.templateID
+        selectedModelID = selectedTemplate.flatMap {
+            validatedModelID(
+                snapshot.modelID,
+                for: $0,
+                previouslyValidModelID: snapshot.modelID
+            )
+        }
+        explicitlySelectedModel = nil
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
         directory = snapshot.directory
@@ -50,6 +70,13 @@ extension TaskComposerSheet {
         failureText = nil
         failureTitleStyle = .launchFailed
         update()
+        if !hasRecordedDraftChange {
+            hasRecordedDraftChange = true
+            store.recordAppEvent(
+                .taskDraftChanged,
+                correlationID: submissionIdentity.id.uuidString
+            )
+        }
         submissionIdentity.markRequestDirty()
         if var recovery = completedOperationRecovery {
             recovery.markCurrentRequestDifferent()
@@ -105,13 +132,11 @@ extension TaskComposerSheet {
     }
 
     func draftSnapshot() -> MobileTaskComposerDraft {
-        let candidateID = submissionIdentity.id
-        let resolved = submissionIdentity.resolveCurrentRequest {
-            makeSubmissionSnapshot(operationID: candidateID)
-        }
+        let resolved = submissionSnapshot()
         let completedOperationID = reconcileCompletedOperationRecovery(with: resolved)
         return MobileTaskComposerDraft(
             prompt: prompt,
+            modelID: selectedModel?.id,
             templateID: selectedTemplateID,
             macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
             macInstanceTag: selectedMacDeviceID.isEmpty ? nil : selectedMacInstanceTag,
@@ -128,11 +153,13 @@ extension TaskComposerSheet {
         return MobileTaskSubmissionSnapshot(
             template: selectedTemplate,
             prompt: prompt,
+            modelID: selectedModel?.id,
             macDeviceID: selectedMacDeviceID,
             macInstanceTag: selectedMacInstanceTag,
             directory: directory,
             workspaceName: workspaceName,
             didEditDirectory: didEditDirectory,
+            attachments: attachments.map(\.submissionAttachment),
             operationID: operationID
         )
     }

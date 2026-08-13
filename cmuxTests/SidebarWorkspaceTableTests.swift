@@ -13,6 +13,19 @@ import Testing
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
+    func reorderDropDestinationIsOverlayNotTable() throws {
+        let container = SidebarWorkspaceTableController().makeContainerView()
+        let pasteboardType = SidebarWorkspaceReorderDropOverlay.pasteboardType
+
+        #expect(!container.tableView.registeredDraggedTypes.contains(pasteboardType))
+        let reorderDropView = try #require(
+            container.subviews.lazy.compactMap { $0 as? SidebarWorkspaceReorderDropView }.first
+        )
+        #expect(reorderDropView.registeredDraggedTypes.contains(pasteboardType))
+    }
+
+    @Test
+    @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)
@@ -270,8 +283,8 @@ struct SidebarWorkspaceTableTests {
         await flushStagedTableMutations()
         #expect(computations == 0)
 
-        // Reorder drags resolve targets synchronously in validateDrop and
-        // must never wake the bonsplit geometry gate.
+        // Starting a reorder at the table must not wake the bonsplit-only
+        // geometry gate. The destination overlay resolves its own targets.
         controller.workspaceDragSessionDidBegin()
         controller.viewportDidChange()
         await flushStagedTableMutations()
@@ -293,7 +306,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func reorderDragReplansFromStoredWindowPointOnViewportChange() async {
+    func reorderDragReplansFromStoredWindowPointOnViewportChange() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let ids = (0..<30).map { _ in UUID() }
@@ -306,12 +319,14 @@ struct SidebarWorkspaceTableTests {
         window.contentView = container
         var plannedPoints: [CGPoint] = []
         var plannedTargetCounts: [Int] = []
+        var plannedTargetY: [CGFloat?] = []
         var indicatorClears = 0
         let draggedId = ids[2]
         let actions = makeTableActions(
             updateWorkspaceDrag: { point, targets, _ in
                 plannedPoints.append(point)
                 plannedTargetCounts.append(targets.count)
+                plannedTargetY.append(targets.first { $0.workspaceId == ids[5] }?.frame.minY)
                 return SidebarWorkspaceTableReorderDropUpdate(
                     indicator: SidebarDropIndicator(tabId: ids[5], edge: .top),
                     scope: .raw,
@@ -339,9 +354,9 @@ struct SidebarWorkspaceTableTests {
         // Targets are the visible rows only, not the full 30-row model.
         #expect(plannedTargetCounts == [container.tableView.rows(in: container.tableView.visibleRect).length])
 
-        // Autoscroll moves content under a stationary pointer: same window
-        // point, new viewport, so the stored point must re-plan and resolve
-        // to a shifted table-space position.
+        // Autoscroll moves overlay-space targets under a stationary pointer.
+        // The stored window point re-plans with a stable overlay point and
+        // freshly converted target frames.
         let originBefore = container.clipView.bounds.origin.y
         container.clipView.scroll(to: NSPoint(x: 0, y: originBefore + 100))
         container.scrollView.reflectScrolledClipView(container.clipView)
@@ -349,7 +364,10 @@ struct SidebarWorkspaceTableTests {
         await flushStagedTableMutations()
         #expect(plannedPoints.count == 2)
         let scrolledBy = container.clipView.bounds.origin.y - originBefore
-        #expect(abs((plannedPoints[1].y - plannedPoints[0].y) - scrolledBy) < 0.5)
+        #expect(plannedPoints[1] == plannedPoints[0])
+        let targetYBefore = try #require(plannedTargetY[0])
+        let targetYAfter = try #require(plannedTargetY[1])
+        #expect(abs((targetYAfter - targetYBefore) + scrolledBy) < 0.5)
 
         // Leaving the table retires the stored point: later viewport changes
         // must not keep planning a drag that is no longer over the sidebar.
@@ -358,6 +376,67 @@ struct SidebarWorkspaceTableTests {
         controller.viewportDidChange()
         await flushStagedTableMutations()
         #expect(plannedPoints.count == 2)
+    }
+
+    @Test
+    @MainActor
+    func heightChangingReorderPreservesVisibleRowOffset() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let ids = (0..<40).map { _ in UUID() }
+        let initialRows = ids.map {
+            makeRowConfiguration(workspaceId: $0, fixedHeight: 30)
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        controller.apply(
+            rows: initialRows,
+            actions: makeTableActions(),
+            workspaceIds: ids,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let table = container.tableView
+        let anchorIndex = 10
+        let anchorId = initialRows[anchorIndex].id
+        let requestedOrigin = table.rect(ofRow: anchorIndex).minY + 7
+        container.clipView.scroll(to: NSPoint(x: 0, y: requestedOrigin))
+        container.scrollView.reflectScrolledClipView(container.clipView)
+        let offsetBefore = table.rect(ofRow: anchorIndex).minY - table.visibleRect.minY
+
+        var reorderedIds = ids
+        let movedId = reorderedIds.remove(at: 5)
+        reorderedIds.insert(movedId, at: 20)
+        let nextRows = reorderedIds.map { id in
+            makeRowConfiguration(
+                workspaceId: id,
+                contentToken: id == movedId ? 1 : 0,
+                fixedHeight: id == movedId ? 80 : 30
+            )
+        }
+        controller.apply(
+            rows: nextRows,
+            actions: makeTableActions(),
+            workspaceIds: reorderedIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        table.layoutSubtreeIfNeeded()
+
+        let nextAnchorIndex = try #require(nextRows.firstIndex { $0.id == anchorId })
+        let offsetAfter = table.rect(ofRow: nextAnchorIndex).minY - table.visibleRect.minY
+        #expect(abs(offsetAfter - offsetBefore) < 0.5)
     }
 
     @Test
@@ -431,7 +510,8 @@ struct SidebarWorkspaceTableTests {
         workspaceId: UUID = UUID(),
         contentToken: Int = 0,
         fontMagnificationPercent: Int = 100,
-        colorScheme: ColorScheme = .light
+        colorScheme: ColorScheme = .light,
+        fixedHeight: CGFloat? = nil
     ) -> SidebarWorkspaceTableRowConfiguration {
 #if DEBUG
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
@@ -452,9 +532,9 @@ struct SidebarWorkspaceTableTests {
             isGroupHeader: false,
             isPinned: false,
             environment: environment,
-            equivalenceValue: TestRowContent(token: contentToken)
+            equivalenceValue: TestRowContent(token: contentToken, fixedHeight: fixedHeight)
         ) { _, _ in
-            AnyView(TestRowContent(token: contentToken))
+            AnyView(TestRowContent(token: contentToken, fixedHeight: fixedHeight))
         }
     }
 
@@ -515,9 +595,154 @@ struct SidebarWorkspaceTableTests {
 
     private struct TestRowContent: View, Equatable {
         let token: Int
+        let fixedHeight: CGFloat?
 
+        @ViewBuilder
+        var body: some View {
+            if let fixedHeight {
+                Color.clear.frame(height: fixedHeight)
+            } else {
+                EmptyView()
+            }
+        }
+    }
+}
+
+#if DEBUG
+@Suite
+struct SidebarWorkspaceTableResizeLifecycleTests {
+    @Test
+    @MainActor
+    func appliedRowsStayStableUntilInteractiveResizeEnds() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let third = makeRowConfiguration()
+        let actions = makeTableActions()
+        controller.apply(
+            rows: [first],
+            actions: actions,
+            workspaceIds: [first.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(container.tableView.numberOfRows == 1)
+
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
+        var resizeIsActive = true
+        defer {
+            if resizeIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+            }
+        }
+        controller.apply(
+            rows: [first, second],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        #expect(
+            container.tableView.numberOfRows == 1,
+            "A live resize must keep the controller's previously applied row graph stable."
+        )
+
+        controller.apply(
+            rows: [first, second, third],
+            actions: actions,
+            workspaceIds: [first.workspaceId, second.workspaceId, third.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(
+            container.tableView.numberOfRows == 1,
+            "A newer resize-time snapshot must not replace the applied row graph."
+        )
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+        resizeIsActive = false
+        await flushStagedTableMutations()
+        #expect(
+            container.tableView.numberOfRows == 3,
+            "Resize completion must reconcile the newest deferred row graph."
+        )
+    }
+
+    @MainActor
+    private func makeRowConfiguration() -> SidebarWorkspaceTableRowConfiguration {
+        let workspaceId = UUID()
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .workspace(workspaceId),
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            isPinned: false,
+            environment: environment,
+            equivalenceValue: TestRowContent()
+        ) { _, _ in
+            AnyView(TestRowContent())
+        }
+    }
+
+    @MainActor
+    private func flushStagedTableMutations() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
+    }
+
+    @MainActor
+    private func makeTableActions() -> SidebarWorkspaceTableActions {
+        SidebarWorkspaceTableActions(
+            attachScrollView: { _ in },
+            closeWorkspace: { _ in },
+            createWorkspaceAtEnd: {},
+            createEmptyWorkspaceGroup: {},
+            beginWorkspaceDrag: { _ in },
+            movingWorkspaceCount: { _ in 1 },
+            endWorkspaceDrag: {},
+            isValidWorkspaceDrag: { true },
+            updateWorkspaceDrag: { _, _, _ in nil },
+            performWorkspaceDrop: { _, _, _ in false },
+            commitWorkspaceDropPlan: { _ in false },
+            clearWorkspaceDropIndicator: {},
+            currentDropIndicator: { nil },
+            currentDropIndicatorScope: { .raw },
+            canPerformBonsplitAction: { _, _ in false },
+            moveBonsplitToExistingWorkspace: { _, _ in false },
+            moveBonsplitToNewWorkspace: { _, _ in nil },
+            didMoveBonsplitToWorkspace: { _ in },
+            updateDragAutoscroll: {},
+            setBonsplitDropTargetCollectionActive: { _ in },
+            setBonsplitDropIndicator: { _ in }
+        )
+    }
+
+    private struct TestRowContent: View, Equatable {
         var body: some View {
             EmptyView()
         }
     }
 }
+#endif

@@ -9,7 +9,7 @@ struct SimulatorWebInspectorResponses: View {
             Text(simulatorStrings.inspectorResponses)
                 .font(.caption.weight(.medium))
             Spacer()
-            Button(simulatorStrings.clearInspectorResponses, action: clear)
+            SimulatorLocalizedButton(simulatorStrings.clearInspectorResponses, action: clear)
                 .disabled(responses.isEmpty)
         }
         if responses.isEmpty {

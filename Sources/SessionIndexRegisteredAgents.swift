@@ -29,7 +29,13 @@ private struct GrokHookObservedLaunchCommand: Decodable {
     var environment: [String: String]?
 }
 
-enum GrokSessionLocator {
+struct GrokSessionLocator {
+    let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
     static func defaultSessionsRoot(homeDirectory: String = NSHomeDirectory()) -> String {
         let standardizedHome = expandTilde(homeDirectory, homeDirectory: homeDirectory)
         return ((standardizedHome as NSString).appendingPathComponent(".grok") as NSString)
@@ -668,7 +674,7 @@ extension SessionIndexStore {
         switch registration.sessionIdSource {
         case .argvOption:
             needsNativeSessionID = true
-        case .piSessionFile, .grokSessionDirectory:
+        case .piSessionFile, .grokSessionDirectory, .persistedStore:
             needsNativeSessionID = false
         }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
