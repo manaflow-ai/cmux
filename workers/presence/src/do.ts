@@ -29,6 +29,7 @@ import {
   MAX_SUBSCRIBERS_PER_TEAM,
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
+  publicPresenceInstance,
   resolveSubscribeDeadline,
   routesEqual,
   shouldDeliverConnectivityInvalidation,
@@ -80,6 +81,9 @@ const INSTANCE_PREFIX = "inst:";
  * MAX_DEVICES_PER_TEAM (owner pins are the DO's device records). */
 const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
+const SYNC_RETRY_ATTEMPT_KEY = "meta:syncRetryAttempt";
+const SYNC_RETRY_BASE_MS = 1_000;
+const SYNC_RETRY_MAX_MS = 60_000;
 /** Max bytes of an inbound WS message the DO will parse (the `sync.hello`).
  * Client-controlled input on a live DO, so it is bounded before JSON.parse to
  * avoid a resource-exhaustion vector. A real hello is well under 4 KiB. */
@@ -212,7 +216,7 @@ export class TeamPresence extends DurableObject {
     const key = instanceKey(beat.deviceId, beat.tag);
     const existing = await this.ctx.storage.get<PresenceInstance>(key);
 
-    if (!existing && beat.stopping) {
+    if (!existing && beat.stopping && !beat.signedOut) {
       // A goodbye from an instance we never saw: nothing to record or
       // announce (and nothing to pin an owner for).
       return this.heartbeatOk(teamId, {
@@ -225,6 +229,9 @@ export class TeamPresence extends DurableObject {
         online: false,
         lastSeenAt: now,
         offlineAt: now,
+        ...(beat.lifecycleId !== undefined
+          ? { lifecycleId: beat.lifecycleId }
+          : {}),
       });
     }
 
@@ -270,6 +277,11 @@ export class TeamPresence extends DurableObject {
         await this.syncOneDevice(beat.deviceId, now);
       } catch (err) {
         console.error("sync projection failed (heartbeat); presence unaffected", err);
+        try {
+          await this.ensureAlarmAt(await this.bumpSyncRetryDeadline(now));
+        } catch (retryErr) {
+          console.error("sync retry scheduling failed; presence unaffected", retryErr);
+        }
       }
     }
     await this.ensureAlarmFor(instance);
@@ -292,10 +304,12 @@ export class TeamPresence extends DurableObject {
     events: readonly PresenceEvent[],
   ): boolean {
     if (existing === undefined) return true;      // new instance (tag added)
+    if (instance.signedOut === true) return true; // retry an explicit removal
     if (ownerPinned) return true;                 // owner pin is list-shape (display/trust)
     if (existing.platform !== instance.platform) return true;
     if (existing.displayName !== instance.displayName) return true;
     if (existing.bundleId !== instance.bundleId) return true;
+    if (existing.signedOut !== instance.signedOut) return true;
     if (!routesEqual(existing.routes, instance.routes)) return true; // covers goodbye-with-routes
     // `online` means the instance came back (a re-add into the list). A pure
     // `seen` event with unchanged identity and routes is the no-op case.
@@ -792,8 +806,13 @@ export class TeamPresence extends DurableObject {
     // failure must not abort the alarm before it reschedules / closes expired
     // subscribers, which are the presence-critical alarm duties (DESIGN.md §5).
     let tombGc: number | null = null;
+    let syncRetry: number | null = null;
     try {
       await this.syncDeviceRecords(now);
+      // Only a successful full reconciliation clears the durable retry marker.
+      // A later heartbeat may have failed for another device, so a successful
+      // one-device hot-path projection is insufficient evidence to clear it.
+      await this.ctx.storage.delete(SYNC_RETRY_ATTEMPT_KEY);
       await gcTombstones(this.syncStorage(), DEVICES_COLLECTION, now);
       // Include the next tombstone-GC deadline so a fully-offline team (no
       // instances left to schedule a heartbeat-driven alarm) still wakes to GC
@@ -813,9 +832,19 @@ export class TeamPresence extends DurableObject {
       }
     } catch (err) {
       console.error("sync projection/GC failed (alarm); presence unaffected", err);
+      try {
+        syncRetry = await this.bumpSyncRetryDeadline(now);
+      } catch (retryErr) {
+        console.error("sync retry scheduling failed (alarm); presence unaffected", retryErr);
+      }
     }
     this.closeExpiredSubscribers(now);
-    const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline(), tombGc]
+    const candidates = [
+      nextAlarmTime([...all.values()]),
+      this.nextSubscriberDeadline(),
+      tombGc,
+      syncRetry,
+    ]
       .filter((value): value is number => value !== null);
     if (candidates.length > 0) {
       await this.ctx.storage.setAlarm(Math.max(Math.min(...candidates), now + 1000));
@@ -832,7 +861,7 @@ export class TeamPresence extends DurableObject {
       heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
       offlineTimeoutMs: OFFLINE_TIMEOUT_MS,
       instance: {
-        ...instance,
+        ...publicPresenceInstance(instance),
         ...(routes !== undefined ? { routes } : {}),
       },
     };
@@ -870,6 +899,19 @@ export class TeamPresence extends DurableObject {
     if (current === null || current > due) {
       await this.ctx.storage.setAlarm(due);
     }
+  }
+
+  /** Persist the next projection retry with bounded exponential backoff. The
+   * marker survives DO hibernation, and a successful full alarm pass clears it. */
+  private async bumpSyncRetryDeadline(nowMs: number): Promise<number> {
+    const previous = await this.ctx.storage.get<number>(SYNC_RETRY_ATTEMPT_KEY) ?? 0;
+    const attempt = Math.min(previous + 1, 16);
+    await this.ctx.storage.put(SYNC_RETRY_ATTEMPT_KEY, attempt);
+    const delay = Math.min(
+      SYNC_RETRY_BASE_MS * (2 ** (attempt - 1)),
+      SYNC_RETRY_MAX_MS,
+    );
+    return nowMs + delay;
   }
 
   private presenceSubscriberCount(): number {
@@ -924,7 +966,10 @@ export class TeamPresence extends DurableObject {
     if (events.length === 0) return;
     const now = Date.now();
     for (const event of events) {
-      const json = JSON.stringify(event);
+      const publicEvent = "instance" in event
+        ? { ...event, instance: publicPresenceInstance(event.instance) }
+        : event;
+      const json = JSON.stringify(publicEvent);
       for (const ws of this.ctx.getWebSockets()) {
         // The account connectivity DO never receives team presence events.
         if (wsConnectivityAccountId(ws) !== null) continue;

@@ -406,6 +406,7 @@ extension MobileShellComposite {
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
+        evaluateDeviceListSync(forceRestart: true)
         let shouldResync = shouldResyncTerminalOutputOnForeground()
         lastBackgroundedAt = nil
         // Persisted connections let the recovery owner probe first. Restarting

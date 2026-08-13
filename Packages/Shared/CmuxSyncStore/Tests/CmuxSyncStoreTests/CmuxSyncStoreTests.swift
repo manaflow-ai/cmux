@@ -199,6 +199,37 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
         #expect(Set(live.map(\.recordID)) == ["prov", "dev-A"])
     }
 
+    @Test func provisionalSeedIsIgnoredAfterAuthoritativeCursorAdvances() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await store.applySnapshot(
+            teamID: TEAM,
+            collection: COLL,
+            snapshotRev: 1,
+            epoch: 1,
+            records: [try deviceRecord(id: "dev-A", rev: 1)],
+            sortKeyFor: sortKey,
+            now: Date()
+        )
+        let payload = try JSONEncoder().encode(SyncedDeviceRecord(
+            deviceId: "stale",
+            platform: "mac",
+            displayName: "Stale fallback",
+            ownerUserId: nil,
+            lastSeenAtAtRev: T0_MS,
+            instances: []
+        ))
+        try await store.seedProvisional(
+            teamID: TEAM,
+            collection: COLL,
+            recordID: "stale",
+            payloadJSON: payload,
+            sortKey: T0_MS,
+            now: Date()
+        )
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID) == ["dev-A"])
+    }
+
     @Test func resetSnapshotRecoversFromAheadCursorAndClearsStaleRows() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }

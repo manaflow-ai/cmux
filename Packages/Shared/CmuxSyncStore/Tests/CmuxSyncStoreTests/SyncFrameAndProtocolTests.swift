@@ -386,10 +386,10 @@ import Testing
         #expect(!MobileDeviceListLocalFirst.resolved(environment: ["CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST": "0"], defaults: UserDefaults(suiteName: "flag-2")!, isDebugBuild: true).isEnabled)
     }
 
-    @Test func debugDefaultsOnReleaseDefaultsOff() {
+    @Test func productDefaultsOnInEveryBuildFlavor() {
         let suite = UserDefaults(suiteName: "flag-3")!
         suite.removePersistentDomain(forName: "flag-3")
         #expect(MobileDeviceListLocalFirst.resolved(environment: [:], defaults: suite, isDebugBuild: true).isEnabled)
-        #expect(!MobileDeviceListLocalFirst.resolved(environment: [:], defaults: suite, isDebugBuild: false).isEnabled)
+        #expect(MobileDeviceListLocalFirst.resolved(environment: [:], defaults: suite, isDebugBuild: false).isEnabled)
     }
 }

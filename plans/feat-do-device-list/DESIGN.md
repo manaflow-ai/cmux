@@ -665,12 +665,12 @@ that can lose long-tail data if rushed.
 
 Phased Aurora plan (designed, not executed here):
 
-- **Phase 1 (this PR):** Aurora intact; DO is the list source behind a flag with
-  Aurora fallback. Dual-write continues.
+- **Phase 1 (this PR):** Aurora intact; the DO projection is the production list
+  source behind a kill switch with Aurora fallback. Dual-write continues.
 - **Phase 2:** make the DO durably persist offline device records to its own
   SQLite-backed DO storage with a long retention (the DO already has SQLite
   storage via `new_sqlite_classes`). Verify the DO can serve the long tail.
-- **Phase 3:** flip Release to local-first; keep Aurora as cold backup + the
+- **Phase 3:** keep local-first enabled; retain Aurora as cold backup + the
   web/desktop registry consumer until those move to sync too.
 - **Phase 4:** if/when web also reads from the DO, deprecate the Aurora read
   path; keep the table as an audit/export backstop or drop it after a data export.
@@ -681,10 +681,10 @@ it is the part that can lose data if rushed.
 
 ## 9. Feature flag and rollout
 
-Flag: `mobileDeviceListLocalFirst`, defined with the existing DEBUG-on/Release-off
-pattern used by `PresenceServiceConfiguration` (the `#if DEBUG return true` seam),
+Flag: `mobileDeviceListLocalFirst`, enabled by default in every build and
 overridable via env (`CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST`) and `UserDefaults`
-(`mobileDeviceListLocalFirst`) so it can be toggled in dogfood without a rebuild.
+(`mobileDeviceListLocalFirst`) as an operational kill switch. The override is
+useful for dogfood and incident response without a rebuild.
 
 Behavior matrix:
 
@@ -694,8 +694,8 @@ Behavior matrix:
 | on   | no           | `CmuxSyncStore` last-synced cache (labeled stale), retry DO. If cache empty, fall back to `GET /api/devices`, then local paired Macs. |
 | off  | n/a          | Today's behavior exactly: `GET /api/devices` → `registryDevices`, presence overlay, paired-Mac fallback. |
 
-Release ships with the flag off, so production users are unaffected until
-dogfood approves flipping it. DEBUG builds (dogfood) get local-first by default.
+Release and DEBUG builds both use the live local-first projection by default.
+Turning the flag off is a temporary fallback mode, not the correctness path.
 
 ## 10. The extensibility contract (how a future collection plugs in)
 
@@ -800,7 +800,8 @@ authenticated, team-scoped transport:
   a generic `SyncClient` that speaks `sync/v1` over the presence WS; a `devices`
   facade producing `RegistryDevice`s; device list rendered from the store on
   launch and live-updated by deltas, behind `mobileDeviceListLocalFirst`
-  (DEBUG-on/Release-off) with registry + paired-Mac fallback when off/unreachable;
+  (enabled by default, with registry + paired-Mac fallback only when disabled or
+  unreachable);
   transparent `MobilePairedMacStore`→local-seed migration on sign-in (idempotent).
 - en+ja localization for any new user-facing strings (e.g. a "showing cached
   devices" staleness label, if added).
@@ -818,9 +819,9 @@ authenticated, team-scoped transport:
 
 - **Changing a live DO.** Mitigated by making the change strictly additive (new
   storage keys, no class migration, presence path untouched) and tolerant of the
-  cross-colo rollout window (old instances ignore `sync.hello`; clients fall back
-  to the registry under the flag). The blast radius if sync is wrong is the
-  DEBUG-only device list; Release is unaffected (flag off).
+  cross-colo rollout window (old instances ignore `sync.hello`; clients reconnect
+  and replay from the durable cursor). The kill switch can temporarily return to
+  the registry path if the projection service has an incident.
 - **Cursor/horizon bugs** could cause a client to miss a tombstone and show a
   ghost device. The protocol closes the three known holes explicitly: the cursor
   is a contiguous-prefix watermark advanced per atomic frame (§3.1a), snapshots

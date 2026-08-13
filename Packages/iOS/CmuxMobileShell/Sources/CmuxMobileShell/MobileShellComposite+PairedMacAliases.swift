@@ -5,11 +5,57 @@ internal import Foundation
 extension MobileShellComposite {
     /// Presentation-only duplicate collapse for the Computers screen.
     public var displayPairedMacs: [MobilePairedMac] {
-        Self.coalescePairedMacsByDialEndpoint(
-            pairedMacs,
+        let source = authoritativeSyncedPairedMacs ?? pairedMacs
+        return Self.coalescePairedMacsByDialEndpoint(
+            source,
             supportedKinds: runtime?.supportedRouteKinds ?? [],
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
+    }
+
+    /// Project the authoritative DO device rows into the existing paired-Mac
+    /// value model used by the picker and Computers screen. Rows absent from
+    /// the projection are intentionally omitted, so a Mac that signed out
+    /// disappears from every discoverability surface immediately. Local
+    /// customizations are retained when a matching paired row exists.
+    private var authoritativeSyncedPairedMacs: [MobilePairedMac]? {
+        guard deviceListLocalFirst,
+              let authoritativeTeam = deviceListAuthoritativeTeamID,
+              authoritativeTeam == deviceListRenderedTeamID else {
+            return nil
+        }
+        let now = Date()
+        return registryDevices.flatMap { device in
+            device.instances.compactMap { instance in
+                guard !device.deviceId.isEmpty else { return nil }
+                let existing = pairedMacs.first {
+                    $0.macDeviceID == device.deviceId
+                        && macInstanceTagAuthority.sameStoredAuthority(
+                            $0.instanceTag,
+                            instance.tag
+                        )
+                }
+                return MobilePairedMac(
+                    macDeviceID: device.deviceId,
+                    displayName: device.displayName,
+                    routes: instance.routes,
+                    createdAt: existing?.createdAt ?? now,
+                    lastSeenAt: instance.lastSeenAt,
+                    isActive: connectedMacDeviceID == device.deviceId
+                        && macInstanceTagAuthority.sameStoredAuthority(
+                            connectedMacInstanceTag,
+                            instance.tag
+                        ),
+                    stackUserID: existing?.stackUserID ?? identityProvider?.currentUserID,
+                    teamID: authoritativeTeam,
+                    customName: existing?.customName,
+                    customColor: existing?.customColor,
+                    customIcon: existing?.customIcon,
+                    instanceTag: instance.tag,
+                    legacyTailscaleRoutes: existing?.legacyTailscaleRoutes
+                )
+            }
+        }
     }
 
     /// Build-channel labels for the computer pickers, keyed by pairing entry

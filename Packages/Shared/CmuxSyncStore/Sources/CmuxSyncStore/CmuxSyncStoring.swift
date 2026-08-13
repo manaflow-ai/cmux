@@ -75,7 +75,9 @@ public protocol CmuxSyncStoring: Sendable {
 
     /// Seed a provisional record (`rev == 0`) for the transparent migration. A
     /// no-op if a record (provisional or authoritative) already exists for the
-    /// id, so re-running on each sign-in is idempotent. (DESIGN.md §6)
+    /// id, or if this collection has an authoritative cursor, so a migration
+    /// racing the first snapshot cannot resurrect stale fallback rows. Re-running
+    /// on each sign-in is therefore idempotent. (DESIGN.md §6)
     func seedProvisional(
         teamID: String,
         collection: String,

@@ -7,6 +7,7 @@ public import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import CmuxMobileTransport
+public import CmuxSyncStore
 public import Foundation
 import Observation
 internal import OSLog
@@ -181,6 +182,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // down (and blank the map) the moment the user signs out so a
             // shared device never renders the previous account's devices.
             evaluatePresenceSubscription()
+            evaluateDeviceListSync()
         }
     }
     public internal(set) var connectionState: MobileConnectionState {
@@ -933,6 +935,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
     private let presence: (any PresenceSubscribing)?
+    /// Durable local-first projection of the team's live Mac list. The sync
+    /// store is a materialized cache; the presence Durable Object remains the
+    /// authority and sends snapshot/delta frames over ``makeSyncTransport``.
+    private let syncStore: (any CmuxSyncStoring)?
+    /// Rollout switch for the DO-backed list. When false, the existing Aurora
+    /// registry path remains active. When true, an authoritative sync snapshot
+    /// owns list membership and cannot be repopulated by stale paired rows.
+    let deviceListLocalFirst: Bool
+    /// Creates a fresh, team-pinned transport for each reconnect attempt.
+    private let makeSyncTransport: (@Sendable (String, String) -> any SyncTransport)?
     let identityProvider: (any MobileIdentityProviding)?
     let teamIDProvider: @Sendable () async -> String?
     let reachability: any ReachabilityProviding
@@ -1571,6 +1583,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
         personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         presence: (any PresenceSubscribing)? = nil,
+        syncStore: (any CmuxSyncStoring)? = nil,
+        deviceListLocalFirst: Bool = false,
+        makeSyncTransport: (@Sendable (String, String) -> any SyncTransport)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
@@ -1627,6 +1642,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.personalIrohDiscovery = personalIrohDiscovery
         self.personalIrohForget = personalIrohForget
         self.presence = presence
+        self.syncStore = syncStore
+        self.deviceListLocalFirst = deviceListLocalFirst
+        self.makeSyncTransport = makeSyncTransport
         self.identityProvider = identityProvider
         self.teamIDProvider = teamIDProvider
         self.reachability = reachability
@@ -1767,6 +1785,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryOwner.cancel()
         automaticReconnectRetryTask?.cancel()
         presenceTask?.cancel()
+        syncTask?.cancel()
         networkPathObservationTask?.cancel()
         connectionMethodObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
@@ -1913,6 +1932,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Likewise drop the registry-backed device tree so a shared device never
         // shows the previous user's team devices after sign-out.
         registryDevices = []
+        syncGeneration &+= 1
+        syncTask?.cancel()
+        syncTask = nil
+        syncSubscriptionTeamID = nil
+        syncSeededTeams = []
+        deviceListAuthoritativeTeamID = nil
+        deviceListRenderedTeamID = nil
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the hide path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -1997,7 +2023,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presenceTask?.cancel()
         presenceTask = nil
         presenceMap = PresenceMap()
+        // Invalidate the old team's sync authority before any view can read the
+        // picker during this synchronous scope transition. Otherwise an
+        // authoritative-empty team-A snapshot could temporarily suppress the
+        // team-B fallback until its first cache read completes.
+        deviceListAuthoritativeTeamID = nil
+        deviceListRenderedTeamID = nil
         evaluatePresenceSubscription()
+        evaluateDeviceListSync(forceRestart: true)
         // Secondary aggregation: tear down the OTHER Macs' read-only subscriptions
         // and drop their aggregated rows so the old team's Macs stop showing. Keep
         // ONLY the foreground entry. Do NOT re-aggregate here — that rebuilds lazily
@@ -3147,6 +3180,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// shows rather than going blank.
     public internal(set) var registryDevices: [RegistryDevice] = []
 
+    /// The sync team whose snapshot/delta has advanced past cursor zero. An
+    /// empty `registryDevices` for this team is authoritative, so the legacy
+    /// paired-Mac fallback must stay hidden and cannot resurrect a signed-out
+    /// Mac. Scoped to the selected team and reset at account/team boundaries.
+    @ObservationIgnored var deviceListAuthoritativeTeamID: String?
+    @ObservationIgnored var deviceListRenderedTeamID: String?
+    @ObservationIgnored private var syncTask: Task<Void, Never>?
+    @ObservationIgnored private var syncSubscriptionTeamID: String?
+    @ObservationIgnored private var syncSeededTeams: Set<String> = []
+    @ObservationIgnored private var syncGeneration = 0
+
     /// The cmux device id of the Mac the live connection currently targets, or
     /// `nil` when not connected. Used by the device tree to mark which device row
     /// is live.
@@ -3197,6 +3241,58 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func loadRegistryDevices() async {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.deviceRegistryLoadStarted)
+        // A shell constructed from an already-restored session does not get an
+        // `isSignedIn` didSet edge. The first device-tree load is therefore the
+        // lifecycle entrypoint that must arm the durable sync stream.
+        evaluateDeviceListSync()
+        // The sync projection is the live list source when enabled. Read the
+        // durable cache first, without waiting on the network. A non-empty
+        // cache is immediately usable; an empty cache is only authoritative
+        // after its cursor has advanced past the first snapshot. Before that,
+        // retain the registry fallback so a first launch never blanks the UI.
+        if deviceListLocalFirst,
+           syncStore != nil,
+           let scope = await currentScopeSnapshot(),
+           let teamID = scope.teamID,
+           !teamID.isEmpty {
+            deviceListRenderedTeamID = teamID
+            if let syncStore {
+                await seedDeviceListMigrationIfNeeded(
+                    scope: scope,
+                    teamID: teamID,
+                    store: syncStore
+                )
+            }
+            let loaded = await syncStoreDevices(teamID: teamID, scope: scope)
+            let cursor: Int
+            if let syncStore {
+                cursor = (try? await syncStore.cursor(
+                    teamID: teamID,
+                    collection: devicesSyncCollection
+                )) ?? 0
+            } else {
+                cursor = 0
+            }
+            guard await isScopeCurrent(scope) else { return }
+            if cursor > 0 {
+                deviceListAuthoritativeTeamID = teamID
+                // An SQLite read failure is transient. Preserve the last
+                // rendered projection instead of converting an I/O blip into a
+                // false empty authoritative list. An actual empty array is a
+                // valid signed-out/tombstoned snapshot and still replaces it.
+                if let loaded {
+                    registryDevices = loaded
+                }
+                return
+            }
+            if let loaded, !loaded.isEmpty {
+                registryDevices = loaded
+                return
+            }
+            // Cursor zero means the sync cache has never reconciled this team.
+            // Fall through to the existing registry request while the sync loop
+            // retries in the background.
+        }
         guard let deviceRegistry,
               let scope = await currentScopeSnapshot() else {
             registryDevices = []
@@ -3280,6 +3376,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// device sorts first, then most-recently-seen.
     public var deviceTreeDevices: [RegistryDevice] {
         if !registryDevices.isEmpty { return registryDevices }
+        if deviceListLocalFirst,
+           let authoritativeTeam = deviceListAuthoritativeTeamID,
+           authoritativeTeam == deviceListRenderedTeamID {
+            // The DO has explicitly reconciled this team to an empty set. Do
+            // not resurrect a signed-out Mac from the legacy paired store.
+            return []
+        }
         let connectedID = connectedMacDeviceID
         return pairedMacs
             .map { mac in
@@ -3303,6 +3406,276 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if lhsConnected != rhsConnected { return lhsConnected }
                 return lhs.lastSeenAt > rhs.lastSeenAt
             }
+    }
+
+    // MARK: - Authoritative device-list sync
+
+    /// Read the materialized device projection and apply the same visibility
+    /// and ordering rules as the network registry path. This is intentionally
+    /// a pure read helper so the launch path can use a warm cache without
+    /// changing the rendered list until its cursor proves authoritative.
+    private func syncStoreDevices(
+        teamID: String,
+        scope: MobileShellScopeSnapshot
+    ) async -> [RegistryDevice]? {
+        guard let store = syncStore else { return nil }
+        do {
+            let loaded = try await DeviceSyncFacade(store: store).registryDevices(
+                teamID: teamID,
+                provisionalOwnerUserID: scope.userID
+            )
+            guard await isScopeCurrent(scope) else { return nil }
+            let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+            guard await isScopeCurrent(scope) else { return nil }
+            let connectedID = connectedMacDeviceID
+            return compatibleRegistryDevices(loaded)
+                .filter { device in
+                    !hiddenIDs.contains(device.deviceId)
+                        && !hiddenIDs.contains(where: {
+                            MobilePairedMac.pairingIdentity(from: $0).macDeviceID
+                                == device.deviceId
+                        })
+                }
+                .sorted { lhs, rhs in
+                    let lhsConnected = lhs.deviceId == connectedID
+                    let rhsConnected = rhs.deviceId == connectedID
+                    if lhsConnected != rhsConnected { return lhsConnected }
+                    return lhs.lastSeenAt > rhs.lastSeenAt
+                }
+        } catch {
+            mobileShellLog.debug(
+                "device-list sync read failed: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    /// Start or stop the cursor-backed device-list stream to match auth and
+    /// configuration. A foreground transition requests a fresh socket even when
+    /// the old receive task is still alive, which repairs half-open WebSockets
+    /// without asking the user to relaunch or pull to refresh.
+    func evaluateDeviceListSync(forceRestart: Bool = false) {
+        let canRun = isSignedIn
+            && deviceListLocalFirst
+            && syncStore != nil
+            && makeSyncTransport != nil
+        if !canRun {
+            syncGeneration &+= 1
+            syncTask?.cancel()
+            syncTask = nil
+            syncSubscriptionTeamID = nil
+            syncSeededTeams = []
+            deviceListAuthoritativeTeamID = nil
+            deviceListRenderedTeamID = nil
+            return
+        }
+        if forceRestart {
+            syncGeneration &+= 1
+            syncTask?.cancel()
+            syncTask = nil
+            syncSubscriptionTeamID = nil
+        }
+        guard syncTask == nil else { return }
+        startDeviceListSync()
+    }
+
+    /// The sync loop uses the same cancellable exponential backoff as presence.
+    /// Every attempt captures one account/team scope, seeds the local paired-Mac
+    /// cache if needed, and re-hellos from the durable cursor. A stale callback
+    /// is rejected by both the generation and the current scope checks.
+    private func startDeviceListSync() {
+        guard deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil else { return }
+        let generation = syncGeneration
+        // Keep the receive, JSON parsing, and SQLite apply loop off the main
+        // actor. The builder below briefly hops to the shell actor for scope
+        // checks and UI invalidation, then the long-lived socket retains only
+        // the Sendable sync client and a weak callback to the shell.
+        syncTask = Task { [weak self] in
+            let clock = ContinuousClock()
+            var backoff: Duration = .seconds(1)
+            while !Task.isCancelled {
+                guard let client = await self?.makeDeviceListSyncClient(
+                    generation: generation
+                ) else {
+                    if Task.isCancelled { return }
+                    guard (try? await clock.sleep(for: .seconds(1))) != nil else { return }
+                    continue
+                }
+                do {
+                    try await client.run()
+                    backoff = .seconds(1)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    mobileShellLog.debug(
+                        "device-list sync stream ended: \(String(describing: error), privacy: .public)"
+                    )
+                }
+                guard !Task.isCancelled,
+                      self?.isDeviceListSyncGenerationCurrent(generation) == true else { return }
+                guard (try? await clock.sleep(for: backoff)) != nil else { return }
+                backoff = min(backoff * 2, .seconds(60))
+            }
+        }
+    }
+
+    /// Build one short-lived sync attempt on the main actor. The returned
+    /// client has no strong reference back to the shell, so a canceled/deinit'd
+    /// shell cannot be retained by a parked WebSocket receive.
+    private func makeDeviceListSyncClient(generation: Int) async -> SyncClient? {
+        guard deviceListLocalFirst,
+              syncGeneration == generation,
+              isSignedIn,
+              let syncStore,
+              let makeSyncTransport,
+              let accountID = identityProvider?.currentUserID,
+              !accountID.isEmpty,
+              let scope = await currentScopeSnapshot(userID: accountID),
+              let teamID = scope.teamID,
+              !teamID.isEmpty else {
+            return nil
+        }
+        syncSubscriptionTeamID = teamID
+
+        await seedDeviceListMigrationIfNeeded(
+            scope: scope,
+            teamID: teamID,
+            store: syncStore
+        )
+        guard syncGeneration == generation,
+              await isScopeCurrent(scope) else { return nil }
+        await reloadDeviceListFromSyncStore(
+            teamID: teamID,
+            scope: scope,
+            generation: generation,
+            store: syncStore
+        )
+
+        let applier = SyncFrameApplier(
+            store: syncStore,
+            teamID: teamID,
+            sortKeyFor: DeviceSyncFacade.sortKey(for:),
+            allowedCollections: [devicesSyncCollection]
+        )
+        return SyncClient(
+            transport: makeSyncTransport(teamID, accountID),
+            applier: applier,
+            collections: [devicesSyncCollection],
+            onApplied: { [weak self] in
+                await self?.handleDeviceListSyncCommit(
+                    teamID: teamID,
+                    scope: scope,
+                    generation: generation,
+                    store: syncStore
+                )
+            }
+        )
+    }
+
+    /// Seed account-private paired rows before the first cache read. This runs
+    /// from both launch/list loading and the reconnect path, so a cold cache
+    /// still renders the user's existing Macs while the authoritative socket is
+    /// being established. The durable migration marker makes retries harmless.
+    private func seedDeviceListMigrationIfNeeded(
+        scope: MobileShellScopeSnapshot,
+        teamID: String,
+        store: any CmuxSyncStoring
+    ) async {
+        guard !syncSeededTeams.contains(teamID),
+              let pairedMacStore else { return }
+        do {
+            // Once a real DO cursor exists, its snapshot is authoritative for
+            // membership. Seeding a rev-0 fallback after that point could
+            // resurrect a Mac whose signed-out tombstone the snapshot already
+            // reconciled away. Only cold, never-reconciled teams may be seeded.
+            guard let cursor = try? await store.cursor(
+                teamID: teamID,
+                collection: devicesSyncCollection
+            ), cursor == 0 else {
+                syncSeededTeams.insert(teamID)
+                return
+            }
+            _ = try await PairedMacMigration(
+                pairedStore: pairedMacStore,
+                syncStore: store
+            ).runIfNeeded(accountID: scope.userID, teamID: teamID)
+            guard await isScopeCurrent(scope) else { return }
+            syncSeededTeams.insert(teamID)
+        } catch {
+            mobileShellLog.debug(
+                "device-list migration failed: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    private func isDeviceListSyncGenerationCurrent(_ generation: Int) -> Bool {
+        syncGeneration == generation && isSignedIn
+    }
+
+    /// Apply a committed frame by reading the materialized view. Empty is a
+    /// valid result after a tombstone and must replace the old list immediately.
+    private func handleDeviceListSyncCommit(
+        teamID: String,
+        scope: MobileShellScopeSnapshot,
+        generation: Int,
+        store: any CmuxSyncStoring
+    ) async {
+        guard syncGeneration == generation,
+              isSignedIn,
+              await isScopeCurrent(scope) else { return }
+        await reloadDeviceListFromSyncStore(
+            teamID: teamID,
+            scope: scope,
+            generation: generation,
+            store: store
+        )
+    }
+
+    private func reloadDeviceListFromSyncStore(
+        teamID: String,
+        scope: MobileShellScopeSnapshot,
+        generation: Int,
+        store: (any CmuxSyncStoring)? = nil
+    ) async {
+        guard syncGeneration == generation,
+              isSignedIn,
+              await isScopeCurrent(scope) else { return }
+        guard let store = store ?? syncStore else { return }
+        let loaded: [RegistryDevice]
+        do {
+            loaded = try await DeviceSyncFacade(store: store).registryDevices(
+                teamID: teamID,
+                provisionalOwnerUserID: scope.userID
+            )
+        } catch {
+            mobileShellLog.debug(
+                "device-list sync read failed: \(String(describing: error), privacy: .public)"
+            )
+            return
+        }
+        guard syncGeneration == generation,
+              await isScopeCurrent(scope) else { return }
+        let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        let visible = compatibleRegistryDevices(loaded).filter { device in
+            !hiddenIDs.contains(device.deviceId)
+                && !hiddenIDs.contains(where: {
+                    MobilePairedMac.pairingIdentity(from: $0).macDeviceID == device.deviceId
+                })
+        }
+        let connectedID = connectedMacDeviceID
+        registryDevices = visible.sorted { lhs, rhs in
+            let lhsConnected = lhs.deviceId == connectedID
+            let rhsConnected = rhs.deviceId == connectedID
+            if lhsConnected != rhsConnected { return lhsConnected }
+            return lhs.lastSeenAt > rhs.lastSeenAt
+        }
+        deviceListRenderedTeamID = teamID
+        if let cursor = try? await store.cursor(
+            teamID: teamID,
+            collection: devicesSyncCollection
+        ), cursor > 0 {
+            deviceListAuthoritativeTeamID = teamID
+        }
     }
 
     // MARK: - Live presence
@@ -3521,6 +3894,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func loadPairedMacs() async {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.computerListRefreshStarted)
+        // The Computers picker can be the first surface opened after launch,
+        // before the device-tree task runs. Arm the same stream from either
+        // entrypoint so discoverability never depends on which view appeared
+        // first.
+        evaluateDeviceListSync()
         guard let pairedMacStore,
               let scope = await currentScopeSnapshot() else {
             storedPairedMacs = []

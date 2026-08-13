@@ -84,6 +84,11 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   }
 
   const stopping = body.stopping === true;
+  const signedOut = body.signedOut === true;
+  const rawLifecycleId = trimmedString(body.lifecycleId).toLowerCase();
+  if (body.lifecycleId !== undefined && !UUID_RE.test(rawLifecycleId)) {
+    return { ok: false, error: "invalid_lifecycle_id" };
+  }
 
   // Routes are tri-state on the heartbeat wire (see HeartbeatInput): absent
   // means "unchanged", `[]` means "no routes". A present-but-non-array value is
@@ -123,6 +128,8 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       bundleId: bundleId || undefined,
       capabilities,
       stopping: stopping || undefined,
+      ...(signedOut ? { signedOut: true } : {}),
+      ...(rawLifecycleId ? { lifecycleId: rawLifecycleId } : {}),
       routes,
     },
   };

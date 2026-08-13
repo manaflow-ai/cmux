@@ -58,7 +58,13 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     var selectedTeamID: String? {
         get { coordinator.selectedTeamID }
-        set { coordinator.selectedTeamID = newValue }
+        set {
+            let previousTeamID = coordinator.resolvedTeamID
+            coordinator.selectedTeamID = newValue
+            if coordinator.resolvedTeamID != previousTeamID {
+                PresenceHeartbeatClient.shared.authTeamDidChange()
+            }
+        }
     }
 
     var isWorkingOnAuth: Bool {

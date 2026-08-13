@@ -64,8 +64,13 @@ export function deriveDeviceRecord(
   instances: readonly PresenceInstance[],
   ownerUserId: string | undefined,
 ): DeviceRecord | null {
-  if (instances.length === 0) return null;
-  const sorted = [...instances].sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  // A clean authenticated sign-out is different from an unreachable Mac. The
+  // latter remains in the offline presence tail, while the former must leave
+  // the discoverable device projection immediately. The marker remains on the
+  // DO instance so a subsequent heartbeat can clear it and re-add the device.
+  const discoverable = instances.filter((instance) => instance.signedOut !== true);
+  if (discoverable.length === 0) return null;
+  const sorted = [...discoverable].sort((a, b) => b.lastSeenAt - a.lastSeenAt);
   const newest = sorted[0]!;
   return {
     deviceId,
@@ -176,12 +181,18 @@ export async function reconcileDeviceRecords(
   nowMs: number,
 ): Promise<SyncDeltaFrame<DeviceRecord>[]> {
   const deltas: SyncDeltaFrame<DeviceRecord>[] = [];
+  const signedOutDeviceIds = new Set<string>();
 
   // 1. Upsert a record for every device that currently has instances.
   const livingDeviceIds = new Set<string>();
   for (const [deviceId, instances] of instancesByDevice) {
     const record = deriveDeviceRecord(deviceId, instances, ownerByDevice.get(deviceId));
-    if (record === null) continue;
+    if (record === null) {
+      if (instances.some((instance) => instance.signedOut === true)) {
+        signedOutDeviceIds.add(deviceId);
+      }
+      continue;
+    }
     livingDeviceIds.add(deviceId);
     const result: SyncWriteResult<DeviceRecord> = await upsertRecord(
       storage,
@@ -205,6 +216,23 @@ export async function reconcileDeviceRecords(
       // tombstoneRecord returns a `Record<string, never>` payload delta; the
       // device-list facade treats a deleted record's payload as absent, so the
       // cast to the collection's record type is purely structural.
+      deltas.push(buildDelta(DEVICES_COLLECTION, result.head, result.delta.records as never));
+    }
+  }
+
+  // A signed-out host can be the first presence event a newly deployed DO has
+  // ever seen for a device. Create a tombstone even when no live projection
+  // exists yet, so an iPhone's rev-0 migration row is removed by the same
+  // authoritative delta instead of lingering as a ghost.
+  for (const deviceId of signedOutDeviceIds) {
+    const result = await tombstoneRecord(
+      storage,
+      DEVICES_COLLECTION,
+      deviceId,
+      nowMs,
+      { createIfMissing: true },
+    );
+    if (result.delta !== null) {
       deltas.push(buildDelta(DEVICES_COLLECTION, result.head, result.delta.records as never));
     }
   }
@@ -237,7 +265,13 @@ export async function reconcileSingleDevice(
   if (record === null) {
     // No instances left for this device on the heartbeat path: tombstone it if a
     // live record exists (idempotent if already a tombstone or absent).
-    const result = await tombstoneRecord(storage, DEVICES_COLLECTION, deviceId, nowMs);
+    const result = await tombstoneRecord(
+      storage,
+      DEVICES_COLLECTION,
+      deviceId,
+      nowMs,
+      { createIfMissing: instances.some((instance) => instance.signedOut === true) },
+    );
     if (result.delta === null) return null;
     return buildDelta(DEVICES_COLLECTION, result.head, result.delta.records as never);
   }
