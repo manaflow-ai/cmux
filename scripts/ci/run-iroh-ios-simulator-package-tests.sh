@@ -173,6 +173,15 @@ run_package_tests() {
   local test_target="$3"
   local derived_data="$test_root/$scheme-derived"
   local result_bundle="$test_root/$scheme.xcresult"
+  local parallel_testing="YES"
+
+  # The Intel compatibility runner has fewer scheduling resources than the
+  # supported ARM hosts. Running the whole Swift Testing target concurrently
+  # can starve actor callbacks while their one-second behavioral deadlines are
+  # still valid. Serialize that target without weakening any test deadline.
+  if [ "$expected_arch" = "x86_64" ]; then
+    parallel_testing="NO"
+  fi
 
   (
     cd "$repo_root/$package_path"
@@ -183,6 +192,7 @@ run_package_tests() {
       -resultBundlePath "$result_bundle" \
       ONLY_ACTIVE_ARCH=YES \
       ARCHS="$expected_arch" \
+      -parallel-testing-enabled "$parallel_testing" \
       -only-testing:"$test_target" \
       test
   )
