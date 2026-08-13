@@ -10,7 +10,7 @@ extension SocketControlServer {
     /// Synchronous on the main actor, where every caller already lives — the
     /// app's termination and updater-relaunch paths call it directly, so the
     /// unlink and lock release complete before the process exits.
-    public func stop() {
+    public func stop(cleanupDiscoveryState: Bool = true) {
         deactivateConnectionAuthorizations()
         acceptResumeTask?.cancel()
         acceptResumeTask = nil
@@ -72,6 +72,16 @@ extension SocketControlServer {
         ) {
             unlink(socketPathToUnlink)
         }
+        if cleanupDiscoveryState, socketPathLockFDToClose >= 0 {
+            events.cleanupDiscoveryState(socketPathToUnlink)
+        }
+        // The listener still owns this descriptor here. Remove the stale socket
+        // node first, then its lock pathname, and only then release the lock so a
+        // replacement cannot publish state in the cleanup gap.
+        _ = transport.removeSocketPathLockFileWhileHeld(
+            socketPathLockFDToClose,
+            for: socketPathToUnlink
+        )
         transport.releaseSocketPathLock(socketPathLockFDToClose)
     }
 }

@@ -431,11 +431,18 @@ function captureRouteHealth(input: {
   readonly status: number;
   readonly attempted: number;
   readonly refreshRetries: number;
-  readonly outcome: "success" | "upstream_error" | "no_usable_account";
+  readonly outcome:
+    | "success"
+    | "upstream_error"
+    | "no_usable_account"
+    | "unauthorized";
   readonly failureStage?:
+    | "none"
+    | "auth"
     | "account_selection"
     | "credential_refresh"
-    | "upstream_transport";
+    | "upstream_transport"
+    | "upstream_response";
   readonly responseStreamed: boolean;
 }): void {
   const durationMs = Math.round(performance.now() - input.startedAt);
@@ -463,6 +470,8 @@ function captureRouteHealth(input: {
       outcome: input.outcome,
       failure_stage: input.outcome === "success"
         ? "none"
+        : input.outcome === "unauthorized"
+        ? "auth"
         : input.outcome === "no_usable_account"
         ? input.failureStage ?? "account_selection"
         : "upstream_response",

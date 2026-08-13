@@ -1,6 +1,7 @@
 import { MagicLinkSignIn, StackHandler } from "@stackframe/stack";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
 
@@ -8,18 +9,13 @@ import { stackServerApp } from "../../lib/stack";
 // Keep authentication reliable instead of withholding it behind an empty
 // instant-navigation boundary.
 export const instant = false;
-// CLI auth confirmation consumes a one-time query parameter. Do not cache an
-// empty handler shell before Stack can read that parameter.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-// CLI auth confirmation consumes a one-time query parameter. Static
-// prerendering would cache an empty handler shell and drop that parameter.
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 export default async function StackHandlerPage(
   props: { params: Promise<{ stack: string[] }> },
 ) {
+  // Stack consumes one-time query parameters from the actual request URL.
+  // Keep everything below this boundary out of the prerender cache.
+  await connection();
   if (!stackServerApp) notFound();
   const [{ stack }, requestHeaders] = await Promise.all([
     props.params,

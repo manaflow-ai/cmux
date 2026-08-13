@@ -38,6 +38,14 @@ public struct SocketControlServerEvents: Sendable {
     /// Invoked after `listen(2)` succeeds, before the running-state commit.
     public let recordLastSocketPath: @Sendable (_ path: String) -> Void
 
+    /// Clears discovery state while the server still owns the socket-path lock.
+    ///
+    /// The callback runs synchronously during ``SocketControlServer/stop(cleanupDiscoveryState:)``
+    /// after the listener has closed its socket and before the lock is released.
+    /// This prevents a replacement listener from publishing a marker between the
+    /// final ownership check and marker removal.
+    public let cleanupDiscoveryState: @MainActor @Sendable (_ path: String) -> Void
+
     /// The path monitor observed that the bound socket path no longer exists
     /// (validated against the published snapshot on the listener queue). The
     /// host should hop to its restart context, re-validate with
@@ -64,6 +72,7 @@ public struct SocketControlServerEvents: Sendable {
     ///   - failure: Listener-failure sink (breadcrumb + optional capture).
     ///   - listenerDidStart: Listener-started notification hook (main actor).
     ///   - recordLastSocketPath: Bound-path marker writer.
+    ///   - cleanupDiscoveryState: Lock-owned marker/pointer cleanup hook.
     ///   - pathMissingDetected: Socket-path-deleted restart trigger.
     ///   - rearmRequested: Accept-failure rearm scheduler.
     public init(
@@ -71,6 +80,7 @@ public struct SocketControlServerEvents: Sendable {
         failure: @escaping @Sendable (String, String, Int32?, [String: any Sendable]) -> Void,
         listenerDidStart: @escaping @MainActor @Sendable (String, UInt64) -> Void,
         recordLastSocketPath: @escaping @Sendable (String) -> Void,
+        cleanupDiscoveryState: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         pathMissingDetected: @escaping @Sendable (String, UInt64) -> Void,
         rearmRequested: @escaping @Sendable (UInt64, Int32, Int, Int) -> Void
     ) {
@@ -78,6 +88,7 @@ public struct SocketControlServerEvents: Sendable {
         self.failure = failure
         self.listenerDidStart = listenerDidStart
         self.recordLastSocketPath = recordLastSocketPath
+        self.cleanupDiscoveryState = cleanupDiscoveryState
         self.pathMissingDetected = pathMissingDetected
         self.rearmRequested = rearmRequested
     }
