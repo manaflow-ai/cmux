@@ -130,10 +130,8 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
   0%, 100% { opacity: .58; }
   50% { opacity: 1; }
 }
-.row-value, .cwd-label { overflow: hidden; text-overflow: ellipsis; }
-.cwd-label { font-family: var(--font-mono); font-size: calc(var(--font-size-base) - 2.5px); }
+.row-value { overflow: hidden; text-overflow: ellipsis; }
 .provider-trigger, .provider-model-trigger { max-width: 360px; }
-.cwd-trigger { max-width: 150px; }
 .row-select { max-width: 220px; }
 .row-icon-only { width: 24px; justify-content: center; padding: 0; }
 .fast-toggle {
@@ -312,17 +310,6 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .command-item.active { background: var(--bg-hover); color: var(--text); }
 .cmd-name { flex: none; color: var(--text); font-family: var(--font-mono); }
 .cmd-desc { color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-.popover {
-  min-width: 340px; max-width: 70vw; background: var(--bg-raised); border: 0;
-  border-radius: 12px; padding: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.4); z-index: 30;
-}
-.popover-label { font: 600 calc(var(--font-size-base) - 3px) var(--font-sans); color: var(--text-faint); margin-bottom: 6px; }
-.cwd-edit {
-  width: 100%; height: 32px; padding: 0 10px; border-radius: 8px;
-  border: 0; background: var(--bg); color: var(--text);
-  font: var(--font-size-code) var(--font-mono); outline: none;
-}
 
 #composer-hint { color: var(--text-faint); font-size: calc(var(--font-size-base) - 2px); }
 .composer-error { width: min(660px, 100%); color: var(--red); font-size: calc(var(--font-size-base) - 2px); }
@@ -645,8 +632,6 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 }
 
 @container (max-width: 520px) {
-  .status-row .cwd-label { display: none; }
-  .status-row .cwd-trigger { max-width: 24px; }
   .status-row .row-select:not(.provider-model-trigger) .row-value { max-width: 78px; }
 }
 @container (max-width: 390px) {

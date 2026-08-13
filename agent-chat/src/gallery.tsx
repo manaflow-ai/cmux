@@ -19,8 +19,6 @@ import {
 } from "./gallery-fixtures";
 import { groupTurns } from "./turns";
 
-const cwd = "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-agent-chat-ui/agent-chat";
-
 function setOption(options: SessionOption[], id: string, value: OptionValue): SessionOption[] {
   return options.map((o) => o.id === id ? { ...o, value } : o);
 }
@@ -50,7 +48,6 @@ function DemoStatusRow({
         providers={galleryProviders}
         allProviderOptions={galleryOptions}
         onProviderModelChange={(nextProvider, model) => console.log("gallery model", nextProvider, model)}
-        cwd={cwd}
         options={options}
         onChange={(id, value) => setOptions((current) => setOption(current, id, value))}
         openOptionId={openOptionId}
@@ -80,7 +77,6 @@ function ComposerMock({ state }: { state: "idle" | "starting" | "draft" | "error
           providers={galleryProviders}
           allProviderOptions={galleryOptions}
           onProviderModelChange={(p, model) => console.log("gallery composer pick", p, model)}
-          cwd={cwd}
           options={galleryOptions[provider]}
           onChange={(id, value) => console.log("gallery composer option", id, value)}
           openOptionId={null}
