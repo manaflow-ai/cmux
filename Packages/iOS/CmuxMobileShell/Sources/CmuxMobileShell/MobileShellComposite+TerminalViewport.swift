@@ -306,8 +306,19 @@ extension MobileShellComposite {
         // replay, input, or paste that races after this point must not carry
         // the released dimensions with the newer clear generation and re-pin
         // the Mac surface.
-        reportedViewportSizesByTerminalKey = reportedViewportSizesByTerminalKey.filter {
-            $0.key.terminalID.rawValue != surfaceID
+        if let workspaceID {
+            reportedViewportSizesByTerminalKey.removeValue(forKey: viewportKey(
+                workspaceID: workspaceID,
+                terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+            ))
+        } else {
+            // A surface can disappear from the workspace snapshot before its
+            // teardown callback runs. There is no route for the clear RPC in
+            // that case, so discard any colliding local entries as a last
+            // line of defence against a later replay piggyback.
+            reportedViewportSizesByTerminalKey = reportedViewportSizesByTerminalKey.filter {
+                $0.key.terminalID.rawValue != surfaceID
+            }
         }
         // The generation entry deliberately outlives the surface: it is the
         // monotonic fence that keeps a still-in-flight viewport report from
