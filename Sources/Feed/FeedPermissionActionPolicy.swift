@@ -146,11 +146,15 @@ enum FeedPermissionActionPolicy {
         let raw: Any?
         if let normalized = object["mcp_persist"] {
             raw = normalized
-        } else if let metadata = object["metadata"] as? [String: Any] {
-            raw = metadata["persist"]
-        } else if let metadata = (object["_meta"] as? [String: Any])
-            ?? (object["meta"] as? [String: Any]) {
-            raw = metadata["persist"]
+        } else if let metadata = object["metadata"] as? [String: Any],
+                  let persist = metadata["persist"] {
+            raw = persist
+        } else if let metadata = object["_meta"] as? [String: Any],
+                  let persist = metadata["persist"] {
+            raw = persist
+        } else if let metadata = object["meta"] as? [String: Any],
+                  let persist = metadata["persist"] {
+            raw = persist
         } else {
             raw = nil
         }

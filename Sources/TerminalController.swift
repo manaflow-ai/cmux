@@ -6103,7 +6103,8 @@ class TerminalController {
     }
 
     private nonisolated func v2FeedInvalidate(params: [String: Any]) -> V2CallResult {
-        guard let requestId = params["request_id"] as? String else {
+        guard let requestId = params["request_id"] as? String,
+              !requestId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .err(
                 code: "invalid_params",
                 message: "feed.invalidate requires request_id",
@@ -14478,7 +14479,14 @@ class TerminalController {
         } catch {
             return .err(code: "internal_error", message: "Unable to load Feed history", data: nil)
         }
-        let liveTargets = FeedJumpResolver.targets(for: history.page.items.map(\.workstreamId))
+        let workstreamIds = history.page.items.map(\.workstreamId)
+        let persistedTargets = await Task.detached(priority: .utility) {
+            FeedJumpResolver.targets(for: workstreamIds)
+        }.value
+        let liveTargets = persistedTargets.merging(
+            FeedCoordinator.shared.registeredTargets(for: workstreamIds),
+            uniquingKeysWith: { _, registered in registered }
+        )
         let items = history.page.items.map { item -> [String: Any] in
             var payload = FeedSocketEncoding.itemDict(item)
             let liveTarget = liveTargets[item.workstreamId]
@@ -14487,6 +14495,12 @@ class TerminalController {
             }
             if let surfaceID = liveTarget?.surfaceId ?? item.surfaceId {
                 payload["surface_id"] = surfaceID
+            }
+            // Mobile history must never carry the raw output of a failed
+            // tool. The desktop socket retains it for local diagnostics, but
+            // the authenticated phone response is a durable privacy boundary.
+            if payload["tool_result_is_error"] as? Bool == true {
+                payload["tool_result"] = nil
             }
             return payload
         }
@@ -14578,10 +14592,7 @@ class TerminalController {
             decision: decision
         )
         guard outcome == .delivered else {
-            return .err(code: outcome.rawValue, message: "Feed item is no longer actionable", data: [
-                "item_id": itemRaw,
-                "request_id": requestId,
-            ])
+            return .err(code: outcome.rawValue, message: "Feed item is no longer actionable", data: nil)
         }
         return .ok(["status": outcome.rawValue])
     }

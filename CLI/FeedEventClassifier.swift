@@ -73,7 +73,14 @@ struct FeedEventClassifier {
         toolName: String
     ) -> FeedEventClassification {
         let semantic = feedEventSemantic(source: source, event: event)
-        return wireMapping(for: semantic, source: source, toolName: toolName)
+        // `feedEventSemantic` normalizes aliases before looking up the
+        // registry. Pass that same key to the wire mapper so source-specific
+        // approval rules cannot diverge for aliases such as `claude-code`.
+        return wireMapping(
+            for: semantic,
+            source: normalizedSource(source),
+            toolName: toolName
+        )
     }
 
     /// Whether any of `source`'s registered events carry the

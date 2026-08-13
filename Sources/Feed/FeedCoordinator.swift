@@ -30,6 +30,10 @@ final class FeedCoordinator: @unchecked Sendable {
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
     @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
+    /// Live in-process routes belong to the Feed coordinator lifecycle. Hook
+    /// sessions remain file-backed and are resolved separately off-main.
+    @MainActor private var registeredTargets: [String: FeedJumpResolver.Target] = [:]
+    @MainActor private var registeredTextSenders: [String: FeedRegisteredTextSender] = [:]
 
     /// The bounded notification-center boundary. `install(store:)` injects it;
     /// the shared store's service covers the pre-install window.
@@ -87,6 +91,8 @@ final class FeedCoordinator: @unchecked Sendable {
         userNotificationCenter: (any UserNotificationCenterServing)? = nil
     ) {
         self.store = store
+        registeredTargets.removeAll()
+        registeredTextSenders.removeAll()
         // Resolved here rather than as a default argument: default-argument
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
@@ -545,15 +551,8 @@ final class FeedCoordinator: @unchecked Sendable {
                 if let resolvedItemId = itemId ?? Self.findItemId(for: requestId, in: store.items) {
                     store.markResolved(resolvedItemId, decision: decision)
                 }
-                FeedCoordinator.shared.waiterLock.lock()
-                FeedCoordinator.shared.mobileRevision &+= 1
-                let revision = FeedCoordinator.shared.mobileRevision
-                FeedCoordinator.shared.waiterLock.unlock()
+                FeedCoordinator.shared.publishMobileChange()
                 FeedCoordinator.shared.cancelNotification(requestId: requestId)
-                MobileHostService.emitEvent(
-                    topic: "workstream.feed.changed",
-                    payload: ["revision": revision]
-                )
             }
         }
         if Thread.isMainThread {
@@ -765,9 +764,56 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Returns the current route without changing focus. Mobile list rows pin
     /// this target so later selection changes cannot reroute an action.
+    @MainActor
     func target(for workstreamId: String) -> FeedJumpResolver.Target? {
         guard let parsed = FeedJumpResolver.parse(workstreamId) else { return nil }
+        if let target = registeredTargets[workstreamId] { return target }
         return FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId)
+    }
+
+    /// Installs one live route for an in-process coding-agent session.
+    @MainActor
+    func registerTarget(
+        agent: String,
+        sessionId: String,
+        target: FeedJumpResolver.Target,
+        textSender: (@MainActor (String) async -> Bool)? = nil
+    ) {
+        let workstreamId = "\(agent)-\(sessionId)"
+        registeredTargets[workstreamId] = target
+        registeredTextSenders[workstreamId] = textSender.map(FeedRegisteredTextSender.init)
+    }
+
+    /// Removes one live route without disturbing a replacement registered by
+    /// a newer session owner.
+    @MainActor
+    func unregisterTarget(
+        agent: String,
+        sessionId: String,
+        expected target: FeedJumpResolver.Target? = nil
+    ) {
+        let workstreamId = "\(agent)-\(sessionId)"
+        if target == nil || registeredTargets[workstreamId] == target {
+            registeredTargets.removeValue(forKey: workstreamId)
+            registeredTextSenders.removeValue(forKey: workstreamId)
+        }
+    }
+
+    /// Returns only in-process routes. Persisted hook routes are loaded on a
+    /// detached worker and merged by the caller so history encoding stays off
+    /// the main actor.
+    @MainActor
+    func registeredTargets(for workstreamIds: [String]) -> [String: FeedJumpResolver.Target] {
+        workstreamIds.reduce(into: [:]) { result, workstreamId in
+            if let target = registeredTargets[workstreamId] {
+                result[workstreamId] = target
+            }
+        }
+    }
+
+    @MainActor
+    private func sendRegisteredText(workstreamId: String, text: String) async -> Bool? {
+        await registeredTextSenders[workstreamId]?.send(text)
     }
 
     /// Accepts one ordinary reply only when the caller's immutable target is
@@ -796,7 +842,7 @@ final class FeedCoordinator: @unchecked Sendable {
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
-        let directDelivery = await FeedJumpResolver.sendRegisteredText(
+        let directDelivery = await sendRegisteredText(
             workstreamId: workstreamId,
             text: text
         )
@@ -1220,7 +1266,8 @@ extension FeedCoordinator {
     /// and the owning window UUID for window-Dock surfaces. Prefer that live
     /// value so a stale hook-session map cannot redirect attention; fall back
     /// to the session store only when the event omits a parseable owner. A
-    /// stored surface is trusted only when its stored owner also matches.
+    /// surface carried by the event wins; a stored surface is trusted only
+    /// when its stored owner also matches.
     private static func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (ownerId: UUID, surfaceId: UUID?)? {
@@ -1235,13 +1282,17 @@ extension FeedCoordinator {
         let eventOwnerId = event.workspaceId.flatMap {
             UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        let eventSurfaceId = event.surfaceId.flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
 
         guard let ownerId = eventOwnerId ?? sessionMatch?.ownerId else {
             return nil
         }
         // Only trust the session store's surface if it belongs to the owner
         // we're actually targeting.
-        let surfaceId = (sessionMatch?.ownerId == ownerId) ? sessionMatch?.surfaceId : nil
+        let surfaceId = eventSurfaceId
+            ?? ((sessionMatch?.ownerId == ownerId) ? sessionMatch?.surfaceId : nil)
         return (ownerId, surfaceId)
     }
 
@@ -1321,11 +1372,9 @@ extension FeedCoordinator {
     ///
     /// Actual focus (workspace.select + surface.focus) is scheduled via
     /// `FeedJumpResolver.focusIfPossible` on the main actor.
+    @MainActor
     func resolvePossibleSurface(for workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId) else {
-            return false
-        }
-        return FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId) != nil
+        target(for: workstreamId) != nil
     }
 
     /// Fires a best-effort focus for the given `workstreamId`. Returns
@@ -1334,11 +1383,7 @@ extension FeedCoordinator {
     /// touch AppKit state.
     @MainActor
     func focusIfPossible(workstreamId: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
+        guard let target = target(for: workstreamId) else { return false }
         FeedJumpResolver.focus(workspaceId: target.workspaceId, surfaceId: target.surfaceId)
         return true
     }
@@ -1350,11 +1395,7 @@ extension FeedCoordinator {
     @MainActor
     @discardableResult
     func sendTextToWorkstream(workstreamId: String, text: String) -> Bool {
-        guard let parsed = FeedJumpResolver.parse(workstreamId),
-              let target = FeedJumpResolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
+        guard let target = target(for: workstreamId) else { return false }
         FeedJumpResolver.sendText(
             workspaceId: target.workspaceId,
             surfaceId: target.surfaceId,
@@ -1373,10 +1414,6 @@ enum FeedJumpResolver {
         let surfaceId: String
     }
 
-    private static let registeredTargetsLock = NSLock()
-    private static var registeredTargets: [String: Target] = [:]
-    private static var registeredTextSenders: [String: FeedRegisteredTextSender] = [:]
-
     static func parse(_ workstreamId: String) -> (agent: String, sessionId: String)? {
         guard let dash = workstreamId.firstIndex(of: "-") else { return nil }
         let agent = String(workstreamId[..<dash])
@@ -1386,58 +1423,18 @@ enum FeedJumpResolver {
     }
 
     static func lookup(agent: String, sessionId: String) -> Target? {
-        let key = "\(agent)-\(sessionId)"
-        registeredTargetsLock.lock()
-        let registered = registeredTargets[key]
-        registeredTargetsLock.unlock()
-        if let registered { return registered }
         return sessions(agent: agent)[sessionId]
-    }
-
-    /// Registers a live non-hook agent session so Feed actions can route to
-    /// panels created by cmux's built-in agent runner. Hook-backed sessions
-    /// continue to resolve from their persisted session maps.
-    @MainActor
-    static func register(
-        agent: String,
-        sessionId: String,
-        target: Target,
-        textSender: (@MainActor (String) async -> Bool)? = nil
-    ) {
-        let key = "\(agent)-\(sessionId)"
-        registeredTargetsLock.lock()
-        registeredTargets[key] = target
-        registeredTextSenders[key] = textSender.map(FeedRegisteredTextSender.init)
-        registeredTargetsLock.unlock()
-    }
-
-    @MainActor
-    static func unregister(agent: String, sessionId: String, expected target: Target? = nil) {
-        let key = "\(agent)-\(sessionId)"
-        registeredTargetsLock.lock()
-        if target == nil || registeredTargets[key] == target {
-            registeredTargets.removeValue(forKey: key)
-            registeredTextSenders.removeValue(forKey: key)
-        }
-        registeredTargetsLock.unlock()
-    }
-
-    @MainActor
-    static func sendRegisteredText(workstreamId: String, text: String) async -> Bool? {
-        guard let parsed = parse(workstreamId) else { return nil }
-        let key = "\(parsed.agent)-\(parsed.sessionId)"
-        registeredTargetsLock.lock()
-        let sender = registeredTextSenders[key]
-        registeredTargetsLock.unlock()
-        return await sender?.send(text)
     }
 
     static func targets(for workstreamIds: [String]) -> [String: Target] {
         let parsed = workstreamIds.compactMap { workstreamId in
             parse(workstreamId).map { (workstreamId, $0.agent, $0.sessionId) }
         }
+        let sessionsByAgent = Dictionary(uniqueKeysWithValues: Set(parsed.map { $0.1 }).map { agent in
+            (agent, sessions(agent: agent))
+        })
         return parsed.reduce(into: [:]) { result, entry in
-            if let target = lookup(agent: entry.1, sessionId: entry.2) {
+            if let target = sessionsByAgent[entry.1]?[entry.2] {
                 result[entry.0] = target
             }
         }

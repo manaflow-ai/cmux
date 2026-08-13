@@ -166,17 +166,25 @@ extension WorkstreamQuestionPrompt {
                 ),
             ]
         }
+        let rawDefault: Any? = dictionary["default"] ?? dictionary["default_value"]
         let rawDefaultValue: String?
-        if let value = dictionary["default"] as? String {
+        if let value = rawDefault as? String {
             rawDefaultValue = value
-        } else if let value = dictionary["default_value"] as? String {
-            rawDefaultValue = value
-        } else if let value = dictionary["default"] as? NSNumber {
+        } else if let value = rawDefault as? Bool {
+            rawDefaultValue = value ? "true" : "false"
+        } else if let value = rawDefault as? NSNumber {
             rawDefaultValue = value.stringValue
         } else {
             rawDefaultValue = nil
         }
         let defaultValue: String? = rawDefaultValue.map { value in
+            if inputType == .boolean {
+                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "1", "true", "yes", "y", "on": return "yes"
+                case "0", "false", "no", "n", "off": return "no"
+                default: break
+                }
+            }
             guard inputType == .choice else { return value }
             if let option = resolvedOptions.first(where: { $0.id == value || $0.label == value }) {
                 return option.id
@@ -224,8 +232,16 @@ extension WorkstreamQuestionPrompt {
 
     private static func scalarString(_ raw: Any) -> String? {
         if let value = raw as? String { return value }
+        if let value = raw as? NSNumber {
+            // JSONSerialization bridges booleans and numbers through
+            // NSNumber. Inspect the Objective-C type so numeric 0/1 do not
+            // become boolean options accidentally.
+            if String(cString: value.objCType) == "c" {
+                return value.boolValue ? "true" : "false"
+            }
+            return value.stringValue
+        }
         if let value = raw as? Bool { return value ? "true" : "false" }
-        if let value = raw as? NSNumber { return value.stringValue }
         return nil
     }
 }

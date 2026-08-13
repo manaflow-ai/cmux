@@ -733,7 +733,10 @@ extension MobileShellComposite {
             }
             workspacesByMac[ownerKey] = nil
             removeNotificationFeedSnapshot(macDeviceID: pairingID)
-            removeAgentFeedSnapshot(ownerKey: pairingID)
+            removeAgentFeedSnapshot(
+                ownerKey: pairingID,
+                scopeKey: pairedMacScopeKey(scope)
+            )
         }
         // The foreground pairing's feed snapshot may live under the bare
         // DEVICE key. Hiding it while a sibling pairing stays visible skips
@@ -741,13 +744,19 @@ extension MobileShellComposite {
         if let foregroundPairingID, targetPairingIDs.contains(foregroundPairingID) {
             let identity = MobilePairedMac.pairingIdentity(from: foregroundPairingID)
             removeNotificationFeedSnapshot(macDeviceID: identity.macDeviceID)
-            removeAgentFeedSnapshot(ownerKey: identity.macDeviceID)
+            removeAgentFeedSnapshot(
+                ownerKey: identity.macDeviceID,
+                scopeKey: pairedMacScopeKey(scope)
+            )
         }
         let fullyHiddenPhysicalIDs = targetPhysicalIDs.subtracting(remainingPhysicalIDs)
         for id in fullyHiddenPhysicalIDs {
             pruneWorkspaceStateForHiddenMac(id)
             removeNotificationFeedSnapshot(macDeviceID: id)
-            removeAgentFeedSnapshot(ownerKey: id)
+            removeAgentFeedSnapshot(
+                ownerKey: id,
+                scopeKey: pairedMacScopeKey(scope)
+            )
         }
 
         guard !Task.isCancelled,

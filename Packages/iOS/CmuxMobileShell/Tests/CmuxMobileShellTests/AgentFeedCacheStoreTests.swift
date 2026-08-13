@@ -29,12 +29,18 @@ import Testing
         #expect(scoped.first?.ownerKey == "mac-21")
         #expect(await store.load(scopeKey: "user-b\tteam-a").isEmpty)
 
+        await store.remove(ownerKeys: ["mac-21", "missing"], scopeKey: "user-a\tteam-a")
+        let afterRemoval = await AgentFeedCacheStore(directory: directory)
+            .load(scopeKey: "user-a\tteam-a")
+        #expect(afterRemoval.count == 19)
+        #expect(!afterRemoval.contains { $0.ownerKey == "mac-21" })
+
         await store.clear(scopeKey: "user-a\tteam-a")
         #expect(await store.load(scopeKey: "user-a\tteam-a").isEmpty)
     }
 
     @Test @MainActor func diskPayloadRemovesRawToolInput() throws {
-        let raw = Data(#"{"revision":1,"items":[{"tool_input":"secret","tool_input_capabilities":"capability","tool_input_summary":"command: …","text":"safe"}]}"#.utf8)
+        let raw = Data(#"{"revision":1,"items":[{"tool_input":"secret","tool_input_capabilities":"capability","tool_input_summary":"command: …","tool_result":"private failure","tool_result_is_error":true,"text":"safe"}]}"#.utf8)
 
         let sanitized = MobileShellComposite.sanitizedAgentFeedCacheData(raw)
         let root = try #require(JSONSerialization.jsonObject(with: sanitized) as? [String: Any])
@@ -43,6 +49,8 @@ import Testing
 
         #expect(item["tool_input"] == nil)
         #expect(item["tool_input_capabilities"] == nil)
+        #expect(item["tool_result"] == nil)
+        #expect(item["tool_result_is_error"] as? Bool == true)
         #expect(item["tool_input_summary"] as? String == "command: …")
         #expect(item["text"] as? String == "safe")
     }

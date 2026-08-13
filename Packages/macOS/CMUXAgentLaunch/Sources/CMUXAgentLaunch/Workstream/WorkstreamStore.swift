@@ -459,7 +459,12 @@ public final class WorkstreamStore {
         )
         guard !secretIDs.isEmpty else { return decision }
         let safeSelections = selections.map { selection in
-            guard let separator = selection.firstIndex(of: "=") else { return selection }
+            guard let separator = selection.firstIndex(of: "=") else {
+                // Legacy desktop and notification clients may submit one
+                // unkeyed value per prompt. Once a secret field is present,
+                // do not persist an ambiguous value that could be its answer.
+                return "<provided>"
+            }
             let fieldID = String(selection[..<separator])
             guard secretIDs.contains(fieldID) else { return selection }
             return "\(fieldID)=<provided>"

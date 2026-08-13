@@ -211,7 +211,7 @@ struct AgentFeedRow: View, Equatable {
             formView(title: title, fields: fields, externalURL: externalURL)
         case .stop where requiresResponse:
             replyComposer
-        case .lifecycle where item.wire.kind == "sessionEnd" && requiresResponse:
+        case .lifecycle where item.isTurnCompletion && requiresResponse:
             replyComposer
         case .unknown where requiresResponse:
             Text(localizer.string(
@@ -910,8 +910,8 @@ private struct AgentFeedRowCopy {
         case .toolResult(let name, let result, let isError):
             return isError
                 ? localizer.string(
-                    "mobile.agentFeed.activity.toolError",
-                    defaultValue: "\(name) failed: \(result)"
+                    "mobile.agentFeed.activity.toolErrorGeneric",
+                    defaultValue: "\(name) failed"
                 )
                 : result
         case .message(let text, _): return text
@@ -1026,7 +1026,11 @@ private struct AgentFeedRowCopy {
         _ rawValue: String,
         question: MobileWorkstreamQuestion?
     ) -> String {
-        if question?.inputType?.lowercased() == "secret" || rawValue == "<provided>" {
+        let normalizedInputType = question?.inputType?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if ["secret", "password", "passphrase"].contains(normalizedInputType)
+            || rawValue == "<provided>" {
             return localizer.string(
                 "mobile.agentFeed.card.secretProvided",
                 defaultValue: "Provided"
@@ -1038,7 +1042,7 @@ private struct AgentFeedRowCopy {
         if let option = question?.options.first(where: { $0.id == value }) {
             return option.label
         }
-        if question?.inputType?.lowercased() == "boolean" {
+        if normalizedInputType == "boolean" {
             switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
             case "1", "true", "yes", "y", "on":
                 return localizer.string("mobile.agentFeed.boolean.yes", defaultValue: "Yes")

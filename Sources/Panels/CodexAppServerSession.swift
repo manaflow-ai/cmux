@@ -49,6 +49,7 @@ final class CodexAppServerSession {
     private var turnStartRequestIDs: Set<Int> = []
     private var activeUserInputRequestIDs: Set<String> = []
     private var resolvedServerRequestIDs: Set<String> = []
+    private var userInputTasks: [String: Task<Void, Never>] = [:]
 
     init(
         workingDirectory: String?,
@@ -252,6 +253,7 @@ final class CodexAppServerSession {
                   let requestID = Self.rpcIDString(from: rawRequestID),
                   activeUserInputRequestIDs.remove(requestID) != nil else { break }
             resolvedServerRequestIDs.insert(requestID)
+            userInputTasks.removeValue(forKey: requestID)?.cancel()
             userInputResolvedSink(requestID)
         case "item/commandExecution/outputDelta":
             guard let itemID = params?["itemId"] as? String else { break }
@@ -554,10 +556,15 @@ final class CodexAppServerSession {
             autoResolutionMilliseconds: autoResolutionMilliseconds
         )
         activeUserInputRequestIDs.insert(rpcID)
-        Task { @MainActor in
+        userInputTasks[rpcID] = Task { @MainActor in
             let resolution = await userInputHandler(request)
-            activeUserInputRequestIDs.remove(rpcID)
-            guard resolvedServerRequestIDs.remove(rpcID) == nil else { return }
+            defer {
+                activeUserInputRequestIDs.remove(rpcID)
+                resolvedServerRequestIDs.remove(rpcID)
+                userInputTasks.removeValue(forKey: rpcID)
+            }
+            guard !Task.isCancelled,
+                  !resolvedServerRequestIDs.contains(rpcID) else { return }
             do {
                 switch resolution {
                 case .result(let json):
@@ -578,9 +585,24 @@ final class CodexAppServerSession {
                 case .error(let code, let message):
                     try await sendErrorResponse(id: id, code: code, message: message)
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 emitCodexRPCFailure(error)
             }
+        }
+    }
+
+    /// Invalidates every response-bearing server request owned by this
+    /// session. The sink wakes Feed waiters before task cancellation releases
+    /// the app-server session, so process exit cannot strand a seven-day wait.
+    func cancelPendingUserInputRequests() {
+        let requestIDs = activeUserInputRequestIDs
+        activeUserInputRequestIDs.removeAll()
+        for requestID in requestIDs {
+            resolvedServerRequestIDs.insert(requestID)
+            userInputTasks.removeValue(forKey: requestID)?.cancel()
+            userInputResolvedSink(requestID)
         }
     }
 

@@ -138,7 +138,7 @@ extension MobileShellComposite {
             agentFeedMutationStates[item.id] = .awaitingReconciliation
             await scheduleAgentFeedRefresh(target).value
         } catch {
-            agentFeedMutationStates[item.id] = .failed(message: String(describing: error))
+            agentFeedMutationStates[item.id] = .failed
         }
     }
 
@@ -168,7 +168,7 @@ extension MobileShellComposite {
             agentFeedMutationStates[item.id] = .awaitingReconciliation
             await scheduleAgentFeedRefresh(target).value
         } catch {
-            agentFeedMutationStates[item.id] = .failed(message: String(describing: error))
+            agentFeedMutationStates[item.id] = .failed
         }
     }
 
@@ -328,7 +328,7 @@ extension MobileShellComposite {
             guard !Task.isCancelled else { return }
             agentFeedFailedOwnerKeys.insert(target.ownerKey)
             agentFeedLog.error(
-                "list failed mac=\(target.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+                "list failed mac=\(target.macDeviceID, privacy: .private(mask: .hash)) error=\(String(describing: error), privacy: .private)"
             )
             agentFeedStatus = agentFeedSnapshotsByMac[target.ownerKey] == nil ? .failed : .offlineCached
         }
@@ -342,8 +342,36 @@ extension MobileShellComposite {
         agentFeedCacheScopeKey = scopeKey
         let cached = await agentFeedCacheStore.load(scopeKey: scopeKey)
         guard await isScopeCurrent(scope) else { return }
+        let eligibleCached: [AgentFeedCachedSnapshot]
+        if let pairedMacStore {
+            guard let stored = try? await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            ) else { return }
+            let visible = await visibleStoredPairedMacs(from: stored, scope: scope)
+            guard await isScopeCurrent(scope) else { return }
+            eligibleCached = cached.filter { snapshot in
+                visible.contains { mac in
+                    guard cmxCanonicalDeviceID(mac.macDeviceID)
+                            == cmxCanonicalDeviceID(snapshot.macDeviceID),
+                          macInstanceTagAuthority.sameStoredAuthority(
+                              mac.instanceTag,
+                              snapshot.instanceTag
+                          ) else { return false }
+                    return snapshot.ownerKey == mac.id
+                        || snapshot.ownerKey == cmxCanonicalDeviceID(mac.macDeviceID)
+                }
+            }
+            let staleOwnerKeys = Set(cached.map(\.ownerKey))
+                .subtracting(eligibleCached.map(\.ownerKey))
+            await agentFeedCacheStore.remove(ownerKeys: staleOwnerKeys, scopeKey: scopeKey)
+        } else {
+            // Preview and in-memory configurations have no paired-Mac store;
+            // their scoped cache is already the only available authority.
+            eligibleCached = cached
+        }
         let decoded: [(AgentFeedCachedSnapshot, MobileWorkstreamFeedListResponse)] = await Task.detached {
-            cached.compactMap { snapshot in
+            eligibleCached.compactMap { snapshot in
                 guard let response = try? MobileWorkstreamFeedListResponse.decode(snapshot.responseData) else {
                     return nil
                 }
@@ -399,6 +427,9 @@ extension MobileShellComposite {
         for index in items.indices {
             items[index]["tool_input"] = nil
             items[index]["tool_input_capabilities"] = nil
+            if items[index]["tool_result_is_error"] as? Bool == true {
+                items[index]["tool_result"] = nil
+            }
         }
         root["items"] = items
         return (try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])) ?? Data()
@@ -471,13 +502,27 @@ extension MobileShellComposite {
         return MobilePairedMac.pairingID(macDeviceID: item.macDeviceID, instanceTag: item.macInstanceTag)
     }
 
-    func removeAgentFeedSnapshot(ownerKey: String) {
+    func removeAgentFeedSnapshot(ownerKey: String, scopeKey explicitScopeKey: String? = nil) {
         agentFeedRefreshTasks.cancel(ownerKey: ownerKey)
         agentFeedSnapshotsByMac[ownerKey] = nil
         agentFeedKnownRevisionsByMac[ownerKey] = nil
         agentFeedFailedOwnerKeys.remove(ownerKey)
         recomputeAgentFeedItems()
         agentFeedStatus = resolvedAgentFeedStatus()
+        let knownScopeKey = explicitScopeKey ?? agentFeedCacheScopeKey
+        let cacheStore = agentFeedCacheStore
+        Task { @MainActor [weak self, cacheStore] in
+            let scopeKey: String
+            if let knownScopeKey {
+                scopeKey = knownScopeKey
+            } else {
+                guard let self,
+                      let scope = await self.currentScopeSnapshot(),
+                      await self.isScopeCurrent(scope) else { return }
+                scopeKey = self.pairedMacScopeKey(scope)
+            }
+            await cacheStore.remove(ownerKeys: [ownerKey], scopeKey: scopeKey)
+        }
     }
 
     func resetForegroundAgentFeedIfInstanceChanged(

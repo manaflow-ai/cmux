@@ -33,6 +33,27 @@ actor AgentFeedCacheStore {
         }
     }
 
+    /// Removes snapshots for owners that are no longer visible in this
+    /// account/team scope. Persisting the removal prevents hidden or replaced
+    /// app instances from returning after launch.
+    func remove(ownerKeys: Set<String>, scopeKey: String) {
+        guard !ownerKeys.isEmpty else { return }
+        var snapshots = load(scopeKey: scopeKey)
+        let originalCount = snapshots.count
+        snapshots.removeAll { ownerKeys.contains($0.ownerKey) }
+        guard snapshots.count != originalCount else { return }
+        let url = fileURL(scopeKey: scopeKey)
+        guard !snapshots.isEmpty else {
+            try? fileManager.removeItem(at: url)
+            return
+        }
+        do {
+            try JSONEncoder().encode(snapshots).write(to: url, options: .atomic)
+        } catch {
+            // Cache failure is non-fatal; the authenticated host remains authoritative.
+        }
+    }
+
     func clear(scopeKey: String) {
         try? fileManager.removeItem(at: fileURL(scopeKey: scopeKey))
     }

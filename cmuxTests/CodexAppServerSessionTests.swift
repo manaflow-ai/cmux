@@ -1450,6 +1450,41 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testSessionCancellationInvalidatesEveryPendingFeedInput() async throws {
+        var sentLines: [String] = []
+        var resolvedRequestIDs: [String] = []
+        var handlerStarted = false
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in },
+            userInputHandler: { _ in
+                handlerStarted = true
+                do {
+                    try await Task.sleep(for: .seconds(60))
+                } catch {}
+                return .result(json: #"{"answers":{}}"#)
+            },
+            userInputResolvedSink: { resolvedRequestIDs.append($0) }
+        )
+
+        session.consumeStdout(
+            #"{"id":"input-cancel","method":"item/tool/requestUserInput","params":{"questions":[],"isBlocking":true}}"#
+                + "\n"
+        )
+        for _ in 0..<10 where !handlerStarted { await Task.yield() }
+        expectTrue(handlerStarted)
+
+        session.cancelPendingUserInputRequests()
+        for _ in 0..<3 { await Task.yield() }
+
+        expectEqual(resolvedRequestIDs, ["input-cancel"])
+        expectTrue(sentLines.isEmpty)
+    }
+
+    @Test
     func testMapsAgentMessageDeltaToStdout() {
         var output: [(String, String)] = []
         let session = CodexAppServerSession(

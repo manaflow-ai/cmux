@@ -121,7 +121,7 @@ final class AgentSessionProcessStore {
         if plan.provider == .codex,
            let workspaceId,
            let surfaceId {
-            FeedJumpResolver.register(
+            FeedCoordinator.shared.registerTarget(
                 agent: "codex",
                 sessionId: sessionId,
                 target: FeedJumpResolver.Target(
@@ -593,6 +593,12 @@ final class AgentSessionProcessStore {
             if isMCP {
                 switch decision {
                 case .form(let action, let selections):
+                    guard action != .accept || Self.mcpContent(
+                        selections: selections,
+                        params: params
+                    ) != nil else {
+                        return mcpResolution(action: "cancel", content: nil)
+                    }
                     return mcpResolution(
                         action: action.rawValue,
                         content: action == .accept
@@ -600,9 +606,12 @@ final class AgentSessionProcessStore {
                             : nil
                     )
                 case .question(let selections):
+                    guard let content = mcpContent(selections: selections, params: params) else {
+                        return mcpResolution(action: "cancel", content: nil)
+                    }
                     return mcpResolution(
                         action: "accept",
-                        content: mcpContent(selections: selections, params: params)
+                        content: content
                     )
                 default:
                     return mcpResolution(action: "cancel", content: nil)
@@ -674,32 +683,59 @@ final class AgentSessionProcessStore {
     private static func mcpContent(
         selections: [String],
         params: [String: Any]
-    ) -> [String: Any] {
+    ) -> [String: Any]? {
         let schema = (params["requestedSchema"] as? [String: Any])
             ?? (params["requested_schema"] as? [String: Any])
             ?? (params["schema"] as? [String: Any])
-        let properties = schema?["properties"] as? [String: Any]
-        var content: [String: Any] = [:]
-        let parsedSelections = selections.compactMap { selection -> (String, String)? in
+        guard let schema,
+              let properties = schema["properties"] as? [String: Any] else {
+            return nil
+        }
+        let required: Set<String>
+        if let rawRequired = schema["required"] {
+            guard let values = rawRequired as? [String] else { return nil }
+            required = Set(values)
+        } else {
+            required = []
+        }
+        guard required.isSubset(of: Set(properties.keys)) else { return nil }
+        var grouped: [String: [String]] = [:]
+        for selection in selections {
             guard let separator = selection.firstIndex(of: "=") else { return nil }
             let key = String(selection[..<separator])
             var value = String(selection[selection.index(after: separator)...])
             if value.hasPrefix("other:") {
                 value = String(value.dropFirst("other:".count))
             }
-            guard !key.isEmpty, !value.isEmpty else { return nil }
-            return (key, value)
+            guard !key.isEmpty,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  properties[key] != nil else { return nil }
+            grouped[key, default: []].append(value)
         }
-        let grouped = Dictionary(grouping: parsedSelections, by: { $0.0 })
-        for (key, selections) in grouped {
-            let fieldSchema = properties?[key] as? [String: Any]
-            if (fieldSchema?["type"] as? String)?.lowercased() == "array" {
-                let itemSchema = fieldSchema?["items"] as? [String: Any]
-                content[key] = selections.map {
-                    mcpValue($0.1, schema: itemSchema)
+        guard required.isSubset(of: Set(grouped.keys)) else { return nil }
+
+        var content: [String: Any] = [:]
+        for (key, values) in grouped {
+            guard let fieldSchema = properties[key] as? [String: Any] else { return nil }
+            if (fieldSchema["type"] as? String)?.lowercased() == "array" {
+                let minimum = mcpIntegerConstraint(fieldSchema["minItems"])
+                let maximum = mcpIntegerConstraint(fieldSchema["maxItems"])
+                guard (fieldSchema["minItems"] == nil || minimum != nil),
+                      (fieldSchema["maxItems"] == nil || maximum != nil),
+                      values.count >= (minimum ?? 0),
+                      maximum.map({ values.count <= $0 }) ?? true,
+                      let itemSchema = fieldSchema["items"] as? [String: Any] else {
+                    return nil
                 }
-            } else if let value = selections.first?.1 {
-                content[key] = mcpValue(value, schema: fieldSchema)
+                let converted = values.compactMap { mcpValue($0, schema: itemSchema) }
+                guard converted.count == values.count else { return nil }
+                content[key] = converted
+            } else {
+                guard values.count == 1,
+                      let converted = mcpValue(values[0], schema: fieldSchema) else {
+                    return nil
+                }
+                content[key] = converted
             }
         }
         return content
@@ -708,28 +744,44 @@ final class AgentSessionProcessStore {
     private static func mcpValue(
         _ value: String,
         schema: [String: Any]?
-    ) -> Any {
-        let allowedValues: [Any]? = {
-            if let values = schema?["enum"] as? [Any] { return values }
-            for key in ["oneOf", "anyOf"] {
-                if let options = schema?[key] as? [[String: Any]] {
-                    return options.compactMap { $0["const"] }
-                }
-            }
-            return nil
-        }()
-        if let allowedValues {
+    ) -> Any? {
+        guard let schema else { return nil }
+        if let allowedValues = mcpAllowedValues(schema) {
+            guard !allowedValues.isEmpty else { return nil }
             let indexValue = value.lowercased().hasPrefix("opt")
                 ? String(value.dropFirst(3))
                 : value
             if let index = Int(indexValue), allowedValues.indices.contains(index) {
                 return allowedValues[index]
             }
-            if let matched = allowedValues.first(where: { mcpScalarString($0) == value }) {
+            if let matched = allowedValues.first(where: {
+                if mcpScalarString($0) == value { return true }
+                guard let scalar = mcpScalarString($0) else { return false }
+                return scalar.caseInsensitiveCompare(value) == .orderedSame
+            }) {
                 return matched
             }
+            return nil
         }
         return typedMCPValue(value, schema: schema)
+    }
+
+    /// Returns nil when the schema has no enum constraint, and an empty array
+    /// when an enum declaration is malformed or empty. The distinction lets
+    /// callers fail closed instead of silently accepting an unsupported value.
+    private static func mcpAllowedValues(_ schema: [String: Any]) -> [Any]? {
+        if let raw = schema["enum"] {
+            guard let values = raw as? [Any] else { return [] }
+            return values
+        }
+        for key in ["oneOf", "anyOf"] {
+            guard let raw = schema[key] else { continue }
+            guard let options = raw as? [[String: Any]],
+                  !options.isEmpty else { return [] }
+            let values = options.compactMap { $0["const"] }
+            return values.count == options.count ? values : []
+        }
+        return nil
     }
 
     private static func mcpScalarString(_ value: Any) -> String? {
@@ -742,21 +794,94 @@ final class AgentSessionProcessStore {
     private static func typedMCPValue(
         _ value: String,
         schema: [String: Any]?
-    ) -> Any {
+    ) -> Any? {
+        guard let schema else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         switch (schema?["type"] as? String)?.lowercased() {
         case "boolean":
-            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            switch trimmed.lowercased() {
             case "1", "true", "yes", "y", "on": return true
             case "0", "false", "no", "n", "off": return false
-            default: return value
+            default: return nil
             }
         case "integer":
-            return Int(value) ?? value
+            guard let number = Int(trimmed) else { return nil }
+            guard mcpNumberValueIsValid(Double(number), schema: schema) else { return nil }
+            return number
         case "number":
-            return Double(value) ?? value
-        default:
+            guard let number = Double(trimmed), number.isFinite else { return nil }
+            guard mcpNumberValueIsValid(number, schema: schema) else { return nil }
+            return number
+        case "string", nil:
+            guard mcpStringValueIsValid(trimmed, schema: schema) else { return nil }
             return value
+        default:
+            return nil
         }
+    }
+
+    private static func mcpIntegerConstraint(_ raw: Any?) -> Int? {
+        guard let number = raw as? NSNumber else { return nil }
+        let value = number.doubleValue
+        guard value.isFinite,
+              value >= 0,
+              value.rounded(.towardZero) == value,
+              value <= Double(Int.max) else { return nil }
+        return Int(value)
+    }
+
+    private static func mcpStringValueIsValid(
+        _ value: String,
+        schema: [String: Any]
+    ) -> Bool {
+        let minimum = mcpIntegerConstraint(schema["minLength"])
+        let maximum = mcpIntegerConstraint(schema["maxLength"])
+        guard (schema["minLength"] == nil || minimum != nil),
+              (schema["maxLength"] == nil || maximum != nil) else {
+            return false
+        }
+        if let minimum, value.count < minimum {
+            return false
+        }
+        if let maximum, value.count > maximum {
+            return false
+        }
+        switch (schema["format"] as? String)?.lowercased() {
+        case "email":
+            let pieces = value.split(separator: "@", omittingEmptySubsequences: false)
+            guard pieces.count == 2,
+                  !pieces[0].isEmpty,
+                  !pieces[1].isEmpty,
+                  !value.contains(where: \.isWhitespace) else { return false }
+        case "date":
+            guard value.count == 10,
+                  ISO8601DateFormatter().date(from: "\(value)T00:00:00Z") != nil else {
+                return false
+            }
+        case "date-time":
+            guard ISO8601DateFormatter().date(from: value) != nil else { return false }
+        case "uri", "uri-reference":
+            guard let url = URL(string: value), url.scheme?.isEmpty == false else { return false }
+        default:
+            break
+        }
+        return true
+    }
+
+    private static func mcpNumberValueIsValid(
+        _ value: Double,
+        schema: [String: Any]
+    ) -> Bool {
+        guard value.isFinite else { return false }
+        let minimum = (schema["minimum"] as? NSNumber)?.doubleValue
+        let maximum = (schema["maximum"] as? NSNumber)?.doubleValue
+        guard (schema["minimum"] == nil || minimum?.isFinite == true),
+              (schema["maximum"] == nil || maximum?.isFinite == true) else {
+            return false
+        }
+        if let minimum, value < minimum { return false }
+        if let maximum, value > maximum { return false }
+        return true
     }
 
     private static func mcpResolution(
@@ -831,7 +956,21 @@ final class AgentSessionProcessStore {
 
     private func unregisterFeedTarget(for session: AgentSessionRunningSession) {
         guard session.providerID == .codex else { return }
-        FeedJumpResolver.unregister(agent: "codex", sessionId: session.sessionId)
+        let expectedTarget: FeedJumpResolver.Target?
+        if let workspaceId = session.workspaceId,
+           let surfaceId = session.surfaceId {
+            expectedTarget = FeedJumpResolver.Target(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
+        } else {
+            expectedTarget = nil
+        }
+        FeedCoordinator.shared.unregisterTarget(
+            agent: "codex",
+            sessionId: session.sessionId,
+            expected: expectedTarget
+        )
     }
 
     private func installTerminationEscalationTimer(for session: AgentSessionRunningSession) {
@@ -866,6 +1005,7 @@ final class AgentSessionProcessStore {
     }
 
     private func cancelSessionTasks(_ session: AgentSessionRunningSession) {
+        session.codexAppServerSession?.cancelPendingUserInputRequests()
         session.terminationEscalationTimer?.cancel()
         session.terminationEscalationTimer = nil
         session.stdoutReadTask?.cancel()

@@ -1397,6 +1397,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ が失敗しました: %@" } }
       }
     },
+    "mobile.agentFeed.activity.toolErrorGeneric" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@ failed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ が失敗しました" } }
+      }
+    },
     "mobile.agentFeed.activity.toolUse" : {
       "extractionState" : "manual",
       "localizations" : {
