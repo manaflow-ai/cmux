@@ -86,6 +86,10 @@ jobs:
             echo "::error::the pushed branch moved during dispatch: remote=$remote_sha workflow=$DISPATCH_SHA" >&2
             exit 1
           }
+          # The workflow's source SHA is the only attestation Blacksmith can
+          # carry through workflow_dispatch. The local preflight and every
+          # remote stage must compare against this exact value; never infer an
+          # older revision from the mutable branch after begin-testbox.
           printf 'trusted source ref: %s\ntrusted source SHA: %s\n' "$DISPATCH_REF" "$DISPATCH_SHA"
 
       - name: Checkout exact dispatch commit
@@ -228,6 +232,10 @@ jobs:
           ZIG_PATH="$CMUX_ZIG"
           RUNNER_UNAME="$(uname -a)"
           RUNNER_CPU_COUNT="$(nproc)"
+          [[ "$RUNNER_ARCH" == "X64" && "$RUNNER_CPU_COUNT" == "32" ]] || {
+            echo "::error::expected x64 32-vCPU runner, got arch=$RUNNER_ARCH cpu_count=$RUNNER_CPU_COUNT" >&2
+            exit 1
+          }
           CARGO_METADATA_SHA256="$(sha256sum "$RUNNER_TEMP/cmux-tui-cargo-metadata.json" | cut -d ' ' -f 1)"
           RUST_TOOLCHAIN_FILE_SHA256="$(sha256sum cmux-tui/rust-toolchain.toml | cut -d ' ' -f 1)"
           CARGO_LOCK_SHA256="$(sha256sum cmux-tui/Cargo.lock | cut -d ' ' -f 1)"

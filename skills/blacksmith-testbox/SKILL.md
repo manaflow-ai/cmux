@@ -225,7 +225,8 @@ containing:
 * expected and observed Ghostty gitlink and initialized submodule HEAD;
 * clean/dirty file lists and source restoration status;
 * Testbox ID and adopted workflow run ID;
-* runner label, hostname, architecture, CPU count, and `uname`;
+* runner label, hostname, architecture, CPU count, and `uname`; the setup
+  workflow fails closed unless the actual runner is x64 with 32 CPUs;
 * active Rust toolchain, `rustc`, Cargo, Zig, lockfile/toolchain hashes, and
   Ghostty package-manifest hash; and
 * Cargo exit status, `/usr/bin/time -p` values, and CLI transcript timing.

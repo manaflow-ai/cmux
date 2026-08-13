@@ -191,6 +191,11 @@ blacksmith testbox warmup "$WORKFLOW" \
 warmup_status=$?
 set -e
 cat "$OUT/warmup.log"
+if (( warmup_status != 0 )); then
+  # Do not parse IDs from a failed CLI transcript. It may contain a stale ID
+  # from an error message, and cleanup is intentionally receipt-bound.
+  exit "$warmup_status"
+fi
 set +e
 warmup_testbox_id="$(python3 - "$OUT/warmup.log" <<'PY'
 import re
@@ -365,6 +370,9 @@ if {record.get("stage") for record in records} != required:
     raise SystemExit("expected exactly three stage records")
 for record in records:
     stage = record.get("stage")
+    runner = record.get("runner", {})
+    if runner.get("arch") != "x86_64" or runner.get("cpu_count") != 32:
+        raise SystemExit(f"{stage}: wrong runner identity {runner}")
     if record.get("testbox", {}).get("id") != testbox_id:
         raise SystemExit(f"{stage}: wrong Testbox ID")
     source_record = record.get("source", {})
@@ -419,7 +427,8 @@ Record these fields alongside `timings.json`:
 
 1. Exact source branch, full source SHA/tree SHA, Ghostty gitlink SHA, and the
    clean-status result before each stage.
-2. Requested runner label and catalog output.
+2. Requested runner label and catalog output. The setup job rejects any
+   actual architecture or CPU count other than x64 and 32.
 3. Blacksmith CLI version, Testbox ID, setup workflow run/job IDs, identity run
    ID, and each stage run/sync ID from raw transcripts.
 4. Whether the comparison was target-clean, registry/git-cache warm,
