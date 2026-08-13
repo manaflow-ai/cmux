@@ -114,8 +114,18 @@ final class MobileIrohReleaseGateRunner {
     private enum Failure: String, Sendable {
         case timeout
         case readinessUnavailable = "readiness_unavailable"
+        case notSignedIn = "not_signed_in"
+        case notConnected = "not_connected"
+        case nonIrohRoute = "non_iroh_route"
+        case workspaceUnavailable = "workspace_unavailable"
+        case terminalUnavailable = "terminal_unavailable"
         case pathPolicyMismatch = "path_policy_mismatch"
         case unknownProbeFailure = "unknown_probe_failure"
+    }
+
+    private enum Progress: Equatable, Sendable {
+        case awaitingReadiness(lastObserved: Readiness?)
+        case running
     }
 
     struct Dependencies {
@@ -136,6 +146,7 @@ final class MobileIrohReleaseGateRunner {
     private var observationID: UUID?
     private var runTask: Task<Void, Never>?
     private var completedProbe: MobileIrohReleaseGateProbeResult?
+    private var progress: Progress = .awaitingReadiness(lastObserved: nil)
 
     init(
         configuration: Configuration,
@@ -198,6 +209,7 @@ final class MobileIrohReleaseGateRunner {
 
     private func runOnce(store: CMUXMobileShellStore) async {
         completedProbe = nil
+        progress = .awaitingReadiness(lastObserved: nil)
         try? fileManager.removeItem(at: configuration.reportURL)
         let report = await boundedReport(store: store)
         do {
@@ -264,7 +276,7 @@ final class MobileIrohReleaseGateRunner {
                 continuation.yield(Self.failureReport(
                     mode: mode,
                     scenario: scenario,
-                    failure: .timeout,
+                    failure: self.deadlineFailure(),
                     completedProbe: self.completedProbe
                 ))
                 continuation.finish()
@@ -292,6 +304,7 @@ final class MobileIrohReleaseGateRunner {
                 ?? readinessUpdates(for: store)
             var observedReady = false
             for await state in readiness {
+                progress = .awaitingReadiness(lastObserved: state)
                 mobileIrohReleaseGateLog.info(
                     "readiness signedIn=\(state.isSignedIn, privacy: .public) connected=\(state.isConnected, privacy: .public) iroh=\(state.usesIroh, privacy: .public) workspace=\(state.hasWorkspaceMutation, privacy: .public) terminal=\(state.hasTerminal, privacy: .public)"
                 )
@@ -335,6 +348,7 @@ final class MobileIrohReleaseGateRunner {
                 }
             }
         }
+        progress = .running
         guard !Task.isCancelled else {
             return Self.failureReport(
                 mode: configuration.mode,
@@ -438,6 +452,29 @@ final class MobileIrohReleaseGateRunner {
             failure: .pathPolicyMismatch,
             completedProbe: probe
         )
+    }
+
+    private func deadlineFailure() -> Failure {
+        guard case let .awaitingReadiness(lastObserved) = progress,
+              let readiness = lastObserved else {
+            return .timeout
+        }
+        if !readiness.isSignedIn {
+            return .notSignedIn
+        }
+        if !readiness.isConnected {
+            return .notConnected
+        }
+        if !readiness.usesIroh {
+            return .nonIrohRoute
+        }
+        if !readiness.hasWorkspaceMutation {
+            return .workspaceUnavailable
+        }
+        if !readiness.hasTerminal {
+            return .terminalUnavailable
+        }
+        return .timeout
     }
 
     private func readinessUpdates(
