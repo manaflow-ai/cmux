@@ -100,4 +100,96 @@ import Testing
             StoredShortcut(key: "space", command: true, shift: true, option: false, control: false)
         )
     }
+
+    @Test func settingsFileStoreParsesOptionalPrefixAndFailsClosedForInvalidValues() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "prefix": "ctrl+b"
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        #expect(
+            store.prefixShortcut() ==
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true)
+        )
+
+        let invalidURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "prefix": ["ctrl+b", "c"]
+          }
+        }
+        """.write(to: invalidURL, atomically: true, encoding: .utf8)
+        let invalidStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        #expect(invalidStore.prefixShortcut().isUnbound)
+
+        let malformedBindingURL = directoryURL.appendingPathComponent(
+            "malformed-binding.json",
+            isDirectory: false
+        )
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "newTab": {
+                "first": { "key": "b", "control": true },
+                "second": { "key": "" }
+              }
+            }
+          }
+        }
+        """.write(to: malformedBindingURL, atomically: true, encoding: .utf8)
+        let malformedBindingStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: malformedBindingURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        #expect(malformedBindingStore.override(for: .newTab) == nil)
+
+        let fallbackURL = directoryURL.appendingPathComponent(
+            "fallback.json",
+            isDirectory: false
+        )
+        try """
+        {
+          "shortcuts": {
+            "prefix": "cmd+k"
+          }
+        }
+        """.write(to: fallbackURL, atomically: true, encoding: .utf8)
+        let fallbackStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: directoryURL.appendingPathComponent("missing.json").path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+        #expect(
+            fallbackStore.prefixShortcut() ==
+            StoredShortcut(
+                key: "k",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            )
+        )
+    }
 }

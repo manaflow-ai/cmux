@@ -425,6 +425,39 @@ struct RightSidebarModeShortcutMatcherTests {
         #expect(shortcutLookupCount == 10)
     }
 
+    @Test func customMatcherSeesChordSuffixWithDifferentModifiers() {
+        let chord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "n", command: true)
+        )
+        let matcher = RightSidebarModeShortcutMatcher(
+            shortcutProvider: { action in
+                action == .switchRightSidebarToFiles ? chord : .unbound
+            },
+            availability: { _ in true },
+            layoutCharacterProvider: { _, _ in nil }
+        )
+        let event = makeKeyEvent(
+            characters: "n",
+            modifiers: [.command],
+            keyCode: 45
+        )
+
+        let mode = matcher.modeShortcut(
+            for: event,
+            allowingAction: { _ in true },
+            matching: { action, shortcut, event in
+                guard action == .switchRightSidebarToFiles,
+                      let suffix = shortcut.second else {
+                    return false
+                }
+                return suffix.matches(event: event, layoutCharacterProvider: { _, _ in nil })
+            }
+        )
+
+        #expect(mode == .files)
+    }
+
     private func makeKeyEvent(
         characters: String,
         modifiers: NSEvent.ModifierFlags

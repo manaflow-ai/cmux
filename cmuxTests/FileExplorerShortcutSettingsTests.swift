@@ -40,8 +40,8 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
         #expect(!finderAliasDefault.control)
         #expect(primary.allowsBareFirstStroke)
         #expect(finderAlias.allowsBareFirstStroke)
-        #expect(!primary.allowsChordShortcut)
-        #expect(!finderAlias.allowsChordShortcut)
+        #expect(primary.allowsChordShortcut)
+        #expect(finderAlias.allowsChordShortcut)
         #expect(primary.shortcutContext == .rightSidebarFocus)
         #expect(finderAlias.shortcutContext == .rightSidebarFocus)
 

@@ -33,4 +33,66 @@ import Testing
 
         #expect(shortcut == StoredShortcut(first: ShortcutStroke(key: "j")))
     }
+
+    @Test(arguments: ["", "none", "clear", "unbound", "disabled"])
+    func prefixUnboundAliasesDecodeAsDisabled(_ alias: String) throws {
+        #expect(StoredShortcut.decodeFromJSON(alias) == .unbound)
+    }
+
+    @Test func prefixAcceptsStringAndOneItemArrayForms() throws {
+        let expected = StoredShortcut(first: ShortcutStroke(key: "b", control: true))
+        #expect(StoredShortcut.decodeFromJSON("ctrl+b") == expected)
+        #expect(StoredShortcut.decodeFromJSON(["ctrl+b"]) == expected)
+        #expect(StoredShortcut.decodeFromJSON([String]()) == .unbound)
+    }
+
+    @Test func prefixAcceptsTheRecorderObjectForm() throws {
+        let raw: [String: Any] = [
+            "first": [
+                "key": "b",
+                "command": false,
+                "shift": false,
+                "option": false,
+                "control": true,
+                "keyCode": 11,
+            ],
+            "second": NSNull(),
+        ]
+        let expected = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true, keyCode: 11)
+        )
+        #expect(StoredShortcut.decodeFromJSON(raw) == expected)
+    }
+
+    @Test(arguments: [
+        ShortcutStroke(key: "b"),
+        ShortcutStroke(key: "escape", control: true),
+        ShortcutStroke(key: "media.volumeUp", command: true),
+    ])
+    func prefixPolicyRejectsUnsupportedStrokes(_ stroke: ShortcutStroke) {
+        #expect(ShortcutPrefixPolicy().normalized(stroke) == nil)
+    }
+
+    @Test func prefixPolicyRejectsChordsAndAcceptsOnlyModifierOrSpace() {
+        #expect(
+            ShortcutPrefixPolicy().normalized(
+                StoredShortcut(
+                    first: ShortcutStroke(key: "b", control: true),
+                    second: ShortcutStroke(key: "c")
+                )
+            ) == nil
+        )
+        #expect(ShortcutPrefixPolicy().normalized(ShortcutStroke(key: "space")) == ShortcutStroke(key: "space"))
+        #expect(ShortcutPrefixPolicy().normalized(ShortcutStroke(key: "k", command: true)) == ShortcutStroke(key: "k", command: true))
+    }
+
+    @Test func routingEquivalenceIgnoresRecordingKeyCodeMetadata() {
+        let recorded = ShortcutStroke(key: "b", control: true, keyCode: 11)
+        let handWritten = ShortcutStroke(key: "b", control: true)
+        let differentKey = ShortcutStroke(key: "c", control: true)
+
+        #expect(recorded.isRoutingEquivalent(to: handWritten))
+        #expect(handWritten.isRoutingEquivalent(to: recorded))
+        #expect(!recorded.isRoutingEquivalent(to: differentKey))
+    }
 }

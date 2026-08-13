@@ -111,6 +111,12 @@ struct SettingCatalogTests {
         #expect(SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
     }
 
+    @Test func shortcutPrefixDefaultsToUnbound() {
+        let prefix = SettingCatalog().shortcuts.prefix
+        #expect(prefix.id == "shortcuts.prefix")
+        #expect(prefix.defaultValue == .unbound)
+    }
+
     @Test func keyIdsMatchTheirSectionPrefix() {
         // Each key's dotted id must start with its section's prefix; this is
         // the convention that lets the JSON store use `id` as the JSON path.

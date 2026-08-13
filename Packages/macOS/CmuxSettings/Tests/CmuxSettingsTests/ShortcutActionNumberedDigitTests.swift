@@ -75,8 +75,12 @@ struct ShortcutActionNumberedDigitTests {
         }
     }
 
-    @Test func fileExplorerOpenSelectionShortcutsAreSingleStrokeOnly() {
-        #expect(!ShortcutAction.fileExplorerOpenSelection.allowsChordShortcut)
-        #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
+    @Test func everyForegroundActionSupportsChords() {
+        for action in ShortcutAction.allCases {
+            #expect(
+                action.allowsChordShortcut == (action != .showHideAllWindows),
+                "Only the system-wide hotkey is excluded from the prefix layer: \(action)"
+            )
+        }
     }
 }
