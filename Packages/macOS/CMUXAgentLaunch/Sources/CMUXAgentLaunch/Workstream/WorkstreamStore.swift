@@ -21,6 +21,23 @@ public let WorkstreamDefaultHistoryPageSize = 300
 @MainActor
 @Observable
 public final class WorkstreamStore {
+    /// One page of immutable Feed history for mobile clients.
+    public struct HistoryPage: Sendable, Equatable {
+        /// Items in oldest-first order.
+        public let items: [WorkstreamItem]
+        /// Opaque cursor for the next older page.
+        public let nextCursor: String?
+        /// Whether persisted history exists before this page.
+        public let hasMore: Bool
+
+        /// Creates a mobile history page.
+        public init(items: [WorkstreamItem], nextCursor: String?, hasMore: Bool) {
+            self.items = items
+            self.nextCursor = nextCursor
+            self.hasMore = hasMore
+        }
+    }
+
     public private(set) var items: [WorkstreamItem] = []
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
@@ -41,6 +58,10 @@ public final class WorkstreamStore {
     private let clock: @Sendable () -> Date
     private let titleProvider: (WorkstreamEvent) -> String?
     private var oldestLoadedPersistenceOffset: UInt64?
+    private var pendingPersistenceItems: [WorkstreamItem] = []
+    private var persistenceDrainTask: Task<Void, Never>?
+
+    var activePersistenceDrainCount: Int { persistenceDrainTask == nil ? 0 : 1 }
 
     /// Last known conversational context for each workstream. Tool hooks
     /// usually arrive without the surrounding user prompt, so the store
@@ -78,7 +99,7 @@ public final class WorkstreamStore {
     public func start() async {
         if let persistence {
             if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
-                items = page.items
+                items = expiringRestoredPendingItems(page.items)
                 hasMorePersistedItems = page.hasMoreBefore
                 oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
@@ -116,13 +137,91 @@ public final class WorkstreamStore {
         }
 
         let existingIds = Set(items.map(\.id))
-        let olderItems = page.items.filter { !existingIds.contains($0.id) }
+        let olderItems = expiringRestoredPendingItems(page.items)
+            .filter { !existingIds.contains($0.id) }
         if !olderItems.isEmpty {
             items.insert(contentsOf: olderItems, at: 0)
         }
         self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
         hasMorePersistedItems = page.hasMoreBefore
         rebuildContextIndex()
+    }
+
+    /// Loads one immutable persisted-history page for authenticated mobile Feed.
+    /// The item cursor is stable while newer JSONL rows are appended.
+    public func historyPage(endingBefore cursor: String?, limit: Int) async throws -> HistoryPage {
+        let boundedLimit = min(max(limit, 1), WorkstreamDefaultHistoryPageSize)
+        guard let persistence else {
+            let end: Int
+            if let cursor {
+                let decoded = try Self.decodeHistoryCursor(cursor, expectedVersion: "m1")
+                guard decoded.position < UInt64(items.count),
+                      items[Int(decoded.position)].id == decoded.itemID else {
+                    throw WorkstreamHistoryError.invalidCursor
+                }
+                end = Int(decoded.position)
+            } else {
+                end = items.count
+            }
+            let start = max(0, end - boundedLimit)
+            let pageItems = Array(items[start..<end])
+            return HistoryPage(
+                items: pageItems,
+                nextCursor: start > 0 ? pageItems.first.map { Self.historyCursor(version: "m1", position: UInt64(start), itemID: $0.id) } : nil,
+                hasMore: start > 0
+            )
+        }
+        while let drain = persistenceDrainTask {
+            await drain.value
+        }
+        let endOffset: UInt64?
+        if let cursor {
+            let decoded = try Self.decodeHistoryCursor(cursor, expectedVersion: "p1")
+            guard try await persistence.itemID(startingAt: decoded.position) == decoded.itemID else {
+                throw WorkstreamHistoryError.invalidCursor
+            }
+            endOffset = decoded.position
+        } else {
+            endOffset = nil
+        }
+        let page = try await persistence.loadPage(endingBefore: endOffset, limit: boundedLimit)
+        let currentByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        let restoredItems = expiringRestoredPendingItems(page.items)
+        let pageItems = restoredItems.map { currentByID[$0.id] ?? $0 }
+        let nextCursor = page.hasMoreBefore
+            ? pageItems.first.flatMap { item in
+                page.itemStartOffsets.first.map {
+                    Self.historyCursor(version: "p1", position: $0, itemID: item.id)
+                }
+            }
+            : nil
+        return HistoryPage(
+            items: pageItems,
+            nextCursor: nextCursor,
+            hasMore: page.hasMoreBefore
+        )
+    }
+
+    private static func historyCursor(version: String, position: UInt64, itemID: UUID) -> String {
+        Data("\(version):\(position):\(itemID.uuidString)".utf8).base64EncodedString()
+    }
+
+    private static func decodeHistoryCursor(
+        _ cursor: String,
+        expectedVersion: String
+    ) throws -> (position: UInt64, itemID: UUID) {
+        guard let data = Data(base64Encoded: cursor),
+              let raw = String(data: data, encoding: .utf8) else {
+            throw WorkstreamHistoryError.invalidCursor
+        }
+        let parts = raw.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              parts[0] == Substring(expectedVersion),
+              let position = UInt64(parts[1]),
+              let itemID = UUID(uuidString: String(parts[2])) else {
+            throw WorkstreamHistoryError.invalidCursor
+        }
+        return (position, itemID)
     }
 
     // MARK: - Ingest
@@ -135,9 +234,8 @@ public final class WorkstreamStore {
         insert(item)
         updateContextIndex(with: item)
         if let persistence {
-            Task { [persistence, item] in
-                try? await persistence.append(item)
-            }
+            pendingPersistenceItems.append(item)
+            startPersistenceDrainIfNeeded(persistence: persistence)
         }
     }
 
@@ -193,6 +291,32 @@ public final class WorkstreamStore {
         }
     }
 
+    private func expiringRestoredPendingItems(_ restoredItems: [WorkstreamItem]) -> [WorkstreamItem] {
+        let now = clock()
+        return restoredItems.map { restoredItem in
+            guard restoredItem.status.isPending else { return restoredItem }
+            var expiredItem = restoredItem
+            expiredItem.status = .expired(at: now)
+            expiredItem.updatedAt = now
+            return expiredItem
+        }
+    }
+
+    private func startPersistenceDrainIfNeeded(persistence: WorkstreamPersistence) {
+        guard persistenceDrainTask == nil else { return }
+        persistenceDrainTask = Task { @MainActor [weak self, persistence] in
+            guard let self else { return }
+            while !Task.isCancelled, !self.pendingPersistenceItems.isEmpty {
+                let batch = self.pendingPersistenceItems
+                self.pendingPersistenceItems.removeAll(keepingCapacity: true)
+                for item in batch {
+                    try? await persistence.append(item)
+                }
+            }
+            self.persistenceDrainTask = nil
+        }
+    }
+
     private func applyResolution(for action: WorkstreamAction) {
         switch action {
         case .approvePermission(let itemId, let mode):
@@ -214,11 +338,14 @@ public final class WorkstreamStore {
         return WorkstreamItem(
             workstreamId: event.sessionId,
             source: source,
+            sourceRawValue: event.source,
             kind: kind,
             createdAt: event.receivedAt,
             updatedAt: event.receivedAt,
             cwd: event.cwd,
             title: defaultTitle(for: event),
+            workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             status: status,
             payload: payload,
             context: context(for: event, payload: payload),
@@ -472,4 +599,10 @@ public final class WorkstreamStore {
             )
         }
     }
+}
+
+/// Failure to resolve an immutable Feed history page.
+public enum WorkstreamHistoryError: Error, Sendable, Equatable {
+    /// The cursor is malformed, stale, or does not identify its claimed row.
+    case invalidCursor
 }

@@ -106,7 +106,7 @@ struct TerminalSurfaceMountOwnershipTests {
         }
         #expect(mounted)
         let firstToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
-        #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 1)
+        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
         #expect(store.reportedViewportSizesByTerminalKey.values.contains(
             MobileTerminalViewportSize(columns: 72, rows: 61)
         ))

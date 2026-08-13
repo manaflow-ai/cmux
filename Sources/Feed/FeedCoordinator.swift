@@ -42,6 +42,10 @@ final class FeedCoordinator: @unchecked Sendable {
     /// handler signals the semaphore after filling the slot.
     private let waiterLock = NSLock()
     private var waiters: [String: PendingWaiter] = [:]
+    /// Monotonic snapshot revision used by authenticated mobile clients to
+    /// repair missed invalidations. Guarded by `waiterLock` with the waiter
+    /// table so a resolution and its revision are one ordered mutation.
+    private var mobileRevision: UInt64 = 0
 
     /// One kqueue-backed DispatchSource per distinct agent PID we've
     /// ever seen. The kernel fires `.exit` the instant the process
@@ -114,6 +118,7 @@ final class FeedCoordinator: @unchecked Sendable {
             Task { @MainActor in
                 guard let self else { return }
                 self.store?.expireItems(forPpid: ppid)
+                self.publishMobileChange()
                 self.pidWatchers[ppid]?.cancel()
                 self.pidWatchers.removeValue(forKey: ppid)
             }
@@ -144,6 +149,7 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
         store.ingest(event)
+        publishMobileChange()
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }
@@ -478,13 +484,35 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Called by the `feed.*.reply` handlers. Marks the corresponding
     /// item resolved on the main-actor store and wakes any waiter.
-    func deliverReply(requestId: String, decision: WorkstreamDecision) {
+    @discardableResult
+    func deliverReply(requestId: String, decision: WorkstreamDecision) -> MobileReplyOutcome {
+        deliverReply(
+            requestId: requestId,
+            itemId: nil,
+            decision: decision,
+            requiresLiveWaiter: false
+        )
+    }
+
+    private func deliverReply(
+        requestId: String,
+        itemId: UUID?,
+        decision: WorkstreamDecision,
+        requiresLiveWaiter: Bool
+    ) -> MobileReplyOutcome {
         waiterLock.lock()
-        let attentionTarget = waiters[requestId]?.attentionTarget
-        if let waiter = waiters[requestId] {
-            waiter.decision = decision
-            waiter.semaphore.signal()
+        let waiter = waiters[requestId]
+        if requiresLiveWaiter, waiter == nil {
+            waiterLock.unlock()
+            return .notFound
         }
+        if waiter?.decision != nil {
+            waiterLock.unlock()
+            return .alreadyResolved
+        }
+        let attentionTarget = waiter?.attentionTarget
+        waiter?.decision = decision
+        waiter?.semaphore.signal()
         waiterLock.unlock()
 
         // The user decided: conclude the needs-input overlay so the agent's
@@ -492,22 +520,180 @@ final class FeedCoordinator: @unchecked Sendable {
         // decision on the same panel keeps it lit until it too concludes).
         concludeAttentionOnMain(attentionTarget)
 
-        let resolve: @Sendable () -> Void = { [requestId, decision] in
+        let resolve: @Sendable () -> Void = { [requestId, itemId, decision] in
             MainActor.assumeIsolated {
                 let store = FeedCoordinator.shared.store
                 guard let store else { return }
-                if let itemId = Self.findItemId(for: requestId, in: store.items) {
-                    store.markResolved(itemId, decision: decision)
+                if let resolvedItemId = itemId ?? Self.findItemId(for: requestId, in: store.items) {
+                    store.markResolved(resolvedItemId, decision: decision)
                 }
+                FeedCoordinator.shared.waiterLock.lock()
+                FeedCoordinator.shared.mobileRevision &+= 1
+                let revision = FeedCoordinator.shared.mobileRevision
+                FeedCoordinator.shared.waiterLock.unlock()
+                FeedCoordinator.shared.cancelNotification(requestId: requestId)
+                MobileHostService.emitEvent(
+                    topic: "workstream.feed.changed",
+                    payload: ["revision": revision]
+                )
             }
         }
         if Thread.isMainThread {
             resolve()
         } else {
+            precondition(!requiresLiveWaiter, "Mobile replies must resolve on the main actor")
             DispatchQueue.main.async(execute: resolve)
         }
+        return .delivered
+    }
 
-        cancelNotification(requestId: requestId)
+    enum MobileReplyOutcome: String, Sendable {
+        case delivered
+        case alreadyResolved = "already_resolved"
+        case expired
+        case invalidAction = "invalid_action"
+        case notFound = "not_found"
+    }
+
+    /// Resolves exactly one immutable feed item. Both ids must match the same
+    /// pending card, preventing identical request ids in other sessions or Mac
+    /// connections from crossing the action boundary.
+    @MainActor
+    func deliverMobileReply(
+        itemId: UUID,
+        requestId: String,
+        workspaceId: String,
+        surfaceId: String,
+        decision: WorkstreamDecision
+    ) -> MobileReplyOutcome {
+        guard let item = snapshot(pendingOnly: false).first(where: { $0.id == itemId }) else {
+            return .notFound
+        }
+        switch item.status {
+        case .expired:
+            return .expired
+        case .resolved:
+            return .alreadyResolved
+        case .telemetry:
+            return .notFound
+        case .pending:
+            break
+        }
+        guard item.workspaceId.map({ $0 == workspaceId }) ?? true,
+              item.surfaceId.map({ $0 == surfaceId }) ?? true,
+              let target = target(for: item.workstreamId),
+              target.workspaceId == workspaceId,
+              target.surfaceId == surfaceId else {
+            return .notFound
+        }
+        guard Self.mobileDecisionIsValid(decision, for: item, requestId: requestId) else {
+            return .invalidAction
+        }
+        return deliverReply(
+            requestId: requestId,
+            itemId: itemId,
+            decision: decision,
+            requiresLiveWaiter: true
+        )
+    }
+
+    private static func mobileDecisionIsValid(
+        _ decision: WorkstreamDecision,
+        for item: WorkstreamItem,
+        requestId: String
+    ) -> Bool {
+        switch (item.payload, decision) {
+        case let (.permissionRequest(itemRequestId, _, toolInput, _), .permission(mode)):
+            guard itemRequestId == requestId else { return false }
+            let sourceIsKnown = item.sourceRawValue.map { $0 == item.source.rawValue } ?? true
+            guard sourceIsKnown || mode == .deny else { return false }
+            switch mode {
+            case .deny: return true
+            case .once: return FeedPermissionActionPolicy.supportsOncePermissionMode(source: item.source, toolInputJSON: toolInput)
+            case .always: return FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: item.source, toolInputJSON: toolInput)
+            case .all: return FeedPermissionActionPolicy.supportsAllPermissionMode(source: item.source, toolInputJSON: toolInput)
+            case .bypass: return FeedPermissionActionPolicy.supportsBypassPermissions(source: item.source)
+            }
+        case let (.exitPlan(itemRequestId, _, _), .exitPlan(_, _)):
+            return itemRequestId == requestId
+        case let (.question(itemRequestId, questions), .question(selections)):
+            guard itemRequestId == requestId, !questions.isEmpty else { return false }
+            let answers = Dictionary(grouping: selections.compactMap { selection -> (String, String)? in
+                guard let separator = selection.firstIndex(of: "=") else { return nil }
+                return (String(selection[..<separator]), String(selection[selection.index(after: separator)...]))
+            }, by: { $0.0 })
+            guard answers.values.reduce(0, { $0 + $1.count }) == selections.count else { return false }
+            guard Set(answers.keys) == Set(questions.map(\.id)) else { return false }
+            return questions.allSatisfy { question in
+                let values = answers[question.id, default: []].map { $0.1 }
+                guard !values.isEmpty, question.multiSelect || values.count == 1 else { return false }
+                let optionIDs = Set(question.options.map(\.id))
+                return values.allSatisfy { optionIDs.contains($0) || ($0.hasPrefix("other:") && $0.count > 6) }
+            }
+        default:
+            return false
+        }
+    }
+
+    /// Revision paired with `snapshot`; callers use it as the reconciliation
+    /// cursor for revision-only mobile invalidations.
+    func mobileSnapshot(pendingOnly: Bool) -> (revision: UInt64, items: [WorkstreamItem]) {
+        waiterLock.lock()
+        let revision = mobileRevision
+        waiterLock.unlock()
+        return (revision, snapshot(pendingOnly: pendingOnly))
+    }
+
+    /// Returns one stable page from persisted Feed history for authenticated mobile clients.
+    @MainActor
+    func mobileHistoryPage(endingBefore cursor: String?, limit: Int) async throws
+        -> (revision: UInt64, page: WorkstreamStore.HistoryPage)
+    {
+        guard let store else { throw WorkstreamHistoryError.invalidCursor }
+        let revision = waiterLock.withLock { mobileRevision }
+        return (revision, try await store.historyPage(endingBefore: cursor, limit: limit))
+    }
+
+    /// Returns the current route without changing focus. Mobile list rows pin
+    /// this target so later selection changes cannot reroute an action.
+    func target(for workstreamId: String) -> FeedJumpResolver.Target? {
+        guard let parsed = FeedJumpResolver.parse(workstreamId) else { return nil }
+        return FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId)
+    }
+
+    /// Accepts one ordinary reply only when the caller's immutable target is
+    /// still the authoritative route for this workstream.
+    @MainActor
+    func sendTextToTarget(
+        workstreamId: String,
+        workspaceId: String,
+        surfaceId: String,
+        text: String
+    ) -> Bool {
+        guard let target = target(for: workstreamId),
+              target.workspaceId == workspaceId,
+              target.surfaceId == surfaceId,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        FeedJumpResolver.sendText(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            text: text
+        )
+        return true
+    }
+
+    @MainActor
+    private func publishMobileChange() {
+        waiterLock.lock()
+        mobileRevision &+= 1
+        let revision = mobileRevision
+        waiterLock.unlock()
+        MobileHostService.emitEvent(
+            topic: "workstream.feed.changed",
+            payload: ["revision": revision]
+        )
     }
 
     fileprivate func isAwaitingDecision(requestId: String) -> Bool {
@@ -541,6 +727,7 @@ final class FeedCoordinator: @unchecked Sendable {
         let expire: @Sendable () -> Void = { [itemId] in
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store?.markExpired(itemId)
+                FeedCoordinator.shared.publishMobileChange()
             }
         }
         if Thread.isMainThread {
@@ -1012,13 +1199,31 @@ enum FeedJumpResolver {
     }
 
     static func lookup(agent: String, sessionId: String) -> Target? {
+        sessions(agent: agent)[sessionId]
+    }
+
+    static func targets(for workstreamIds: [String]) -> [String: Target] {
+        let parsed = workstreamIds.compactMap { workstreamId in
+            parse(workstreamId).map { (workstreamId, $0.agent, $0.sessionId) }
+        }
+        let sessionsByAgent = Dictionary(
+            uniqueKeysWithValues: Set(parsed.map { $0.1 }).map { ($0, sessions(agent: $0)) }
+        )
+        return parsed.reduce(into: [:]) { result, entry in
+            if let target = sessionsByAgent[entry.1]?[entry.2] {
+                result[entry.0] = target
+            }
+        }
+    }
+
+    private static func sessions(agent: String) -> [String: Target] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let file = home
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
         guard let data = try? Data(contentsOf: file),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
+        else { return [:] }
         // Stores have a consistent shape: top-level `sessions` dict keyed
         // by sessionId. Tolerate older flat layouts too.
         let sessions: [String: Any]
@@ -1027,12 +1232,13 @@ enum FeedJumpResolver {
         } else {
             sessions = root
         }
-        guard let entry = sessions[sessionId] as? [String: Any],
-              let workspaceId = entry["workspaceId"] as? String,
-              let surfaceId = entry["surfaceId"] as? String,
-              !workspaceId.isEmpty, !surfaceId.isEmpty
-        else { return nil }
-        return Target(workspaceId: workspaceId, surfaceId: surfaceId)
+        return sessions.reduce(into: [:]) { result, pair in
+            guard let entry = pair.value as? [String: Any],
+                  let workspaceId = entry["workspaceId"] as? String,
+                  let surfaceId = entry["surfaceId"] as? String,
+                  !workspaceId.isEmpty, !surfaceId.isEmpty else { return }
+            result[pair.key] = Target(workspaceId: workspaceId, surfaceId: surfaceId)
+        }
     }
 
     /// Dispatches a workspace-select + surface-focus intent. Posts
@@ -1688,7 +1894,7 @@ enum FeedSocketEncoding {
         var dict: [String: Any] = [
             "id": item.id.uuidString,
             "workstream_id": item.workstreamId,
-            "source": item.source.rawValue,
+            "source": item.sourceRawValue ?? item.source.rawValue,
             "kind": item.kind.rawValue,
             "created_at": isoFormatter.string(from: item.createdAt),
             "updated_at": isoFormatter.string(from: item.updatedAt),
@@ -1719,6 +1925,23 @@ enum FeedSocketEncoding {
                 dict["tool_input_capabilities"] = capabilityJSON
             }
             assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
+            dict["tool_input_summary"] = safeToolInputSummary(toolInputJSON)
+            var modes: [String] = []
+            let sourceIsKnown = item.sourceRawValue.map { $0 == item.source.rawValue } ?? true
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsOncePermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
+                modes.append(WorkstreamPermissionMode.once.rawValue)
+            }
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
+                modes.append(WorkstreamPermissionMode.always.rawValue)
+            }
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsAllPermissionMode(source: item.source, toolInputJSON: toolInputJSON) {
+                modes.append(WorkstreamPermissionMode.all.rawValue)
+            }
+            if sourceIsKnown, FeedPermissionActionPolicy.supportsBypassPermissions(source: item.source) {
+                modes.append(WorkstreamPermissionMode.bypass.rawValue)
+            }
+            modes.append(WorkstreamPermissionMode.deny.rawValue)
+            dict["supported_modes"] = modes
             if let pattern { dict["pattern"] = pattern }
         case .exitPlan(let requestId, let plan, let defaultMode):
             dict["request_id"] = requestId
@@ -1767,5 +1990,16 @@ enum FeedSocketEncoding {
             }
         }
         return dict
+    }
+
+    /// Redacts values while retaining the field names a user needs to
+    /// understand the shape of a permission request.
+    private static func safeToolInputSummary(_ json: String) -> String {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any] else {
+            return ""
+        }
+        return dictionary.keys.sorted().map { "\($0): …" }.joined(separator: ", ")
     }
 }

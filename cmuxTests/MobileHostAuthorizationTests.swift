@@ -768,6 +768,36 @@ struct MobileHostAuthorizationTests {
         let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
         #expect(error == nil)
     }
+    @Test(arguments: ["workstream.feed.action", "workstream.feed.reply"])
+    func testScopedAttachTicketRejectsFeedMutationOutsidePinnedRoute(method: String) throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "feed-mutation",
+            method: method,
+            params: [
+                "workspace_id": "other-workspace",
+                "surface_id": "other-terminal",
+            ],
+            auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+        )
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
+        #expect(error?.code == "forbidden")
+    }
+    @Test(arguments: ["workstream.feed.action", "workstream.feed.reply"])
+    func testMacScopedAttachTicketAcceptsFeedMutationInAnyWorkspace(method: String) throws {
+        let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "feed-mutation",
+            method: method,
+            params: [
+                "workspace_id": "other-workspace",
+                "surface_id": "other-terminal",
+            ],
+            auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+        )
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
+        #expect(error == nil)
+    }
     @Test func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
         #expect(throws: (any Error).self) {
             try MobileHostAuthorizationPolicy.authorizeStackUserID(

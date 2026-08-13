@@ -28,6 +28,7 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticRuntimeRole.mobileClient) == "mobileClient")
         #expect(DiagnosticEventPresentation().name(DiagnosticAppLifecyclePhase.background) == "background")
         #expect(DiagnosticEventPresentation().name(DiagnosticAppEventKind.authSignInStarted) == "authSignInStarted")
+        #expect(DiagnosticEventPresentation().name(DiagnosticPrimaryTab.feed) == "feed")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorFrameLifecycle.cachedSent) == "cachedSent")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorInputLifecycle.rejectedLocked) == "rejectedLocked")
         #expect(DiagnosticEventPresentation().name(DiagnosticSimulatorInputKind.hardwareButton) == "hardwareButton")

@@ -2184,12 +2184,12 @@ public final class MobileIrohRuntimeComposition:
         DiagnosticFailureKind.classify(error)
     }
 
-    nonisolated private static func discoveryPeerTags(
+    nonisolated static func discoveryPeerTags(
         for policy: MobileMacBuildCompatibilityPolicy?
     ) -> [String]? {
         switch policy {
-        case .development(let expectedInstanceTag):
-            [expectedInstanceTag]
+        case let .development(expectedInstanceTag, additionalInstanceTags):
+            [expectedInstanceTag] + additionalInstanceTags.sorted()
         case .official:
             ["default", "nightly"]
         case nil:

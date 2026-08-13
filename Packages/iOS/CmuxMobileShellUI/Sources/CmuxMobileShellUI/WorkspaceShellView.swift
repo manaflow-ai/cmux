@@ -144,6 +144,7 @@ private struct WorkspaceShellRenderPresentation {
     let notificationFeedItems: [MobileNotificationFeedItem]
     let notificationUnreadCount: Int
     let notificationFeedStatus: MobileNotificationFeedStatus
+    let agentFeedNeedsInputCount: Int
     let selectedNotificationFeedMacDeviceIDs: Set<String>?
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
@@ -170,6 +171,7 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var agentFeedNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
@@ -240,6 +242,7 @@ struct WorkspaceShellView: View {
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
                 notificationUnreadCount: presentation.notificationUnreadCount,
+                agentFeedNeedsInputCount: presentation.agentFeedNeedsInputCount,
                 taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                     ? nil
                     : taskComposerAction
@@ -279,6 +282,23 @@ struct WorkspaceShellView: View {
                 }
                 .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                     consumePendingPrimarySearchNavigation(for: .notifications)
+                }
+            } feed: {
+                NavigationStack(path: $agentFeedNavigationPath) {
+                    AgentFeedStoreView(store: store)
+                        .toolbar {
+                            if agentFeedNavigationPath.isEmpty {
+                                rootToolbarContent
+                            }
+                        }
+                        .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                            workspaceDestination(
+                                for: workspaceID,
+                                createWorkspace: createWorkspaceInCompactStack,
+                                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                            )
+                            .toolbarVisibility(.hidden, for: .tabBar)
+                        }
                 }
             } workspaceSearch: {
                 workspaceSearchTabContent(
@@ -766,6 +786,7 @@ struct WorkspaceShellView: View {
             notificationFeedItems: visibleNotificationFeedItems,
             notificationUnreadCount: notificationUnreadCount,
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
+            agentFeedNeedsInputCount: store.agentFeedNeedsInputCount,
             selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
             canCreateWorkspaceForSelection: scope.canCreateWorkspace(
@@ -857,6 +878,13 @@ struct WorkspaceShellView: View {
         guard let request = store.deeplinkWorkspaceNavigationRequest else { return }
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
         #if os(iOS)
+        if request.origin == .agentFeed {
+            transitionPrimaryTab(to: .feed)
+            if agentFeedNavigationPath.last != workspaceID {
+                agentFeedNavigationPath = [workspaceID]
+            }
+            return
+        }
         if request.origin == .notificationFeed {
             switch primarySearchCoordinator.notificationFeedNavigationRoute(
                 selectedTab: selectedPrimaryTab
@@ -907,7 +935,7 @@ struct WorkspaceShellView: View {
             if notificationNavigationPath.last != workspaceID {
                 notificationNavigationPath = [workspaceID]
             }
-        case .search:
+        case .feed, .search:
             break
         }
     }
@@ -919,7 +947,7 @@ struct WorkspaceShellView: View {
     ) -> Bool {
         let previousTab = selectedPrimaryTab
         if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
+           tab != .search {
             primarySearchCoordinator.deactivateCurrentSearch()
         }
         beforeSelection()
@@ -972,6 +1000,7 @@ struct WorkspaceShellView: View {
         switch tab {
         case .workspaces: .workspaces
         case .notifications: .notifications
+        case .feed: .feed
         case .search: .search
         }
     }

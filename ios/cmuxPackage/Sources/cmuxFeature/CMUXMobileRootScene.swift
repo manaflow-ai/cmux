@@ -354,6 +354,8 @@ public struct CMUXMobileRootScene: View {
         #if DEBUG
         if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
+        } else if UITestConfig.agentFeedPreviewEnabled {
+            AgentFeedPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
