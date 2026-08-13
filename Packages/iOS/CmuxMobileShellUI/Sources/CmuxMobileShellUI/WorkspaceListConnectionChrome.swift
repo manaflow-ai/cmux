@@ -21,7 +21,6 @@ enum WorkspaceConnectionStatusLine: Equatable {
 enum WorkspaceListConnectionChrome: Equatable {
     case none
     case recoveryBanner
-    case tailscalePairingRequired
     case macStatusRow
     case statusLine(WorkspaceConnectionStatusLine)
 
@@ -38,7 +37,10 @@ enum WorkspaceListConnectionChrome: Equatable {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
         } else if hasStore && tailscalePairingRequired {
-            self = .tailscalePairingRequired
+            // Keep the workspace content visible while directing the user to
+            // the scanner from the existing reconnect action. Tailscale setup
+            // guidance belongs in the empty state, not in blocking chrome.
+            self = .statusLine(.notConnected)
         } else if isInitialConnectionLoading || initialConnectionTimedOut {
             self = .macStatusRow
         } else if connectionStatus == .reconnecting || (hasStore && isRecoveringConnection) {

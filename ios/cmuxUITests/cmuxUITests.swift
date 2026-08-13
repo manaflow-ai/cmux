@@ -536,7 +536,8 @@ final class cmuxUITests: XCTestCase {
 
     /// A migrating BETA install sees the minimum Mac versions once. Choosing
     /// Tailscale cannot leave an unusable selection behind: without a local
-    /// pairing grant it opens the scanner and keeps a durable setup banner.
+    /// pairing grant it opens the scanner and keeps the setup guidance in the
+    /// empty state without a blocking banner.
     @MainActor
     func testAutoConnectMigrationIntroductionPersistsTailscaleAndAutoConnectAcrossRelaunches() throws {
         let fixtureID = UUID().uuidString
@@ -577,18 +578,23 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         scannerCancel.tap()
 
-        let pairingRequiredBanner = app.descendants(matching: .any)[
-            "MobileTailscalePairingRequiredBanner"
+        let tailscaleDescription = app.descendants(matching: .any)[
+            "MobileDisconnectedEmptyDescription"
         ]
-        XCTAssertTrue(pairingRequiredBanner.waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["MobileTailscalePairingRequiredScan"].isHittable)
-        let dismissPairingRequiredBanner = app.buttons[
-            "MobileTailscalePairingRequiredDismiss"
-        ]
-        XCTAssertTrue(dismissPairingRequiredBanner.waitForExistence(timeout: 4))
-        XCTAssertTrue(dismissPairingRequiredBanner.isHittable)
-        dismissPairingRequiredBanner.tap()
-        XCTAssertTrue(pairingRequiredBanner.waitForNonExistence(timeout: 4))
+        XCTAssertTrue(tailscaleDescription.waitForExistence(timeout: 4))
+        XCTAssertTrue(tailscaleDescription.label.contains("Install Tailscale"))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileTailscalePairingRequiredBanner"]
+                .waitForNonExistence(timeout: 2)
+        )
+        let emptyStateScan = app.buttons["MobileDisconnectedScanPairingCode"]
+        XCTAssertTrue(emptyStateScan.waitForExistence(timeout: 4))
+        emptyStateScan.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobilePairingScannerPreview"]
+                .waitForExistence(timeout: 4)
+        )
+        app.buttons["MobileScannerCancelButton"].tap()
         app.terminate()
 
         let relaunched = launchApp(mockData: true, environment: environment)
@@ -597,9 +603,14 @@ final class cmuxUITests: XCTestCase {
             relaunched.staticTexts["MobileAutoConnectMigrationTitle"]
                 .waitForExistence(timeout: 2)
         )
+        let relaunchedDescription = relaunched.descendants(matching: .any)[
+            "MobileDisconnectedEmptyDescription"
+        ]
+        XCTAssertTrue(relaunchedDescription.waitForExistence(timeout: 8))
+        XCTAssertTrue(relaunchedDescription.label.contains("Install Tailscale"))
         XCTAssertTrue(
             relaunched.descendants(matching: .any)["MobileTailscalePairingRequiredBanner"]
-                .waitForExistence(timeout: 8)
+                .waitForNonExistence(timeout: 2)
         )
         let settings = relaunched.buttons["MobileWorkspaceSettingsMenu"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))

@@ -61,9 +61,8 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
-    /// Whether the root setup-prompt coordinator currently presents its banner.
-    var showsTailscalePairingBanner = false
-    var dismissTailscalePairingBanner: () -> Void = {}
+    /// Whether Tailscale still needs its one-time Mac authorization.
+    var tailscalePairingRequired = false
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance there.
     var showAddDevice: (() -> Void)?
@@ -506,15 +505,6 @@ struct WorkspaceListView: View {
             workspacesByID: currentWorkspacesByID
         )
             .modifier(WorkspaceListBarUnderlap())
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if connectionChrome == .tailscalePairingRequired,
-                   let showPairingScanner {
-                    MobileTailscalePairingRequiredBanner(
-                        scanPairingCode: showPairingScanner,
-                        dismiss: dismissTailscalePairingBanner
-                    )
-                }
-            }
         #else
         let baseList = List {
             switch connectionChrome {
@@ -526,17 +516,6 @@ struct WorkspaceListView: View {
                             connectionError: store.connectionError,
                             signOut: signOut,
                             rendersInline: true
-                        )
-                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                        .listRowSeparator(.hidden)
-                    }
-                }
-            case .tailscalePairingRequired:
-                if let showPairingScanner {
-                    Section {
-                        MobileTailscalePairingRequiredBanner(
-                            scanPairingCode: showPairingScanner,
-                            dismiss: dismissTailscalePairingBanner
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
@@ -916,7 +895,7 @@ struct WorkspaceListView: View {
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             connectionStatus: connectionStatus,
-            tailscalePairingRequired: showsTailscalePairingBanner,
+            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         )
