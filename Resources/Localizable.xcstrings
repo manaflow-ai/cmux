@@ -266804,23 +266804,6 @@
         }
       }
     },
-    "subrouter.daemon.unreachable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subrouter isn't running"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subrouterが起動していません"
-          }
-        }
-      }
-    },
     "subrouter.duration.days": {
       "extractionState": "manual",
       "localizations": {
@@ -267518,23 +267501,6 @@
         }
       }
     },
-    "subrouter.daemon.setupExplainer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set up the local subrouter on this Mac (default), or connect to a hosted subrouter server."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このMacにローカルのSubrouterをセットアップ（デフォルト）するか、ホスト済みのSubrouterサーバーに接続します。"
-          }
-        }
-      }
-    },
     "subrouter.daemon.connectServer": {
       "extractionState": "manual",
       "localizations": {
@@ -267565,6 +267531,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Subrouterサーバーに接続"
+          }
+        }
+      }
+    },
+    "subrouter.daemon.onboardingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up Subrouter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subrouterをセットアップ"
+          }
+        }
+      }
+    },
+    "subrouter.daemon.onboardingBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pool multiple agent accounts and route each session automatically. Run it on this Mac (default), or connect to a hosted server."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数のエージェントアカウントをプールし、各セッションを自動で振り分けます。このMacで実行（デフォルト）するか、ホスト済みサーバーに接続します。"
           }
         }
       }

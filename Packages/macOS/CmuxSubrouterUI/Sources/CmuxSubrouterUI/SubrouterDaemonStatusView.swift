@@ -137,37 +137,43 @@ public struct SubrouterDaemonStatusView: View {
         .help(lastErrorDescription ?? "")
     }
 
+    @ViewBuilder
     private var unreachableCard: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(
-                unreachableTitle,
-                systemImage: "bolt.horizontal.circle"
-            )
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.orange)
-            // First-run guidance for the local daemon: name both hosting
-            // choices and mark local as the default path.
-            if !isRemoteEndpoint {
+        if isRemoteEndpoint {
+            remoteUnreachableCard
+        } else {
+            localOnboardingCard
+        }
+    }
+
+    /// The first-run onboarding card for the local daemon: not an error
+    /// (nothing the user set up has broken), so it presents calmly and
+    /// names both hosting choices, with local as the default path. Also
+    /// what a user with a stopped daemon sees — Set up restarts it.
+    private var localOnboardingCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
                 Text(String(
-                    localized: "subrouter.daemon.setupExplainer",
-                    defaultValue: "Set up the local subrouter on this Mac (default), or connect to a hosted subrouter server."
+                    localized: "subrouter.daemon.onboardingTitle",
+                    defaultValue: "Set up Subrouter"
                 ))
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "arrow.triangle.branch")
+                    .foregroundStyle(.tint)
             }
-            if let lastErrorDescription, !lastErrorDescription.isEmpty {
-                Text(lastErrorDescription)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-            }
-            // Setup only makes sense for the local daemon; a remote server
-            // is installed and managed on its own machine. One click opens
-            // a terminal that installs the sr CLI (when missing), starts
-            // the daemon, and prints how to add accounts. Hosts without a
-            // terminal (previews) fall back to the copyable command hint.
-            if !isRemoteEndpoint, onSetup == nil {
+            .font(.system(size: 11, weight: .semibold))
+            Text(String(
+                localized: "subrouter.daemon.onboardingBody",
+                defaultValue: "Pool multiple agent accounts and route each session automatically. Run it on this Mac (default), or connect to a hosted server."
+            ))
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            // One click opens a terminal that installs the sr CLI (when
+            // missing), starts the daemon, and prints how to add accounts.
+            // Hosts without a terminal (previews) fall back to the
+            // copyable command hint.
+            if onSetup == nil {
                 Text(String(
                     localized: "subrouter.daemon.installHint",
                     defaultValue: "Install or start it with: cmux subrouter setup"
@@ -177,7 +183,7 @@ public struct SubrouterDaemonStatusView: View {
                 .textSelection(.enabled)
             }
             HStack(spacing: 6) {
-                if !isRemoteEndpoint, let onSetup {
+                if let onSetup {
                     Button(action: onSetup) {
                         Text(String(
                             localized: "subrouter.daemon.setup",
@@ -188,7 +194,7 @@ public struct SubrouterDaemonStatusView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.mini)
                 }
-                if !isRemoteEndpoint, let onConnectServer {
+                if let onConnectServer {
                     Button(action: onConnectServer) {
                         Text(String(
                             localized: "subrouter.daemon.connectServer",
@@ -206,23 +212,52 @@ public struct SubrouterDaemonStatusView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
             }
+            .padding(.top, 2)
+            if let lastErrorDescription, !lastErrorDescription.isEmpty {
+                Text(lastErrorDescription)
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// The genuine-failure card: a server the user configured is not
+    /// answering, which deserves the alarm treatment.
+    private var remoteUnreachableCard: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(
+                remoteUnreachableTitle,
+                systemImage: "bolt.horizontal.circle"
+            )
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.orange)
+            if let lastErrorDescription, !lastErrorDescription.isEmpty {
+                Text(lastErrorDescription)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+            }
+            Button(action: onRetry) {
+                Text(String(localized: "subrouter.daemon.retry", defaultValue: "Retry"))
+                    .font(.system(size: 10))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
     }
 
-    private var unreachableTitle: String {
-        if isRemoteEndpoint {
-            let name = serverName ?? ""
-            return String(
-                localized: "subrouter.daemon.serverUnreachable",
-                defaultValue: "Can't reach server \(name)"
-            )
-        }
+    private var remoteUnreachableTitle: String {
+        let name = serverName ?? ""
         return String(
-            localized: "subrouter.daemon.unreachable",
-            defaultValue: "Subrouter isn't running"
+            localized: "subrouter.daemon.serverUnreachable",
+            defaultValue: "Can't reach server \(name)"
         )
     }
 }

@@ -9,6 +9,12 @@ internal import CmuxSubrouter
 struct SubrouterUsageSummaryView: View {
     let account: SubrouterAccountUsageStatus
 
+    /// Fixed column widths so every row's gauge and value line up
+    /// vertically: a variable-width value ("42%" vs "4d 21h") must move
+    /// neither the bar's origin nor its length.
+    private static let barWidth: CGFloat = 44
+    private static let valueWidth: CGFloat = 40
+
     var body: some View {
         if let window = account.constrainingWindow {
             let percent = window.clampedUsedPercent
@@ -17,13 +23,16 @@ struct SubrouterUsageSummaryView: View {
                     .fill(Color.primary.opacity(0.08))
                 Capsule()
                     .fill(SubrouterPalette.usageFill(for: percent))
-                    .frame(width: max(2, 44 * percent / 100))
+                    .frame(width: max(2, Self.barWidth * percent / 100))
             }
-            .frame(width: 44, height: 4)
+            .frame(width: Self.barWidth, height: 4)
             .accessibilityHidden(true)
             Text(trailingText(window: window, percent: percent))
                 .font(.system(size: 9, weight: .medium).monospacedDigit())
                 .foregroundStyle(SubrouterPalette.summaryText(for: percent))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(width: Self.valueWidth, alignment: .trailing)
                 .help(account.quotaAssessment.detailText ?? "")
         }
     }
