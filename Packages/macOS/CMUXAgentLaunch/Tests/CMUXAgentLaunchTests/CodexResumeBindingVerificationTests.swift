@@ -40,6 +40,30 @@ struct CodexResumeBindingVerificationTests {
         )
     }
 
+    @Test func unreadableThreadIndexDoesNotAcceptTranscriptFallback() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9a9-cbe1-7231-9478-0c55a8c44560"
+        let transcript = try fixture.writeRollout(
+            sessionId: sessionID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+        try Data("not-a-sqlite-database".utf8).write(
+            to: fixture.codexHome.appendingPathComponent("state_5.sqlite"),
+            options: .atomic
+        )
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: sessionID,
+                transcriptPath: transcript.path,
+                codexHome: fixture.codexHome.path
+            ) == .unavailable
+        )
+    }
+
     @Test func indexedThreadWithUnreadableRolloutIsUnavailable() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -186,6 +210,30 @@ struct CodexResumeBindingVerificationTests {
         #expect(evidence.sessionId == sessionId)
     }
 
+    @Test func vscodeRolloutIsTrustedTopLevelProvenance() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9c1-d827-7831-960d-fd9bdf7d54e2"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionID,
+            source: "vscode",
+            originator: "codex-vscode"
+        )
+        try fixture.insertThread(sessionId: sessionID, rolloutPath: rollout.path)
+
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionID,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path
+        ) else {
+            Issue.record("a VS Code top-level session must be accepted")
+            return
+        }
+        #expect(evidence.provenance == .tui)
+        #expect(evidence.provenance.mayOwnBinding)
+    }
+
     @Test func threadIndexSourcePreventsLegacyExecFromOwningBinding() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -257,7 +305,7 @@ struct CodexResumeBindingVerificationTests {
     @Test func provenanceReplacementPolicyRejectsChildrenAndDowngrades() {
         #expect(!AgentResumeEvidenceProvenance.exec.canReplace(nil))
         #expect(!AgentResumeEvidenceProvenance.subagent.canReplace(nil))
-        #expect(AgentResumeEvidenceProvenance.unknown.canReplace(nil))
+        #expect(!AgentResumeEvidenceProvenance.unknown.canReplace(nil))
         #expect(!AgentResumeEvidenceProvenance.unknown.canReplace(.tui))
         #expect(AgentResumeEvidenceProvenance.tui.canReplace(.unknown))
         #expect(AgentResumeEvidenceProvenance.tui.canReplace(.tui))

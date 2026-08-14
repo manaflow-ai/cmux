@@ -35,7 +35,7 @@ import Testing
         #expect(!incoming.allowsCodexAgentHookReplacement(of: existing))
     }
 
-    @Test func codexUnknownEvidenceCanEstablishEmptyBindingButNotReplaceLegacy() {
+    @Test func codexUnknownEvidenceCannotOwnOrReplaceBinding() {
         let incoming = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "codex resume unknown-session",
@@ -52,7 +52,7 @@ import Testing
             autoResume: true
         )
 
-        #expect(incoming.allowsCodexAgentHookReplacement(of: nil as SurfaceResumeBindingSnapshot?))
+        #expect(!incoming.allowsCodexAgentHookReplacement(of: nil as SurfaceResumeBindingSnapshot?))
         #expect(!incoming.allowsCodexAgentHookReplacement(of: legacy))
 
         let manualLegacy = SurfaceResumeBindingSnapshot(
@@ -63,6 +63,49 @@ import Testing
             autoResume: true
         )
         #expect(!incoming.allowsCodexAgentHookReplacement(of: manualLegacy))
+    }
+
+    @Test @MainActor
+    func dockProtectsManagedCodexBindingBehindProcessDetectedBinding() {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let panel = TerminalPanel(workspaceId: store.workspaceId)
+        store.panels[panel.id] = panel
+
+        let managed = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume tui-session",
+            checkpointId: "tui-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "tui"
+        )
+        let processDetected = SurfaceResumeBindingSnapshot(
+            name: "tmux",
+            kind: "tmux",
+            command: "tmux attach-session -t work",
+            checkpointId: "work",
+            source: "process-detected",
+            autoResume: true
+        )
+        store.managedAgentResumeBindingsByPanelId[panel.id] = managed
+        store.surfaceResumeBindingsByPanelId[panel.id] = processDetected
+
+        let incoming = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume unclassified-session",
+            checkpointId: "unclassified-session",
+            source: "agent-hook",
+            autoResume: true,
+            resumeEvidenceProvenance: "unknown"
+        )
+
+        #expect(!store.setSurfaceResumeBinding(incoming, panelId: panel.id))
+        #expect(store.managedAgentResumeBindingsByPanelId[panel.id] == managed)
+        #expect(store.surfaceResumeBindingsByPanelId[panel.id] == processDetected)
     }
 
     @Test func unknownEvidenceCannotReplaceKindlessLegacyAgentHookBinding() {

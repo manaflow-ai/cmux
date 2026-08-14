@@ -170,7 +170,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(fixture.binding.snapshot()?["checkpoint_id"] as? String, newSessionID)
     }
 
-    func testCodexUnknownSessionKeepsUnverifiableExistingBinding() throws {
+    func testCodexVSCodeSessionCanReplaceUnverifiableExistingBinding() throws {
         let existingID = "019ff98a-d827-7831-960d-fd9bdf7d54e2"
         let incomingID = "019ff9e0-cbe1-7231-9478-0c55a8c44560"
         let fixture = try makeCodexBindingFixture(name: "unknown-no-downgrade", existingCheckpoint: existingID)
@@ -191,15 +191,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(
             fixture.binding.snapshot()?["checkpoint_id"] as? String,
-            existingID,
-            "unclassified evidence must not replace a binding whose provenance cannot be read"
+            incomingID,
+            "a classified top-level VS Code session may replace legacy evidence"
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             fixture.state.snapshot().contains { jsonObject($0)?["method"] as? String == "surface.resume.set" }
         )
     }
 
-    func testCodexUnknownSessionCanEstablishFirstBinding() throws {
+    func testCodexVSCodeSessionCanEstablishFirstBinding() throws {
         let sessionID = "019ff9e0-cbe1-7231-9478-0c55a8c44560"
         let fixture = try makeCodexBindingFixture(name: "unknown-first-bind", existingCheckpoint: nil)
         defer { fixture.cleanup() }
