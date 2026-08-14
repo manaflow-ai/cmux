@@ -448,7 +448,6 @@ public actor PushRegistrationService: PushRegistering {
             persistPendingUnregister(tokenHex: hex, accountID: ownerID)
         }
         if let persistedOwner,
-           let capturedAccountID,
            capturedAccountID != persistedOwner {
             // The legacy overload has no account identity, and a caller
             // explicitly carrying B must never apply B's credentials to A's
