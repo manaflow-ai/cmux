@@ -17,7 +17,12 @@ public struct CmxPairingURLScheme {
         ) else {
             return nil
         }
-        rawValue = namespace.pairingURLScheme
+        let scheme = namespace.pairingURLScheme.lowercased()
+        guard Self.releaseSchemes.contains(scheme)
+                || scheme.hasPrefix(Self.developmentPrefix) else {
+            return nil
+        }
+        rawValue = scheme
     }
 
     /// Parses a classifiable bundle-specific or historical shared pairing

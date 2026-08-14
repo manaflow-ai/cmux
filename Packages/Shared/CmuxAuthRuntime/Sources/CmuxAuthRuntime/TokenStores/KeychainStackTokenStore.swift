@@ -188,6 +188,10 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private func legacyBaseQuery(account: String) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            // The legacy Stack SDK omitted this attribute when adding items,
+            // which Keychain persists as the empty service. An omitted query
+            // attribute is a wildcard and could match another credential.
+            kSecAttrService as String: "",
             kSecAttrAccount as String: account,
         ]
         if let accessGroup {
