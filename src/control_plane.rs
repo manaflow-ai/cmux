@@ -13,6 +13,7 @@ use crate::config::{self, Config};
 
 const DEFAULT_API_URL: &str = "https://coderouter.dev";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const HANDOFF_EXCHANGE_TIMEOUT: Duration = Duration::from_secs(18);
 const RETRYABLE_READ_STATUS: &[u16] = &[408, 425, 500, 502, 503, 504];
 // OpenAI's model catalog hides all current models from very old client
 // versions. This is a protocol compatibility version, not coderouter's version.
@@ -1036,7 +1037,7 @@ fn handoff_client() -> Result<Client, Error> {
     // A handoff lease is a bearer credential. Do not let an HTTP redirect
     // carry it to an origin that was not selected by safe_handoff_origin.
     Client::builder()
-        .timeout(REQUEST_TIMEOUT)
+        .timeout(HANDOFF_EXCHANGE_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(format!("coderouter/{}", env!("CARGO_PKG_VERSION")))
         .build()
@@ -1318,5 +1319,12 @@ mod fault_matrix_tests {
                 validate_handoff_route("https://coderouter.dev", &route(expires_at)).unwrap_err();
             assert!(error.to_string().contains("invalid expiry"));
         }
+    }
+
+    #[test]
+    fn handoff_exchange_uses_its_coordinated_outer_timeout() {
+        assert_eq!(HANDOFF_EXCHANGE_TIMEOUT, Duration::from_secs(18));
+        assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(10));
+        assert!(HANDOFF_EXCHANGE_TIMEOUT > REQUEST_TIMEOUT);
     }
 }
