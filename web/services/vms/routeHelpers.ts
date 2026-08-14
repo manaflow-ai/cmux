@@ -281,8 +281,10 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
   }
 
   if (isVmProviderOperationError(workflowError)) {
-    const providerCause = providerCauseSummary(workflowError.cause);
     const phase = vmPhaseForOperation(workflowError.operation);
+    // Status responses are external provider data. Keep status-probe failures on the stable
+    // generic response path instead of copying provider text or codes into the client payload.
+    const providerCause = phase === "status" ? null : providerCauseSummary(workflowError.cause);
     const retryAfterSeconds = retryAfterForOperation(workflowError.operation);
     const providerMessage = providerCause?.message
       ? sanitizedProviderMessage(providerCause.message)

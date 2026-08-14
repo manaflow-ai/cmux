@@ -33,6 +33,7 @@ const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
 const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
+const E2B_STATUS_UNAVAILABLE_MESSAGE = "status probe unavailable";
 
 function mapE2BStatus(state: unknown): VMStatus {
   switch (state) {
@@ -41,8 +42,12 @@ function mapE2BStatus(state: unknown): VMStatus {
     case "paused":
       return "paused";
     default:
-      throw new ProviderError("e2b", `getStatus returned unknown state: ${String(state)}`);
+      throw new ProviderError("e2b", E2B_STATUS_UNAVAILABLE_MESSAGE);
   }
+}
+
+function statusStateForTelemetry(state: unknown): "running" | "paused" | "unknown" {
+  return state === "running" || state === "paused" ? state : "unknown";
 }
 
 export class E2BProvider implements VMProvider {
@@ -101,8 +106,8 @@ export class E2BProvider implements VMProvider {
           // Keep the runtime check even though the SDK types the state as a closed union. The
           // provider response is external data and must never be treated as running by default.
           const state = (info as SandboxInfo | null | undefined)?.state;
+          span.setAttribute("cmux.vm.provider_state", statusStateForTelemetry(state));
           const status = mapE2BStatus(state);
-          span.setAttribute("cmux.vm.provider_state", String(state));
           span.setAttribute("cmux.vm.status", status);
           return status;
         } catch (err) {
@@ -114,8 +119,12 @@ export class E2BProvider implements VMProvider {
             span.setAttribute("cmux.vm.status", "destroyed");
             return "destroyed";
           }
-          if (err instanceof ProviderError) throw err;
-          throw new ProviderError("e2b", `getStatus(${vmId}) failed`, err);
+          if (err instanceof ProviderError) {
+            span.setAttribute("cmux.vm.status_probe_result", "invalid_state");
+            throw err;
+          }
+          span.setAttribute("cmux.vm.status_probe_result", "unavailable");
+          throw new ProviderError("e2b", E2B_STATUS_UNAVAILABLE_MESSAGE, err);
         }
       },
     );
