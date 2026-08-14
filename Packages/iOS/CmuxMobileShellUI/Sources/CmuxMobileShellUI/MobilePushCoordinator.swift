@@ -97,6 +97,7 @@ public final class MobilePushCoordinator {
     /// app-lifetime settings slot forever. The sleep is injected for
     /// deterministic timeout tests.
     private static let settingsMutationTimeout: Duration = .seconds(30)
+    private static let registrationRecoveryTimeout: Duration = .seconds(30)
     /// The iOS API endpoint that accepted this installation's APNs token.
     public let phoneAPIOrigin: String
     /// Live OS authorization, refreshed at launch, on foreground, and when
@@ -117,9 +118,15 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private let unregisterForRemoteNotifications:
         @MainActor () -> Void
     @ObservationIgnored private var registrationSnapshotTask: Task<Void, Never>?
-    @ObservationIgnored private var registrationRecoveryTask:
-        Task<PushRegistrationSnapshot, Never>?
-    @ObservationIgnored private var registrationRecoveryToken: UUID?
+    /// Recovery has the same bounded ownership model as settings mutations:
+    /// one active worker and one timed-out or superseded quarantine worker.
+    @ObservationIgnored private var registrationRecoveryWorkers:
+        MobilePushMutationWorkers?
+    @ObservationIgnored private var quarantinedRegistrationRecoveryWorkers:
+        MobilePushMutationWorkers?
+    @ObservationIgnored private var timedOutRegistrationRecoveryCompletion:
+        MobilePushMutationCompletion?
+    @ObservationIgnored private var registrationRecoverySettingsToken: UUID?
     @ObservationIgnored private var registrationIntentTask: Task<Void, Never>?
     /// Authentication and settings reads may ignore cancellation. Each
     /// direction owns one active worker plus one timed-out quarantine slot.
@@ -327,6 +334,7 @@ public final class MobilePushCoordinator {
             return
         }
         settingsMutationDirectionsNeedingRetry.insert(enabled)
+        supersedeRegistrationRecovery(settingsMutationToken: token)
         let isCurrent = isCurrentSettingsMutation(token)
         var releasedLane = false
         if quarantinedSettingsMutationWorkers[enabled] == nil,
@@ -365,6 +373,9 @@ public final class MobilePushCoordinator {
     /// each suspension before an operation publishes or persists state.
     @discardableResult
     private func beginSettingsIntent(_ enabled: Bool) -> MobilePushSettingsIntent {
+        supersedeRegistrationRecovery(
+            settingsMutationToken: settingsMutationToken
+        )
         cancelSettingsMutation()
         settingsMutationDirectionsNeedingRetry.remove(enabled)
         let token = UUID()
@@ -740,9 +751,6 @@ public final class MobilePushCoordinator {
         defaults.set(false, forKey: Self.enabledKey)
         registrationSnapshot = .disabled
         hasRequestedRemoteRegistration = false
-        registrationRecoveryTask?.cancel()
-        registrationRecoveryTask = nil
-        registrationRecoveryToken = nil
         unregisterForRemoteNotifications()
     }
 
@@ -936,34 +944,12 @@ public final class MobilePushCoordinator {
                 || current.backendState.isRecoverable
         else { return }
 
-        let recovery: Task<PushRegistrationSnapshot, Never>
-        let ownsRecovery: Bool
-        let recoveryToken: UUID?
-        if let registrationRecoveryTask {
-            recovery = registrationRecoveryTask
-            ownsRecovery = false
-            recoveryToken = nil
-        } else {
-            let registration = self.registration
-            let token = UUID()
-            recovery = Task {
-                await registration.syncTokenIfPossible()
-                return await registration.snapshot
-            }
-            registrationRecoveryTask = recovery
-            registrationRecoveryToken = token
-            ownsRecovery = true
-            recoveryToken = token
-        }
-        let recovered = await recovery.value
-        // Clear an owned task before checking the caller's generation or
-        // cancellation. The recovery worker is independent of the caller's
-        // waiter, so a cancelled waiter still must release the cached worker
-        // for the next recovery attempt.
-        if ownsRecovery, registrationRecoveryToken == recoveryToken {
-            registrationRecoveryTask = nil
-            registrationRecoveryToken = nil
-        }
+        guard let workers = startRegistrationRecovery(
+            settingsMutationToken: settingsMutationToken
+        ) else { return }
+        let result = await workers.completion.wait()
+        guard result.outcome == .completed else { return }
+        let recovered = await registration.snapshot
         guard isCurrentSettingsMutation(settingsMutationToken) else {
             return
         }
@@ -972,6 +958,113 @@ public final class MobilePushCoordinator {
         }
         registrationSnapshot = recovered
         recordRegistrationOutcome(recovered)
+    }
+
+    private func startRegistrationRecovery(
+        settingsMutationToken: UUID
+    ) -> MobilePushMutationWorkers? {
+        if let registrationRecoveryWorkers {
+            guard registrationRecoverySettingsToken == settingsMutationToken
+            else { return nil }
+            return registrationRecoveryWorkers
+        }
+
+        let completion = MobilePushMutationCompletion()
+        let registration = self.registration
+        let operationTask = Task { @MainActor [weak self] in
+            guard let self else {
+                await completion.resolve(.cancelled)
+                return
+            }
+            await registration.syncTokenIfPossible()
+            await completion.resolve(.completed, succeeded: true)
+            self.finishRegistrationRecovery(completion: completion)
+        }
+        let timeoutTask = Task { @MainActor [weak self, settingsMutationSleep] in
+            do {
+                try await settingsMutationSleep(
+                    Self.registrationRecoveryTimeout
+                )
+                guard await completion.resolve(.timedOut) else { return }
+                self?.handleRegistrationRecoveryTimeout(
+                    completion: completion
+                )
+            } catch {
+                // Recovery completed first and cancelled this sleeper.
+            }
+        }
+        let workers = MobilePushMutationWorkers(
+            operation: operationTask,
+            timeout: timeoutTask,
+            completion: completion
+        )
+        registrationRecoveryWorkers = workers
+        registrationRecoverySettingsToken = settingsMutationToken
+        return workers
+    }
+
+    private func handleRegistrationRecoveryTimeout(
+        completion: MobilePushMutationCompletion
+    ) {
+        guard registrationRecoveryWorkers?.completion === completion else {
+            return
+        }
+        registrationRecoveryWorkers?.operation.cancel()
+        if quarantinedRegistrationRecoveryWorkers == nil {
+            quarantinedRegistrationRecoveryWorkers = registrationRecoveryWorkers
+            registrationRecoveryWorkers = nil
+            registrationRecoverySettingsToken = nil
+            timedOutRegistrationRecoveryCompletion = nil
+        } else {
+            timedOutRegistrationRecoveryCompletion = completion
+        }
+    }
+
+    private func supersedeRegistrationRecovery(
+        settingsMutationToken: UUID
+    ) {
+        guard registrationRecoverySettingsToken == settingsMutationToken,
+              let workers = registrationRecoveryWorkers else { return }
+        workers.operation.cancel()
+        if quarantinedRegistrationRecoveryWorkers == nil {
+            registrationRecoveryWorkers = nil
+            registrationRecoverySettingsToken = nil
+            quarantinedRegistrationRecoveryWorkers = workers
+            timedOutRegistrationRecoveryCompletion = nil
+        } else {
+            // Keep ownership until a quarantine slot opens. A nil token keeps
+            // future callers from reusing this superseded worker.
+            registrationRecoverySettingsToken = nil
+        }
+    }
+
+    private func finishRegistrationRecovery(
+        completion: MobilePushMutationCompletion
+    ) {
+        if registrationRecoveryWorkers?.completion === completion {
+            let workers = registrationRecoveryWorkers
+            registrationRecoveryWorkers = nil
+            registrationRecoverySettingsToken = nil
+            workers?.timeout.cancel()
+            if timedOutRegistrationRecoveryCompletion === completion {
+                timedOutRegistrationRecoveryCompletion = nil
+            }
+            return
+        }
+        guard quarantinedRegistrationRecoveryWorkers?.completion
+            === completion else { return }
+        let workers = quarantinedRegistrationRecoveryWorkers
+        quarantinedRegistrationRecoveryWorkers = nil
+        workers?.timeout.cancel()
+
+        guard let active = registrationRecoveryWorkers,
+              timedOutRegistrationRecoveryCompletion === active.completion
+                || registrationRecoverySettingsToken == nil
+        else { return }
+        registrationRecoveryWorkers = nil
+        registrationRecoverySettingsToken = nil
+        timedOutRegistrationRecoveryCompletion = nil
+        quarantinedRegistrationRecoveryWorkers = active
     }
 
     private func recordRegistrationOutcome(_ snapshot: PushRegistrationSnapshot) {
@@ -1120,7 +1213,10 @@ public final class MobilePushCoordinator {
         }
         registrationIntentTask?.cancel()
         registrationSnapshotTask?.cancel()
-        registrationRecoveryTask?.cancel()
+        registrationRecoveryWorkers?.operation.cancel()
+        registrationRecoveryWorkers?.timeout.cancel()
+        quarantinedRegistrationRecoveryWorkers?.operation.cancel()
+        quarantinedRegistrationRecoveryWorkers?.timeout.cancel()
     }
 
     /// Whether to show a banner while the app is foreground. Suppressed when the
