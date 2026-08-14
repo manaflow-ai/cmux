@@ -10127,7 +10127,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // `foregroundMacKey` derives from `activeMacInstanceTag`, which
         // `clearActiveConnectionContext()` nils, and the offline retention
         // filter must keep the exact tagged entry.
-        let offlineForegroundKey = foregroundMacKey
+        let offlineForegroundKey = foregroundOrRecoveryMacKey
         focusedHandoffPreparedGenerations.removeAll()
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
@@ -13855,11 +13855,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let task = Task { @MainActor [weak self] in
             defer { self?.pullToRefreshTask = nil }
             await self?.reloadWorkspaceListFromMac()
-            // Re-aggregate the other Macs too, so pull-to-refresh surfaces
-            // workspaces created on a secondary Mac since the last fetch (the
-            // read-only secondary list is a snapshot, not a live subscription).
+            // Discovery and secondary aggregation can outlive a failed route by
+            // minutes while the transport drains it. Keep that work under the
+            // existing background owner so SwiftUI's refresh spinner reflects
+            // only the authoritative foreground list fetch. Presence pushes and
+            // live secondary subscriptions update the aggregate independently.
             if self?.multiMacAggregationEnabled == true {
-                await self?.refreshSecondaryMacWorkspaces(
+                self?.scheduleSecondaryAggregation(
                     discoverLivePeers: true
                 )
             }
