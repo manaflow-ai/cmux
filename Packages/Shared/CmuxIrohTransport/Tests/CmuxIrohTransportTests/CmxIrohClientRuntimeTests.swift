@@ -3,6 +3,12 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
+private extension CmxIrohClientRuntime {
+    func installLocalBindingForSignOutTest(_ binding: CmxIrohBrokerBinding) {
+        localBinding = binding
+    }
+}
+
 @Suite
 struct CmxIrohClientRuntimeTests {
     @Test
@@ -1069,6 +1075,38 @@ struct CmxIrohClientRuntimeTests {
         )
         #expect(await recorder.observedLocalWipes() == [true])
         #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test
+    func signOutAuthorizationUsesPersistedLegacyBindingNamespace() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: fixture.configuration.accountID,
+            deviceID: fixture.configuration.deviceID,
+            appInstanceID: fixture.configuration.appInstanceID,
+            clientNamespace: "dev.cmux.app.beta",
+            tag: fixture.configuration.tag,
+            displayName: fixture.configuration.displayName,
+            identity: fixture.configuration.identity,
+            capabilities: fixture.configuration.capabilities,
+            managedRelayURLs: fixture.configuration.managedRelayURLs
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: []),
+            broker: TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: fixture.discovery,
+                relay: fixture.relayResponse()
+            ),
+            configuration: configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        await runtime.installLocalBindingForSignOutTest(fixture.binding)
+
+        let preparation = await runtime.deactivateForSignOut()
+
+        #expect(preparation.bindingAuthorization?.clientNamespace == "legacy")
     }
 
     @Test
