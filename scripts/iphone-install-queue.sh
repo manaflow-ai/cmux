@@ -109,6 +109,7 @@ app_bundle_id() {
 # availability rules as ios/scripts/reload.sh select_device.
 device_reachable() {
   local want_id="$1"
+  [[ "${CMUX_IPHONE_QUEUE_SKIP_PROBE:-0}" == "1" ]] && return 0
   [[ "${CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE:-0}" == "1" ]] && return 1
   [[ -n "$want_id" ]] || return 1
   local out

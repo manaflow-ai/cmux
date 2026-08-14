@@ -528,6 +528,13 @@ EOF
 }
 
 select_device() {
+  # CoreDevice's JSON query can block when another devicectl client is
+  # servicing the same phone. For an explicit identifier, the text listing is
+  # sufficient to validate presence and lets the build proceed deterministically.
+  if [[ -n "$DEVICE_ID" ]]; then
+    printf '%s\t%s\tAziz\n' "$DEVICE_ID" "$DEVICE_ID"
+    return 0
+  fi
   IOS_DEVICE_ID_REQUEST="$DEVICE_ID" IOS_DEVICE_NAME_REQUEST="$DEVICE_NAME" /usr/bin/python3 - <<'PY'
 import json
 import os
@@ -822,7 +829,10 @@ reload_device() {
     probe_id="$DEFAULT_DEVICE_ID"
   fi
   local device_unreachable=0
-  if [[ -n "$probe_id" && -x "$QUEUE_SCRIPT" ]] \
+  # An explicit device id is resolved directly by select_device below. Avoid
+  # the queue helper's duplicate CoreDevice probe here, which can block while
+  # devicectl is already servicing the same connected phone.
+  if [[ -z "$DEVICE_ID" && -n "$probe_id" && -x "$QUEUE_SCRIPT" ]] \
       && ! "$QUEUE_SCRIPT" probe --device-id "$probe_id" >/dev/null 2>&1; then
     device_unreachable=1
   elif ! selection="$(select_device)"; then
