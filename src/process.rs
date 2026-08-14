@@ -25,6 +25,28 @@ pub fn run_attached_with_env(
     removed_env: &[&str],
     added_env: &[(&str, &str)],
 ) -> Result<i32, Error> {
+    run_attached_with_env_inner(executable, args, removed_env, added_env, false)
+}
+
+/// Run a routed child with a clean credential boundary.  This is used for the
+/// cmux handoff path: only the newly exchanged route credential is added back
+/// after inherited token-like variables are removed.
+pub fn run_attached_with_env_isolated(
+    executable: &Path,
+    args: &[OsString],
+    removed_env: &[&str],
+    added_env: &[(&str, &str)],
+) -> Result<i32, Error> {
+    run_attached_with_env_inner(executable, args, removed_env, added_env, true)
+}
+
+fn run_attached_with_env_inner(
+    executable: &Path,
+    args: &[OsString],
+    removed_env: &[&str],
+    added_env: &[(&str, &str)],
+    isolate_credentials: bool,
+) -> Result<i32, Error> {
     let mut command = Command::new(executable);
     command
         .args(args)
@@ -34,6 +56,12 @@ pub fn run_attached_with_env(
     for key in removed_env {
         command.env_remove(key);
     }
+    // The descriptor marker is not secret, but it must not reach a child that
+    // could accidentally consume a one-use lease a second time.
+    command.env_remove("CODEROUTER_HANDOFF_FD");
+    if isolate_credentials {
+        remove_inherited_credentials(&mut command);
+    }
     for (key, value) in added_env {
         command.env(key, value);
     }
@@ -42,6 +70,35 @@ pub fn run_attached_with_env(
         source,
     })?;
     Ok(exit_code(status))
+}
+
+fn remove_inherited_credentials(command: &mut Command) {
+    for (key, _) in std::env::vars_os() {
+        let upper = key.to_string_lossy().to_ascii_uppercase();
+        let token_like = upper.contains("TOKEN")
+            || upper.contains("SECRET")
+            || upper.contains("PASSWORD")
+            || upper.contains("CREDENTIAL")
+            || upper.contains("API_KEY")
+            || upper.ends_with("_KEY");
+        if token_like {
+            command.env_remove(key);
+        }
+    }
+    // These names are covered by the token matcher, but keep explicit aliases
+    // here as a reviewable contract for Stack and CodeRouter handoff values.
+    for key in [
+        "CODEROUTER_HANDOFF_LEASE",
+        "CODEROUTER_ROUTE_TOKEN",
+        "STACK_ACCESS_TOKEN",
+        "STACK_REFRESH_TOKEN",
+        "X_STACK_ACCESS_TOKEN",
+        "X_STACK_REFRESH_TOKEN",
+        "CMUX_STACK_ACCESS_TOKEN",
+        "CMUX_STACK_REFRESH_TOKEN",
+    ] {
+        command.env_remove(key);
+    }
 }
 
 pub fn is_same_executable(left: &Path, right: &Path) -> bool {

@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod control_plane;
+mod handoff;
 mod loading;
 mod oauth;
 mod process;

@@ -47,6 +47,21 @@ The production control plane is `https://coderouter.dev`. coderouter uses a
 separate session config and never overwrites normal agent configuration.
 `CODEROUTER_API_URL` can override the origin for staging and loopback tests.
 
+## cmux hosted handoff
+
+When cmux starts a routed agent, it can pass a one-use `crh_` lease through
+inherited file descriptor 3 and set the non-secret
+`CODEROUTER_HANDOFF_FD=3` marker. The CLI reads one newline-delimited lease,
+exchanges it once at the hosted origin, and keeps the returned `crt_` route
+credential in memory for that child process. It does not accept a lease from
+argv or an ordinary environment variable, and it never passes Stack access or
+refresh tokens to the child. Missing, malformed, expired, consumed, or
+revoked handoffs fail closed; the CLI does not fall back to a saved login.
+
+The exchange origin is pinned to `https://coderouter.dev` in production. HTTP
+loopback origins are available only in debug/test builds. Help, version, and
+capability commands remain credential-free and do not consume the descriptor.
+
 ## Privacy-safe analytics
 
 Signed-in CLI commands send a short, best-effort lifecycle event to the

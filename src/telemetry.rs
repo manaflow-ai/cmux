@@ -62,7 +62,8 @@ pub(crate) struct CommandTelemetry {
 
 impl CommandTelemetry {
     pub(crate) fn start(args: &[OsString]) -> Self {
-        let credential_free = is_capabilities_command(args);
+        let credential_free = is_credential_free_command(args);
+        let handoff = crate::handoff::requested();
         Self {
             started: Instant::now(),
             dimensions: classify_command(args),
@@ -74,12 +75,15 @@ impl CommandTelemetry {
             },
             // Capability discovery must not inspect or transmit the saved
             // session. It is intentionally usable before authentication.
-            initial_transport: if credential_free {
+            initial_transport: if credential_free || handoff {
                 None
             } else {
                 Transport::from_saved_config()
             },
-            enabled: !credential_free && telemetry_enabled(),
+            // A handoff route is intentionally process-local.  Do not send
+            // analytics with a saved route token, and never include the lease
+            // marker or inherited descriptor in analytics context.
+            enabled: !credential_free && !handoff && telemetry_enabled(),
         }
     }
 
@@ -130,8 +134,11 @@ impl CommandTelemetry {
     }
 }
 
-fn is_capabilities_command(args: &[OsString]) -> bool {
-    args.get(1).and_then(|arg| arg.to_str()) == Some("capabilities")
+fn is_credential_free_command(args: &[OsString]) -> bool {
+    matches!(
+        args.get(1).and_then(|arg| arg.to_str()),
+        Some("capabilities" | "-h" | "--help" | "help" | "-V" | "--version" | "version")
+    )
 }
 
 impl Transport {

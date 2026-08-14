@@ -1,4 +1,8 @@
 use std::fs;
+#[cfg(unix)]
+use std::path::Path;
+#[cfg(unix)]
+use std::process::Command as StdCommand;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -7,6 +11,9 @@ use predicates::prelude::*;
 use serde_json::json;
 use tempfile::TempDir;
 use tiny_http::{Header, Response, Server};
+
+#[cfg(unix)]
+use std::io::Write;
 
 #[test]
 fn both_binary_names_show_the_same_help() {
@@ -282,6 +289,135 @@ fn codex_routes_directly_to_vercel_without_a_daemon() {
                 .and(predicate::str::contains(format!("{}/v1", server.base_url)))
                 .and(predicate::str::contains("token=route-secret")),
         );
+}
+
+#[cfg(unix)]
+#[test]
+fn handoff_exchanges_once_disables_analytics_and_isolates_child_credentials() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let route_token = valid_route_token();
+    let lease = valid_handoff_lease();
+    let (base_url, received) = start_handoff_server(
+        200,
+        json!({
+            "teamId": "team-handoff",
+            "token": route_token,
+            "expiresAt": "2026-08-13T12:00:00Z",
+            "openaiBaseUrl": "__BASE__/v1"
+        }),
+    );
+    let root = TempDir::new().unwrap();
+    // Handoff exchange must not parse or update the durable Stack session.
+    fs::create_dir_all(root.path().join("coderouter")).unwrap();
+    fs::write(root.path().join("coderouter/config.json"), b"not-json").unwrap();
+    let codex = root.path().join("codex");
+    fs::write(
+        &codex,
+        "#!/bin/sh\nprintf 'route=%s\\n' \"${CODEROUTER_ROUTE_TOKEN-unset}\"\nprintf 'handoff=%s\\n' \"${CODEROUTER_HANDOFF_FD-unset}\"\nprintf 'stack_access=%s\\n' \"${STACK_ACCESS_TOKEN-unset}\"\nprintf 'stack_refresh=%s\\n' \"${STACK_REFRESH_TOKEN-unset}\"\nprintf 'lease=%s\\n' \"${CODEROUTER_HANDOFF_LEASE-unset}\"\nprintf 'args=%s\\n' \"$*\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let output = run_cr_with_handoff(&base_url, &root, &codex, lease.as_bytes(), &[]);
+    assert!(
+        output.status.success(),
+        "handoff command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(&format!("route={route_token}")));
+    assert!(stdout.contains("handoff=unset"));
+    assert!(stdout.contains("stack_access=unset"));
+    assert!(stdout.contains("stack_refresh=unset"));
+    assert!(stdout.contains("lease=unset"));
+    assert!(!stdout.contains(&lease));
+
+    let capture = received.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(capture.path, "/api/coderouter/handoff/exchange");
+    assert_eq!(capture.body, format!("{{\"lease\":\"{lease}\"}}"));
+    assert!(
+        capture
+            .headers
+            .iter()
+            .all(|(name, _)| !name.eq_ignore_ascii_case("authorization"))
+    );
+    assert!(
+        capture
+            .headers
+            .iter()
+            .all(|(name, _)| !name.eq_ignore_ascii_case("x-stack-refresh-token"))
+    );
+    assert!(received.recv_timeout(Duration::from_millis(450)).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn replay_expiry_and_revocation_fail_closed_without_saved_route_fallback() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for status in [401_u16, 401_u16, 401_u16] {
+        let lease = valid_handoff_lease();
+        let (base_url, received) = start_handoff_server(
+            status,
+            json!({
+                "error": "invalid_handoff_lease",
+                "message": "lease is not available"
+            }),
+        );
+        let root = TempDir::new().unwrap();
+        // This route is deliberately valid. The handoff marker must prevent
+        // the CLI from silently using it after exchange failure.
+        write_config(&root, &base_url);
+        let marker = root.path().join("child-ran");
+        let codex = root.path().join("codex");
+        fs::write(&codex, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+        fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let output = run_cr_with_handoff(&base_url, &root, &codex, lease.as_bytes(), &[]);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("handoff is invalid or no longer available"));
+        assert!(!stderr.contains(&lease));
+        assert!(!marker.exists());
+        let capture = received.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(capture.path, "/api/coderouter/handoff/exchange");
+        assert!(received.recv_timeout(Duration::from_millis(450)).is_err());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn ambient_handoff_origin_cannot_redirect_the_lease_exchange() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let lease = valid_handoff_lease();
+    let (base_url, received) = start_handoff_server(
+        200,
+        json!({
+            "teamId": "team-handoff",
+            "token": valid_route_token(),
+            "expiresAt": "2026-08-13T12:00:00Z",
+            "openaiBaseUrl": "__BASE__/v1"
+        }),
+    );
+    let root = TempDir::new().unwrap();
+    write_config(&root, &base_url);
+    let codex = root.path().join("codex");
+    fs::write(&codex, "#!/bin/sh\ntouch child-ran\n").unwrap();
+    fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let output = run_cr_with_handoff(
+        &base_url,
+        &root,
+        &codex,
+        lease.as_bytes(),
+        &[("CODEROUTER_API_URL", "https://evil.example")],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("hosted coderouter.dev"));
+    assert!(received.recv_timeout(Duration::from_millis(250)).is_err());
 }
 
 #[cfg(unix)]
@@ -795,6 +931,158 @@ fn idempotent_logout_is_local_and_fast() {
     assert_eq!(stdout.trim(), "Already logged out.");
     assert!(!stdout.contains(" ms"));
     assert!(elapsed < Duration::from_secs(2), "logout took {elapsed:?}");
+}
+
+#[cfg(unix)]
+fn run_cr_with_handoff(
+    base_url: &str,
+    root: &TempDir,
+    codex: &Path,
+    lease: &[u8],
+    overrides: &[(&str, &str)],
+) -> std::process::Output {
+    use std::fs::File;
+    use std::io;
+    use std::os::fd::FromRawFd;
+    use std::os::unix::process::CommandExt;
+
+    unsafe extern "C" {
+        fn close(fd: i32) -> i32;
+        fn dup2(old_fd: i32, new_fd: i32) -> i32;
+        fn pipe(fds: *mut i32) -> i32;
+    }
+
+    let mut descriptors = [0_i32; 2];
+    assert_eq!(unsafe { pipe(descriptors.as_mut_ptr()) }, 0);
+    let mut writer = unsafe { File::from_raw_fd(descriptors[1]) };
+    writer.write_all(lease).unwrap();
+    writer.write_all(b"\n").unwrap();
+    drop(writer);
+    let read_fd = descriptors[0];
+
+    let path = format!(
+        "{}:{}",
+        codex.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut command = StdCommand::new(assert_cmd::cargo::cargo_bin("cr"));
+    command
+        .args(["codex", "exec", "hello"])
+        .env("PATH", path)
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .env("CODEROUTER_API_URL", base_url)
+        .env("CODEROUTER_HANDOFF_FD", "3")
+        .env("CODEROUTER_ROUTE_TOKEN", "saved-route-must-not-reach-child")
+        .env(
+            "CODEROUTER_HANDOFF_LEASE",
+            "ambient-lease-must-not-reach-child",
+        )
+        .env("STACK_ACCESS_TOKEN", "stack-access-must-not-reach-child")
+        .env("STACK_REFRESH_TOKEN", "stack-refresh-must-not-reach-child");
+    for (name, value) in overrides {
+        command.env(name, value);
+    }
+    // SAFETY: the closure runs in the child between fork and exec. It only
+    // maps the pipe's read end to the reserved handoff descriptor and closes
+    // the temporary descriptor. The parent closes its copy below.
+    unsafe {
+        command.pre_exec(move || {
+            if dup2(read_fd, 3) < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if read_fd != 3 {
+                let _ = close(read_fd);
+            }
+            Ok(())
+        });
+    }
+    let output = command.output().unwrap();
+    // The child consumed and closed its copy. Close the parent's copy as
+    // well, so this test does not leak descriptors into later tests.
+    unsafe {
+        let _ = close(read_fd);
+    }
+    output
+}
+
+#[cfg(unix)]
+struct HandoffCapture {
+    path: String,
+    body: String,
+    headers: Vec<(String, String)>,
+}
+
+#[cfg(unix)]
+fn start_handoff_server(
+    status: u16,
+    payload: serde_json::Value,
+) -> (String, std::sync::mpsc::Receiver<HandoffCapture>) {
+    use std::sync::mpsc;
+
+    let server = Server::http("127.0.0.1:0").unwrap();
+    let address = server.server_addr().to_ip().unwrap();
+    let base_url = format!("http://{address}");
+    let replacement = base_url.clone();
+    let (sent, received) = mpsc::channel();
+    thread::spawn(move || {
+        // Keep the listener alive for one short second-request window. A
+        // handoff command must not emit a second analytics request.
+        for index in 0..2 {
+            let timeout = if index == 0 {
+                Duration::from_secs(3)
+            } else {
+                Duration::from_millis(350)
+            };
+            let Ok(Some(mut request)) = server.recv_timeout(timeout) else {
+                return;
+            };
+            let path = request.url().to_owned();
+            let headers = request
+                .headers()
+                .iter()
+                .map(|header| {
+                    (
+                        header.field.as_str().as_str().to_owned(),
+                        header.value.as_str().to_owned(),
+                    )
+                })
+                .collect();
+            let mut request_body = String::new();
+            request
+                .as_reader()
+                .read_to_string(&mut request_body)
+                .unwrap();
+            let response_body = serde_json::to_string(&payload)
+                .unwrap()
+                .replace("__BASE__", &replacement);
+            request
+                .respond(
+                    Response::from_string(response_body)
+                        .with_status_code(status)
+                        .with_header(
+                            Header::from_bytes("content-type", "application/json").unwrap(),
+                        ),
+                )
+                .unwrap();
+            sent.send(HandoffCapture {
+                path,
+                body: request_body,
+                headers,
+            })
+            .unwrap();
+        }
+    });
+    (base_url, received)
+}
+
+#[cfg(unix)]
+fn valid_handoff_lease() -> String {
+    format!("crh_{}", "B".repeat(43))
+}
+
+#[cfg(unix)]
+fn valid_route_token() -> String {
+    format!("crt_{}", "A".repeat(43))
 }
 
 fn write_config(root: &TempDir, api_url: &str) {

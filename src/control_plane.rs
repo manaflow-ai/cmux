@@ -83,9 +83,18 @@ struct AuthorizedTeam {
     name: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RouteSession {
+    token: String,
+    expires_at: String,
+    openai_base_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HandoffRouteSession {
+    team_id: String,
     token: String,
     expires_at: String,
     openai_base_url: String,
@@ -473,6 +482,147 @@ pub fn ensure_route_config() -> Result<Config, Error> {
     renew_route_config(&client)
 }
 
+/// Resolve the route authority for an agent command.
+///
+/// A cmux handoff is a separate, possession-only path.  Once its descriptor
+/// marker is present, every read or exchange failure is terminal; this helper
+/// never falls back to the saved Stack session.  The exchanged route is kept
+/// in memory only and is not written to the normal credential configuration.
+pub fn route_config_for_command() -> Result<Config, Error> {
+    match crate::handoff::take_lease()? {
+        Some(lease) => exchange_handoff_lease(&lease),
+        None => ensure_route_config(),
+    }
+}
+
+fn exchange_handoff_lease(lease: &str) -> Result<Config, Error> {
+    // The lease is already syntax-checked before this function is called.  Do
+    // not include it in any request error or diagnostic string.
+    let api_url = handoff_api_url()?;
+    let client = client(REQUEST_TIMEOUT)?;
+    let response = client
+        .post(format!(
+            "{}/api/coderouter/handoff/exchange",
+            api_url.trim_end_matches('/')
+        ))
+        // `.json` emits the protocol's compact, one-field JSON object.  This
+        // request intentionally has no Stack headers, cookies, or route token.
+        .json(&json!({ "lease": lease }))
+        .send()
+        .map_err(network_error("exchange coderouter handoff"))?;
+    let route: HandoffRouteSession = response_json(response, "exchange coderouter handoff")?;
+    validate_handoff_route(&api_url, &route)?;
+
+    Ok(Config {
+        api_url,
+        team_id: route.team_id,
+        route_token: route.token,
+        route_token_expires_at: route.expires_at,
+        openai_base_url: route.openai_base_url,
+        ..Config::default()
+    })
+}
+
+fn handoff_api_url() -> Result<String, Error> {
+    if let Some(value) = std::env::var_os("CODEROUTER_API_URL") {
+        let value = value
+            .to_str()
+            .ok_or_else(|| Error::Usage("CODEROUTER_API_URL must be valid UTF-8".into()))?;
+        return safe_handoff_origin(value);
+    }
+
+    // A saved API URL is only a routing hint.  Malformed or missing normal
+    // session state must not make a possession-only handoff consult Stack.
+    if let Ok(current) = config::load()
+        && !current.api_url.trim().is_empty()
+    {
+        return safe_handoff_origin(&current.api_url);
+    }
+    safe_handoff_origin(DEFAULT_API_URL)
+}
+
+fn safe_handoff_origin(value: &str) -> Result<String, Error> {
+    if value.len() > 256 || value.chars().any(char::is_control) {
+        return Err(Error::Usage("coderouter handoff origin is invalid".into()));
+    }
+    let value = value.trim().trim_end_matches('/');
+    let url = reqwest::Url::parse(value)
+        .map_err(|error| Error::Usage(format!("invalid coderouter handoff origin: {error}")))?;
+    let loopback = url.host_str() == Some("localhost")
+        || url
+            .host_str()
+            .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+            .is_some_and(|ip| ip.is_loopback());
+    let hosted = url.scheme() == "https" && url.host_str() == Some("coderouter.dev");
+    if !(hosted || (url.scheme() == "http" && loopback && cfg!(debug_assertions))) {
+        return Err(Error::Usage(
+            "coderouter handoff is available only from hosted coderouter.dev".into(),
+        ));
+    }
+    if url.host_str().is_none()
+        || (hosted && url.port().is_some_and(|port| port != 443))
+        || url.port().is_some_and(|port| port == 0)
+        // `Url::parse` canonicalizes an origin-only URL to `/`.
+        || !matches!(url.path(), "" | "/")
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.username() != ""
+        || url.password().is_some()
+    {
+        return Err(Error::Usage(
+            "coderouter handoff origin must be an origin-only URL".into(),
+        ));
+    }
+    Ok(url
+        .origin()
+        .ascii_serialization()
+        .trim_end_matches('/')
+        .to_owned())
+}
+
+fn validate_handoff_route(api_url: &str, route: &HandoffRouteSession) -> Result<(), Error> {
+    if route.team_id.trim().is_empty()
+        || route.team_id.len() > 200
+        || route.team_id.chars().any(char::is_control)
+    {
+        return Err(Error::Backend(
+            "coderouter handoff response has an invalid team ID".into(),
+        ));
+    }
+    if !is_valid_route_token(&route.token) {
+        return Err(Error::Backend(
+            "coderouter handoff response has an invalid route credential".into(),
+        ));
+    }
+    if route.expires_at.trim().is_empty()
+        || route.expires_at.len() > 128
+        || route.expires_at.chars().any(char::is_control)
+    {
+        return Err(Error::Backend(
+            "coderouter handoff response has an invalid expiry".into(),
+        ));
+    }
+    let expected = format!("{}/v1", api_url.trim_end_matches('/'));
+    let actual = route.openai_base_url.trim_end_matches('/');
+    if actual != expected {
+        return Err(Error::Backend(
+            "coderouter handoff response has an untrusted data-plane origin".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_valid_route_token(value: &str) -> bool {
+    let Some(suffix) = value.strip_prefix("crt_") else {
+        return false;
+    };
+    suffix.len() >= 40
+        && suffix.len() <= 512
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
 fn current_route_config() -> Result<Config, Error> {
     let current = config::load()?;
     if !current.logged_in() {
@@ -551,8 +701,7 @@ fn list_accounts_response(client: &Client, current: &Config) -> Result<Response,
     )
 }
 
-pub fn codex_models() -> Result<Vec<CodexModel>, Error> {
-    let current = ensure_route_config()?;
+pub fn codex_models_for(current: &Config) -> Result<Vec<CodexModel>, Error> {
     let value: Value = response_json(
         send_safe_read(
             client(REQUEST_TIMEOUT)?
@@ -637,8 +786,7 @@ pub fn upload_credential(credential: &Value) -> Result<Value, Error> {
     )
 }
 
-pub fn opencode_config() -> Result<OpenCodeConfig, Error> {
-    let current = ensure_route_config()?;
+pub fn opencode_config_for(current: &Config) -> Result<OpenCodeConfig, Error> {
     let value: Value = response_json(
         send_safe_read(
             client(REQUEST_TIMEOUT)?
@@ -931,6 +1079,11 @@ fn response_error(status: reqwest::StatusCode, parsed: Option<&Value>, action: &
         400 => server_message.unwrap_or_else(|| {
             format!("{action} rejected the request; verify the supplied code or input")
         }),
+        401 if action.contains("handoff") => {
+            format!(
+                "{action}: the handoff is invalid or no longer available; request a new handoff from cmux"
+            )
+        }
         401 => {
             format!(
                 "{action}: your authorization expired or was revoked; run `coderouter login` and retry"
@@ -969,10 +1122,11 @@ fn scrub_server_message(message: &str) -> String {
     message
         .split_whitespace()
         .map(|word| {
-            if word.starts_with("crt_")
-                || word.starts_with("srt_")
-                || word.starts_with("sk-")
-                || word.starts_with("eyJ")
+            if word.contains("crh_")
+                || word.contains("crt_")
+                || word.contains("srt_")
+                || word.contains("sk-")
+                || word.contains("eyJ")
             {
                 "[redacted]"
             } else {
@@ -1072,5 +1226,52 @@ mod fault_matrix_tests {
             message(400, Some(json!({ "message": "   " }))),
             "test action rejected the request; verify the supplied code or input [HTTP 400]"
         );
+    }
+
+    #[test]
+    fn handoff_unauthorized_errors_do_not_reveal_lease_state() {
+        let rendered = response_error(
+            reqwest::StatusCode::UNAUTHORIZED,
+            Some(&json!({
+                "error": "invalid_handoff_lease",
+                "message": "lease crh_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg is consumed"
+            })),
+            "exchange coderouter handoff",
+        )
+        .to_string();
+        assert_eq!(
+            rendered,
+            "exchange coderouter handoff: the handoff is invalid or no longer available; request a new handoff from cmux [HTTP 401]"
+        );
+        assert!(!rendered.contains("crh_"));
+    }
+
+    #[test]
+    fn hosted_handoff_origin_is_strictly_pinned() {
+        assert_eq!(
+            safe_handoff_origin("https://coderouter.dev").unwrap(),
+            "https://coderouter.dev"
+        );
+        assert_eq!(
+            safe_handoff_origin("https://coderouter.dev:443/").unwrap(),
+            "https://coderouter.dev"
+        );
+        for origin in [
+            "https://coderouter.dev:8443",
+            "https://evil.example",
+            "https://coderouter.dev/path",
+            "https://coderouter.dev?redirect=evil",
+            "https://user@coderouter.dev",
+        ] {
+            assert!(safe_handoff_origin(origin).is_err(), "accepted {origin}");
+        }
+    }
+
+    #[test]
+    fn route_credentials_are_bounded_and_url_safe() {
+        assert!(is_valid_route_token(&format!("crt_{}", "A".repeat(40))));
+        assert!(!is_valid_route_token("crt_short"));
+        assert!(!is_valid_route_token(&format!("crt_{}", "A".repeat(513))));
+        assert!(!is_valid_route_token(&format!("crt_{}!", "A".repeat(40))));
     }
 }

@@ -71,6 +71,28 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
     let remaining: Vec<OsString> = args.collect();
     let command = remaining.first().and_then(|value| value.to_str());
 
+    if crate::handoff::requested()
+        && !matches!(
+            command,
+            Some(
+                "codex"
+                    | "opencode"
+                    | "pi"
+                    | "-h"
+                    | "--help"
+                    | "help"
+                    | "-V"
+                    | "--version"
+                    | "version"
+                    | "capabilities"
+            )
+        )
+    {
+        return Err(Error::Usage(
+            "coderouter handoff is only supported for routed agent commands".into(),
+        ));
+    }
+
     match command {
         Some("-h" | "--help" | "help") => {
             print!("{HELP}");
@@ -130,6 +152,7 @@ fn run_routed_pi(args: &[OsString]) -> Result<i32, Error> {
                 .into(),
         ));
     }
+    let handoff = crate::handoff::requested();
     let pi = process::find_on_path("pi").ok_or_else(|| {
         Error::Usage(
             "Pi is not installed or is not on PATH; install Pi before running `coderouter pi`"
@@ -137,8 +160,8 @@ fn run_routed_pi(args: &[OsString]) -> Result<i32, Error> {
         )
     })?;
     let loading = crate::loading::DelayedSpinner::new("Preparing Pi");
-    let models = control_plane::codex_models()?;
-    let config = crate::config::load()?;
+    let config = control_plane::route_config_for_command()?;
+    let models = control_plane::codex_models_for(&config)?;
     let extension = pi_provider_extension(&config.openai_base_url, &models)?;
     let mut file = tempfile::Builder::new()
         .prefix("coderouter-pi-")
@@ -164,12 +187,21 @@ fn run_routed_pi(args: &[OsString]) -> Result<i32, Error> {
     }
     routed.extend_from_slice(args);
     loading.finish();
-    process::run_attached_with_env(
-        &pi,
-        &routed,
-        &[],
-        &[("CODEROUTER_ROUTE_TOKEN", config.route_token.as_str())],
-    )
+    if handoff {
+        process::run_attached_with_env_isolated(
+            &pi,
+            &routed,
+            &[],
+            &[("CODEROUTER_ROUTE_TOKEN", config.route_token.as_str())],
+        )
+    } else {
+        process::run_attached_with_env(
+            &pi,
+            &routed,
+            &[],
+            &[("CODEROUTER_ROUTE_TOKEN", config.route_token.as_str())],
+        )
+    }
 }
 
 fn pi_provider_extension(
@@ -200,6 +232,7 @@ fn pi_provider_extension(
 }
 
 fn run_routed_opencode(args: &[OsString]) -> Result<i32, Error> {
+    let handoff = crate::handoff::requested();
     let opencode = process::find_on_path("opencode").ok_or_else(|| {
         Error::Usage(
             "OpenCode is not installed or is not on PATH; install OpenCode before running `coderouter opencode`"
@@ -207,7 +240,8 @@ fn run_routed_opencode(args: &[OsString]) -> Result<i32, Error> {
         )
     })?;
     let loading = crate::loading::DelayedSpinner::new("Preparing OpenCode");
-    let result = control_plane::opencode_config();
+    let result = control_plane::route_config_for_command()
+        .and_then(|config| control_plane::opencode_config_for(&config));
     loading.finish();
     let config = result?;
     let mut routed = args.to_vec();
@@ -222,12 +256,21 @@ fn run_routed_opencode(args: &[OsString]) -> Result<i32, Error> {
         routed.insert(0, process::os(&config.models[0]));
         routed.insert(0, process::os("--model"));
     }
-    process::run_attached_with_env(
-        &opencode,
-        &routed,
-        &[],
-        &[("OPENCODE_CONFIG_CONTENT", config.content.as_str())],
-    )
+    if handoff {
+        process::run_attached_with_env_isolated(
+            &opencode,
+            &routed,
+            &[],
+            &[("OPENCODE_CONFIG_CONTENT", config.content.as_str())],
+        )
+    } else {
+        process::run_attached_with_env(
+            &opencode,
+            &routed,
+            &[],
+            &[("OPENCODE_CONFIG_CONTENT", config.content.as_str())],
+        )
+    }
 }
 
 fn selected_model(args: &[OsString]) -> Result<Option<&str>, Error> {
@@ -250,8 +293,9 @@ fn selected_model(args: &[OsString]) -> Result<Option<&str>, Error> {
 }
 
 fn run_routed_codex(args: &[OsString]) -> Result<i32, Error> {
+    let handoff = crate::handoff::requested();
     let loading = crate::loading::DelayedSpinner::new("Preparing Codex");
-    let result = control_plane::ensure_route_config();
+    let result = control_plane::route_config_for_command();
     loading.finish();
     let config = result?;
     let codex = resolve_real_codex()?;
@@ -274,15 +318,29 @@ fn run_routed_codex(args: &[OsString]) -> Result<i32, Error> {
     ];
     let routed = codex_args(args, &provider);
     let route_token = config.route_token;
-    process::run_attached_with_env(
-        &codex,
-        &routed,
-        &[],
-        &[("CODEROUTER_ROUTE_TOKEN", route_token.as_str())],
-    )
+    if handoff {
+        process::run_attached_with_env_isolated(
+            &codex,
+            &routed,
+            &[],
+            &[("CODEROUTER_ROUTE_TOKEN", route_token.as_str())],
+        )
+    } else {
+        process::run_attached_with_env(
+            &codex,
+            &routed,
+            &[],
+            &[("CODEROUTER_ROUTE_TOKEN", route_token.as_str())],
+        )
+    }
 }
 
 fn run_naked(args: &[OsString]) -> Result<i32, Error> {
+    if crate::handoff::requested() {
+        return Err(Error::Usage(
+            "coderouter handoff is only supported for routed agent commands".into(),
+        ));
+    }
     let codex = resolve_real_codex()?;
     process::run_attached(
         &codex,
