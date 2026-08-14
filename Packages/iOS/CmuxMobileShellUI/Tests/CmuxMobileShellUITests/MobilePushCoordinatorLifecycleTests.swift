@@ -1119,4 +1119,49 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         #expect(await gate.starts == 1)
         #expect(coordinator.registrationSnapshot.backendState == .registered)
     }
+
+    @MainActor
+    @Test func timedOutRegistrationRecoveryStartsOneBoundedFreshRetry() async {
+        let syncGate = LifecycleSyncGate()
+        let timeoutGate = LifecycleSyncGate()
+        let registration = LifecyclePushRegistration(
+            snapshot: PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: true,
+                backendState: .failed(.networkUnavailable)
+            ),
+            syncGate: syncGate
+        )
+        let suiteName = "push-coordinator-recovery-timeout-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            settingsMutationSleep: { _ in await timeoutGate.pause() }
+        )
+
+        let first = Task { @MainActor in await coordinator.enable() }
+        await syncGate.waitUntilStarted()
+        await timeoutGate.waitUntilStarted()
+        await timeoutGate.release()
+        _ = await first.value
+
+        let second = Task { @MainActor in
+            await coordinator.networkDidBecomeReachable()
+        }
+        let freshRetryStarted = await syncGate.waitUntilStartCount(2)
+        let third = Task { @MainActor in
+            await coordinator.networkDidBecomeReachable()
+        }
+        for _ in 0..<100 { await Task.yield() }
+
+        #expect(freshRetryStarted)
+        #expect(await syncGate.starts == 2)
+
+        await syncGate.release()
+        await second.value
+        await third.value
+    }
 }

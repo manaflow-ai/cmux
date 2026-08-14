@@ -26,6 +26,19 @@ actor LifecycleSyncGate {
         }
     }
 
+    func waitUntilStartCount(
+        _ count: Int,
+        timeout: Duration = .seconds(1)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while starts < count {
+            guard clock.now < deadline else { return false }
+            try? await clock.sleep(for: .milliseconds(1))
+        }
+        return true
+    }
+
     func release() {
         released = true
         let waiters = releaseWaiters
