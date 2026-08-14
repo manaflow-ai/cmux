@@ -7,6 +7,7 @@ import UserNotifications
 
 private actor LifecyclePushRegistration: PushRegistering {
     private var value: PushRegistrationSnapshot
+    private(set) var syncCount = 0
     private let setEnabledGate: LifecycleSetEnabledGate?
     private let syncGate: LifecycleSyncGate?
 
@@ -67,6 +68,7 @@ private actor LifecyclePushRegistration: PushRegistering {
     }
 
     func syncTokenIfPossible() async {
+        syncCount += 1
         await syncGate?.pause()
         guard value.isEnabled, value.hasDeviceToken else { return }
         value = PushRegistrationSnapshot(
@@ -420,6 +422,32 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         await coordinator.refreshReadiness()
 
         #expect(registrationRequests == 1)
+    }
+
+    @MainActor
+    @Test func repeatedForegroundDoesNotReuploadRegisteredToken() async {
+        let registration = LifecyclePushRegistration(
+            snapshot: PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: true,
+                backendState: .registered
+            )
+        )
+        let suiteName = "push-coordinator-registered-dedupe-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized }
+        )
+
+        await coordinator.refreshReadiness()
+        await coordinator.refreshReadiness()
+
+        #expect(await registration.syncCount == 0)
+        #expect(coordinator.registrationSnapshot.backendState == .registered)
     }
 
     @MainActor
