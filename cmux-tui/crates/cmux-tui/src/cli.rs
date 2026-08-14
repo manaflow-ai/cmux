@@ -441,6 +441,9 @@ const SESSION_HELP_SUFFIX: &str = "\
   cmux session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
   cmux session <selector> journal checkpoint create --idempotency-key <key>
   cmux session <selector> journal checkpoint list
+  cmux session <selector> journal list
+  cmux session <selector> journal inspect [--checkpoint latest|<checkpoint-id>]
+  cmux session <selector> journal restore [--checkpoint latest|<checkpoint-id>] --idempotency-key <key>
   cmux session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
   cmux session <selector> journal segment list
   cmux session <selector> journal segment seal --through <sequence> --idempotency-key <key>

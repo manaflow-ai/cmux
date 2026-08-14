@@ -745,6 +745,50 @@
       },
       "extra": false
     },
+    "JournalProjectionRestoreStatus": {
+      "kind": "object",
+      "fields": {
+        "head_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "cursor_sequence": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "decimal"}}},
+        "candidate_sequence": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "decimal"}}},
+        "target_sequence": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "decimal"}}},
+        "pending": {"required": true, "type": {"kind": "primitive", "name": "boolean"}}
+      },
+      "extra": false
+    },
+    "JournalListResult": {
+      "kind": "object",
+      "fields": {
+        "head_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "checkpoints": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalCheckpointSummary"}}},
+        "segments": {"required": true, "type": {"kind": "array", "min_items": 0, "max_items": 4096, "items": {"kind": "ref", "name": "JournalSegment"}}},
+        "projection": {"required": true, "type": {"kind": "ref", "name": "JournalProjectionRestoreStatus"}}
+      },
+      "extra": false
+    },
+    "JournalInspectResult": {
+      "kind": "object",
+      "fields": {
+        "head_sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "checkpoint": {"required": true, "type": {"kind": "nullable", "value": {"kind": "ref", "name": "JournalCheckpointSummary"}}},
+        "preview": {"required": true, "type": {"kind": "nullable", "value": {"kind": "ref", "name": "JournalRestorePreview"}}},
+        "projection": {"required": true, "type": {"kind": "ref", "name": "JournalProjectionRestoreStatus"}}
+      },
+      "extra": false
+    },
+    "JournalRestoreResult": {
+      "kind": "object",
+      "fields": {
+        "restored": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
+        "checkpoint_id": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}},
+        "state_sha256": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string", "min_length": 64, "max_length": 64}}},
+        "projection": {"required": true, "type": {"kind": "ref", "name": "JournalProjectionRestoreStatus"}},
+        "published_checkpoint": {"required": true, "type": {"kind": "primitive", "name": "boolean"}},
+        "sequence": {"required": true, "type": {"kind": "primitive", "name": "decimal"}},
+        "event_id": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+      },
+      "extra": false
+    },
     "JournalUnsupportedReplayRecord": {
       "kind": "object",
       "fields": {
@@ -8998,6 +9042,34 @@
         "validation.invalid"
       ]
     },
+    "session.journal.inspect": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": ["machine"],
+      "params": {
+        "selectors": {"machine": "required", "session": "required"},
+        "fields": {
+          "checkpoint": {"required": false, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+        },
+        "extra": false
+      },
+      "result": {"kind": "ref", "name": "JournalInspectResult"},
+      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+    },
+    "session.journal.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": ["machine"],
+      "params": {
+        "selectors": {"machine": "required", "session": "required"},
+        "fields": {},
+        "extra": false
+      },
+      "result": {"kind": "ref", "name": "JournalListResult"},
+      "errors": ["operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
+    },
     "session.journal.producer.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -9040,6 +9112,21 @@
         "selector.not_found",
         "validation.invalid"
       ]
+    },
+    "session.journal.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": ["machine"],
+      "params": {
+        "selectors": {"machine": "required", "session": "required"},
+        "fields": {
+          "checkpoint": {"required": false, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 128}}
+        },
+        "extra": false
+      },
+      "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "JournalRestoreResult"}]},
+      "errors": ["idempotency.conflict", "operation.failed", "operation.unsupported", "selector.ambiguous", "selector.invalid", "selector.not_found", "validation.invalid"]
     },
     "session.journal.restore.preview": {
       "class": "read",

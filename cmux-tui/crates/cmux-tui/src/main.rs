@@ -383,6 +383,7 @@ START OPTIONS
   --terminal <id>    With attach, show only this terminal (use `cmux terminal list`).
   --state <path>     Durable session-state root (default: platform state dir).
   --ephemeral        Keep workspace state in memory for this run only.
+  --no-restore       Skip startup journal projection replay for this run.
   --machine-provider <path>
                      Use a dynamic machine provider Unix socket.
   --machine-provider-command <program> [arg ...] --
@@ -445,6 +446,7 @@ struct Args {
     terminal: Option<String>,
     state: Option<PathBuf>,
     ephemeral: bool,
+    no_restore: bool,
     machine_provider: Option<PathBuf>,
     machine_provider_command: Option<Vec<String>>,
     cloud: bool,
@@ -519,6 +521,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         terminal: None,
         state: None,
         ephemeral: false,
+        no_restore: false,
         machine_provider: None,
         machine_provider_command: None,
         cloud: false,
@@ -623,6 +626,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     Some(args.next().unwrap_or_else(|| usage_exit("--state needs a value")).into());
             }
             "--ephemeral" => out.ephemeral = true,
+            "--no-restore" => out.no_restore = true,
             "--headless" => out.headless = true,
             "--ws" => {
                 out.ws = Some(args.next().ok_or_else(|| "--ws needs a value".to_string())?);
@@ -757,6 +761,9 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     }
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
+    }
+    if out.no_restore && out.attach {
+        return Err("--no-restore applies only when starting a session".to_string());
     }
     #[cfg(not(unix))]
     if out.agent_browser_provider {
@@ -1123,6 +1130,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.ephemeral {
         conflicts.push("--ephemeral");
     }
+    if args.no_restore {
+        conflicts.push("--no-restore");
+    }
     if args.headless {
         conflicts.push("--headless");
     }
@@ -1317,6 +1327,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
             | "--term" => index += 2,
             "--json" | "--jsonl" | "--quiet" => index += 1,
             "--ephemeral"
+            | "--no-restore"
             | "--cloud"
             | "--headless"
             | "--ws-insecure-bind"
@@ -1850,23 +1861,29 @@ fn run_server(
         );
     }
     let provider_management_pending = provider_management_listener.is_some();
+    let restore_journal = !args.no_restore;
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
-            (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
+            (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed_with_restore(
                 args.session.clone(),
                 surface_options,
                 root,
                 authority,
+                restore_journal,
             ),
-            (Some(root), None, true) => Mux::open_persistent_provider_managed_pending(
+            (Some(root), None, true) => Mux::open_persistent_provider_managed_pending_with_restore(
                 args.session.clone(),
                 surface_options,
                 root,
                 new_mux_generation()?,
+                restore_journal,
             ),
-            (Some(root), None, false) => {
-                Mux::open_persistent(args.session.clone(), surface_options, root)
-            }
+            (Some(root), None, false) => Mux::open_persistent_with_restore(
+                args.session.clone(),
+                surface_options,
+                root,
+                restore_journal,
+            ),
             (None, Some(authority), false) => {
                 Ok(Mux::new_provider_managed(args.session.clone(), surface_options, authority))
             }

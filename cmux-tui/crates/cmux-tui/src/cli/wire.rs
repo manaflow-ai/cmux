@@ -115,6 +115,9 @@ fn required_server_capability(plan: &RequestPlan) -> Option<&'static str> {
                 | cmux_tui_core::resource::ResourceOperation::SessionJournalHookPut
                 | cmux_tui_core::resource::ResourceOperation::SessionJournalCheckpointCreate
                 | cmux_tui_core::resource::ResourceOperation::SessionJournalCheckpointList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalInspect
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalList
+                | cmux_tui_core::resource::ResourceOperation::SessionJournalRestore
                 | cmux_tui_core::resource::ResourceOperation::SessionJournalRestorePreview
                 | cmux_tui_core::resource::ResourceOperation::SessionJournalSegmentList
                 | cmux_tui_core::resource::ResourceOperation::SessionJournalSegmentSeal
@@ -177,7 +180,7 @@ fn require_server_capability(
     });
     let error = json!({
         "code":"operation.unsupported",
-        "message":"resident session does not support journal subscriptions; restart it with this cmux-tui binary",
+        "message":"resident session does not support journal operations; restart it with this cmux-tui binary",
         "details":details,
         "retryable":false
     });
