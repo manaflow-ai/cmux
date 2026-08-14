@@ -100,14 +100,31 @@ def _wait_for_workspaces(
     return found
 
 
-def _pane_refs(node: dict) -> list[str]:
-    """In-order pane refs of a layout subtree."""
+def _pane_handles(node: dict) -> list[tuple[str | None, str | None]]:
+    """In-order ``(id, ref)`` pane handles of a layout subtree."""
     if "pane" in node:
-        return [node["pane"].get("ref")]
-    refs: list[str] = []
+        pane = node["pane"]
+        return [(pane.get("id"), pane.get("ref"))]
+    handles: list[tuple[str | None, str | None]] = []
     for child in node.get("children", []):
-        refs.extend(_pane_refs(child))
-    return refs
+        handles.extend(_pane_handles(child))
+    return handles
+
+
+def _flat_pane_handles(workspace: dict) -> list[tuple[str | None, str | None]]:
+    """Pane ``(id, ref)`` pairs from a workspace's flat payload."""
+    return [(pane.get("id"), pane.get("ref")) for pane in workspace.get("panes", [])]
+
+
+def _has_nonempty_handles(handles: list[tuple[str | None, str | None]]) -> bool:
+    """Whether every handle has both an ID and a ref under ``--id-format both``."""
+    return bool(handles) and all(
+        isinstance(pane_id, str)
+        and bool(pane_id)
+        and isinstance(pane_ref, str)
+        and bool(pane_ref)
+        for pane_id, pane_ref in handles
+    )
 
 
 def _has_dock_panes(workspace: dict) -> bool:
@@ -253,11 +270,14 @@ def main() -> int:
                 if "pane" not in layout:
                     failures.append(f"single-pane layout is not a bare pane leaf: {json.dumps(layout)}")
                 else:
-                    flat = [p.get("ref") for p in ws.get("panes", [])]
-                    if _pane_refs(layout) != flat:
+                    flat_handles = _flat_pane_handles(ws)
+                    layout_handles = _pane_handles(layout)
+                    if layout_handles != flat_handles:
                         failures.append(
-                            f"single-pane layout ref {_pane_refs(layout)} != flat panes {flat}"
+                            f"single-pane layout handles {layout_handles} != flat panes {flat_handles}"
                         )
+                    if not _has_nonempty_handles(flat_handles) or not _has_nonempty_handles(layout_handles):
+                        failures.append("single-pane layout omitted a nonempty pane id/ref under --id-format both")
 
         # --- nested H-over-V: both directions + nesting + ratios round-trip ---
         if nested_ref:
@@ -289,21 +309,33 @@ def main() -> int:
                     failures.append(f"outer split has {len(children)} children, want 2")
                 else:
                     # child[0] is a leaf, child[1] is the nested vertical split
-                    if "pane" not in children[0]:
+                    if not isinstance(children[0], dict) or "pane" not in children[0]:
                         failures.append("outer child[0] is not a pane leaf")
                     inner = children[1]
-                    if inner.get("direction") != "vertical":
-                        failures.append(f"inner direction != vertical: {inner.get('direction')}")
-                    if abs(float(inner.get("split", 0)) - 0.5) > 0.01:
-                        failures.append(f"inner split != 0.5: {inner.get('split')}")
-                    if len(inner.get("children", [])) != 2:
-                        failures.append("inner vertical split does not have 2 children")
+                    if not isinstance(inner, dict):
+                        failures.append("outer child[1] is not a split node")
+                    else:
+                        if inner.get("direction") != "vertical":
+                            failures.append(f"inner direction != vertical: {inner.get('direction')}")
+                        try:
+                            inner_split = float(inner.get("split", 0))
+                        except (TypeError, ValueError):
+                            inner_split = None
+                        if inner_split is None or abs(inner_split - 0.5) > 0.01:
+                            failures.append(f"inner split != 0.5: {inner.get('split')}")
+                        inner_children = inner.get("children", [])
+                        if len(inner_children) != 2:
+                            failures.append("inner vertical split does not have 2 children")
+                        elif not all(isinstance(child, dict) and "pane" in child for child in inner_children):
+                            failures.append("inner vertical split children are not pane leaves")
 
-                # Every layout pane ref must appear in the flat panes array.
-                flat = [p.get("ref") for p in ws.get("panes", [])]
-                leaves = _pane_refs(layout)
-                if Counter(leaves) != Counter(flat):
-                    failures.append(f"layout pane refs {leaves} != flat panes {flat}")
+                # Every layout pane (ID + ref) must appear in the flat panes array.
+                flat_handles = _flat_pane_handles(ws)
+                leaves = _pane_handles(layout)
+                if Counter(leaves) != Counter(flat_handles):
+                    failures.append(f"layout pane handles {leaves} != flat panes {flat_handles}")
+                if not _has_nonempty_handles(flat_handles) or not _has_nonempty_handles(leaves):
+                    failures.append("nested layout omitted a nonempty pane id/ref under --id-format both")
                 if len(leaves) != 3:
                     failures.append(f"expected 3 pane leaves, got {len(leaves)}")
 
