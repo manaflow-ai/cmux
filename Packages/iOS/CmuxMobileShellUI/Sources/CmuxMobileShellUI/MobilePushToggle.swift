@@ -26,6 +26,7 @@ struct MobilePushToggle: View {
             set: { requested in
                 guard !isUpdating else { return }
                 let previous = isEnabled
+                isEnabled = requested
                 isUpdating = true
                 Task { @MainActor in
                     defer { isUpdating = false }
