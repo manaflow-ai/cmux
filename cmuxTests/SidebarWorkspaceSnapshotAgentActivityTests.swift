@@ -1,5 +1,6 @@
-import Foundation
 import CmuxSidebar
+import CmuxWorkspaces
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -57,6 +58,7 @@ extension SidebarWorkspaceSnapshotRefreshPolicyTests {
         #expect(visible.showsAgentActivity)
     }
 
+    @MainActor
     @Test func presentationKeyTracksLegacySpinnerSeparatelyFromActivityLabel() {
         let suiteName = "cmux.sidebar.agent-activity.presentation-key.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -272,7 +274,7 @@ struct SidebarWorkspaceAgentActivityTests {
         let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
             Self.evidence(lifecycle: .running),
             Self.evidence(
-                panelID: claudePanelID,
+                panelID: Self.claudePanelID,
                 statusKey: "claude_code",
                 generation: .session("claude-session"),
                 lifecycle: .needsInput
@@ -464,12 +466,12 @@ struct SidebarWorkspaceAgentActivityTests {
         let needsInput = SidebarWorkspaceAgentActivity.resolve(evidence: [
             Self.evidence(lifecycle: .needsInput)
         ])
-        let current = Self.snapshot(
+        let current = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(
             latestConversationMessage: "old message",
             agentActivity: running,
             activeCodingAgentCount: 0
         )
-        let next = Self.snapshot(
+        let next = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(
             latestConversationMessage: "new message",
             agentActivity: needsInput,
             activeCodingAgentCount: 0
