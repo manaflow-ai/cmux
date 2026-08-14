@@ -3,6 +3,7 @@ use super::*;
 use crate::resource::AgentPublicId;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 
 const RECOVERY_FORMAT: &str = "cmux.agent-recovery.v1";
 const RECOVERY_PRODUCER_ID: &str = "agent-recovery-v1";
@@ -730,6 +731,51 @@ impl WorkspaceRegistry {
         agent_projection_rebuild_active(&self.connection)
     }
 
+    /// Returns only derived projection progress. Journal rows are never
+    /// changed by this inspection path.
+    pub(crate) fn agent_projection_restore_status(&self) -> anyhow::Result<Value> {
+        let cursor = agent_projection_journal_cursor(&self.connection)?;
+        let candidate = agent_projection_journal_candidate(&self.connection)?;
+        let target = agent_projection_journal_rebuild_target(&self.connection)?;
+        let head = session_journal::session_journal_head(&self.connection)?;
+        Ok(json!({
+            "head_sequence": head.to_string(),
+            "cursor_sequence": cursor.map(|value| value.to_string()),
+            "candidate_sequence": candidate.map(|value| value.to_string()),
+            "target_sequence": target.map(|value| value.to_string()),
+            "pending": agent_projection_rebuild_active(&self.connection)?,
+        }))
+    }
+
+    pub(super) fn agent_projection_restore_status_for_transaction(
+        transaction: &Transaction<'_>,
+    ) -> anyhow::Result<Value> {
+        let cursor = agent_projection_journal_cursor(transaction)?;
+        let candidate = agent_projection_journal_candidate(transaction)?;
+        let target = agent_projection_journal_rebuild_target(transaction)?;
+        let head = session_journal::session_journal_head(transaction)?;
+        Ok(json!({
+            "head_sequence": head.to_string(),
+            "cursor_sequence": cursor.map(|value| value.to_string()),
+            "candidate_sequence": candidate.map(|value| value.to_string()),
+            "target_sequence": target.map(|value| value.to_string()),
+            "pending": agent_projection_rebuild_active(transaction)?,
+        }))
+    }
+
+    /// Validates the agent collection in a reduced journal state without
+    /// changing any durable projection. Restore uses the reducer's public
+    /// state, rather than replaying the live journal a second time, so this
+    /// validation is part of the same checkpoint-specific plan as preview.
+    pub(crate) fn validate_reduced_agent_state(
+        &self,
+        state: &Value,
+        committed_revision: u64,
+    ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+        reduced_agent_values(state, &self.session_id, committed_revision)
+            .map(|values| values.into_iter().map(|(_, _, projection)| projection).collect())
+    }
+
     #[cfg(test)]
     pub(crate) fn continue_agent_projection_rebuild(&self) -> anyhow::Result<bool> {
         let step = self.continue_agent_projection_rebuild_page()?;
@@ -924,6 +970,116 @@ impl WorkspaceRegistry {
         anyhow::ensure!(target < candidate, "checkpoint test has no later candidate");
         Ok(())
     }
+}
+
+/// Replaces the terminal-current compatibility projection with the agent
+/// collection produced by a checkpoint reducer. The caller owns the SQLite
+/// transaction and must have fenced the journal head and idempotency receipt
+/// before invoking this function.
+pub(super) fn replace_agent_projections_from_reduced_state(
+    transaction: &Transaction<'_>,
+    state: &Value,
+    committed_revision: u64,
+) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+    let session_id = SessionPublicId::parse(transaction.query_row(
+        "SELECT value FROM meta WHERE key = 'session_public_id'",
+        [],
+        |row| row.get::<_, String>(0),
+    )?)?;
+    let values = reduced_agent_values(state, &session_id, committed_revision)?;
+    let committed_revision =
+        i64::try_from(committed_revision).context("agent projection revision exceeds SQLite")?;
+
+    anyhow::ensure!(
+        prejournal_projection_migration_cursor(transaction)?.is_none(),
+        "agent projection migration is still pending"
+    );
+    if let Some(cursor) = agent_projection_journal_cursor(transaction)? {
+        anyhow::ensure!(
+            cursor <= u64::try_from(committed_revision)?,
+            "agent projection cursor {cursor} is ahead of restore revision {committed_revision}"
+        );
+    }
+    if let Some(candidate) = agent_projection_journal_candidate(transaction)? {
+        anyhow::ensure!(
+            candidate <= u64::try_from(committed_revision)?,
+            "agent projection candidate {candidate} is ahead of restore revision {committed_revision}"
+        );
+    }
+    for (terminal_id, _, _) in &values {
+        let exists = transaction.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM resource_terminals
+               WHERE public_id = ?1
+             )",
+            [terminal_id.as_str()],
+            |row| row.get::<_, bool>(0),
+        )?;
+        anyhow::ensure!(
+            exists,
+            "reduced journal state references unknown terminal {terminal_id}"
+        );
+    }
+
+    transaction.execute("DELETE FROM resource_agent_projection_rebuild_changes", [])?;
+    transaction.execute("DELETE FROM resource_agent_projections", [])?;
+    for (terminal_id, result_json, _) in &values {
+        transaction.execute(
+            "INSERT INTO resource_agent_projections(
+               terminal_id, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3)",
+            params![terminal_id.as_str(), result_json, committed_revision],
+        )?;
+    }
+    store_agent_projection_journal_cursor(
+        transaction,
+        u64::try_from(committed_revision).context("agent projection revision is negative")?,
+    )?;
+    note_agent_projection_journal_candidate(
+        transaction,
+        u64::try_from(committed_revision).context("agent projection revision is negative")?,
+    )?;
+    clear_agent_projection_journal_rebuild_target(transaction)?;
+    clear_agent_projection_journal_live_sequence(transaction)?;
+    Ok(values.into_iter().map(|(_, _, projection)| projection).collect())
+}
+
+fn reduced_agent_values(
+    state: &Value,
+    session_id: &SessionPublicId,
+    committed_revision: u64,
+) -> anyhow::Result<Vec<(TerminalPublicId, String, RegistryAgentProjection)>> {
+    let values = state
+        .get("session_snapshot")
+        .and_then(Value::as_object)
+        .and_then(|snapshot| snapshot.get("agents"))
+        .and_then(Value::as_array)
+        .context("reduced journal state omitted session_snapshot.agents")?;
+    let committed_revision =
+        i64::try_from(committed_revision).context("agent projection revision exceeds SQLite")?;
+    let mut terminals = HashSet::with_capacity(values.len());
+    values
+        .iter()
+        .map(|value| {
+            let terminal_id = value
+                .get("terminal_id")
+                .and_then(Value::as_str)
+                .context("reduced agent projection omitted terminal_id")
+                .and_then(|value| TerminalPublicId::parse(value).map_err(Into::into))?;
+            anyhow::ensure!(
+                terminals.insert(terminal_id.clone()),
+                "reduced journal state contains duplicate agent terminal {terminal_id}"
+            );
+            let result_json = canonical_json(value)?;
+            let projection = public_projection_store::decode_agent_projection(
+                &result_json,
+                &terminal_id,
+                session_id,
+                committed_revision,
+            )?;
+            Ok((terminal_id, result_json, projection))
+        })
+        .collect()
 }
 
 fn agent_projection_rebuild_active(connection: &Connection) -> anyhow::Result<bool> {
@@ -1834,4 +1990,3 @@ fn encode_lower_hex(bytes: &[u8]) -> String {
     }
     encoded
 }
-

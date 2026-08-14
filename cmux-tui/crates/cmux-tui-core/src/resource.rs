@@ -156,6 +156,12 @@ pub enum ResourceOperation {
     SessionJournalHookList,
     #[serde(rename = "session.journal.hook.put")]
     SessionJournalHookPut,
+    #[serde(rename = "session.journal.inspect")]
+    SessionJournalInspect,
+    #[serde(rename = "session.journal.list")]
+    SessionJournalList,
+    #[serde(rename = "session.journal.restore")]
+    SessionJournalRestore,
     #[serde(rename = "session.journal.restore.preview")]
     SessionJournalRestorePreview,
     #[serde(rename = "session.journal.segment.list")]
@@ -445,6 +451,8 @@ impl ResourceOperation {
                 | Self::SessionJournalProducerList
                 | Self::SessionJournalHookList
                 | Self::SessionJournalCheckpointList
+                | Self::SessionJournalInspect
+                | Self::SessionJournalList
                 | Self::SessionJournalRestorePreview
                 | Self::SessionJournalSegmentList
                 | Self::ClientList

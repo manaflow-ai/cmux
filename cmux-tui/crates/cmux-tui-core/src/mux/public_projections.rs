@@ -147,6 +147,20 @@ impl TerminalAgentRecords {
         Ok(())
     }
 
+    pub(super) fn replace(&mut self, records: HashMap<TerminalPublicId, TerminalAgentRecord>) {
+        self.next_version = self.next_version.saturating_add(1);
+        self.published_version = self.next_version;
+        self.entries = records
+            .into_iter()
+            .map(|(terminal_id, record)| {
+                (
+                    terminal_id,
+                    VersionedTerminalAgentRecord { published: Some(record), pending: None },
+                )
+            })
+            .collect();
+    }
+
     pub(super) fn remove(&mut self, terminal_id: &TerminalPublicId) -> Option<TerminalAgentRecord> {
         self.entries
             .remove(terminal_id)
