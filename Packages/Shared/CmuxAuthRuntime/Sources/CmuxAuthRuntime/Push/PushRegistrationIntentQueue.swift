@@ -7,17 +7,12 @@ import Foundation
 /// one quarantined stale worker. This lets one same-direction recovery advance
 /// while repeated retries coalesce instead of accumulating unbounded tasks.
 actor PushRegistrationIntentQueue {
-    private struct Worker {
-        let id: UUID
-        let intent: PushRegistrationIntent
-        let task: Task<Void, Never>
-    }
-
     private let operation: @Sendable (PushRegistrationIntent) async -> Void
     private var latestGeneration: UInt64 = 0
     private var pendingIntents: [Bool: PushRegistrationIntent] = [:]
-    private var runningWorkers: [Bool: Worker] = [:]
-    private var quarantinedWorkers: [Bool: Worker] = [:]
+    private var runningWorkers: [Bool: PushRegistrationIntentWorker] = [:]
+    private var quarantinedWorkers:
+        [Bool: PushRegistrationIntentWorker] = [:]
     private var completedIntent: PushRegistrationIntent?
     private var waiters: [UInt64: [UUID: CheckedContinuation<Void, Never>]] = [:]
 
@@ -82,7 +77,7 @@ actor PushRegistrationIntentQueue {
                 on: lane
             )
         }
-        runningWorkers[lane] = Worker(
+        runningWorkers[lane] = PushRegistrationIntentWorker(
             id: workerID,
             intent: intent,
             task: task
