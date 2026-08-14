@@ -22,6 +22,10 @@ const skipAttach = rest.includes("--skip-attach");
 const provider = optionValue(rest, "--provider") ?? "e2b";
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
+// The provider contracts allow 15 minutes for create and 5 minutes for delete.
+// Keep the smoke client alive for the full provider operation plus route overhead.
+const CREATE_REQUEST_TIMEOUT_MS = 16 * 60 * 1000;
+const DELETE_REQUEST_TIMEOUT_MS = 6 * 60 * 1000;
 const CLEANUP_DELETE_ATTEMPTS = 2;
 
 if (shouldCreate && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
@@ -41,6 +45,7 @@ let beforeCount = 0;
 let operationError;
 let vmCleanupError;
 let userCleanupError;
+let vmCleanupRequired = false;
 
 class SmokeCleanupError extends Error {
   constructor(kind, message, options) {
@@ -124,7 +129,7 @@ async function destroyAndVerifyVm(cleanupVmId) {
       const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(cleanupVmId)}`, {
         method: "DELETE",
         headers: authHeaders,
-      });
+      }, DELETE_REQUEST_TIMEOUT_MS);
       const destroyText = await destroy.text();
       if (destroy.status === 200) {
         deleted = true;
@@ -253,12 +258,15 @@ try {
   };
 
   if (shouldCreate) {
+    // A timed-out request can still complete in the provider. Keep the Stack
+    // owner until this create is followed by confirmed delete and leak checks.
+    vmCleanupRequired = true;
     const createStartedAt = performance.now();
     const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `smoke-${suffix}` },
       body: JSON.stringify({ provider }),
-    });
+    }, CREATE_REQUEST_TIMEOUT_MS);
     const createDurationMs = Math.round(performance.now() - createStartedAt);
     const createText = await create.text();
     if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
@@ -304,6 +312,7 @@ try {
       const cleanupResult = await destroyAndVerifyVm(cleanupVmId);
       Object.assign(result, cleanupResult);
       vmId = undefined;
+      vmCleanupRequired = false;
       if (operationError) console.error(`cleanup_destroyed_vm=${cleanupVmId}`);
     } catch (error) {
       vmCleanupError = error;
@@ -312,7 +321,9 @@ try {
       );
     }
   }
-  if (user) {
+  if (user && vmCleanupRequired) {
+    console.error(`cleanup_preserved_user=${user.id ?? "unknown"} reason=vm_cleanup_unconfirmed`);
+  } else if (user) {
     try {
       await user.delete();
     } catch (error) {
