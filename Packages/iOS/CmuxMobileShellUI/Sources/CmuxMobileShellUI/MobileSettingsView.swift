@@ -423,7 +423,7 @@ struct MobileSettingsView: View {
 #else
                     MobilePushToggle(
                         isEnabled: $notificationsEnabled,
-                        resolveEnabledState: updatePhonePushEnabled
+                        applyEnabledIntent: setPhonePushEnabledIntent
                     )
 #endif
                 }
@@ -612,6 +612,15 @@ struct MobileSettingsView: View {
                 defaultValue: "Simulator"
             )
         }
+    }
+
+    @MainActor
+    private func setPhonePushEnabledIntent(_ enabled: Bool) {
+        diagnosticLog?.recordAppEvent(
+            .notificationPreferenceChanged,
+            count: enabled ? 1 : 0
+        )
+        pushCoordinator.setEnabledIntent(enabled)
     }
 
     @MainActor

@@ -116,7 +116,7 @@ final class PushReadinessUITests: XCTestCase {
     }
 
     @MainActor
-    func testPhonePushToggleUpdatesImmediatelyAndSerializesMutations() {
+    func testPhonePushToggleUpdatesImmediatelyAndKeepsLatestIntent() {
         let app = launchPreview(
             "healthy",
             extraEnvironment: ["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY": "1"]
@@ -142,24 +142,23 @@ final class PushReadinessUITests: XCTestCase {
             phone,
             "1",
             timeout: 1,
-            message: "The toggle must reflect the latest queued intent"
+            message: "The toggle must reflect the latest intent"
         )
-
-        let completeDisable = app.buttons[
-            "MobilePushReadinessCompletePhoneMutation-off"
-        ]
-        XCTAssertTrue(completeDisable.waitForExistence(timeout: 2))
-        completeDisable.tap()
 
         let completeEnable = app.buttons[
             "MobilePushReadinessCompletePhoneMutation-on"
         ]
         XCTAssertTrue(completeEnable.waitForExistence(timeout: 2))
+        XCTAssertFalse(
+            app.buttons["MobilePushReadinessCompletePhoneMutation-off"]
+                .exists,
+            "A later intent must replace pending work from the older choice"
+        )
         waitForValue(
             phone,
             "1",
             timeout: 1,
-            message: "Completed stale work must not replace the queued intent"
+            message: "Pending work must not replace the latest intent"
         )
         completeEnable.tap()
         waitForValue(phone, "1")
@@ -174,7 +173,7 @@ final class PushReadinessUITests: XCTestCase {
         waitForValue(
             phone,
             "0",
-            message: "A resolved false value is a successful opt-out"
+            message: "Completed cleanup must preserve the opt-out"
         )
     }
 

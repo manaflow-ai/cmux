@@ -18,7 +18,7 @@ struct MobilePushReadinessPreviewView: View {
     @State private var authorization: MobilePushAuthorization
     @State private var registration: PushRegistrationSnapshot
     @State private var macStatus: MobileHostPhonePushStatus?
-    @State private var pendingPhoneMutation: MobilePushPreviewPendingMutation?
+    @State private var pendingPhoneMutation: Bool?
 
     init(state: String, environment: [String: String] = ProcessInfo.processInfo.environment) {
         let fixture = Fixture(rawValue: state) ?? .healthy
@@ -42,7 +42,7 @@ struct MobilePushReadinessPreviewView: View {
                     if delaysPhoneMutation {
                         MobilePushToggle(
                             isEnabled: $phoneEnabled,
-                            resolveEnabledState: setPhoneEnabled
+                            applyEnabledIntent: queuePhoneEnabled
                         )
                     } else {
                         MobilePushSettingsContent(
@@ -70,7 +70,7 @@ struct MobilePushReadinessPreviewView: View {
                         }
                         .accessibilityIdentifier(
                             "MobilePushReadinessCompletePhoneMutation-"
-                                + (pendingPhoneMutation.enabled ? "on" : "off")
+                                + (pendingPhoneMutation ? "on" : "off")
                         )
                     }
                 }
@@ -81,13 +81,6 @@ struct MobilePushReadinessPreviewView: View {
             ))
         }
         .accessibilityIdentifier("MobilePushReadinessPreview")
-        .onDisappear {
-            guard let pendingPhoneMutation else { return }
-            self.pendingPhoneMutation = nil
-            pendingPhoneMutation.continuation.resume(
-                returning: registration.isEnabled
-            )
-        }
     }
 
     private var readiness: MobilePushReadiness {
@@ -102,31 +95,20 @@ struct MobilePushReadinessPreviewView: View {
 
     @MainActor
     private func setPhoneEnabled(_ enabled: Bool) async -> Bool {
-        if delaysPhoneMutation {
-            return await withCheckedContinuation { continuation in
-                if let pendingPhoneMutation {
-                    pendingPhoneMutation.continuation.resume(
-                        returning: registration.isEnabled
-                    )
-                }
-                pendingPhoneMutation = MobilePushPreviewPendingMutation(
-                    enabled: enabled,
-                    continuation: continuation
-                )
-            }
-        }
         applyPhoneMutation(enabled)
         return enabled
+    }
+
+    @MainActor
+    private func queuePhoneEnabled(_ enabled: Bool) {
+        pendingPhoneMutation = enabled
     }
 
     @MainActor
     private func completePhoneMutation() {
         guard let pendingPhoneMutation else { return }
         self.pendingPhoneMutation = nil
-        applyPhoneMutation(pendingPhoneMutation.enabled)
-        pendingPhoneMutation.continuation.resume(
-            returning: pendingPhoneMutation.enabled
-        )
+        applyPhoneMutation(pendingPhoneMutation)
     }
 
     @MainActor

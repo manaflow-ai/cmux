@@ -114,17 +114,26 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func setEnabled(_ enabled: Bool) async {
-        let wasEnabled = isEnabled
+        // The UI commits the shared preference before crossing into this actor.
+        // Snapshot state therefore carries the prior service intent needed to
+        // decide whether an opt-out still owes backend cleanup.
+        let owesBackendCleanup = snapshotValue.isEnabled
+            || defaults.string(forKey: Self.registeredAccountIDKey) != nil
         cancelRetry()
+        let generation = operationGeneration
         defaults.set(enabled, forKey: Self.enabledKey)
         if enabled {
             await syncTokenIfPossible()
         } else {
             publish(.disabled)
-            if wasEnabled {
-                await unregisterFromServer()
+            if owesBackendCleanup {
+                await unregisterFromServer(
+                    preferenceGeneration: generation
+                )
             } else {
-                await retryPendingUnregisterIfPossible()
+                await retryPendingUnregisterIfPossible(
+                    preferenceGeneration: generation
+                )
             }
         }
     }
@@ -186,12 +195,33 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func unregisterFromServer() async {
-        cancelRetry()
+        await unregisterFromServer(preferenceGeneration: nil)
+    }
+
+    private func unregisterFromServer(
+        preferenceGeneration: UUID?
+    ) async {
+        if preferenceGeneration == nil {
+            cancelRetry()
+        }
         guard let hex = cachedTokenHex else { return }
-        let session = try? await tokenProvider.authenticatedSessionSnapshot()
-        let ownerID = defaults.string(
+        let registeredOwnerID = defaults.string(
             forKey: Self.registeredAccountIDKey
-        ) ?? session?.accountID
+        )
+        if let registeredOwnerID, !registeredOwnerID.isEmpty {
+            // Record the privacy cleanup before any authentication await. A
+            // stalled session restore must not lose an already-known owner.
+            persistPendingUnregister(
+                tokenHex: hex,
+                accountID: registeredOwnerID
+            )
+        }
+        let session = try? await tokenProvider.authenticatedSessionSnapshot()
+        if let preferenceGeneration,
+           preferenceGeneration != operationGeneration || isEnabled {
+            return
+        }
+        let ownerID = registeredOwnerID ?? session?.accountID
         guard let ownerID, !ownerID.isEmpty else { return }
         // Persist before requiring live auth. This is the privacy guarantee for
         // an offline or signed-out opt-out.
@@ -202,6 +232,15 @@ public actor PushRegistrationService: PushRegistering {
         if await sendDelete(tokenHex: hex, sessionSnapshot: session) {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
+            if let preferenceGeneration,
+               preferenceGeneration != operationGeneration || isEnabled,
+               isEnabled,
+               cachedTokenHex == hex {
+                // A newer enable may have posted while this older DELETE was
+                // already in flight. Re-upsert after the DELETE acknowledgement
+                // so the latest preference is also the final backend state.
+                await upload(tokenHex: hex)
+            }
         }
     }
 
@@ -615,9 +654,15 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    private func retryPendingUnregisterIfPossible() async {
+    private func retryPendingUnregisterIfPossible(
+        preferenceGeneration: UUID? = nil
+    ) async {
         guard let session = try? await tokenProvider
             .authenticatedSessionSnapshot() else { return }
+        if let preferenceGeneration,
+           preferenceGeneration != operationGeneration || isEnabled {
+            return
+        }
         let currentAccountID = session.accountID
         let matching = pendingUnregisters.filter {
             $0.accountID == currentAccountID
@@ -656,6 +701,21 @@ public actor PushRegistrationService: PushRegistering {
                 tokenHex: pending.tokenHex
             )
         }
+        let preferenceWasSuperseded = preferenceGeneration.map {
+            $0 != operationGeneration || isEnabled
+        } ?? false
+        if preferenceWasSuperseded,
+           isEnabled,
+           let currentToken = cachedTokenHex,
+           results.contains(where: {
+               $0.0.tokenHex == currentToken && $0.1
+           }) {
+            // A newer enable raced cleanup that was already sent. Restore the
+            // current token only after every acknowledged DELETE has finished.
+            await upload(tokenHex: currentToken)
+            return
+        }
+        guard !preferenceWasSuperseded else { return }
         if matching.count > batch.count,
            results.contains(where: { $0.1 }) {
             schedulePendingUnregisterContinuation()

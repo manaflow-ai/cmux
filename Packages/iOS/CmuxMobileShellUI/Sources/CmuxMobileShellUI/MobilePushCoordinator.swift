@@ -45,6 +45,8 @@ public final class MobilePushCoordinator {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private var enabledMirror: Bool
+    @ObservationIgnored private var settingsIntentGeneration: UInt64 = 0
+    @ObservationIgnored private var settingsIntentTask: Task<Bool, Never>?
 
     /// Base APNs `aps.category` the web sets on non-replyable cmux terminal
     /// pushes (see `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The
@@ -191,6 +193,38 @@ public final class MobilePushCoordinator {
     /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { enabledMirror }
 
+    /// Commits a Settings toggle choice synchronously, then reconciles OS and
+    /// backend state for that generation. A later choice invalidates every
+    /// continuation of the older operation, so Settings never waits behind a
+    /// stalled permission or registration call.
+    @discardableResult
+    public func setEnabledIntent(_ enabled: Bool) -> Task<Bool, Never> {
+        settingsIntentTask?.cancel()
+        let generation = beginSettingsIntent(enabled)
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            let result: Bool
+            if enabled {
+                result = await self.reconcileEnable(
+                    trigger: "settings_toggle",
+                    generation: generation
+                )
+            } else {
+                await self.reconcileDisable(generation: generation)
+                result = self.isCurrentSettingsIntent(
+                    generation,
+                    enabled: false
+                )
+            }
+            if self.settingsIntentGeneration == generation {
+                self.settingsIntentTask = nil
+            }
+            return result
+        }
+        settingsIntentTask = task
+        return task
+    }
+
     /// Point routing at the active store (called by the root view on appear).
     public func bind(store: CMUXMobileShellStore) {
         self.store = store
@@ -254,16 +288,26 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
-        await enable(trigger: "settings_toggle")
+        settingsIntentTask?.cancel()
+        settingsIntentTask = nil
+        let generation = beginSettingsIntent(true)
+        return await reconcileEnable(
+            trigger: "settings_toggle",
+            generation: generation
+        )
     }
 
     /// Requests or recovers push only after the authenticated workspace shell
     /// is mounted. An explicit app opt-out remains authoritative.
     public func workspaceListDidBecomeVisible() async {
+        let initialSettingsGeneration = settingsIntentGeneration
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
             return
         }
         let settings = await notificationSettings()
+        guard settingsIntentGeneration == initialSettingsGeneration,
+              defaults.object(forKey: Self.enabledKey) as? Bool != false
+        else { return }
         apply(settings: settings)
         switch settings.authorization {
         case .authorized, .provisional, .ephemeral:
@@ -278,17 +322,28 @@ public final class MobilePushCoordinator {
             guard !workspaceAuthorizationRequestInFlight else { return }
             workspaceAuthorizationRequestInFlight = true
             defer { workspaceAuthorizationRequestInFlight = false }
-            _ = await enable(trigger: "workspace_list")
+            settingsIntentTask?.cancel()
+            settingsIntentTask = nil
+            let generation = beginSettingsIntent(true)
+            _ = await reconcileEnable(
+                trigger: "workspace_list",
+                generation: generation
+            )
         case .unsupported:
             break
         }
     }
 
-    private func enable(trigger: String) async -> Bool {
+    private func reconcileEnable(
+        trigger: String,
+        generation: UInt64
+    ) async -> Bool {
         let priorSettings = await notificationSettings()
+        guard isCurrentSettingsIntent(generation, enabled: true) else {
+            return false
+        }
         apply(settings: priorSettings)
         let priorStatus = priorSettings.authorization
-        persistEnabledIntent()
         // Only an undetermined status produces a real OS prompt; gate the
         // "shown" event on it so a re-toggle of an already-decided status does
         // not log a phantom prompt.
@@ -308,8 +363,14 @@ public final class MobilePushCoordinator {
         case .denied, .unsupported:
             granted = false
         }
+        guard isCurrentSettingsIntent(generation, enabled: true) else {
+            return false
+        }
         guard granted else {
             await refreshReadiness()
+            guard isCurrentSettingsIntent(generation, enabled: true) else {
+                return false
+            }
             diagnosticLog?.recordAppEvent(.pushAuthorizationDenied)
             analytics.capture("ios_push_optin_declined", [
                 "trigger": .string(trigger),
@@ -318,29 +379,43 @@ public final class MobilePushCoordinator {
             return false
         }
         if priorStatus == .notDetermined {
-            apply(settings: await notificationSettings())
+            let currentSettings = await notificationSettings()
+            guard isCurrentSettingsIntent(generation, enabled: true) else {
+                return false
+            }
+            apply(settings: currentSettings)
         }
         diagnosticLog?.recordAppEvent(.pushAuthorizationGranted)
         analytics.capture("ios_push_optin_granted", ["trigger": .string(trigger)])
-        await activateRegistrationIfNeeded()
-        await recoverRegistrationIfNeeded()
+        await activateRegistrationIfNeeded(settingsGeneration: generation)
+        guard isCurrentSettingsIntent(generation, enabled: true) else {
+            return false
+        }
+        await recoverRegistrationIfNeeded(settingsGeneration: generation)
+        guard isCurrentSettingsIntent(generation, enabled: true) else {
+            return false
+        }
         return true
     }
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
-        diagnosticLog?.recordAppEvent(.pushDisabled)
-        enabledMirror = false
-        registrationSnapshot = .disabled
-        hasRequestedRemoteRegistration = false
-        unregisterForRemoteNotifications()
-        // The production registration service owns this same persisted key
-        // and checks its previous value to decide whether server cleanup is
-        // required. Let it observe the prior `true` before mirroring the final
-        // preference here; writing `false` first would skip token removal.
+        settingsIntentTask?.cancel()
+        settingsIntentTask = nil
+        let generation = beginSettingsIntent(false)
+        await reconcileDisable(generation: generation)
+    }
+
+    private func reconcileDisable(generation: UInt64) async {
         await registration.setEnabled(false)
-        defaults.set(false, forKey: Self.enabledKey)
-        registrationSnapshot = await registration.snapshot
+        guard isCurrentSettingsIntent(generation, enabled: false) else {
+            return
+        }
+        let snapshot = await registration.snapshot
+        guard isCurrentSettingsIntent(generation, enabled: false) else {
+            return
+        }
+        registrationSnapshot = snapshot
     }
 
     /// Hand a freshly-registered APNs token to the network layer.
@@ -348,8 +423,10 @@ public final class MobilePushCoordinator {
         diagnosticLog?.recordAppEvent(.pushDeviceTokenReceived, count: token.count)
         diagnosticLog?.recordAppEvent(.pushBackendSyncStarted)
         await registration.register(deviceToken: token)
-        registrationSnapshot = await registration.snapshot
-        recordRegistrationOutcome(registrationSnapshot)
+        let snapshot = await registration.snapshot
+        guard snapshot.isEnabled == enabledMirror else { return }
+        registrationSnapshot = snapshot
+        recordRegistrationOutcome(snapshot)
     }
 
     /// Make the APNs callback failure visible without retaining Apple's
@@ -360,7 +437,9 @@ public final class MobilePushCoordinator {
             failure: error.map(DiagnosticFailureKind.classify) ?? .unknown
         )
         await registration.deviceTokenRegistrationFailed()
-        registrationSnapshot = await registration.snapshot
+        let snapshot = await registration.snapshot
+        guard snapshot.isEnabled == enabledMirror else { return }
+        registrationSnapshot = snapshot
     }
 
     /// User-triggered repair for a failed APNs token callback.
@@ -374,8 +453,10 @@ public final class MobilePushCoordinator {
     public func syncTokenIfPossible() async {
         diagnosticLog?.recordAppEvent(.pushBackendSyncStarted)
         await registration.syncTokenIfPossible()
-        registrationSnapshot = await registration.snapshot
-        recordRegistrationOutcome(registrationSnapshot)
+        let snapshot = await registration.snapshot
+        guard snapshot.isEnabled == enabledMirror else { return }
+        registrationSnapshot = snapshot
+        recordRegistrationOutcome(snapshot)
     }
 
     /// Refreshes live OS authorization and the current registration stage.
@@ -396,14 +477,43 @@ public final class MobilePushCoordinator {
         defaults.set(true, forKey: Self.enabledKey)
     }
 
+    private func beginSettingsIntent(_ enabled: Bool) -> UInt64 {
+        settingsIntentGeneration &+= 1
+        if enabled {
+            persistEnabledIntent()
+        } else {
+            diagnosticLog?.recordAppEvent(.pushDisabled)
+            enabledMirror = false
+            defaults.set(false, forKey: Self.enabledKey)
+            registrationSnapshot = .disabled
+            hasRequestedRemoteRegistration = false
+            unregisterForRemoteNotifications()
+        }
+        return settingsIntentGeneration
+    }
+
+    private func isCurrentSettingsIntent(
+        _ generation: UInt64,
+        enabled: Bool
+    ) -> Bool {
+        settingsIntentGeneration == generation && enabledMirror == enabled
+    }
+
     private func apply(settings: MobilePushSystemSettings) {
         systemSettings = settings
         authorization = settings.authorization
     }
 
-    private func activateRegistrationIfNeeded() async {
+    private func activateRegistrationIfNeeded(
+        settingsGeneration: UInt64? = nil
+    ) async {
         guard enabledMirror, Self.permitsDelivery(authorization) else { return }
         let current = await registration.snapshot
+        guard enabledMirror,
+              settingsGeneration.map({
+                  isCurrentSettingsIntent($0, enabled: true)
+              }) ?? true
+        else { return }
         registrationSnapshot = PushRegistrationSnapshot(
             isEnabled: true,
             hasDeviceToken: current.hasDeviceToken,
@@ -415,7 +525,18 @@ public final class MobilePushCoordinator {
         if !current.isEnabled {
             await registration.setEnabled(true)
         }
-        registrationSnapshot = await registration.snapshot
+        guard enabledMirror,
+              settingsGeneration.map({
+                  isCurrentSettingsIntent($0, enabled: true)
+              }) ?? true
+        else { return }
+        let snapshot = await registration.snapshot
+        guard enabledMirror,
+              settingsGeneration.map({
+                  isCurrentSettingsIntent($0, enabled: true)
+              }) ?? true
+        else { return }
+        registrationSnapshot = snapshot
     }
 
     private func requestRemoteRegistrationIfNeeded() {
@@ -442,8 +563,14 @@ public final class MobilePushCoordinator {
         await recoverRegistrationIfNeeded()
     }
 
-    private func recoverRegistrationIfNeeded() async {
+    private func recoverRegistrationIfNeeded(
+        settingsGeneration: UInt64? = nil
+    ) async {
         let current = await registration.snapshot
+        guard settingsGeneration.map({
+            isCurrentSettingsIntent($0, enabled: true)
+        }) ?? true else { return }
+        guard current.isEnabled == enabledMirror else { return }
         registrationSnapshot = current
         guard current.isEnabled, current.hasDeviceToken,
               current.backendState == .registrationRequired
@@ -468,6 +595,10 @@ public final class MobilePushCoordinator {
         if ownsRecovery {
             registrationRecoveryTask = nil
         }
+        guard settingsGeneration.map({
+            isCurrentSettingsIntent($0, enabled: true)
+        }) ?? true else { return }
+        guard recovered.isEnabled == enabledMirror else { return }
         registrationSnapshot = recovered
         recordRegistrationOutcome(recovered)
     }
@@ -542,6 +673,7 @@ public final class MobilePushCoordinator {
             let snapshots = await registration.snapshots()
             for await snapshot in snapshots {
                 guard !Task.isCancelled, let self else { return }
+                guard snapshot.isEnabled == self.enabledMirror else { continue }
                 self.registrationSnapshot = snapshot
             }
         }
