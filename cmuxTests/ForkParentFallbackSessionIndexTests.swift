@@ -10,7 +10,7 @@ import Testing
 
 @Suite
 struct ForkParentFallbackSessionIndexTests {
-    @Test func unpromptedForkPaneUsesParentSessionFallbackWithoutStealingParentPane() throws {
+    @Test func unpromptedForkPaneDoesNotUseParentResumeArgumentAsIdentity() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -18,17 +18,10 @@ struct ForkParentFallbackSessionIndexTests {
             fixture: fixture,
             argv: ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session", "--model", "sonnet"]
         )
+        #expect(detected[forkPanelKey(fixture)] == nil)
+
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
-
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
-        #expect(forkSnapshot.kind == .claude)
-        #expect(forkSnapshot.sessionId == fixture.parentSessionId)
-        #expect(forkSnapshot.workingDirectory == fixture.cwd.path)
-        #expect(forkSnapshot.launchCommand?.arguments == ["/usr/local/bin/claude", "--model", "sonnet"])
-        let forkCommand = try #require(forkSnapshot.forkCommand)
-        #expect(forkCommand.contains(fixture.parentSessionId), "\(forkCommand)")
-        #expect(forkCommand.contains("--fork-session"), "\(forkCommand)")
-
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId) == nil)
         let parentSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId))
         #expect(parentSnapshot.sessionId == fixture.parentSessionId)
     }
@@ -70,7 +63,7 @@ struct ForkParentFallbackSessionIndexTests {
         )] == nil)
     }
 
-    @Test func forkParentFallbackAcceptsCustomClaudeBinaryMatchingLaunchExecutable() throws {
+    @Test func customClaudeForkDoesNotUseParentResumeArgumentAsIdentity() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -84,15 +77,7 @@ struct ForkParentFallbackSessionIndexTests {
             processPath: "/opt/tools/claude-custom"
         )
 
-        let entry = try #require(detected[RestorableAgentSessionIndex.PanelKey(
-            workspaceId: fixture.workspaceId,
-            panelId: fixture.forkPanelId
-        )])
-        #expect(entry.snapshot.sessionId == fixture.parentSessionId)
-        // The custom binary is an executable boundary: sanitizer-preserved flags stay,
-        // and the logical executable is bare "claude" (the cmux wrapper resolves
-        // CMUX_CUSTOM_CLAUDE_PATH at exec time).
-        #expect(entry.snapshot.launchCommand?.arguments == ["claude", "--model", "sonnet"])
+        #expect(detected[forkPanelKey(fixture)] == nil)
     }
 
     @Test func forkParentFallbackIgnoresExplicitlyDisabledForkSessionFlag() throws {
@@ -112,11 +97,9 @@ struct ForkParentFallbackSessionIndexTests {
         )] == nil)
     }
 
-    @Test func staleSamePaneHookRecordDoesNotCaptureForkLaunchedAfterIt() throws {
-        // The fork pane reuses a terminal whose older claude session (updatedAt 10)
-        // is still in the hook store, and the fork process started later
-        // (startSeconds 15): the stale record must not absorb the fork's live
-        // process evidence; the pane resolves to the parent-session fallback.
+    @Test func staleSamePaneHookRecordNeverFallsBackToForkParentIdentity() throws {
+        // The scanner must not replace any hook record with the source id from
+        // --resume. SessionStart owns reconciliation of the new child identity.
         let fixture = try makeFixture(
             forkedSessionId: "dddddddd-4444-4444-4444-dddddddddddd",
             forkPaneRecordUpdatedAt: 10
@@ -137,8 +120,11 @@ struct ForkParentFallbackSessionIndexTests {
             }
         )
 
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
-        #expect(forkSnapshot.sessionId == fixture.parentSessionId)
+        #expect(detected[forkPanelKey(fixture)] == nil)
+        #expect(
+            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId
+                != fixture.parentSessionId
+        )
     }
 
     @Test func forkParentFallbackYieldsToOtherAgentKindHookEntryOnSamePane() throws {
@@ -227,7 +213,7 @@ struct ForkParentFallbackSessionIndexTests {
         )] == nil)
     }
 
-    @Test func forkParentFallbackDoesNotEvictParentHookEntryForSameSession() throws {
+    @Test func forkParentArgumentDoesNotCreateSecondParentIdentity() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -243,11 +229,11 @@ struct ForkParentFallbackSessionIndexTests {
         )
         #expect(
             index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId
-                == fixture.parentSessionId
+                == nil
         )
     }
 
-    @Test func unpromptedForkPaneIsForkValidatedFromLiveProcessFallback() throws {
+    @Test func unpromptedForkPaneIsNotForkValidatedFromParentArgument() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -271,10 +257,8 @@ struct ForkParentFallbackSessionIndexTests {
             processIdentityProvider: { $0 == fixture.forkProcessID ? identity : nil }
         ).loadResultSynchronously()
 
-        #expect(result.forkValidatedPanels.contains(RestorableAgentSessionIndex.PanelKey(
-            workspaceId: fixture.workspaceId,
-            panelId: fixture.forkPanelId
-        )))
+        #expect(!result.forkValidatedPanels.contains(forkPanelKey(fixture)))
+        #expect(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId) == nil)
     }
 
     private struct Fixture {
@@ -372,6 +356,13 @@ struct ForkParentFallbackSessionIndexTests {
             processSnapshot: snapshot(fixture: fixture, processName: processName, processPath: processPath),
             capturedAt: 42,
             processArgumentsProvider: { $0 == fixture.forkProcessID ? processArguments : nil }
+        )
+    }
+
+    private func forkPanelKey(_ fixture: Fixture) -> RestorableAgentSessionIndex.PanelKey {
+        RestorableAgentSessionIndex.PanelKey(
+            workspaceId: fixture.workspaceId,
+            panelId: fixture.forkPanelId
         )
     }
 
