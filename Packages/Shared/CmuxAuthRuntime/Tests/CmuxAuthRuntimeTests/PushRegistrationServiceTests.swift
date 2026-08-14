@@ -406,6 +406,10 @@ actor RetryDelayRecorder {
             accountID: nil
         )
         defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set(
+            "account-a",
+            forKey: "cmux.notifications.registeredAccountID"
+        )
 
         let heldMutation = Task {
             await service.unregisterFromServer()
