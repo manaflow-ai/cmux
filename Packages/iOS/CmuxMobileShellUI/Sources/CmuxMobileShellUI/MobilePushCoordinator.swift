@@ -580,14 +580,16 @@ public final class MobilePushCoordinator {
                 : .awaitingDeviceToken
         )
         requestRemoteRegistrationIfNeeded()
-        if !current.isEnabled {
-            await registration.applyEnabledIntent(
-                true,
-                generation: registrationGeneration
-            )
-            guard isCurrentSettingsMutation(settingsMutationToken), enabledMirror else {
-                return
-            }
+        // Always submit the current generation. The snapshot can still say
+        // enabled while an older disable is queued or suspended; the service
+        // intent queue coalesces repeated completed generations without
+        // issuing another registration request.
+        await registration.applyEnabledIntent(
+            true,
+            generation: registrationGeneration
+        )
+        guard isCurrentSettingsMutation(settingsMutationToken), enabledMirror else {
+            return
         }
         let snapshot = await registration.snapshot
         guard isCurrentSettingsMutation(settingsMutationToken), enabledMirror else {

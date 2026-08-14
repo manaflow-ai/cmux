@@ -11,6 +11,7 @@ actor PushRegistrationIntentQueue {
     private var latestGeneration: UInt64 = 0
     private var pendingIntent: PushRegistrationIntent?
     private var runningGeneration: UInt64?
+    private var completedIntent: PushRegistrationIntent?
     private var workerTask: Task<Void, Never>?
     private var waiters: [UInt64: [UUID: CheckedContinuation<Void, Never>]] = [:]
 
@@ -22,6 +23,11 @@ actor PushRegistrationIntentQueue {
     /// Replaces stale pending work and waits for this intent to be handled.
     func submit(_ intent: PushRegistrationIntent) async {
         guard intent.generation >= latestGeneration else { return }
+        if intent == completedIntent,
+           pendingIntent == nil,
+           runningGeneration == nil {
+            return
+        }
         if intent.generation > latestGeneration {
             latestGeneration = intent.generation
             pendingIntent = intent
@@ -61,6 +67,7 @@ actor PushRegistrationIntentQueue {
             runningGeneration = intent.generation
             await operation(intent)
             runningGeneration = nil
+            completedIntent = intent
             resumeWaiters(for: intent.generation)
         }
         workerTask = nil
