@@ -1,0 +1,13 @@
+name: KeyboardDockRepro
+options:
+  deploymentTarget:
+    iOS: "18.0"
+targets:
+  KeyboardDockRepro:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.manaflow.KeyboardDockRepro
+      INFOPLIST_FILE: Info.plist
+      SWIFT_VERSION: "6.0"
