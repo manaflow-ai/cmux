@@ -59,7 +59,7 @@ struct MobilePushReadinessPreviewView: View {
                         )
                     }
 
-                    if pendingPhoneMutation != nil {
+                    if let pendingPhoneMutation {
                         Button {
                             completePhoneMutation()
                         } label: {
@@ -69,7 +69,8 @@ struct MobilePushReadinessPreviewView: View {
                             ))
                         }
                         .accessibilityIdentifier(
-                            "MobilePushReadinessCompletePhoneMutation"
+                            "MobilePushReadinessCompletePhoneMutation-"
+                                + (pendingPhoneMutation.enabled ? "on" : "off")
                         )
                     }
                 }

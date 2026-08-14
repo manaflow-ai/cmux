@@ -116,7 +116,7 @@ final class PushReadinessUITests: XCTestCase {
     }
 
     @MainActor
-    func testPhonePushToggleTurnsOffWhileMutationIsPending() {
+    func testPhonePushToggleUpdatesImmediatelyAndSerializesMutations() {
         let app = launchPreview(
             "healthy",
             extraEnvironment: ["CMUX_UITEST_PUSH_PHONE_MUTATION_DELAY": "1"]
@@ -136,13 +136,27 @@ final class PushReadinessUITests: XCTestCase {
             message: "The toggle must reflect opt-out before cleanup finishes"
         )
         XCTAssertTrue(phone.isEnabled)
-        let completeMutation = app.buttons[
-            "MobilePushReadinessCompletePhoneMutation"
+
+        tapSwitch(phone)
+        waitForValue(
+            phone,
+            "1",
+            timeout: 1,
+            message: "The toggle must reflect the latest queued intent"
+        )
+
+        let completeDisable = app.buttons[
+            "MobilePushReadinessCompletePhoneMutation-off"
         ]
-        XCTAssertTrue(completeMutation.waitForExistence(timeout: 2))
-        completeMutation.tap()
-        waitForEnabled(phone)
-        XCTAssertEqual(phone.value as? String, "0")
+        XCTAssertTrue(completeDisable.waitForExistence(timeout: 2))
+        completeDisable.tap()
+
+        let completeEnable = app.buttons[
+            "MobilePushReadinessCompletePhoneMutation-on"
+        ]
+        XCTAssertTrue(completeEnable.waitForExistence(timeout: 2))
+        completeEnable.tap()
+        waitForValue(phone, "1")
     }
 
     @MainActor
