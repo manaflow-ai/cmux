@@ -892,6 +892,7 @@ actor RetryDelayRecorder {
         let blocker = TestContinuationBlocker()
         await PushRegistrationURLProtocol.script.reset([
             .gatedResponse(200, started: started, blocker: blocker),
+            .response(200),
         ])
         let (service, defaults) = makeScriptedService(accountID: "account-a")
         defaults.set(true, forKey: "cmux.notifications.pushEnabled")
@@ -1018,6 +1019,7 @@ actor RetryDelayRecorder {
         await blocker.release()
         await firstEnable.value
         await secondEnable.value
+        await service.applyEnabledIntent(true, generation: 1)
 
         #expect(
             await PushRegistrationURLProtocol.script.requests

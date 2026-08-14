@@ -7,6 +7,8 @@ import UserNotifications
 
 private actor LifecyclePushRegistration: PushRegistering {
     private var value: PushRegistrationSnapshot
+    private var snapshotRead = false
+    private var snapshotReadWaiters: [CheckedContinuation<Void, Never>] = []
     private var snapshotContinuation:
         AsyncStream<PushRegistrationSnapshot>.Continuation?
     private var queuedSnapshots: [PushRegistrationSnapshot] = []
@@ -32,7 +34,22 @@ private actor LifecyclePushRegistration: PushRegistering {
     }
 
     var isEnabled: Bool { value.isEnabled }
-    var snapshot: PushRegistrationSnapshot { value }
+    var snapshot: PushRegistrationSnapshot {
+        snapshotRead = true
+        let waiters = snapshotReadWaiters
+        snapshotReadWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        return value
+    }
+
+    func waitUntilSnapshotRead() async {
+        guard !snapshotRead else { return }
+        await withCheckedContinuation { continuation in
+            snapshotReadWaiters.append(continuation)
+        }
+    }
 
     func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
         AsyncStream { continuation in
@@ -712,6 +729,39 @@ private final class LifecyclePushURLProtocol: URLProtocol,
             await Task.yield()
         }
         #expect(await registration.snapshot.isEnabled)
+    }
+
+    @MainActor
+    @Test func reenableIntentIsSubmittedWhileDisableStillReportsEnabled() async {
+        let gate = LifecycleSetEnabledGate()
+        let registration = LifecyclePushRegistration(
+            enabled: true,
+            setEnabledGate: gate
+        )
+        let suiteName = "push-coordinator-reenable-generation-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized }
+        )
+
+        coordinator.setEnabledIntent(false)
+        await gate.waitUntilStarted()
+
+        coordinator.setEnabledIntent(true)
+        await registration.waitUntilSnapshotRead()
+
+        await gate.release()
+        for _ in 0..<100 {
+            if await registration.snapshot.isEnabled { break }
+            await Task.yield()
+        }
+
+        #expect(await registration.snapshot.isEnabled)
+        #expect(coordinator.isEnabled)
     }
 
     @MainActor
