@@ -25182,11 +25182,20 @@ struct CMUXCLI {
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
 
-                // Update session with transcript summary and send completion notification.
-                let completion = summarizeClaudeHookStop(
-                    parsedInput: parsedInput,
-                    sessionRecord: mappedSession
-                )
+                // A provider banner can end the turn without a final response.
+                // Classify that boundary before the normal completion summary so
+                // it uses the ungated error lane instead of `turn-complete`.
+                let abnormalStop = summarizeClaudeAbnormalStop(parsedInput: parsedInput)
+                let completion = abnormalStop == nil
+                    ? summarizeClaudeHookStop(
+                        parsedInput: parsedInput,
+                        sessionRecord: mappedSession
+                    )
+                    : nil
+                let stopSummary = abnormalStop.map { (subtitle: $0.subtitle, body: $0.body) } ?? completion
+                let stopLifecycle: AgentHibernationLifecycleState = abnormalStop != nil
+                    ? .needsInput
+                    : (hasPendingBackgroundWork ? .running : .idle)
                 if let sessionId = parsedInput.sessionId {
                     _ = try? sessionStore.upsert(
                         sessionId: sessionId,
@@ -25198,9 +25207,9 @@ struct CMUXCLI {
                         // Pending background work keeps the pane out of the
                         // hibernatable .idle state so the planner cannot SIGTERM
                         // a live task (mirrors the antigravity fullyIdle flip).
-                        agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
-                        lastSubtitle: completion?.subtitle,
-                        lastBody: completion?.body,
+                        agentLifecycle: stopLifecycle,
+                        lastSubtitle: stopSummary?.subtitle,
+                        lastBody: stopSummary?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
                         allowsNewSessionReplacement: true
@@ -25222,11 +25231,20 @@ struct CMUXCLI {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: hasPendingBackgroundWork ? .running : .idle,
+                    lifecycle: stopLifecycle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                if hasPendingBackgroundWork {
+                if abnormalStop != nil {
+                    let statusValue = String.localizedStringWithFormat(
+                        String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                        String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code")
+                    )
+                    _ = try? sendV1Command(
+                        "set_status \(Self.claudeCodeStatusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                } else if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
@@ -25249,16 +25267,18 @@ struct CMUXCLI {
                         color: "#8E8E93"
                     )
                 }
-                if let completion {
+                if let stopSummary {
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
                     let payload = notificationPayload(
                         title: title,
-                        subtitle: completion.subtitle,
-                        body: completion.body,
-                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
+                        subtitle: stopSummary.subtitle,
+                        body: stopSummary.body,
+                        meta: abnormalStop == nil
+                            ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasPendingBackgroundWork)
+                            : nil
                     )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
@@ -26756,29 +26776,36 @@ struct CMUXCLI {
         return ("Completed", body)
     }
 
-    private func claudeAssistantMessageFromHookPayload(_ object: [String: Any]?) -> String? {
+    func claudeAssistantMessageFromHookPayload(_ object: [String: Any]?) -> String? {
         guard let object else { return nil }
         let keys = [
             "last_assistant_message",
             "lastAssistantMessage",
+            "last_agent_message",
+            "lastAgentMessage",
             "assistantPreamble",
             "assistant_preamble",
             "assistant_response",
             "assistantResponse",
         ]
-        let extra = (object["extra"] as? [String: Any]) ?? [:]
+        let nestedObjects = [
+            object["notification"] as? [String: Any],
+            object["data"] as? [String: Any],
+            object["extra"] as? [String: Any],
+            object["payload"] as? [String: Any],
+        ].compactMap { $0 }
         let message = firstString(in: object, keys: keys)
-            ?? firstString(in: extra, keys: keys)
+            ?? nestedObjects.lazy.compactMap { firstString(in: $0, keys: keys) }.first
         guard let message else { return nil }
         let normalized = normalizedSingleLine(message)
         return normalized.isEmpty ? nil : normalized
     }
 
-    private struct TranscriptSummary {
+    struct TranscriptSummary {
         let lastAssistantMessage: String?
     }
 
-    private func readTranscriptSummary(path: String) -> TranscriptSummary? {
+    func readTranscriptSummary(path: String) -> TranscriptSummary? {
         guard let lines = readRecentTextFileLines(path: path, maxBytes: 1_048_576) else { return nil }
 
         var lastAssistantMessage: String?
@@ -26808,7 +26835,37 @@ struct CMUXCLI {
         sessionId: String,
         env: [String: String]
     ) -> CodexHookFailureSummary? {
+        let payload = parsedInput.object ?? [:]
+        let payloadSignal = firstString(
+            in: payload,
+            keys: ["terminationReason", "stop_reason", "stopReason", "reason", "type", "kind"]
+        ) ?? ""
+        let payloadMessages = [
+            claudeAssistantMessageFromHookPayload(parsedInput.object),
+            firstString(in: payload, keys: ["error", "message", "description"]),
+            parsedInput.rawFallback,
+        ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        guard !AgentHookNotificationClassifier.isUserInitiatedStop(
+            signal: "Stop \(payloadSignal)",
+            message: payloadMessages
+        ) else {
+            return nil
+        }
+
         if let candidate = codexHookFailureCandidate(from: parsedInput.object) {
+            return summarizeCodexHookFailureCandidate(candidate)
+        }
+
+        // Codex can terminate a turn with only a rendered provider banner in
+        // `last_assistant_message` (for example, "■ request timed out"). That
+        // text is a terminal failure signal, not a successful assistant reply;
+        // classify it before transcript health/fallback checks can discard it.
+        if let candidate = codexAbnormalStopBannerCandidate(
+            from: parsedInput.object,
+            fallbackMessage: parsedInput.rawFallback
+        ) {
             return summarizeCodexHookFailureCandidate(candidate)
         }
 
@@ -26880,6 +26937,8 @@ struct CMUXCLI {
         var sawTerminalTurn = false
         var sawRelevantTurn = turnId == nil
         var lastAssistantMessage: String?
+        var terminalBoundaryMessage: String?
+        var terminalStopSignal = "Stop"
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
@@ -26888,10 +26947,18 @@ struct CMUXCLI {
                 continue
             }
 
-            if (turnId == nil || sawRelevantTurn) && codexTranscriptLineHasAssistantMessage(object) {
+            let assistantMessageTurnId = (object["payload"] as? [String: Any]).flatMap {
+                firstString(in: $0, keys: ["turn_id", "turnId"])
+            }
+            if (turnId == nil || sawRelevantTurn || assistantMessageTurnId == turnId),
+               codexTranscriptLineHasAssistantMessage(object) {
                 sawAssistantMessage = true
                 candidate = nil
                 candidateCanPublishBeforeTerminal = false
+                if let payload = object["payload"] as? [String: Any],
+                   let assistantText = codexTranscriptMessageText(payload) {
+                    lastAssistantMessage = truncate(normalizedSingleLine(assistantText), maxLength: 200)
+                }
             }
 
             guard (object["type"] as? String) == "event_msg",
@@ -26952,31 +27019,53 @@ struct CMUXCLI {
                 }
                 sawRelevantTurn = true
                 sawTerminalTurn = true
+                let terminalReason = firstString(
+                    in: payload,
+                    keys: ["reason", "stop_reason", "stopReason", "terminationReason"]
+                )
+                terminalStopSignal = ["Stop", eventType, terminalReason]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
                 // Codex persists fatal turn failures inside task_complete.error. Standalone
                 // error events are transient, and a failed turn may still contain partial
                 // assistant output, so the terminal error must be authoritative.
-                if let terminalError = payload["error"] as? [String: Any],
-                   let failure = codexHookFailureCandidate(
-                       from: terminalError,
-                       requireFailureSignal: false
-                   ) {
-                    candidate = failure
+                if let terminalError = payload["error"] as? [String: Any] {
+                    terminalBoundaryMessage = firstString(
+                        in: terminalError,
+                        keys: ["message", "error", "body", "text", "description", "reason"]
+                    ) ?? codexHookStringValue(payload["error"])
+                    if let failure = codexHookFailureCandidate(
+                        from: terminalError,
+                        requireFailureSignal: false
+                    ) {
+                        candidate = failure
+                    }
                     candidateCanPublishBeforeTerminal = false
                 } else if let terminalError = codexHookStringValue(payload["error"]) {
-                    candidate = CodexHookFailureCandidate(
-                        message: terminalError,
-                        codexErrorInfo: nil,
-                        additionalDetails: nil,
-                        isStreamError: false
-                    )
+                    terminalBoundaryMessage = terminalError
+                    if !AgentHookNotificationClassifier.isUserInitiatedStop(
+                        signal: terminalStopSignal,
+                        message: terminalError
+                    ) {
+                        candidate = CodexHookFailureCandidate(
+                            message: terminalError,
+                            codexErrorInfo: nil,
+                            additionalDetails: nil,
+                            isStreamError: false
+                        )
+                    }
                     candidateCanPublishBeforeTerminal = false
-                } else if let lastMessage = payload["last_agent_message"] as? String,
+                } else if let lastMessage = firstString(
+                    in: payload,
+                    keys: ["last_agent_message", "lastAgentMessage"]
+                ),
                    !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     sawAssistantMessage = true
                     lastAssistantMessage = truncate(normalizedSingleLine(lastMessage), maxLength: 200)
+                    terminalBoundaryMessage = lastAssistantMessage
                     candidate = nil
                     candidateCanPublishBeforeTerminal = false
-                } else if candidate == nil && !sawAssistantMessage {
+                } else if candidate == nil && !sawAssistantMessage && terminalBoundaryMessage == nil {
                     candidate = CodexHookFailureCandidate(
                         message: String(
                             localized: "agent.codex.error.noFinalResponse",
@@ -26988,9 +27077,50 @@ struct CMUXCLI {
                     )
                     candidateCanPublishBeforeTerminal = false
                 }
+            case "turn_aborted":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    guard payloadTurnId == turnId else {
+                        continue
+                    }
+                }
+                sawRelevantTurn = true
+                sawTerminalTurn = true
+                let reason = firstString(in: payload, keys: ["reason", "stop_reason", "stopReason", "message", "error"])
+                terminalStopSignal = ["Stop", "turn_aborted", reason].compactMap { $0 }.joined(separator: " ")
+                terminalBoundaryMessage = reason ?? codexHookStringValue(payload["error"])
+                if let failure = codexHookFailureCandidate(
+                    from: payload,
+                    requireFailureSignal: false
+                ), let abnormalClass = AgentHookNotificationClassifier.abnormalStopClass(
+                    signal: terminalStopSignal,
+                    message: failure.message
+                ) {
+                    terminalBoundaryMessage = failure.message
+                    candidate = CodexHookFailureCandidate(
+                        message: failure.message,
+                        codexErrorInfo: failure.codexErrorInfo,
+                        additionalDetails: failure.additionalDetails,
+                        isStreamError: failure.isStreamError,
+                        isAbnormalStopBanner: abnormalClass != .generic
+                    )
+                    candidateCanPublishBeforeTerminal = false
+                }
             default:
                 break
             }
+        }
+
+        // A user abort is authoritative for the whole terminal boundary. Do
+        // not let an earlier transient error event or stale assistant banner
+        // win the race and turn Ctrl+C into a provider-error notification.
+        if AgentHookNotificationClassifier.isUserInitiatedStop(
+            signal: terminalStopSignal,
+            message: [terminalBoundaryMessage, lastAssistantMessage]
+                .compactMap { $0 }
+                .joined(separator: " ")
+        ) {
+            return .healthy(lastAssistantMessage: lastAssistantMessage)
         }
 
         if let candidate, candidateCanPublishBeforeTerminal {
@@ -27004,6 +27134,22 @@ struct CMUXCLI {
         }
         if let candidate {
             return .failure(candidate)
+        }
+        if let lastAssistantMessage,
+           AgentHookNotificationClassifier.abnormalStopClass(
+               signal: terminalStopSignal,
+               message: lastAssistantMessage
+           ) != nil,
+           (!requireTerminalCompletion || sawTerminalTurn) {
+            return .failure(
+                CodexHookFailureCandidate(
+                    message: lastAssistantMessage,
+                    codexErrorInfo: nil,
+                    additionalDetails: nil,
+                    isStreamError: false,
+                    isAbnormalStopBanner: true
+                )
+            )
         }
         if !sawTerminalTurn, !sawAssistantMessage {
             return .pending
@@ -27354,7 +27500,7 @@ struct CMUXCLI {
 
     private func codexHookStopPayloadHasAssistantMessage(_ object: [String: Any]?) -> Bool {
         guard let object,
-              let message = firstString(in: object, keys: ["last_assistant_message", "lastAssistantMessage"]) else {
+              let message = firstString(in: object, keys: ["last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage"]) else {
             return false
         }
         return !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -27365,13 +27511,10 @@ struct CMUXCLI {
               let payload = object["payload"] as? [String: Any],
               (payload["type"] as? String) == "message",
               (payload["role"] as? String) == "assistant",
-              let content = payload["content"] as? [[String: Any]] else {
+              let text = codexTranscriptMessageText(payload) else {
             return false
         }
-        return content.contains { block in
-            guard let text = block["text"] as? String else { return false }
-            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func codexHookFailureCandidate(
@@ -27380,16 +27523,29 @@ struct CMUXCLI {
         requireFailureSignal: Bool = true
     ) -> CodexHookFailureCandidate? {
         guard let object else { return nil }
-        let message = firstString(in: object, keys: ["message", "error", "body", "text", "description"])
+        let message = firstString(
+            in: object,
+            keys: ["message", "error", "body", "text", "description", "reason", "stop_reason", "stopReason"]
+        ) ?? codexHookStringValue(object["error"])
         let additionalDetails = codexHookStringValue(object["additional_details"] ?? object["additionalDetails"])
         let codexErrorInfo = codexHookStringValue(object["codex_error_info"] ?? object["codexErrorInfo"])
         let eventType = firstString(in: object, keys: ["type", "kind"])?.lowercased()
+        let stopReason = firstString(
+            in: object,
+            keys: ["terminationReason", "stop_reason", "stopReason", "reason"]
+        )
         let typedFailure = eventType == "error" || eventType == "stream_error"
         let hasExplicitErrorField = object["error"].map { !($0 is NSNull) } ?? false
-        let signal = [message, additionalDetails, codexErrorInfo]
+        let signal = [message, additionalDetails, codexErrorInfo, stopReason]
             .compactMap { $0 }
             .joined(separator: " ")
             .lowercased()
+        guard !AgentHookNotificationClassifier.isUserInitiatedStop(
+            signal: signal,
+            message: ""
+        ) else {
+            return nil
+        }
         guard !requireFailureSignal ||
               typedFailure ||
               hasExplicitErrorField ||
@@ -27401,7 +27557,8 @@ struct CMUXCLI {
               signal.contains("rate limit") ||
               signal.contains("stream disconnected") ||
               signal.contains("connection") ||
-              signal.contains("unauthorized") else {
+              signal.contains("unauthorized") ||
+              AgentHookNotificationClassifier.abnormalStopClass(signal: "Stop", message: signal) != nil else {
             return nil
         }
         return CodexHookFailureCandidate(
@@ -27428,7 +27585,18 @@ struct CMUXCLI {
 
         let subtitle: String
         let statusValue: String
-        if signal.contains("usage_limit") ||
+        // Structured Codex error events have established subtitles consumed by
+        // existing clients/tests (for example, `Error` and `Rate limit`). A
+        // terminal assistant banner is the new abnormal-stop surface, so only
+        // that candidate opts into the shared precise class labels.
+        if candidate.isAbnormalStopBanner,
+           let abnormalClass = AgentHookNotificationClassifier.abnormalStopClass(
+               signal: "Stop",
+               message: signal
+           ) {
+            subtitle = abnormalClass.localizedSubtitle
+            statusValue = codexAbnormalStopStatusValue(abnormalClass)
+        } else if signal.contains("usage_limit") ||
             signal.contains("usage limit") ||
             signal.contains("rate_limit") ||
             signal.contains("rate limit") ||
@@ -32328,18 +32496,25 @@ export default CMUXSessionRestore;
                 codexFailure = nil
                 codexSubagentSignals = CodexTranscriptSubagentSignals()
             }
+            let lastMsg = claudeAssistantMessageFromHookPayload(input.object)
             let antigravityFailure: AgentHookNotificationSummary? = {
                 guard def.name == "antigravity", let rawObject = input.rawObject else { return nil }
                 let signal = firstString(in: rawObject, keys: ["terminationReason", "reason", "type", "kind"]) ?? ""
                 let message = firstString(in: rawObject, keys: ["error", "message", "description"]) ?? signal
                 let summary = classifyAgentHookNotification(
                     def: def,
-                    signal: signal,
+                    signal: "Stop \(signal)",
                     message: message,
                     isFallback: false
                 )
                 return summary.status == .error ? summary : nil
             }()
+            let genericAbnormalStop = summarizeGenericAbnormalStop(
+                def: def,
+                input: input,
+                lastMessage: lastMsg
+            )
+            let abnormalStop = antigravityFailure ?? genericAbnormalStop
 
             let rawCwd = hookCwd ?? mapped?.cwd
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
@@ -32356,7 +32531,6 @@ export default CMUXSessionRestore;
                     env: env
                 )
             }()
-            let lastMsg = claudeAssistantMessageFromHookPayload(input.object)
             let projectName: String? = {
                 guard let cwd, !cwd.isEmpty else { return nil }
                 return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
@@ -32365,10 +32539,10 @@ export default CMUXSessionRestore;
                 localized: "agent.codex.completion.subtitle.completed",
                 defaultValue: "Completed"
             )
-            if let antigravityFailure {
-                subtitle = antigravityFailure.subtitle
+            if let abnormalStop {
+                subtitle = abnormalStop.subtitle
             }
-            if codexFailure == nil, antigravityFailure == nil, let projectName, !projectName.isEmpty {
+            if codexFailure == nil, abnormalStop == nil, let projectName, !projectName.isEmpty {
                 subtitle = String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.subtitle.completedInProject",
@@ -32378,7 +32552,7 @@ export default CMUXSessionRestore;
                 )
             }
             let body = codexFailure?.body
-                ?? antigravityFailure?.body
+                ?? abnormalStop?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? String.localizedStringWithFormat(
@@ -32389,7 +32563,7 @@ export default CMUXSessionRestore;
                     def.displayName
             )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
-            let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
+            let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && abnormalStop == nil) ? .idle : .error
             let lifecycleAfterStop: AgentHibernationLifecycleState = {
                 if antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle {
                     return .running
@@ -32498,7 +32672,10 @@ export default CMUXSessionRestore;
             // completion ping arrives at the later fullyIdle stop. Deliberately NOT
             // routed through the app-side agentTurnComplete gate — publishing here
             // would mark the dedupe fingerprint and swallow the real final ping.
-            let shouldPublishStopNotification = def.publishesStopNotification
+            // Integrations that suppress ordinary stop pings (currently Grok)
+            // still publish a terminal provider error: the error lane is the
+            // recovery signal, not a duplicate completion ping.
+            let shouldPublishStopNotification = (def.publishesStopNotification || stopNotificationStatus == .error)
                 && !stopNotificationAlreadyRouted
                 && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
             let hasGrokTranscriptContext = def.name == "grok" && normalizedHookValue(cwd) != nil
@@ -32578,7 +32755,7 @@ export default CMUXSessionRestore;
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
-                } else if antigravityFailure != nil {
+                } else if abnormalStop != nil {
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
