@@ -157,7 +157,7 @@ extension RemoteSessionCoordinator {
     func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
         let script = Self.remotePlatformProbeScript(version: version)
         let command = "sh -c \(script.shellSingleQuoted)"
-        let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 20)
+        let result = try sshExec(arguments: daemonBootstrapSSHArguments() + [configuration.destination, command], timeout: 20)
 
         let lines = result.stdout
             .split(separator: "\n", omittingEmptySubsequences: false)
@@ -306,7 +306,7 @@ extension RemoteSessionCoordinator {
         let request = #"{"id":1,"method":"hello","params":{}}"#
         let script = "printf '%s\\n' \(request.shellSingleQuoted) | \(remotePath.shellSingleQuoted) serve --stdio"
         let command = "sh -c \(script.shellSingleQuoted)"
-        let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 12)
+        let result = try sshExec(arguments: daemonBootstrapSSHArguments() + [configuration.destination, command], timeout: 12)
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 40, userInfo: [

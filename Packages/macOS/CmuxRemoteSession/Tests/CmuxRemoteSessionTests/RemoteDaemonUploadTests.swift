@@ -7,105 +7,6 @@ import Testing
 
 @Suite("Remote daemon upload")
 struct RemoteDaemonUploadTests {
-    @Test("Bootstrap uploads bypass wedged ControlMasters and scale their deadline with payload size")
-    func uploadUsesStandaloneTransportAndScaledDeadline() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-remote-daemon-upload-timeout-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let smallBinary = root.appendingPathComponent("small-cmuxd-remote", isDirectory: false)
-        let largeBinary = root.appendingPathComponent("large-cmuxd-remote", isDirectory: false)
-        try Data(repeating: 0x41, count: 64 * 1024).write(to: smallBinary)
-        try Data(repeating: 0x42, count: 6 * 1024 * 1024).write(to: largeBinary)
-
-        let sshOptions = [
-            "ControlMaster=auto",
-            "ControlPersist=600",
-            "ControlPath=/tmp/cmux-ssh-wedged-test",
-        ]
-        let smallUpload = try uploadRequest(
-            localBinary: smallBinary,
-            sshOptions: sshOptions
-        )
-        let largeUpload = try uploadRequest(
-            localBinary: largeBinary,
-            sshOptions: sshOptions
-        )
-
-        #expect(Self.consecutive(largeUpload.arguments, "-o", "ControlPath=none"))
-        #expect(!largeUpload.arguments.contains("ControlPath=/tmp/cmux-ssh-wedged-test"))
-        #expect(largeUpload.timeout > 45)
-        #expect(largeUpload.timeout > smallUpload.timeout)
-    }
-
-    @Test("Upload timeout exposes the process detail and cleans remote temporary files directly")
-    func uploadTimeoutSurfacesDetailAndCleansRemoteTemporaryFiles() throws {
-        let fileManager = FileManager.default
-        let localBinary = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-remote-daemon-upload-timeout-\(UUID().uuidString)",
-            isDirectory: false
-        )
-        try Data(repeating: 0x43, count: 6 * 1024 * 1024).write(to: localBinary)
-        defer { try? fileManager.removeItem(at: localBinary) }
-
-        let runner = RecordingProcessRunner { request in
-            switch Self.uploadStep(for: request) {
-            case .createDirectory:
-                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
-            case .upload:
-                throw NSError(domain: "cmux.remote.process", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "ssh timed out after 222s",
-                ])
-            case .cleanup:
-                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
-            case .finalize, .unknown:
-                return Self.unexpectedRequestResult(request)
-            }
-        }
-        let coordinator = makeCoordinator(
-            runner: runner,
-            sshOptions: [
-                "ControlMaster=auto",
-                "ControlPath=/tmp/cmux-ssh-wedged-test",
-            ]
-        )
-        defer { coordinator.stop() }
-        let location = RemoteDaemonInstallLocation(
-            relativePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote",
-            absolutePath: "/home/test/.cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
-        )
-
-        do {
-            try coordinator.queue.sync {
-                try coordinator.uploadRemoteDaemonBinaryLocked(
-                    localBinary: localBinary,
-                    location: location
-                )
-            }
-            Issue.record("Expected the timed-out upload to fail")
-        } catch {
-            #expect(error.localizedDescription.contains("ssh timed out after 222s"))
-        }
-
-        let requests = runner.requests
-        #expect(requests.map(Self.uploadStep) == [.createDirectory, .upload, .cleanup])
-        let uploadRequest = try #require(
-            requests.first { Self.uploadStep(for: $0) == .upload }
-        )
-        let cleanupRequest = try #require(
-            requests.first { Self.uploadStep(for: $0) == .cleanup }
-        )
-        #expect(uploadRequest.arguments.last?.contains("trap") == true)
-        #expect(uploadRequest.arguments.last?.contains("kill") == true)
-        #expect(cleanupRequest.arguments.last?.contains(".tmp-*") == true)
-        #expect(Self.consecutive(cleanupRequest.arguments, "-o", "ControlPath=none"))
-        #expect(!cleanupRequest.arguments.contains("ControlPath=/tmp/cmux-ssh-wedged-test"))
-    }
-
     @Test("Upload succeeds through SSH exec when SCP's SFTP transport is unavailable")
     func uploadSucceedsWithoutSFTP() throws {
         let fileManager = FileManager.default
@@ -420,12 +321,6 @@ struct RemoteDaemonUploadTests {
         return .unknown
     }
 
-    private static func consecutive(_ args: [String], _ first: String, _ second: String) -> Bool {
-        args.indices.dropLast().contains { index in
-            args[index] == first && args[index + 1] == second
-        }
-    }
-
     private static func temporaryPathMarker(in command: String?) -> String? {
         guard let command,
               let markerRange = command.range(of: ".tmp-") else {
@@ -444,34 +339,7 @@ struct RemoteDaemonUploadTests {
         )
     }
 
-    private func uploadRequest(
-        localBinary: URL,
-        sshOptions: [String]
-    ) throws -> RemoteProcessRequest {
-        let runner = RecordingProcessRunner { request in
-            switch Self.uploadStep(for: request) {
-            case .createDirectory, .upload, .finalize:
-                return RemoteCommandResult(status: 0, stdout: "", stderr: "")
-            case .cleanup, .unknown:
-                return Self.unexpectedRequestResult(request)
-            }
-        }
-        let coordinator = makeCoordinator(runner: runner, sshOptions: sshOptions)
-        defer { coordinator.stop() }
-        let location = RemoteDaemonInstallLocation(
-            relativePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote",
-            absolutePath: "/home/test/.cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
-        )
-        try coordinator.queue.sync {
-            try coordinator.uploadRemoteDaemonBinaryLocked(
-                localBinary: localBinary,
-                location: location
-            )
-        }
-        return try #require(runner.requests.first { Self.uploadStep(for: $0) == .upload })
-    }
-
-    private func makeCoordinator(
+    func makeCoordinator(
         runner: RecordingProcessRunner,
         sshOptions: [String] = []
     ) -> RemoteSessionCoordinator {
