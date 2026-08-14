@@ -229,10 +229,20 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         guard legacyScope != currentScope else {
             return primary
         }
+        let requestedTeamID = teamID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let migrationTeamID = primary.resolvedTeamID
+            ?? ((requestedTeamID?.isEmpty ?? true) ? nil : requestedTeamID)
+        guard migrationTeamID != nil else {
+            pairedMacBackupLog.warning(
+                "paired-mac legacy migration requires a server-verified team"
+            )
+            return primary.requiringMigrationRetry()
+        }
         let migrationScope = PairedMacBackupMigrationScope(
             currentScope: currentScope,
             legacyScope: legacyScope,
-            teamID: teamID,
+            teamID: migrationTeamID,
             expectedUserID: capturedUserID
         )
         let migrationKey = migrationScope.key
@@ -244,7 +254,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             }
         }
         guard let legacyResponse = await fetchSnapshotResponse(
-            teamID: teamID,
+            teamID: migrationTeamID,
             expectedUserID: capturedUserID,
             scope: .explicit(legacyScope)
         ) else { return primary.requiringMigrationRetry() }
@@ -276,7 +286,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         }
         guard await upload(
             ops: migrationBatch,
-            teamID: teamID,
+            teamID: migrationTeamID,
             expectedUserID: capturedUserID,
             routeDisclosureDate: Date(),
             expectedRevision: expectedRevision
@@ -284,7 +294,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             return primary.requiringMigrationRetry()
         }
         guard let refreshedResponse = await fetchSnapshotResponse(
-            teamID: teamID,
+            teamID: migrationTeamID,
             expectedUserID: capturedUserID,
             scope: .current
         ) else {

@@ -91,7 +91,7 @@ struct PairedMacBackupMigrationTests {
         PairedMacBackupMigrationURLProtocol.reset(
             primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
             primaryResponse: Data(
-                #"{"records":[],"deletedMacDeviceIDs":[],"revision":0}"#.utf8
+                #"{"records":[],"deletedMacDeviceIDs":[],"revision":0,"teamId":"team-1"}"#.utf8
             ),
             legacyScope: nil,
             legacyResponse: legacyResponse,
@@ -903,7 +903,7 @@ struct PairedMacBackupMigrationTests {
         )
         let user = MigrationUserProbe(value: "user-a")
         let empty = Data(
-            #"{"records":[],"deletedMacDeviceIDs":[],"revision":0}"#.utf8
+            #"{"records":[],"deletedMacDeviceIDs":[],"revision":0,"teamId":"team-1"}"#.utf8
         )
         PairedMacBackupMigrationURLProtocol.reset(
             primaryScope: "ios:v3:Y29tLmNtdXguYXBw",

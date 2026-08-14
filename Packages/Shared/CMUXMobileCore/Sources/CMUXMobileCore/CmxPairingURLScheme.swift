@@ -20,7 +20,9 @@ public struct CmxPairingURLScheme {
         rawValue = namespace.pairingURLScheme
     }
 
-    /// Parses a current bundle-specific or historical shared pairing scheme.
+    /// Parses a classifiable bundle-specific or historical shared pairing
+    /// scheme. Unknown release-like namespaces fail closed so account preflight
+    /// cannot be bypassed by a syntactically valid but unclassified scheme.
     public init?(rawValue: String?) {
         guard let rawValue else { return nil }
         let normalized = rawValue.lowercased()
@@ -32,7 +34,9 @@ public struct CmxPairingURLScheme {
         guard normalized.hasPrefix(prefix),
               MobileIOSAppNamespace(
                 bundleIdentifier: String(normalized.dropFirst(prefix.count))
-              ) != nil else {
+              ) != nil,
+              Self.releaseSchemes.contains(normalized)
+                || normalized.hasPrefix(Self.developmentPrefix) else {
             return nil
         }
         self.rawValue = normalized
@@ -51,7 +55,7 @@ public struct CmxPairingURLScheme {
     /// Whether this scheme identifies a tagged iOS development build.
     public var isDevelopment: Bool {
         rawValue == Self.development
-            || rawValue.hasPrefix("cmux-ios-dev.cmux.ios.")
+            || rawValue.hasPrefix(Self.developmentPrefix)
     }
 
     /// Whether this scheme identifies an App Store or TestFlight build.
@@ -67,6 +71,8 @@ public struct CmxPairingURLScheme {
 
     /// Historical schemes retained for source compatibility and old QR tests.
     public static let all: [String] = [release, development]
+
+    private static let developmentPrefix = "cmux-ios-dev.cmux.ios."
 
     private static let releaseSchemes: Set<String> = [
         release,

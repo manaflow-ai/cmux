@@ -11,7 +11,7 @@ struct TestBackupList: Encodable {
         records: [PairedMacBackupRecord],
         deletedMacDeviceIDs: [String],
         revision: Int = 0,
-        teamId: String? = nil
+        teamId: String? = "team-1"
     ) {
         self.records = records
         self.deletedMacDeviceIDs = deletedMacDeviceIDs
