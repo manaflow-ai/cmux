@@ -799,6 +799,47 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
+    @Test func stalledSettingsMutationTimesOutAndReleasesLifecycleSlot() async {
+        let settingsGate = LifecycleSyncGate()
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-settings-timeout-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            notificationSettings: {
+                await settingsGate.pause()
+                return .authorizationOnly(.authorized)
+            },
+            registerForRemoteNotifications: {},
+            settingsMutationSleep: { _ in
+                await settingsGate.waitUntilStarted()
+            }
+        )
+
+        coordinator.setEnabledIntent(true)
+        await settingsGate.waitUntilStarted()
+        for _ in 0..<100 {
+            if coordinator.registrationSnapshot.backendState
+                == .failed(.networkUnavailable) {
+                break
+            }
+            await Task.yield()
+        }
+
+        #expect(coordinator.isEnabled)
+        #expect(
+            coordinator.registrationSnapshot.backendState
+                == .failed(.networkUnavailable)
+        )
+
+        await settingsGate.release()
+        await coordinator.workspaceListDidBecomeVisible()
+        #expect(await registration.snapshot.isEnabled)
+    }
+
+    @MainActor
     @Test func deniedReenableSupersedesInFlightDisable() async {
         let disableGate = LifecycleSetEnabledGate()
         let settingsGate = LifecycleSyncGate()
