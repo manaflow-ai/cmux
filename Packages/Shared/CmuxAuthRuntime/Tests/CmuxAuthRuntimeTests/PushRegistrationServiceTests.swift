@@ -912,6 +912,31 @@ actor RetryDelayRecorder {
         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
     }
 
+    @Test func disablePersistsOptOutBeforeServerCleanupCompletes() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+        ])
+        let (service, defaults) = makeScriptedService(accountID: "account-a")
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set(
+            "account-a",
+            forKey: "cmux.notifications.registeredAccountID"
+        )
+
+        let disable = Task {
+            await service.disableAndUnregister()
+        }
+        await started.waitUntilStarted()
+
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
+
+        await blocker.release()
+        await disable.value
+    }
+
     @Test func supersededQueuedOptOutCannotUndoAReenable() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
