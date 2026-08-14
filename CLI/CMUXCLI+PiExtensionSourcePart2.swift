@@ -364,17 +364,35 @@ async function publishPendingCompletion(
   await sendHook(dispatcher, "stop", context, stopPayload);
 }
 
-export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
-  const dispatcher = new PiCmuxCommandDispatcher();
-  const sessionStates = new Map<string, SessionState>();
-  const lifecycleTails = new Map<string, Promise<void>>();
+// A stalled lifecycle hook may run for its full configured timeout while Pi
+// keeps emitting tool events. Bound the pending tasks a session can stack
+// behind it so bursts cannot pin unbounded event payloads: droppable Feed
+// preparation is shed first and surfaces as a dropped delivery at completion.
+const maximumPiLifecycleBacklogTasks = 32;
 
-  const enqueueLifecycleTask = (
+interface PiLifecycleQueue {
+  enqueue(
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): Promise<void>;
+  tryEnqueue(
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): boolean;
+}
+
+function createPiLifecycleQueue(): PiLifecycleQueue {
+  const tails = new Map<string, Promise<void>>();
+  const pendingCounts = new Map<string, number>();
+  const enqueue = (
     sessionId: string,
     context: PiExtensionContextSnapshot,
     operation: () => Promise<unknown> | unknown,
   ): Promise<void> => {
-    const previous = lifecycleTails.get(sessionId) || Promise.resolve();
+    pendingCounts.set(sessionId, (pendingCounts.get(sessionId) || 0) + 1);
+    const previous = tails.get(sessionId) || Promise.resolve();
     let tracked: Promise<void>;
     tracked = previous
       .then(operation)
@@ -389,11 +407,34 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         });
       })
       .finally(() => {
-        if (lifecycleTails.get(sessionId) === tracked) lifecycleTails.delete(sessionId);
+        const remaining = (pendingCounts.get(sessionId) || 1) - 1;
+        if (remaining > 0) pendingCounts.set(sessionId, remaining);
+        else pendingCounts.delete(sessionId);
+        if (tails.get(sessionId) === tracked) tails.delete(sessionId);
       });
-    lifecycleTails.set(sessionId, tracked);
+    tails.set(sessionId, tracked);
     return tracked;
   };
+  return {
+    enqueue,
+    tryEnqueue(sessionId, context, operation) {
+      if ((pendingCounts.get(sessionId) || 0) >= maximumPiLifecycleBacklogTasks) return false;
+      void enqueue(sessionId, context, operation);
+      return true;
+    },
+  };
+}
+
+export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
+  const dispatcher = new PiCmuxCommandDispatcher();
+  const sessionStates = new Map<string, SessionState>();
+  const lifecycleTasks = createPiLifecycleQueue();
+
+  const enqueueLifecycleTask = (
+    sessionId: string,
+    context: PiExtensionContextSnapshot,
+    operation: () => Promise<unknown> | unknown,
+  ): Promise<void> => lifecycleTasks.enqueue(sessionId, context, operation);
 
   pi.on("session_start", (_event, ctx) => {
     const context = snapshotContext(ctx);
@@ -431,7 +472,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     if (!sessionId) return;
     const dispatch = prepareFeedDispatch(dispatcher, sessionStates, eventName, context, event);
     if (!dispatch) return;
-    enqueueLifecycleTask(sessionId, context, dispatch);
+    if (!lifecycleTasks.tryEnqueue(sessionId, context, dispatch)) {
+      // A shed completion must fail visibly instead of reporting delivery.
+      if (isTerminalFeedEvent(eventName)) stateFor(sessionStates, sessionId).feedDeliveryFailed = true;
+    }
   };
 
   pi.on("tool_execution_start", (event, ctx) => {

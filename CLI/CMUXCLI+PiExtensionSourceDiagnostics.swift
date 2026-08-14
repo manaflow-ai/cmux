@@ -8,9 +8,10 @@ type CommandTerminationReason = "timeout" | "cancelled";
 // session's serialized control queue indefinitely.
 const defaultPiHookTimeoutMilliseconds = 15_000;
 const maximumPiHookTimeoutMilliseconds = 60_000;
-// Feed's CLI owns a four-second end-to-end deadline; lifecycle tuning must not
-// let the shared two-worker Feed pool outlive it.
-const maximumPiFeedCommandTimeoutMilliseconds = 4_000;
+// Feed's CLI owns a four-second end-to-end deadline. Give the wrapper enough
+// headroom that the child reports that outcome itself instead of being killed
+// mid-deadline, while lifecycle tuning still cannot pin the shared Feed pool.
+const maximumPiFeedCommandTimeoutMilliseconds = 4_500;
 // Diagnostics are best effort and may hold a serialized hook queue only briefly.
 const piHookDiagnosticWriteDeadlineMilliseconds = 100;
 
