@@ -811,6 +811,53 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
+    @Test func publicEnableUsesSettingsMutationTimeout() async {
+        let settingsGate = LifecycleSyncGate()
+        let timeoutGate = LifecycleSyncGate()
+        let timeoutSleeper = LifecycleSettingsMutationSleeper(
+            firstGate: timeoutGate
+        )
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-public-enable-timeout-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            notificationSettings: {
+                await settingsGate.pause()
+                return .authorizationOnly(.authorized)
+            },
+            settingsMutationSleep: { duration in
+                try await timeoutSleeper.sleep(for: duration)
+            }
+        )
+
+        let enabling = Task { await coordinator.enable() }
+        await settingsGate.waitUntilStarted()
+        for _ in 0..<100 where await timeoutGate.starts == 0 {
+            await Task.yield()
+        }
+        #expect(await timeoutGate.starts == 1)
+
+        await timeoutGate.release()
+        for _ in 0..<100 {
+            if coordinator.registrationSnapshot.backendState
+                == .failed(.networkUnavailable) {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(
+            coordinator.registrationSnapshot.backendState
+                == .failed(.networkUnavailable)
+        )
+
+        await settingsGate.release()
+        #expect(!(await enabling.value))
+    }
+
+    @MainActor
     @Test func lateAuthorizationAfterTimeoutStartsFreshReconciliation() async {
         let authorizationGate = LifecycleSyncGate()
         let timeoutGate = LifecycleSyncGate()

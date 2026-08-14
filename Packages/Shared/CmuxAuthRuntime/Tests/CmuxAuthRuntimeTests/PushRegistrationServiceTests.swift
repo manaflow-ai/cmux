@@ -85,6 +85,7 @@ actor MutablePushTokenProvider: TokenProviding {
     private var value: AuthenticatedSessionSnapshot?
     private var snapshotBlocker: TestContinuationBlocker?
     private var snapshotStarted: TestPhaseSignal?
+    private var nextSnapshotSignal: TestPhaseSignal?
 
     init(
         accountID: String,
@@ -125,8 +126,15 @@ actor MutablePushTokenProvider: TokenProviding {
         snapshotBlocker = blocker
     }
 
+    func signalNextAuthenticatedSessionSnapshot(_ signal: TestPhaseSignal) {
+        nextSnapshotSignal = signal
+    }
+
     func authenticatedSessionSnapshot() async throws
         -> AuthenticatedSessionSnapshot {
+        let nextSnapshotSignal = self.nextSnapshotSignal
+        self.nextSnapshotSignal = nil
+        await nextSnapshotSignal?.markStarted()
         if let blocker = snapshotBlocker {
             snapshotBlocker = nil
             let started = snapshotStarted
@@ -978,6 +986,55 @@ actor RetryDelayRecorder {
                 forKey: "cmux.notifications.pendingUnregisters.v2"
             ) == nil
         )
+    }
+
+    @Test func directTokenRegistrationCannotPostAfterOptOut() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(200),
+            .response(200),
+        ])
+        let provider = MutablePushTokenProvider(
+            accountID: "account-a",
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+        let authorizationStarted = TestPhaseSignal()
+        let authorizationBlocker = TestContinuationBlocker()
+        await provider.blockAuthenticatedSessionSnapshot(
+            started: authorizationStarted,
+            until: authorizationBlocker
+        )
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil,
+            seedDefaults: { defaults in
+                defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+            }
+        )
+
+        let registration = Task {
+            await service.register(deviceToken: Data([0xAA]))
+        }
+        await authorizationStarted.waitUntilStarted()
+
+        let disableStarted = TestPhaseSignal()
+        await provider.signalNextAuthenticatedSessionSnapshot(disableStarted)
+        let disable = Task {
+            await service.setEnabled(false)
+        }
+        for _ in 0..<100 where !(await disableStarted.didStart) {
+            await Task.yield()
+        }
+
+        await authorizationBlocker.release()
+        await registration.value
+        await disable.value
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST", "DELETE"]
+        )
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
     }
 
     @Test func inFlightRegistrationPersistsCleanupOwnerBeforePostCompletes() async {
