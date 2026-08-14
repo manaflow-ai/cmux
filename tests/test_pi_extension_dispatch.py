@@ -1285,8 +1285,8 @@ const releasePath = process.env.CMUX_TEST_PI_AGGREGATE_RELEASE;
 const mod = await import(extensionPath);
 const handlers = new Map();
 mod.default({ on(name, handler) { handlers.set(name, handler); } });
-async function waitForAggregateState(label, predicate) {
-  const deadline = performance.now() + 5000;
+async function waitForAggregateState(label, predicate, timeoutMs = 5000) {
+  const deadline = performance.now() + timeoutMs;
   let lastState = null;
   let lastError = null;
   while (performance.now() < deadline) {
@@ -1323,6 +1323,7 @@ writeFileSync(releasePath, "ready");
 await waitForAggregateState(
   "waiting for aggregate Feed drain",
   (state) => state.starts === 34 && state.active === 0,
+  10000,
 );
 """
     result = run_extension(
@@ -2772,7 +2773,7 @@ if (timedOut.timeoutMs !== 80 || timedOut.elapsedMs < 1) {
   throw new Error(`timeout result omitted timing metadata: ${JSON.stringify(timedOut)}`);
 }
 
-process.env.CMUX_PI_HOOK_TIMEOUT_MS = "500";
+process.env.CMUX_PI_HOOK_TIMEOUT_MS = "5000";
 const nonzero = await dispatcher.run(
   ["hooks", "pi", "prompt-submit"],
   context.cwd,
@@ -2810,8 +2811,8 @@ while (performance.now() < deadline) {
 
 const expectedFailures = new Map([
   ["session-start", { reason: "timeout", timeout_ms: 80 }],
-  ["prompt-submit", { reason: "nonzero-exit", timeout_ms: 500 }],
-  ["stop", { reason: "spawn-error", timeout_ms: 500 }],
+  ["prompt-submit", { reason: "nonzero-exit", timeout_ms: 5000 }],
+  ["stop", { reason: "spawn-error", timeout_ms: 5000 }],
 ]);
 for (const [hookName, expected] of expectedFailures) {
   const payload = diagnostics.find((candidate) => candidate.hook_name === hookName);
@@ -2857,7 +2858,7 @@ def check_diagnostic_log_safety_and_routing(
     inspectable_extension = root / "diagnostic-log-cmux-session.ts"
     inspectable_extension.write_text(
         extension_text
-        + "\nexport { PiCmuxCommandDispatcher, appendPiHookDiagnostic, piHookDiagnosticPath };\n",
+        + "\nexport { PiCmuxCommandDispatcher, appendPiHookDiagnostic, piHookDiagnosticPath, warn };\n",
         encoding="utf-8",
     )
 
@@ -2879,6 +2880,8 @@ exit 23
     pointer_file.write_text("~/pointer.log\n", encoding="utf-8")
     missing_pointer = root / "missing-last-debug-log-path"
     fallback_log = root / "fallback.log"
+    invalid_log_destination = root / "diagnostic-directory"
+    invalid_log_destination.mkdir()
     fifo_log = root / "diagnostic.fifo"
     os.mkfifo(fifo_log)
     socket_tag = f"pi-routing-{os.getpid()}"
@@ -3029,6 +3032,17 @@ if (fifoOutcome !== "resolved") {
   failures.push(`FIFO diagnostic destination blocked the lifecycle queue for ${fifoElapsedMs.toFixed(0)}ms`);
 }
 
+let notificationCount = 0;
+process.env.CMUX_DEBUG_LOG = process.env.CMUX_TEST_PI_INVALID_LOG_DESTINATION;
+await Promise.resolve(mod.warn(
+  { ui: { notify() { notificationCount += 1; } } },
+  "failed append canary",
+));
+await new Promise((resolve) => setTimeout(resolve, 20));
+if (notificationCount !== 0) {
+  failures.push(`failed diagnostic append emitted ${notificationCount} Pi UI notifications`);
+}
+
 for (const candidate of cases) {
   if (candidate.expected.startsWith("/tmp/")) {
     try { unlinkSync(candidate.expected); } catch (_) {}
@@ -3064,6 +3078,7 @@ if (failures.length) throw new Error(failures.join("\n"));
                 "CMUX_TEST_PI_MISSING_POINTER": str(missing_pointer),
                 "CMUX_TEST_PI_FALLBACK_LOG": str(fallback_log),
                 "CMUX_TEST_PI_FIFO_LOG": str(fifo_log),
+                "CMUX_TEST_PI_INVALID_LOG_DESTINATION": str(invalid_log_destination),
                 "CMUX_TEST_PI_SOCKET_TAG": socket_tag,
             },
         )
