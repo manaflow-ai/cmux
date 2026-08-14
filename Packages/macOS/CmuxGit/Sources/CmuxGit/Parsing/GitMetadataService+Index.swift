@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension GitMetadataService {
@@ -8,8 +9,59 @@ extension GitMetadataService {
     /// Mirrors git's stat-based dirty check: for each tracked entry it reads the
     /// file status and compares size, mode, and mtime. Gitlink entries are dirty
     /// when the submodule's checked-out commit differs from the index object ID.
-    nonisolated func gitTrackedChangesSnapshot(repository: ResolvedGitRepository) -> GitTrackedChangesSnapshot {
-        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
+    /// Direct work is capped by entry count and elapsed duration; exceeding
+    /// either bound switches to a cancellable, non-locking `git status` probe.
+    nonisolated func gitTrackedChangesSnapshot(
+        repository: ResolvedGitRepository
+    ) async -> GitTrackedChangesSnapshot {
+        let cancellationSignal = WorkspaceChangesCancellationSignal()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let snapshot = cancellationSignal.withCurrentBinding {
+                        gitTrackedChangesSnapshotBlocking(repository: repository)
+                    }
+                    continuation.resume(returning: snapshot)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
+        }
+    }
+
+    private nonisolated func gitTrackedChangesSnapshotBlocking(
+        repository: ResolvedGitRepository
+    ) -> GitTrackedChangesSnapshot {
+        let indexPath = Self.joinedPath(root: repository.gitDirectory, relativePath: "index")
+        let indexURL = URL(fileURLWithPath: indexPath)
+        if let header = Self.gitIndexHeaderSummary(indexPath: indexPath) {
+            if header.entryCount > GitMetadataSafetyLimits.directFileStatusEntryCount {
+                return gitStatusFallbackSnapshot(
+                    repository: repository,
+                    // The fallback result is authoritative. Omitting signatures
+                    // prevents sidebar stat-signature reconciliation from
+                    // second-guessing a clean result without a matching
+                    // content-only signature.
+                    indexSignature: nil,
+                    indexContentSignature: nil,
+                    reason: .trackedEntryLimit(
+                        count: header.entryCount,
+                        limit: GitMetadataSafetyLimits.directFileStatusEntryCount
+                    )
+                )
+            }
+            if header.fileByteCount > GitMetadataSafetyLimits.directIndexByteCount {
+                return gitStatusFallbackSnapshot(
+                    repository: repository,
+                    indexSignature: nil,
+                    indexContentSignature: nil,
+                    reason: .indexByteLimit(
+                        count: header.fileByteCount,
+                        limit: GitMetadataSafetyLimits.directIndexByteCount
+                    )
+                )
+            }
+        }
         guard let indexSnapshot = Self.gitIndexSnapshot(indexURL: indexURL) else {
             return GitTrackedChangesSnapshot(
                 isDirty: false,
@@ -18,8 +70,25 @@ extension GitMetadataService {
             )
         }
 
+        let scanStart = ContinuousClock.now
         for entry in indexSnapshot.entries {
-            let fileURL = URL(fileURLWithPath: repository.workTreeRoot).appendingPathComponent(entry.path)
+            if WorkspaceChangesCancellationSignal.isCurrentCancelled {
+                return GitTrackedChangesSnapshot(
+                    isDirty: true,
+                    indexSignature: indexSnapshot.signature,
+                    indexContentSignature: indexSnapshot.contentSignature
+                )
+            }
+            if scanStart.duration(to: ContinuousClock.now) >= GitMetadataSafetyLimits.directFileStatusDuration {
+                return gitStatusFallbackSnapshot(
+                    repository: repository,
+                    indexSignature: indexSnapshot.signature,
+                    indexContentSignature: indexSnapshot.contentSignature,
+                    reason: .directScanDuration(
+                        milliseconds: GitMetadataSafetyLimits.directFileStatusDurationMilliseconds
+                    )
+                )
+            }
             let gitlinkMode: UInt32 = 0o160000
             if (entry.mode & 0o170000) == gitlinkMode {
                 guard let submoduleCommit = Self.gitlinkWorktreeCommit(
@@ -42,7 +111,8 @@ extension GitMetadataService {
                 continue
             }
 
-            guard let fileStatus = fileStatusReader.status(atPath: fileURL.path) else {
+            let filePath = Self.joinedPath(root: repository.workTreeRoot, relativePath: entry.path)
+            guard let fileStatus = fileStatusReader.status(atPath: filePath) else {
                 return GitTrackedChangesSnapshot(
                     isDirty: true,
                     indexSignature: indexSnapshot.signature,
@@ -75,6 +145,23 @@ extension GitMetadataService {
             isDirty: false,
             indexSignature: indexSnapshot.signature,
             indexContentSignature: indexSnapshot.contentSignature
+        )
+    }
+
+    private nonisolated func gitStatusFallbackSnapshot(
+        repository: ResolvedGitRepository,
+        indexSignature: String?,
+        indexContentSignature: String?,
+        reason: GitMetadataDegradationReason
+    ) -> GitTrackedChangesSnapshot {
+        degradationRecorder.record(repositoryRoot: repository.workTreeRoot, reason: reason)
+        let isDirty = WorkspaceChangesCancellationSignal.isCurrentCancelled
+            ? true
+            : dirtyStatusReader.isDirty(workTreeRoot: repository.workTreeRoot) ?? true
+        return GitTrackedChangesSnapshot(
+            isDirty: isDirty,
+            indexSignature: indexSignature,
+            indexContentSignature: indexContentSignature
         )
     }
 
@@ -250,11 +337,12 @@ extension GitMetadataService {
         parentRepository: ResolvedGitRepository,
         gitlinkPath: String
     ) -> String? {
-        let gitlinkURL = URL(fileURLWithPath: parentRepository.workTreeRoot)
-            .appendingPathComponent(gitlinkPath)
-            .standardizedFileURL
-        guard let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
-              submoduleRepository.workTreeRoot == gitlinkURL.path else {
+        let gitlinkPath = joinedPath(
+            root: parentRepository.workTreeRoot,
+            relativePath: gitlinkPath
+        )
+        guard let submoduleRepository = resolveGitRepository(containing: gitlinkPath),
+              submoduleRepository.workTreeRoot == gitlinkPath else {
             return nil
         }
         return gitCurrentCommit(repository: submoduleRepository)
@@ -291,10 +379,17 @@ extension GitMetadataService {
     /// is absent/too small. Used as a fallback signature when the index cannot
     /// be parsed into entries.
     nonisolated static func gitIndexFileSignature(indexURL: URL) -> String? {
-        guard let data = try? Data(contentsOf: indexURL), data.count >= 20 else {
-            return nil
+        let descriptor = Darwin.open(indexURL.path, O_RDONLY | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+        var status = stat()
+        guard Darwin.fstat(descriptor, &status) == 0, status.st_size >= 20 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: 20)
+        let readCount = bytes.withUnsafeMutableBytes { buffer in
+            Darwin.pread(descriptor, buffer.baseAddress, buffer.count, status.st_size - 20)
         }
-        return gitIndexHexString(data.suffix(20))
+        guard readCount == bytes.count else { return nil }
+        return gitIndexHexString(bytes)
     }
 
     /// Decodes a git index v4 path strip-length varint, advancing `offset`.

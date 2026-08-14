@@ -7,14 +7,52 @@ extension GitMetadataService {
     nonisolated static func workspaceGitMetadataWatchedPaths(
         for directory: String
     ) -> [String]? {
+        workspaceGitMetadataWatchDescriptor(for: directory)?.watchedPaths
+    }
+
+    /// Builds a bounded, Git-aware filesystem event plan. Tracked paths come
+    /// from the index, so ignored and untracked build trees never enter the
+    /// relevance filter or trigger a dirty-state probe.
+    nonisolated static func workspaceGitMetadataWatchDescriptor(
+        for directory: String
+    ) -> GitWorkspaceMetadataWatchDescriptor? {
         guard let repository = resolveGitRepository(containing: directory) else {
             return nil
         }
 
-        let candidatePaths = [
-            repository.workTreeRoot,
-        ] + gitRepositoryMetadataWatchPaths(repository: repository)
+        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(repository: repository)
             + gitlinkMetadataWatchPaths(repository: repository)
+        let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
+        let declaredEntryCount = gitIndexHeaderSummary(indexPath: indexPath)?.entryCount ?? 0
+        let tracksWorkTreeEvents = declaredEntryCount <= GitMetadataSafetyLimits.trackedEventPathCount
+        let trackedEntryPaths: [String]
+        if tracksWorkTreeEvents,
+           let indexSnapshot = gitIndexSnapshot(indexURL: URL(fileURLWithPath: indexPath)) {
+            trackedEntryPaths = sortedUniqueTrackedPaths(
+                entries: indexSnapshot.entries,
+                workTreeRoot: repository.workTreeRoot
+            )
+        } else {
+            trackedEntryPaths = []
+        }
+
+        let degradation: GitWorkspaceMetadataWatchDegradation?
+        if !tracksWorkTreeEvents {
+            degradation = .metadataOnly(
+                entryCount: declaredEntryCount,
+                trackedPathLimit: GitMetadataSafetyLimits.trackedEventPathCount
+            )
+        } else if declaredEntryCount > GitMetadataSafetyLimits.directFileStatusEntryCount {
+            degradation = .boundedGitStatus(
+                entryCount: declaredEntryCount,
+                directEntryLimit: GitMetadataSafetyLimits.directFileStatusEntryCount
+            )
+        } else {
+            degradation = nil
+        }
+
+        let candidatePaths = (tracksWorkTreeEvents ? [repository.workTreeRoot] : [])
+            + gitMetadataPaths
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
@@ -27,7 +65,13 @@ extension GitMetadataService {
             watchedPaths.append(normalized)
         }
 
-        return watchedPaths.sorted()
+        return GitWorkspaceMetadataWatchDescriptor(
+            repositoryRoot: repository.workTreeRoot,
+            watchedPaths: watchedPaths.sorted(),
+            gitMetadataPaths: sortedUniqueNormalizedPaths(gitMetadataPaths),
+            trackedEntryPaths: trackedEntryPaths,
+            degradation: degradation
+        )
     }
 
     /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, every reachable
@@ -36,12 +80,38 @@ extension GitMetadataService {
         repository: ResolvedGitRepository
     ) -> [String] {
         [
-            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD").path,
-            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index").path,
-            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("refs").path,
-            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("refs").path,
-            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs").path,
+            joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
+            joinedPath(root: repository.gitDirectory, relativePath: "index"),
+            joinedPath(root: repository.gitDirectory, relativePath: "refs"),
+            joinedPath(root: repository.commonDirectory, relativePath: "refs"),
+            joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
         ] + gitConfigURLs(repository: repository).map(\.path)
+    }
+
+    private nonisolated static func sortedUniqueTrackedPaths(
+        entries: [GitIndexEntryStat],
+        workTreeRoot: String
+    ) -> [String] {
+        let sortedPaths = entries.map {
+            joinedPath(root: workTreeRoot, relativePath: $0.path)
+        }.sorted()
+        var result: [String] = []
+        result.reserveCapacity(sortedPaths.count)
+        for path in sortedPaths where result.last != path {
+            result.append(path)
+        }
+        return result
+    }
+
+    private nonisolated static func sortedUniqueNormalizedPaths(_ paths: [String]) -> [String] {
+        var result: [String] = []
+        var seen: Set<String> = []
+        for path in paths {
+            let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard seen.insert(normalized).inserted else { continue }
+            result.append(normalized)
+        }
+        return result.sorted()
     }
 
     /// The metadata paths contributed by gitlink (submodule) entries in the
@@ -51,14 +121,25 @@ extension GitMetadataService {
         repository: ResolvedGitRepository
     ) -> [String] {
         var visitedWorkTreeRoots: Set<String> = [repository.workTreeRoot]
-        return gitlinkMetadataWatchPaths(repository: repository, visitedWorkTreeRoots: &visitedWorkTreeRoots)
+        return gitlinkMetadataWatchPaths(
+            repository: repository,
+            depth: 0,
+            visitedWorkTreeRoots: &visitedWorkTreeRoots
+        )
     }
 
     private nonisolated static func gitlinkMetadataWatchPaths(
         repository: ResolvedGitRepository,
+        depth: Int,
         visitedWorkTreeRoots: inout Set<String>
     ) -> [String] {
-        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
+        guard depth < GitMetadataSafetyLimits.submoduleDepth else { return [] }
+        let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
+        if let header = gitIndexHeaderSummary(indexPath: indexPath),
+           header.entryCount > GitMetadataSafetyLimits.trackedEventPathCount {
+            return []
+        }
+        let indexURL = URL(fileURLWithPath: indexPath)
         guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
             return []
         }
@@ -66,18 +147,17 @@ extension GitMetadataService {
         let gitlinkMode: UInt32 = 0o160000
         var paths: [String] = []
         for entry in indexSnapshot.entries where (entry.mode & 0o170000) == gitlinkMode {
-            let gitlinkURL = URL(fileURLWithPath: repository.workTreeRoot)
-                .appendingPathComponent(entry.path)
-                .standardizedFileURL
-            guard visitedWorkTreeRoots.insert(gitlinkURL.path).inserted,
-                  let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
-                  submoduleRepository.workTreeRoot == gitlinkURL.path else {
+            let gitlinkPath = joinedPath(root: repository.workTreeRoot, relativePath: entry.path)
+            guard visitedWorkTreeRoots.insert(gitlinkPath).inserted,
+                  let submoduleRepository = resolveGitRepository(containing: gitlinkPath),
+                  submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
             paths.append(contentsOf: gitRepositoryMetadataWatchPaths(repository: submoduleRepository))
             paths.append(
                 contentsOf: gitlinkMetadataWatchPaths(
                     repository: submoduleRepository,
+                    depth: depth + 1,
                     visitedWorkTreeRoots: &visitedWorkTreeRoots
                 )
             )

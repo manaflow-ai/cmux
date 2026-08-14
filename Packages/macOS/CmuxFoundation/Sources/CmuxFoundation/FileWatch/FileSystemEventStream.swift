@@ -1,6 +1,12 @@
 import CoreServices
 import Foundation
 
+/// One raw callback batch from FSEvents.
+struct FileSystemEventBatch: Sendable {
+    let paths: [String]
+    let requiresFullRescan: Bool
+}
+
 /// A thin owner of an `FSEventStream` that reports raw filesystem events through
 /// a `@Sendable` sink.
 ///
@@ -41,15 +47,55 @@ final class FileSystemEventStream: @unchecked Sendable {
     /// stream is recovered from the context's `info` pointer instead — passed
     /// *unretained* (see the type's "Context lifetime" note), so this uses
     /// `takeUnretainedValue()` and never adjusts the reference count.
-    private static let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
+    private static let callback: FSEventStreamCallback = { _, info, eventCount, eventPaths, eventFlags, _ in
         guard let info else { return }
-        Unmanaged<FileSystemEventStream>.fromOpaque(info).takeUnretainedValue().onEvent()
+        let owner = Unmanaged<FileSystemEventStream>.fromOpaque(info).takeUnretainedValue()
+        owner.onEvent(FileSystemEventBatch(
+            paths: paths(from: eventPaths, count: min(eventCount, maximumPathsPerBatch)),
+            requiresFullRescan: eventCount > maximumPathsPerBatch
+                || flagsRequireFullRescan(eventFlags, count: eventCount)
+        ))
     }
 
     /// The non-blocking sink invoked on the shared queue for each coalesced batch
     /// of filesystem events.
-    private let onEvent: @Sendable () -> Void
+    private let onEvent: @Sendable (FileSystemEventBatch) -> Void
     private var stream: FSEventStreamRef?
+
+    /// Bounds native-to-Swift path copying for a single callback. A larger batch
+    /// is represented as a full-rescan marker instead of allocating without limit.
+    private static let maximumPathsPerBatch = 4_096
+
+    private static let fullRescanFlags = FSEventStreamEventFlags(
+        kFSEventStreamEventFlagMustScanSubDirs
+            | kFSEventStreamEventFlagUserDropped
+            | kFSEventStreamEventFlagKernelDropped
+            | kFSEventStreamEventFlagEventIdsWrapped
+            | kFSEventStreamEventFlagRootChanged
+            | kFSEventStreamEventFlagMount
+            | kFSEventStreamEventFlagUnmount
+    )
+
+    private static func paths(from eventPaths: UnsafeMutableRawPointer, count: Int) -> [String] {
+        guard count > 0 else { return [] }
+        let rawPaths = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
+        var paths: [String] = []
+        paths.reserveCapacity(count)
+        for index in 0..<count {
+            paths.append(String(cString: rawPaths[index]))
+        }
+        return paths
+    }
+
+    private static func flagsRequireFullRescan(
+        _ eventFlags: UnsafePointer<FSEventStreamEventFlags>,
+        count: Int
+    ) -> Bool {
+        for index in 0..<count where eventFlags[index] & fullRescanFlags != 0 {
+            return true
+        }
+        return false
+    }
 
     /// Creates and starts a stream for `paths`.
     ///
@@ -60,7 +106,11 @@ final class FileSystemEventStream: @unchecked Sendable {
     ///     coalesced batch of filesystem events.
     /// - Returns: `nil` if `paths` is empty or the underlying `FSEventStream`
     ///   could not be created or started.
-    init?(paths: [String], latency: TimeInterval, onEvent: @escaping @Sendable () -> Void) {
+    init?(
+        paths: [String],
+        latency: TimeInterval,
+        onEvent: @escaping @Sendable (FileSystemEventBatch) -> Void
+    ) {
         guard !paths.isEmpty else { return nil }
         self.onEvent = onEvent
         self.stream = nil

@@ -1,5 +1,5 @@
 /// Injectable clock behind the sidebar git/PR polling delays: the initial
-/// probe retry gaps, the metadata fallback loop, and the pull-request poll
+/// probe retry gaps and the pull-request poll
 /// deadline. A seam (mirroring `FileWatchClock`/`UpdateClock`) so tests can
 /// drive these schedules with virtual time instead of real waits.
 ///

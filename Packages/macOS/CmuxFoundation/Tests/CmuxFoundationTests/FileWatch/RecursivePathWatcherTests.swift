@@ -125,6 +125,58 @@ private actor WatchRecheckCounter {
         #expect(await clock.sleeperCount == 0)
     }
 
+    @Test func pathEventsAggregateAndDeduplicatePaths() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        var iterator = watcher.pathEvents.makeAsyncIterator()
+
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/build/output.js"])
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/Sources/App.swift"])
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/Sources/App.swift"])
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+
+        let change = await iterator.next()
+        #expect(change == RecursivePathChange(paths: [
+            "/repo/Sources/App.swift",
+            "/repo/build/output.js",
+        ]))
+        await watcher.stop()
+    }
+
+    @Test func fullRescanMarkerSurvivesCoalescing() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        var iterator = watcher.pathEvents.makeAsyncIterator()
+
+        await watcher.simulateFileSystemEventForTesting(
+            paths: ["/repo/partial"],
+            requiresFullRescan: true
+        )
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+
+        let change = await iterator.next()
+        #expect(change?.paths == [])
+        #expect(change?.requiresFullRescan == true)
+        await watcher.stop()
+    }
+
+    @Test func eventFilterRejectsIrrelevantBatchesBeforeDebounce() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(testThrottleClock: clock) { change in
+            change.paths.contains { $0.hasPrefix("/repo/Sources/") }
+        }
+
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/node_modules/output.js"])
+        #expect(await clock.sleeperCount == 0)
+
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/Sources/App.swift"])
+        await clock.waitForSleeper()
+        #expect(await clock.sleeperCount == 1)
+        await watcher.stop()
+    }
+
     /// A rapid notification burst drives exactly one consumer re-check, not one
     /// re-check per filesystem callback.
     @Test func rapidEventsCoalesceIntoOneConsumerRecheck() async {
