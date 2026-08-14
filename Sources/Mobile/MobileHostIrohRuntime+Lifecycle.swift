@@ -8,7 +8,7 @@ extension MobileHostIrohRuntime {
         #if DEBUG
         Self.debugTransportVerificationMode(defaults: .standard)
         #else
-        CmxIrohPathPreference.stored(in: .standard).transportVerificationMode
+        .automatic
         #endif
     }
 
@@ -41,7 +41,7 @@ extension MobileHostIrohRuntime {
         if defaults.bool(forKey: debugRelayOnlyDefaultsKey) {
             return .relayOnly
         }
-        return CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
+        return .automatic
     }
 
     static var isDebugRelayOnlyEnabled: Bool {

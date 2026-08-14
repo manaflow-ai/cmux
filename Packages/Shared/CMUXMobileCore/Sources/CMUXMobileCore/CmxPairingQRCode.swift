@@ -316,7 +316,10 @@ private extension CmxPairingQRCode {
             terminalID: nil,
             macDeviceID: "",
             macDisplayName: nil,
-            macPairingCompatibilityVersion: 0,
+            // v3 is intentionally endpoint-only. `nil` means the QR did not
+            // make a compatibility claim, unlike v2's explicit unknown value
+            // (0), which must continue to trigger its legacy warning.
+            macPairingCompatibilityVersion: nil,
             routes: [route],
             expiresAt: nil,
             authToken: nil

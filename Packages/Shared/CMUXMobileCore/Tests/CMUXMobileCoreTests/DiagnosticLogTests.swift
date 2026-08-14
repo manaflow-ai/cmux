@@ -324,6 +324,9 @@ import os
         #expect(DiagnosticEventCode.simulatorCoordinateMapped.rawValue == 63)
         #expect(DiagnosticEventCode.simulatorOwnershipChanged.rawValue == 64)
         #expect(DiagnosticEventCode.appFeatureAction.rawValue == 65)
+        #expect(DiagnosticEventCode.transportDialSessionLinked.rawValue == 77)
+        #expect(DiagnosticEventCode.transportDialCancelled.rawValue == 78)
+        #expect(DiagnosticEventCode.transportCloseReason.rawValue == 79)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
     }
 
