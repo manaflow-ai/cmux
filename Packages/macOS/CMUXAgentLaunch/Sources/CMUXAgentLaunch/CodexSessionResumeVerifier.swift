@@ -3,14 +3,6 @@ import SQLite3
 
 /// Verifies exact Codex resume identifiers against `state_5.sqlite` and rollout
 /// JSONL files under the effective CODEX_HOME.
-///
-/// ```swift
-/// let result = CodexSessionResumeVerifier().verify(
-///     sessionId: checkpointID,
-///     transcriptPath: hookTranscriptPath,
-///     codexHome: capturedCodexHome
-/// )
-/// ```
 public struct CodexSessionResumeVerifier: Sendable {
     private static let maximumRolloutBytes = 8 * 1024 * 1024
     private static let maximumRolloutLines = 32
@@ -30,12 +22,8 @@ public struct CodexSessionResumeVerifier: Sendable {
     ///   - fileManager: The filesystem implementation used for inspection.
     /// - Returns: Whether exact durable evidence exists, is missing, or could
     ///   not be inspected safely.
-    ///
-    /// The legacy filesystem fallback is deliberately bounded (8 MiB, 32
-    /// lines per rollout, 512 unrelated candidates, and 8,192 enumerated
-    /// entries). Callers can therefore use this synchronous API from the
-    /// short-lived hook CLI without putting an unbounded history load on cmux's
-    /// app actor. A scan that reaches the entry limit fails closed as
+    /// The legacy fallback is bounded by bytes, lines, candidates, and entries;
+    /// reaching the entry limit fails closed as
     /// ``CodexSessionResumeVerification/unavailable``.
     public func verify(
         sessionId: String,
