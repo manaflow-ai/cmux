@@ -115,8 +115,7 @@ private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
     override var isOpaque: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        let appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
-        NSColor.windowBackgroundColor.resolvedColor(with: appearance).setFill()
+        WindowAppearanceSnapshot.resolvedColor(.windowBackgroundColor, for: colorScheme).setFill()
         dirtyRect.fill()
     }
 }

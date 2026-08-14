@@ -142,11 +142,13 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
     func applyResolvedColorScheme(_ colorScheme: ColorScheme) {
         guard appliedColorScheme != colorScheme || rootView.appearance == nil else { return }
         appliedColorScheme = colorScheme
-        let appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
-        rootView.appearance = appearance
+        rootView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         cardView.layer?.backgroundColor = cardBackgroundColor.cgColor
         cardView.layer?.borderColor = cardBorderColor.cgColor
-        compactLabel.textColor = NSColor.secondaryLabelColor.resolvedColor(with: appearance)
+        compactLabel.textColor = WindowAppearanceSnapshot.resolvedColor(
+            .secondaryLabelColor,
+            for: colorScheme
+        )
         rootView.needsDisplay = true
     }
 
@@ -183,8 +185,10 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
         compactLabel.translatesAutoresizingMaskIntoConstraints = false
         compactLabel.alignment = .center
         applyFonts()
-        compactLabel.textColor = NSColor.secondaryLabelColor.resolvedColor(with: rootView.appearance
-            ?? WindowAppearanceSnapshot.appKitAppearance(for: appliedColorScheme))
+        compactLabel.textColor = WindowAppearanceSnapshot.resolvedColor(
+            .secondaryLabelColor,
+            for: appliedColorScheme
+        )
         compactLabel.maximumNumberOfLines = 0
         compactLabel.lineBreakMode = .byWordWrapping
         compactLabel.cell?.wraps = true
@@ -329,11 +333,15 @@ private final class CMUXSidebarExtensionBrowserContainerViewController: NSViewCo
     private static let minimumUsableHeight: CGFloat = 420
     private static let cornerRadius: CGFloat = 8
     private var cardBackgroundColor: NSColor {
-        let appearance = rootView.appearance ?? WindowAppearanceSnapshot.appKitAppearance(for: appliedColorScheme)
-        return NSColor.windowBackgroundColor.resolvedColor(with: appearance).withAlphaComponent(0.92)
+        return WindowAppearanceSnapshot.resolvedColor(
+            .windowBackgroundColor,
+            for: appliedColorScheme
+        ).withAlphaComponent(0.92)
     }
     private var cardBorderColor: NSColor {
-        let appearance = rootView.appearance ?? WindowAppearanceSnapshot.appKitAppearance(for: appliedColorScheme)
-        return NSColor.separatorColor.resolvedColor(with: appearance).withAlphaComponent(0.45)
+        return WindowAppearanceSnapshot.resolvedColor(
+            .separatorColor,
+            for: appliedColorScheme
+        ).withAlphaComponent(0.45)
     }
 }

@@ -33,8 +33,7 @@ struct SidebarAppearanceColorResolver {
         for colorScheme: ColorScheme,
         opacity: CGFloat? = nil
     ) -> NSColor {
-        let appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
-        let resolved = appearance.map { color.resolvedColor(with: $0) } ?? color
+        let resolved = WindowAppearanceSnapshot.resolvedColor(color, for: colorScheme)
         guard let opacity else { return resolved }
         return resolved.withAlphaComponent(max(0, min(opacity, 1)))
     }

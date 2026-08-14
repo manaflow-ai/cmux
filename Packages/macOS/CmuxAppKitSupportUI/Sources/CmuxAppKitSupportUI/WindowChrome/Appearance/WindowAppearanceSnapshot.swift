@@ -97,6 +97,22 @@ public struct WindowAppearanceSnapshot {
             ?? NSAppearance(named: .aqua)!
     }
 
+    /// Resolves an AppKit semantic color against a concrete cmux scheme.
+    /// AppKit does not expose UIKit's `resolvedColor(with:)`; resolving under
+    /// `performAsCurrentDrawingAppearance` is the supported way to snapshot a
+    /// dynamic `NSColor` for a detached/native hosting subtree.
+    public static func resolvedColor(
+        _ color: NSColor,
+        for colorScheme: ColorScheme
+    ) -> NSColor {
+        let appearance = appKitAppearance(for: colorScheme)
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.sRGB) ?? color
+        }
+        return resolved
+    }
+
     /// Composites a terminal background over the concrete window base for a
     /// resolved cmux scheme. Native chrome should use this instead of the
     /// ambient ``NSColor.windowBackgroundColor`` when the system appearance
@@ -106,8 +122,7 @@ public struct WindowAppearanceSnapshot {
         opacity: Double,
         colorScheme: ColorScheme
     ) -> NSColor {
-        let appearance = appKitAppearance(for: colorScheme)
-        let baseColor = NSColor.windowBackgroundColor.resolvedColor(with: appearance)
+        let baseColor = resolvedColor(.windowBackgroundColor, for: colorScheme)
         return compositedTerminalColor(
             backgroundColor: backgroundColor,
             opacity: opacity,
