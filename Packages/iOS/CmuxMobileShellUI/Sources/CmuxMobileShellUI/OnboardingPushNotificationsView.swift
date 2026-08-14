@@ -51,7 +51,7 @@ private struct OnboardingSystemNotificationPreview: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L10n.string(
             "mobile.onboarding.pushPreview.accessibilityLabel",
-            defaultValue: "cmux notification: Agent needs your input."
+            defaultValue: "cmux notification: Codex needs your input."
         ))
         .accessibilityIdentifier("MobileOnboardingPushPreview")
     }

@@ -19125,13 +19125,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux notification: Agent needs your input."
+            "value": "cmux notification: Codex needs your input."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxの通知：エージェントが入力を求めています。"
+            "value": "cmuxの通知：Codexが入力を求めています。"
           }
         }
       }
