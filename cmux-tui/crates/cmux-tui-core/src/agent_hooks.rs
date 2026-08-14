@@ -8,12 +8,40 @@ use crate::{
 };
 
 pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
-pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 1;
+pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 2;
 const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+const AGENT_CANONICAL_NATIVE_FORMAT: &str = "cmux.agent-native.canonical.v1";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
+const MAX_OPAQUE_IDENTIFIER_BYTES: usize = 512;
+const MAX_LABEL_BYTES: usize = 128;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
+const AGENT_SESSION_SUBJECT_FORMAT: &[u8] = b"cmux.agent-session.v1\0";
+const PROPERTIES_INFO_ID_PATH: &[&str] = &["properties", "info", "id"];
+const EVENT_PROPERTIES_INFO_ID_PATH: &[&str] = &["event", "properties", "info", "id"];
+const EXPLICIT_AGENT_SESSION_ID_PATHS: &[&[&str]] = &[
+    &["session_id"],
+    &["sessionId"],
+    &["sessionID"],
+    &["conversation_id"],
+    &["thread_id"],
+    &["session", "id"],
+    &["properties", "sessionID"],
+    &["properties", "sessionId"],
+    &["event", "properties", "sessionID"],
+    &["event", "properties", "sessionId"],
+    &["event", "properties", "info", "sessionID"],
+    &["event", "properties", "info", "sessionId"],
+    &["event", "session_id"],
+    &["event", "sessionId"],
+    &["event", "thread", "id"],
+    &["context", "session_id"],
+    &["context", "sessionId"],
+    &["context", "thread", "id"],
+];
+const AMBIGUOUS_AGENT_SESSION_ID_PATHS: &[&[&str]] =
+    &[PROPERTIES_INFO_ID_PATH, EVENT_PROPERTIES_INFO_ID_PATH];
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -40,12 +68,23 @@ pub fn agent_hook_journal_ingress(
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
     let native = redact_agent_native(native_event, native);
-    let mut normalized = normalized_fields(&native);
+    let agent_session_id = validate_agent_session_identifiers(&native)?;
+    let mut normalized = normalized_fields(&native, agent_session_id);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
-    let mut subjects = Vec::with_capacity(4);
-    if let Some(terminal_id) = terminal_id {
+    let native = canonical_native_payload(source, native_event, &normalized);
+    let mut subjects = Vec::with_capacity(5);
+    if let Some(terminal_id) = terminal_id.as_ref() {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
+    }
+    if let Some(terminal_id) = terminal_id.as_ref()
+        && !normalized_agent_is_nested(&normalized)
+        && let Some(source_session) = normalized
+            .get("agent_session_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+    {
+        subjects.push(agent_session_subject(terminal_id.as_str(), source, source_session));
     }
     for (field, kind) in [
         ("agent_tree_id", "agent_tree"),
@@ -74,6 +113,36 @@ pub fn agent_hook_journal_ingress(
         causation_id: None,
         correlation_id: None,
     })
+}
+
+pub(crate) fn agent_session_subject(
+    terminal_id: &str,
+    provider: &str,
+    source_session: &str,
+) -> JournalSubject {
+    let mut digest = Sha256::new();
+    digest.update(AGENT_SESSION_SUBJECT_FORMAT);
+    for component in [terminal_id, provider, source_session] {
+        digest.update((component.len() as u64).to_be_bytes());
+        digest.update(component.as_bytes());
+    }
+    let digest = digest.finalize();
+    let mut id = String::with_capacity(digest.len() * 2);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in digest.iter().copied() {
+        id.push(char::from(HEX[usize::from(byte >> 4)]));
+        id.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    JournalSubject { kind: "agent_session".into(), id }
+}
+
+pub(crate) fn normalized_agent_is_nested(normalized: &Map<String, Value>) -> bool {
+    normalized.get("agent_depth").and_then(Value::as_u64).is_some_and(|depth| depth > 0)
+        || normalized.get("parent_agent_node_id").is_some()
+        || normalized
+            .get("agent_relation")
+            .and_then(Value::as_str)
+            .is_some_and(|relation| relation != "root")
 }
 
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
@@ -187,7 +256,65 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
             },
             "native_event":{"type":"string","minLength":1,"maxLength":MAX_NATIVE_EVENT_BYTES},
             "normalized":{"type":"object"},
-            "native":{}
+            "native":{
+                "type":"object",
+                "required":["format","provider","native_event","identifiers","checkpoint","topology","lifecycle"],
+                "properties":{
+                    "format":{"const":AGENT_CANONICAL_NATIVE_FORMAT},
+                    "provider":{
+                        "type":"string",
+                        "minLength":1,
+                        "maxLength":MAX_AGENT_SOURCE_BYTES,
+                        "pattern":"^[a-z0-9_-]+$"
+                    },
+                    "native_event":{"type":"string","minLength":1,"maxLength":MAX_NATIVE_EVENT_BYTES},
+                    "identifiers":{
+                        "type":"object",
+                        "properties":{
+                            "agent_session_id":{"type":"string"},
+                            "turn_id":{"type":"string"},
+                            "tool_use_id":{"type":"string"},
+                            "native_agent_id":{"type":"string"},
+                            "native_child_agent_id":{"type":"string"},
+                            "native_parent_agent_id":{"type":"string"},
+                            "native_root_agent_id":{"type":"string"},
+                            "root_agent_session_id":{"type":"string"},
+                            "parent_agent_session_id":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "checkpoint":{
+                        "type":"object",
+                        "properties":{
+                            "cwd":{"type":"string"},
+                            "transcript_path":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "topology":{
+                        "type":"object",
+                        "properties":{
+                            "agent_tree_id":{"type":"string"},
+                            "agent_node_id":{"type":"string"},
+                            "parent_agent_node_id":{"type":"string"},
+                            "agent_relation":{"type":"string"},
+                            "agent_identity_quality":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "lifecycle":{
+                        "type":"object",
+                        "properties":{
+                            "tool_name":{"type":"string"},
+                            "agent_name":{"type":"string"},
+                            "agent_type":{"type":"string"},
+                            "agent_depth":{"type":"integer","minimum":0}
+                        },
+                        "additionalProperties":false
+                    }
+                },
+                "additionalProperties":false
+            }
         },
         "additionalProperties":false
     });
@@ -312,34 +439,14 @@ fn is_child_completion(event: &str) -> bool {
     )
 }
 
-fn normalized_fields(native: &Value) -> Map<String, Value> {
+fn normalized_fields(native: &Value, agent_session_id: Option<&str>) -> Map<String, Value> {
     let mut normalized = Map::new();
+    if let Some(value) =
+        agent_session_id.and_then(|value| normalized_provider_string("agent_session_id", value))
+    {
+        normalized.insert("agent_session_id".into(), Value::String(value));
+    }
     for (field, paths) in [
-        (
-            "agent_session_id",
-            &[
-                &["session_id"][..],
-                &["sessionId"][..],
-                &["sessionID"][..],
-                &["conversation_id"][..],
-                &["thread_id"][..],
-                &["session", "id"][..],
-                &["properties", "sessionID"][..],
-                &["properties", "sessionId"][..],
-                &["properties", "info", "id"][..],
-                &["event", "properties", "sessionID"][..],
-                &["event", "properties", "sessionId"][..],
-                &["event", "properties", "info", "id"][..],
-                &["event", "properties", "info", "sessionID"][..],
-                &["event", "properties", "info", "sessionId"][..],
-                &["event", "session_id"][..],
-                &["event", "sessionId"][..],
-                &["event", "thread", "id"][..],
-                &["context", "session_id"][..],
-                &["context", "sessionId"][..],
-                &["context", "thread", "id"][..],
-            ][..],
-        ),
         (
             "turn_id",
             &[
@@ -574,9 +681,10 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
             ][..],
         ),
     ] {
-        if let Some(value) = first_string_at(native, paths) {
-            normalized
-                .insert(field.into(), Value::String(truncate_utf8(value, NORMALIZED_TEXT_BYTES)));
+        if let Some(value) = first_string_at(native, paths)
+            && let Some(value) = normalized_provider_string(field, value)
+        {
+            normalized.insert(field.into(), Value::String(value));
         }
     }
     if let Some(depth) = first_value_at(
@@ -596,6 +704,153 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
         normalized.insert("agent_depth".into(), Value::from(depth));
     }
     normalized
+}
+
+fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
+    match field {
+        "message" => None,
+        "agent_session_id"
+        | "turn_id"
+        | "tool_use_id"
+        | "native_agent_id"
+        | "native_child_agent_id"
+        | "native_parent_agent_id"
+        | "native_root_agent_id"
+        | "root_agent_session_id"
+        | "parent_agent_session_id" => safe_opaque_identifier(value).then(|| value.to_string()),
+        "cwd" | "transcript_path" => {
+            let value = truncate_utf8(value, NORMALIZED_TEXT_BYTES);
+            safe_checkpoint_path(&value).then_some(value)
+        }
+        "tool_name" | "agent_name" | "agent_type" => {
+            let value = truncate_utf8(value, MAX_LABEL_BYTES);
+            safe_label(&value).then_some(value)
+        }
+        _ => None,
+    }
+}
+
+fn validate_agent_session_identifiers(native: &Value) -> anyhow::Result<Option<&str>> {
+    let explicit =
+        validate_agent_session_identifier_paths(native, EXPLICIT_AGENT_SESSION_ID_PATHS)?;
+    if explicit.is_some() {
+        return Ok(explicit);
+    }
+    validate_agent_session_identifier_paths(native, AMBIGUOUS_AGENT_SESSION_ID_PATHS)
+}
+
+fn validate_agent_session_identifier_paths<'a>(
+    native: &'a Value,
+    paths: &[&[&str]],
+) -> anyhow::Result<Option<&'a str>> {
+    let mut session_identifier: Option<&str> = None;
+    for path in paths {
+        let Some(value) = agent_session_identifier_at_path(native, path) else {
+            continue;
+        };
+        anyhow::ensure!(
+            safe_opaque_identifier(value),
+            "agent session identifier must contain 1 to {MAX_OPAQUE_IDENTIFIER_BYTES} bytes and no control characters"
+        );
+        let value = value.trim();
+        if let Some(expected) = session_identifier {
+            anyhow::ensure!(value == expected, "conflicting agent session identifiers");
+        } else {
+            session_identifier = Some(value);
+        }
+    }
+    Ok(session_identifier)
+}
+
+fn agent_session_identifier_at_path<'a>(native: &'a Value, path: &[&str]) -> Option<&'a str> {
+    let info = if path == PROPERTIES_INFO_ID_PATH {
+        native.get("properties")?.get("info")?
+    } else if path == EVENT_PROPERTIES_INFO_ID_PATH {
+        native.get("event")?.get("properties")?.get("info")?
+    } else {
+        return path
+            .iter()
+            .try_fold(native, |value, component| value.get(*component))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty());
+    };
+    if ["sessionID", "sessionId"].iter().any(|field| {
+        info.get(*field).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty())
+    }) {
+        return None;
+    }
+    info.get("id").and_then(Value::as_str).filter(|value| !value.trim().is_empty())
+}
+
+fn safe_opaque_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_OPAQUE_IDENTIFIER_BYTES
+        && !value.chars().any(char::is_control)
+}
+
+fn safe_checkpoint_path(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= NORMALIZED_TEXT_BYTES
+        && !value.contains("://")
+        && !value.chars().any(char::is_control)
+}
+
+fn safe_label(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_LABEL_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn canonical_native_payload(
+    source: &str,
+    native_event: &str,
+    normalized: &Map<String, Value>,
+) -> Value {
+    json!({
+        "format":AGENT_CANONICAL_NATIVE_FORMAT,
+        "provider":source,
+        "native_event":native_event,
+        "identifiers":canonical_field_group(normalized, &[
+            "agent_session_id",
+            "turn_id",
+            "tool_use_id",
+            "native_agent_id",
+            "native_child_agent_id",
+            "native_parent_agent_id",
+            "native_root_agent_id",
+            "root_agent_session_id",
+            "parent_agent_session_id",
+        ]),
+        "checkpoint":canonical_field_group(normalized, &[
+            "cwd",
+            "transcript_path",
+        ]),
+        "topology":canonical_field_group(normalized, &[
+            "agent_tree_id",
+            "agent_node_id",
+            "parent_agent_node_id",
+            "agent_relation",
+            "agent_identity_quality",
+        ]),
+        "lifecycle":canonical_field_group(normalized, &[
+            "tool_name",
+            "agent_name",
+            "agent_type",
+            "agent_depth",
+        ]),
+    })
+}
+
+fn canonical_field_group(normalized: &Map<String, Value>, fields: &[&str]) -> Value {
+    let mut group = Map::new();
+    for field in fields {
+        if let Some(value) = normalized.get(*field) {
+            group.insert((*field).into(), value.clone());
+        }
+    }
+    Value::Object(group)
 }
 
 fn add_agent_topology(
@@ -744,12 +999,15 @@ fn stable_topology_id(prefix: &str, components: &[&str]) -> String {
 }
 
 fn first_string_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
+    first_raw_string_at(native, paths).map(str::trim)
+}
+
+fn first_raw_string_at<'a>(native: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
     paths.iter().find_map(|path| {
         path.iter()
             .try_fold(native, |value, component| value.get(*component))
             .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.trim().is_empty())
     })
 }
 

@@ -256,6 +256,13 @@ pub(crate) struct JournalCheckpointCommit {
     pub journal: JournalAppendCommit,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct JournalRestoreCommit {
+    pub checkpoint_id: Option<String>,
+    pub state_sha256: Option<String>,
+    pub journal: JournalAppendCommit,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JournalSegment {
