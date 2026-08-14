@@ -83,7 +83,13 @@ struct TerminalInputScrollToBottomTests {
         #expect(await waitUntil { viewportText(view).contains(lastLineMarker) },
                 "seeded output should land with the viewport at the bottom")
 
-        view.applyLocalScrollbackScroll(lines: 120, col: 2, row: 2)
+        let interactionGeneration = view.bumpUserViewportInteractionGeneration()
+        view.applyLocalScrollbackScroll(
+            lines: 120,
+            col: 2,
+            row: 2,
+            interactionGeneration: interactionGeneration
+        )
         #expect(await waitUntil { !viewportText(view).contains(lastLineMarker) },
                 "scrolling up should move the last line out of the viewport")
         return lastLineMarker
