@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxControlSocket
+import CmuxTerminal
 import Darwin
 import Foundation
 
@@ -54,7 +55,7 @@ extension TerminalController {
                     defaultValue: "Terminal surface not found."
                 )))
             }
-            guard let raw = readTerminalTextRawSnapshot(terminalPanel: panel, includeScrollback: true) else {
+            guard panel.surface.surface != nil else {
                 return .failure(AgentManifestDiagnosticFailure(message: Self.agentManifestError(
                     key: "cli.agentManifests.error.screenUnavailable",
                     defaultValue: "Terminal screen text is unavailable for this surface."
@@ -64,8 +65,22 @@ extension TerminalController {
             // State rules describe the currently rendered pane. Including the
             // entire scrollback makes an old "done" or permission line win over
             // the live prompt, so only the active/screen regions participate.
+            let active = readTerminalSelectionText(
+                terminalPanel: panel,
+                pointTag: GHOSTTY_POINT_ACTIVE
+            )
+            let screen = readTerminalSelectionText(
+                terminalPanel: panel,
+                pointTag: GHOSTTY_POINT_SCREEN
+            )
+            guard active != nil || screen != nil else {
+                return .failure(AgentManifestDiagnosticFailure(message: Self.agentManifestError(
+                    key: "cli.agentManifests.error.screenUnavailable",
+                    defaultValue: "Terminal screen text is unavailable for this surface."
+                )))
+            }
             var screenParts: [String] = []
-            for value in [raw.active, raw.screen].compactMap({ $0 }) {
+            for value in [active, screen].compactMap({ $0 }) {
                 guard !value.isEmpty, !screenParts.contains(value) else { continue }
                 screenParts.append(value)
             }
@@ -108,11 +123,13 @@ extension TerminalController {
         let normalized = Self.surfaceReferencePayload(trimmed)
         if let resolvedID = v2ResolveHandleRef(trimmed)
             ?? v2ResolveHandleRef(normalized),
-           let panel = agentManifestTerminalPanel(surfaceID: resolvedID) {
+           let panel = agentManifestTerminalPanel(surfaceID: resolvedID)
+            ?? agentManifestTerminalPanel(paneID: resolvedID) {
             return panel
         }
         if let uuid = UUID(uuidString: normalized) {
             return agentManifestTerminalPanel(surfaceID: uuid)
+                ?? agentManifestTerminalPanel(paneID: uuid)
         }
         if let index = Int(normalized), index >= 0 {
             let panels = orderedPanels(in: tab)
@@ -133,6 +150,21 @@ extension TerminalController {
             return nil
         }
         return workspace.terminalInputTarget(forPanelID: surfaceID)?.panel
+    }
+
+    private func agentManifestTerminalPanel(paneID: UUID) -> TerminalPanel? {
+        if let dock = DockSplitStore.liveStores.first(where: { $0.containsPane(paneID) }),
+           let pane = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID }),
+           let surfaceID = dock.bonsplitController.selectedTab(inPane: pane)?.id {
+            return dock.panels[surfaceID] as? TerminalPanel
+        }
+        guard let manager = controlTabManager(paneID: paneID) else { return nil }
+        for workspace in manager.tabs {
+            if let panel = workspace.controlDefaultTerminalTarget(paneID: paneID)?.panel {
+                return panel
+            }
+        }
+        return nil
     }
 
     private nonisolated static func surfaceReferencePayload(_ value: String) -> String {

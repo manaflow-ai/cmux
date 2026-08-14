@@ -2204,9 +2204,6 @@ class TerminalController {
             // hop collapses inline on main).
             return readScreenText(args)
 
-        case "debug_agent_manifest":
-            return debugAgentManifest(args)
-
 #if DEBUG
         case "send_workspace":
             return sendInputToWorkspace(args)
@@ -5457,7 +5454,7 @@ class TerminalController {
         )
     }
 
-    private func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
+    func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
         guard let surface = terminalPanel.surface.surface else { return nil }
         let topLeft = ghostty_point_s(
             tag: pointTag,
