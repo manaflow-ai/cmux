@@ -119,6 +119,10 @@ NSVIEW_REPRESENTABLE_DECL = re.compile(
 ROW_NSVIEW_REPRESENTABLE_ALLOWLIST = frozenset({
     "SidebarInlineRenameField",
     "GPUSpinner",
+    # Self-contained, condition-gated elapsed text leaf. Its callbacks update
+    # only the realized NSTextField and register with the sidebar's shared
+    # clock; they never publish row state or trigger layout feedback.
+    "SidebarAgentActivityLabel",
 })
 
 # Row-view regions guarded against per-row geometry feedback. Four of the five
