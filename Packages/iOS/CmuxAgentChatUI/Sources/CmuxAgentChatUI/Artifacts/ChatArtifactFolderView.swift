@@ -195,6 +195,7 @@ private struct ChatArtifactFolderThumbnail: View {
         .background(.quaternary, in: .rect(cornerRadius: 6))
         .clipShape(.rect(cornerRadius: 6))
         .task(id: LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)) {
+            guard !Task.isCancelled else { return }
             let loadIdentity = LoadIdentity(path: path, sourceIdentity: loader.sourceIdentity)
             thumbnailLoadIdentity = loadIdentity
             thumbnailData = nil

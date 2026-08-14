@@ -99,6 +99,7 @@ public struct ChatAttachmentBubbleView: View {
                 path: hostPath,
                 sourceIdentity: artifactLoader.sourceIdentity
             )) {
+                guard !Task.isCancelled else { return }
                 let loadIdentity = ThumbnailLoadIdentity(
                     path: hostPath,
                     sourceIdentity: artifactLoader.sourceIdentity
@@ -227,6 +228,7 @@ public struct ChatAttachmentBubbleView: View {
         loader: ChatArtifactLoader,
         identity: ThumbnailLoadIdentity
     ) async {
+        guard !Task.isCancelled else { return }
         if thumbnailPath != path || thumbnailSourceIdentity != identity.sourceIdentity {
             thumbnailPath = path
             thumbnailSourceIdentity = identity.sourceIdentity
