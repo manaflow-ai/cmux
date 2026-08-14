@@ -76,7 +76,7 @@ extension CmuxPluginRuntime {
             return descriptor.plugin.manifest.actions
                 .filter { descriptor.permissions.allowsAction($0.id) }
                 .map { CmuxPluginRegistry.namespacedActionID(pluginID: pluginID, actionID: $0.id) }
-        }.joined())
+        })
     }
 
     /// Persists one active plugin shortcut through the shared JSON settings path.
