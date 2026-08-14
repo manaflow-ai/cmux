@@ -114,21 +114,6 @@ public actor PushRegistrationService: PushRegistering {
                 ? (hasToken ? .registrationRequired : .awaitingDeviceToken)
                 : .awaitingDeviceToken
         )
-        if !enabled,
-           let tokenHex = self.defaults.string(forKey: Self.cachedTokenKey),
-           !tokenHex.isEmpty,
-           let accountID = self.defaults.string(
-               forKey: Self.registeredAccountIDKey
-           ),
-           !accountID.isEmpty {
-            // The app can terminate after the coordinator persists opt-out but
-            // before its actor hop arrives. Reconstruct that cleanup on launch.
-            Self.persistPendingUnregister(
-                tokenHex: tokenHex,
-                accountID: accountID,
-                in: self.defaults
-            )
-        }
     }
 
     public var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
@@ -136,7 +121,12 @@ public actor PushRegistrationService: PushRegistering {
 
     public func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
         let id = UUID()
-        if !isEnabled, !pendingUnregisters.isEmpty {
+        let hasKnownRegistration = cachedTokenHex != nil
+            && defaults.string(
+                forKey: Self.registeredAccountIDKey
+            )?.isEmpty == false
+        if !isEnabled,
+           !pendingUnregisters.isEmpty || hasKnownRegistration {
             coordinatorIntentEnabled = false
             disableIntentReconciliationRequested = true
             scheduleDisableIntentReconciliation()
@@ -175,6 +165,9 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
+    /// Commits the coordinator's latest preference immediately. Disable starts
+    /// durable backend cleanup now; enable waits for the coordinator's separate
+    /// post-authorization reconciliation call.
     public func applyEnabledIntent(
         _ enabled: Bool,
         generation: UInt64
@@ -211,13 +204,20 @@ public actor PushRegistrationService: PushRegistering {
             }
             publish(.disabled)
         }
-        if enabled {
-            enableIntentReconciliationRequested = true
-            scheduleEnableIntentReconciliation()
-        } else {
+        if !enabled {
             disableIntentReconciliationRequested = true
             scheduleDisableIntentReconciliation()
         }
+    }
+
+    /// Reconciles an enabled intent only after iOS authorization has succeeded.
+    /// Stale generations cannot upload a cached APNs token.
+    public func reconcileEnabledIntent(generation: UInt64) async {
+        guard generation == coordinatorIntentGeneration,
+              coordinatorIntentEnabled == true,
+              isEnabled else { return }
+        enableIntentReconciliationRequested = true
+        scheduleEnableIntentReconciliation()
     }
 
     private func scheduleEnableIntentReconciliation() {
@@ -346,7 +346,9 @@ public actor PushRegistrationService: PushRegistering {
                 accountID: registeredOwnerID
             )
         }
-        let session = try? await tokenProvider.authenticatedSessionSnapshot()
+        let session = await boundedSessionSnapshot(
+            phase: .pushUnregistrationSession
+        )
         if let preferenceGeneration,
            preferenceGeneration != operationGeneration || isEnabled {
             return
@@ -616,8 +618,9 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         staleSession: AuthenticatedSessionSnapshot
     ) async {
-        let currentSession = try? await tokenProvider
-            .authenticatedSessionSnapshot()
+        let currentSession = await boundedSessionSnapshot(
+            phase: .pushRegistrationSession
+        )
         if isEnabled,
            cachedTokenHex == tokenHex,
            currentSession?.accountID == staleSession.accountID {
@@ -646,8 +649,9 @@ public actor PushRegistrationService: PushRegistering {
         }
 
         guard isEnabled, let currentToken = cachedTokenHex,
-              let currentSession = try? await tokenProvider
-                  .authenticatedSessionSnapshot(),
+              let currentSession = await boundedSessionSnapshot(
+                  phase: .pushRegistrationSession
+              ),
               await tokenProvider.isAuthenticatedSessionCurrent(currentSession)
         else { return }
         await upload(tokenHex: currentToken)
@@ -698,27 +702,14 @@ public actor PushRegistrationService: PushRegistering {
             refreshToken = capturedRefreshToken
             authenticatedSession = nil
         } else {
-            do {
-                let tokenProvider = tokenProvider
-                let session = try await withAuthPhaseTimeout(
-                    authPhase,
-                    duration: sessionSnapshotTimeout,
-                    clock: sessionSnapshotClock,
-                    log: authLog,
-                    registry: sessionSnapshotTimeoutRegistry,
-                    blocksRetriesWhileTimedOutOperationActive: true
-                ) {
-                    // This provider API only reads a coherent stored token
-                    // pair or awaits bounded launch bootstrap. Cancelling it
-                    // cannot leave an ambiguous server mutation behind.
-                    try await tokenProvider.authenticatedSessionSnapshot()
-                }
-                accessToken = session.accessToken
-                refreshToken = session.refreshToken
-                authenticatedSession = session
-            } catch {
+            guard let session = await boundedSessionSnapshot(
+                phase: authPhase
+            ) else {
                 return .failure(.authenticationRequired)
             }
+            accessToken = session.accessToken
+            refreshToken = session.refreshToken
+            authenticatedSession = session
         }
         guard let url = URL(string: apiBaseURL + path) else {
             return .failure(.invalidConfiguration)
@@ -802,8 +793,9 @@ public actor PushRegistrationService: PushRegistering {
     private func retryPendingUnregisterIfPossible(
         preferenceGeneration: UUID? = nil
     ) async {
-        guard let session = try? await tokenProvider
-            .authenticatedSessionSnapshot() else { return }
+        guard let session = await boundedSessionSnapshot(
+            phase: .pushUnregistrationSession
+        ) else { return }
         if let preferenceGeneration,
            preferenceGeneration != operationGeneration || isEnabled {
             return
@@ -867,35 +859,32 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    private func persistPendingUnregister(tokenHex: String, accountID: String) {
-        Self.persistPendingUnregister(
-            tokenHex: tokenHex,
-            accountID: accountID,
-            in: defaults
-        )
+    private func boundedSessionSnapshot(
+        phase: AuthPhase
+    ) async -> AuthenticatedSessionSnapshot? {
+        let tokenProvider = tokenProvider
+        return try? await withAuthPhaseTimeout(
+            phase,
+            duration: sessionSnapshotTimeout,
+            clock: sessionSnapshotClock,
+            log: authLog,
+            registry: sessionSnapshotTimeoutRegistry,
+            blocksRetriesWhileTimedOutOperationActive: true
+        ) {
+            // This provider API only reads a coherent stored token pair or
+            // awaits bounded launch bootstrap. Cancelling it cannot leave an
+            // ambiguous server mutation behind.
+            try await tokenProvider.authenticatedSessionSnapshot()
+        }
     }
 
-    private static func persistPendingUnregister(
-        tokenHex: String,
-        accountID: String,
-        in defaults: UserDefaults
-    ) {
+    private func persistPendingUnregister(tokenHex: String, accountID: String) {
         let entry = PendingUnregister(tokenHex: tokenHex, accountID: accountID)
-        var queue = (defaults.data(forKey: pendingUnregisterQueueKey)
-            .flatMap {
-                try? JSONDecoder().decode([PendingUnregister].self, from: $0)
-            }) ?? []
-        var seen = Set<PendingUnregister>()
-        queue = queue.filter { seen.insert($0).inserted }
-        if !queue.contains(entry) { queue.append(entry) }
-        // Never evict a privacy cleanup obligation merely to enforce a local
-        // storage cap. The set is deduplicated by (account, token), and drains
-        // in bounded network batches so size cannot stall current readiness.
-        if let data = try? JSONEncoder().encode(queue) {
-            defaults.set(data, forKey: pendingUnregisterQueueKey)
+        var queue = pendingUnregisters
+        if !queue.contains(entry) {
+            queue.append(entry)
         }
-        defaults.removeObject(forKey: pendingUnregisterTokenKey)
-        defaults.removeObject(forKey: pendingUnregisterAccountIDKey)
+        storePendingUnregisters(queue)
     }
 
     private func schedulePendingUnregisterContinuation() {

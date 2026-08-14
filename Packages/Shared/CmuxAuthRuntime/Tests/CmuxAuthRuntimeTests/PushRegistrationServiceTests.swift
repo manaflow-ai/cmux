@@ -141,44 +141,6 @@ actor MutablePushTokenProvider: TokenProviding {
     }
 }
 
-actor CancellationIgnoringPushTokenProvider: TokenProviding {
-    private let snapshotValue = AuthenticatedSessionSnapshot(
-        generation: 1,
-        accountID: "push-user-1",
-        accessToken: "access",
-        refreshToken: "refresh"
-    )
-    private let started: TestPhaseSignal
-    private let blocker: TestContinuationBlocker
-    private(set) var snapshotRequestCount = 0
-
-    init(started: TestPhaseSignal, blocker: TestContinuationBlocker) {
-        self.started = started
-        self.blocker = blocker
-    }
-
-    func authenticatedSessionSnapshot() async throws
-        -> AuthenticatedSessionSnapshot {
-        snapshotRequestCount += 1
-        await started.markStarted()
-        await blocker.wait()
-        return snapshotValue
-    }
-
-    func isAuthenticatedSessionCurrent(
-        _ snapshot: AuthenticatedSessionSnapshot
-    ) async -> Bool {
-        snapshot == snapshotValue
-    }
-
-    func accessToken() async throws -> String { snapshotValue.accessToken }
-    func storedAccessToken() async -> String? { snapshotValue.accessToken }
-    func refreshToken() async -> String? { snapshotValue.refreshToken }
-    func forceRefreshAccessToken() async throws -> String {
-        snapshotValue.accessToken
-    }
-}
-
 actor RetryDelayRecorder {
     private(set) var values: [Duration] = []
 
@@ -952,6 +914,7 @@ actor RetryDelayRecorder {
         await service.register(deviceToken: Data([0xAA]))
 
         await service.applyEnabledIntent(true, generation: 1)
+        await service.reconcileEnabledIntent(generation: 1)
         await started.waitUntilStarted()
         await service.applyEnabledIntent(false, generation: 2)
 
@@ -995,6 +958,7 @@ actor RetryDelayRecorder {
         await service.register(deviceToken: Data([0xAA]))
 
         await service.applyEnabledIntent(true, generation: 1)
+        await service.reconcileEnabledIntent(generation: 1)
         await started.waitUntilStarted()
         await clock.waitUntilSleepers()
         clock.advance(by: timeout)
@@ -1010,15 +974,64 @@ actor RetryDelayRecorder {
         // enable intent fails against the active phase instead of accumulating
         // another unowned task behind it.
         await service.applyEnabledIntent(true, generation: 2)
+        await service.reconcileEnabledIntent(generation: 2)
         #expect(
             await wait(
                 for: .failed(.authenticationRequired),
                 from: service
             )
         )
+        await provider.waitUntilCancellationObserved()
         #expect(await provider.snapshotRequestCount == 1)
 
         await blocker.release()
+        await provider.waitUntilCompleted()
+    }
+
+    @Test func coordinatorOptOutAuthenticationHasBoundedSingleAttempt() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        let provider = CancellationIgnoringPushTokenProvider(
+            started: started,
+            blocker: blocker
+        )
+        let clock = ManualTestClock()
+        let timeout = Duration.seconds(2)
+        let (service, _) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil,
+            seedDefaults: { defaults in
+                defaults.set(
+                    true,
+                    forKey: "cmux.notifications.pushEnabled"
+                )
+                defaults.set(
+                    "aa",
+                    forKey: "cmux.notifications.deviceTokenHex"
+                )
+                defaults.set(
+                    "push-user-1",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+            },
+            sessionSnapshotTimeout: timeout,
+            sessionSnapshotClock: clock
+        )
+
+        await service.applyEnabledIntent(false, generation: 1)
+        await started.waitUntilStarted()
+        await clock.waitUntilSleepers()
+        clock.advance(by: timeout)
+        await provider.waitUntilCancellationObserved()
+
+        // A direct cleanup retry must fail against the still-active timed-out
+        // phase instead of starting a second authentication operation.
+        await service.unregisterFromServer()
+        #expect(await provider.snapshotRequestCount == 1)
+        #expect(await service.snapshot == .disabled)
+
+        await blocker.release()
+        await provider.waitUntilCompleted()
     }
 
     @Test func signOutDuringInFlightRegistrationDeletesAfterLatePost() async {

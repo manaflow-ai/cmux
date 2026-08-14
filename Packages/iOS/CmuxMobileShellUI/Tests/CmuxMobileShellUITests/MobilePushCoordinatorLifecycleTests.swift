@@ -8,6 +8,7 @@ import UserNotifications
 private actor LifecyclePushRegistration: PushRegistering {
     private var value: PushRegistrationSnapshot
     private var intentGeneration: UInt64 = 0
+    private(set) var enabledReconciliationGenerations: [UInt64] = []
     private let setEnabledGate: LifecycleSetEnabledGate?
     private let syncGate: LifecycleSyncGate?
 
@@ -47,6 +48,11 @@ private actor LifecyclePushRegistration: PushRegistering {
         guard generation >= intentGeneration else { return }
         intentGeneration = generation
         apply(enabled)
+    }
+
+    func reconcileEnabledIntent(generation: UInt64) {
+        guard generation == intentGeneration, value.isEnabled else { return }
+        enabledReconciliationGenerations.append(generation)
     }
 
     private func apply(_ enabled: Bool) {
@@ -359,6 +365,25 @@ private final class LifecyclePushURLProtocol: URLProtocol,
             coordinator.readiness(macStatus: nil)
                 == .blocked(.systemPermissionDenied)
         )
+    }
+
+    @MainActor
+    @Test func settingsIntentDoesNotReconcileBackendWhenPermissionIsDenied() async {
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-denied-backend-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .denied },
+            requestAuthorization: { false }
+        )
+        await coordinator.refreshReadiness()
+
+        #expect(!(await coordinator.setEnabledIntent(true).value))
+        #expect(await registration.enabledReconciliationGenerations.isEmpty)
+        #expect(coordinator.isEnabled)
     }
 
     @MainActor

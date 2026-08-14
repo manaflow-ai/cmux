@@ -219,6 +219,15 @@ public final class MobilePushCoordinator {
                     generation: generation,
                     registrationIntentOwnedByService: true
                 )
+                if result,
+                   self.isCurrentSettingsIntent(
+                       generation,
+                       enabled: true
+                   ) {
+                    await self.registration.reconcileEnabledIntent(
+                        generation: generation
+                    )
+                }
             } else {
                 result = true
             }

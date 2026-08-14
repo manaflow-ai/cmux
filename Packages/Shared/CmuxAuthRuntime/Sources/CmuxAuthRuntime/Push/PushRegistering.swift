@@ -22,8 +22,14 @@ public protocol PushRegistering: Sendable {
     func setEnabled(_ enabled: Bool) async
 
     /// Commits a coordinator-owned preference in generation order and queues
-    /// its backend reconciliation without tying that work to the caller task.
+    /// opt-out cleanup without tying that work to the caller task. Enabling is
+    /// persisted here but must wait for ``reconcileEnabledIntent(generation:)``
+    /// after iOS notification authorization succeeds.
     func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async
+
+    /// Starts backend registration for the current enabled intent after the
+    /// coordinator has confirmed that iOS permits notification delivery.
+    func reconcileEnabledIntent(generation: UInt64) async
 
     /// Cache and (when opted in) upload a freshly registered APNs device token.
     func register(deviceToken: Data) async
