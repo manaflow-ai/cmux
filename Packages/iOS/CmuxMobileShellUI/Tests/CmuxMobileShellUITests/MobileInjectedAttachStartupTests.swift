@@ -79,7 +79,7 @@ struct MobileInjectedAttachStartupTests {
             of: MobilePairingURLConnectionResult.self
         )
 
-        #expect(coordinator.startInjectedAttach(
+        let initialAttachStarted = coordinator.startInjectedAttach(
             attachURL: attachURL,
             prepare: {},
             connect: { rawURL in
@@ -91,14 +91,15 @@ struct MobileInjectedAttachStartupTests {
             onCompletion: { completion in
                 connectionFinished.continuation.yield(completion.result)
             }
-        ))
+        )
+        #expect(initialAttachStarted)
 
         for await _ in connectionStarted.stream.prefix(1) {}
 
         // A reconstructed root asks startup to run again. The app-lifetime
         // coordinator must retain the original task and consume this duplicate
         // request without starting a replacement connection.
-        #expect(coordinator.startInjectedAttach(
+        let duplicateAttachAccepted = coordinator.startInjectedAttach(
             attachURL: attachURL,
             prepare: {},
             connect: { rawURL in
@@ -108,7 +109,8 @@ struct MobileInjectedAttachStartupTests {
             onCompletion: { completion in
                 connectionFinished.continuation.yield(completion.result)
             }
-        ))
+        )
+        #expect(duplicateAttachAccepted)
 
         allowConnectionToFinish.continuation.yield()
         var results: [MobilePairingURLConnectionResult] = []
