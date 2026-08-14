@@ -734,6 +734,34 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func absentPreferenceDoesNotScheduleRegistrationCleanup() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let suite = "push-absent-preference-startup-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            suite: suite,
+            accountID: "account-a",
+            seedDefaults: { defaults in
+                defaults.removeObject(forKey: "cmux.notifications.pushEnabled")
+                defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+                defaults.set(
+                    "account-a",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+            }
+        )
+
+        #expect(
+            defaults.object(forKey: "cmux.notifications.pushEnabled") == nil
+        )
+        #expect(
+            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
+                == nil
+        )
+
+        await service.syncTokenIfPossible()
+        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
+    }
+
     @Test func optOutWithoutLiveSessionPersistsOwnerBeforeAuthentication() async {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-optout-no-session-\(UUID().uuidString)"
