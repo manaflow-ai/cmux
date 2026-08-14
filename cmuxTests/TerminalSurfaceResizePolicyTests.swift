@@ -8,7 +8,8 @@ struct TerminalSurfaceResizePolicyTests {
         let coalesces = TerminalSurfaceResizeCoalescingPolicy(
             windowLiveResizeActive: false,
             interactiveGeometryResizeActive: false,
-            bypass: false
+            bypass: false,
+            surfaceKind: .processOwned
         ).shouldCoalescePixelOnlyResize
 
         #expect(coalesces)

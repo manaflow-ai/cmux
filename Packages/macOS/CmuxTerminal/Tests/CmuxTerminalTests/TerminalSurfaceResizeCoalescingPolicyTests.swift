@@ -9,21 +9,24 @@ struct TerminalSurfaceResizeCoalescingPolicyTests {
             TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: false,
                 interactiveGeometryResizeActive: true,
-                bypass: false
+                bypass: false,
+                surfaceKind: .processOwned
             ).shouldCoalescePixelOnlyResize
         )
         #expect(
             TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: true,
                 interactiveGeometryResizeActive: false,
-                bypass: false
+                bypass: false,
+                surfaceKind: .processOwned
             ).shouldCoalescePixelOnlyResize
         )
         #expect(
             !TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: false,
                 interactiveGeometryResizeActive: true,
-                bypass: true
+                bypass: true,
+                surfaceKind: .processOwned
             ).shouldCoalescePixelOnlyResize
         )
     }
@@ -54,6 +57,14 @@ struct TerminalSurfaceResizeCoalescingPolicyTests {
             TerminalSurfaceResizeCoalescingPolicy(
                 windowLiveResizeActive: false,
                 interactiveGeometryResizeActive: true,
+                bypass: false,
+                surfaceKind: .manualIO
+            ).shouldCoalescePixelOnlyResize
+        )
+        #expect(
+            TerminalSurfaceResizeCoalescingPolicy(
+                windowLiveResizeActive: true,
+                interactiveGeometryResizeActive: false,
                 bypass: false,
                 surfaceKind: .manualIO
             ).shouldCoalescePixelOnlyResize

@@ -32,7 +32,7 @@ public struct TerminalSurfaceResizeCoalescingPolicy: Sendable {
         windowLiveResizeActive: Bool,
         interactiveGeometryResizeActive: Bool,
         bypass: Bool,
-        surfaceKind: SurfaceKind = .processOwned
+        surfaceKind: SurfaceKind
     ) {
         self.windowLiveResizeActive = windowLiveResizeActive
         self.interactiveGeometryResizeActive = interactiveGeometryResizeActive
