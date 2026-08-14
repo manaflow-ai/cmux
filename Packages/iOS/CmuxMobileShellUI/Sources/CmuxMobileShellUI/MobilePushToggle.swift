@@ -51,6 +51,9 @@ struct MobilePushToggle: View {
                 } else if pendingRequest == nil, isEnabled == requested {
                     isEnabled = fallback
                 }
+                if let pendingRequest {
+                    isEnabled = pendingRequest
+                }
             }
             mutationTask = nil
             confirmedValue = nil

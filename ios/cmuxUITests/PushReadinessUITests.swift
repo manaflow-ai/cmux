@@ -155,6 +155,12 @@ final class PushReadinessUITests: XCTestCase {
             "MobilePushReadinessCompletePhoneMutation-on"
         ]
         XCTAssertTrue(completeEnable.waitForExistence(timeout: 2))
+        waitForValue(
+            phone,
+            "1",
+            timeout: 1,
+            message: "Completed stale work must not replace the queued intent"
+        )
         completeEnable.tap()
         waitForValue(phone, "1")
     }
