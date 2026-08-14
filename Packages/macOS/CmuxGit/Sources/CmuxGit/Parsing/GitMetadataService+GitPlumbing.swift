@@ -161,7 +161,9 @@ struct SystemGitMetadataGitRunner: GitMetadataGitRunning {
         }
 
         let outputData = collected.prefix(Self.maximumOutputByteCount)
-        let output = String(decoding: outputData, as: UTF8.self)
+        guard let output = String(bytes: outputData, encoding: .utf8) else {
+            return GitMetadataGitResult(output: "", exitCode: 127)
+        }
         return GitMetadataGitResult(output: output, exitCode: process.terminationStatus)
     }
 }
