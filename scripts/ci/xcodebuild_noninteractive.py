@@ -8,6 +8,7 @@ import pty
 import re
 import select
 import signal
+import subprocess
 import sys
 import time
 from typing import BinaryIO
@@ -99,7 +100,38 @@ def heartbeat_seconds() -> float | None:
     return seconds
 
 
+def process_group_has_live_members(pgid: int) -> bool | None:
+    """Return whether a process group has runnable members, excluding zombies."""
+
+    try:
+        result = subprocess.run(
+            ["/bin/ps", "-axo", "pid=,pgid=,stat="],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        try:
+            member_pgid = int(fields[1])
+        except ValueError:
+            continue
+        if member_pgid == pgid and "Z" not in fields[2]:
+            return True
+    return False
+
+
 def process_group_exists(pgid: int) -> bool:
+    live_members = process_group_has_live_members(pgid)
+    if live_members is not None:
+        return live_members
     try:
         os.killpg(pgid, 0)
     except ProcessLookupError:
@@ -282,7 +314,9 @@ def main() -> int:
                 finished, status = os.waitpid(pid, os.WNOHANG)
             except ChildProcessError:
                 finished = pid
-                status = 1
+                # waitpid status values are encoded bit fields. A bare 1 is
+                # decoded as termination by SIGHUP (129), not exit status 1.
+                status = 1 << 8
             if finished:
                 break
 

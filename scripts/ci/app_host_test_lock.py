@@ -52,20 +52,17 @@ def main() -> int:
     )
     total_deadline = None
     if total_timeout_raw:
-        try:
-            total_timeout = float(total_timeout_raw)
-        except ValueError:
+        if (
+            not total_timeout_raw
+            or total_timeout_raw.startswith("0")
+            or any(char < "0" or char > "9" for char in total_timeout_raw)
+        ):
             sys.stderr.write(
                 "invalid CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS: "
                 f"{total_timeout_raw!r}\n"
             )
             return 2
-        if total_timeout <= 0:
-            sys.stderr.write(
-                "invalid CMUX_APP_HOST_XCODEBUILD_TOTAL_TIMEOUT_SECONDS: "
-                f"{total_timeout_raw!r}\n"
-            )
-            return 2
+        total_timeout = int(total_timeout_raw)
         total_deadline = time.monotonic() + total_timeout
 
     # Non-inheritable by default (PEP 446): children never receive this fd, so
