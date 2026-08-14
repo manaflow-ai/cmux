@@ -876,6 +876,40 @@ actor RetryDelayRecorder {
         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
     }
 
+    @Test func supersededQueuedOptOutCannotUndoAReenable() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+            .response(200),
+        ])
+        let (service, defaults) = makeScriptedService(accountID: "account-a")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+
+        let firstEnable = Task {
+            await service.applyEnabledIntent(true, generation: 1)
+        }
+        await started.waitUntilStarted()
+        let optOut = Task {
+            await service.applyEnabledIntent(false, generation: 2)
+        }
+        let reenable = Task {
+            await service.applyEnabledIntent(true, generation: 3)
+        }
+
+        await blocker.release()
+        await firstEnable.value
+        await optOut.value
+        await reenable.value
+
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(await service.snapshot.backendState == .registered)
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST", "POST"]
+        )
+    }
+
     @Test func signOutDuringInFlightRegistrationDeletesAfterLatePost() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()

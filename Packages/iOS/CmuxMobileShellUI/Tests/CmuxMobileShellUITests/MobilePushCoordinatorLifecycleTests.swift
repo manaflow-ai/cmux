@@ -7,6 +7,7 @@ import UserNotifications
 
 private actor LifecyclePushRegistration: PushRegistering {
     private var value: PushRegistrationSnapshot
+    private var latestIntentGeneration: UInt64 = 0
     private let setEnabledGate: LifecycleSetEnabledGate?
     private let syncGate: LifecycleSyncGate?
 
@@ -48,6 +49,31 @@ private actor LifecyclePushRegistration: PushRegistering {
                     : .awaitingDeviceToken
             )
             : .disabled
+    }
+
+    func disableAndUnregister() async {
+        await setEnabledGate?.pause()
+        value = .disabled
+    }
+
+    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async {
+        guard generation >= latestIntentGeneration else { return }
+        latestIntentGeneration = generation
+        if enabled {
+            await setEnabledGate?.pause()
+            guard generation == latestIntentGeneration else { return }
+            value = PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: value.hasDeviceToken,
+                backendState: value.hasDeviceToken
+                    ? .registrationRequired
+                    : .awaitingDeviceToken
+            )
+        } else {
+            await setEnabledGate?.pause()
+            guard generation == latestIntentGeneration else { return }
+            value = .disabled
+        }
     }
 
     func register(deviceToken: Data) {
@@ -292,6 +318,40 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
         await gate.release()
         #expect(await enabling.value)
+    }
+
+    @MainActor
+    @Test func optOutInvalidatesAnEnableSuspendedInNotificationSettings() async {
+        let settingsGate = LifecycleSyncGate()
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-stale-enable-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            notificationSettings: {
+                await settingsGate.pause()
+                return .authorizationOnly(.authorized)
+            },
+            registerForRemoteNotifications: {}
+        )
+
+        let enabling = Task { await coordinator.enable() }
+        await settingsGate.waitUntilStarted()
+
+        coordinator.setEnabledIntent(false)
+        #expect(!coordinator.isEnabled)
+        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+
+        await settingsGate.release()
+        #expect(!(await enabling.value))
+        for _ in 0..<100 {
+            if await registration.snapshot == .disabled { break }
+            await Task.yield()
+        }
+        #expect(await registration.snapshot == .disabled)
+        #expect(!coordinator.isEnabled)
     }
 
     @MainActor
