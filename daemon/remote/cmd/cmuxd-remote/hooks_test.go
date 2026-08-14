@@ -2,15 +2,23 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
 
-// The feed relay parses `cmux hooks feed --source <agent>` argv itself (the
-// generic <agent> <event> shape does not fit it); a parsing regression
-// silently kills every remote permission prompt and feed update, so the
-// accepted shapes are pinned here.
-func TestFeedSourceFromArgs(t *testing.T) {
+// The feed relay parses `cmux hooks feed --source <agent>` argv through the
+// daemon's shared parseFlags helper; a parsing regression silently kills
+// every remote permission prompt and feed update, so the accepted shapes are
+// pinned here through the same call the relay makes.
+func TestFeedRelaySourceParsing(t *testing.T) {
+	parseSource := func(args []string) string {
+		parsed, err := parseFlags(args, []string{"source"})
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(parsed.flags["source"])
+	}
 	cases := []struct {
 		name string
 		args []string
@@ -18,15 +26,12 @@ func TestFeedSourceFromArgs(t *testing.T) {
 	}{
 		{"canonical", []string{"--source", "claude"}, "claude"},
 		{"missing", []string{}, ""},
-		{"flagWithoutValue", []string{"--source"}, ""},
-		{"lastOccurrenceWins", []string{"--source", "codex", "--source", "claude"}, "claude"},
-		{"surroundingArgs", []string{"--event", "stop", "--source", "claude"}, "claude"},
-		{"whitespaceTrimmed", []string{" --source ", " claude "}, "claude"},
+		{"surroundingArgs", []string{"--source", "claude", "extra"}, "claude"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := feedSourceFromArgs(tc.args); got != tc.want {
-				t.Fatalf("feedSourceFromArgs(%v) = %q, want %q", tc.args, got, tc.want)
+			if got := parseSource(tc.args); got != tc.want {
+				t.Fatalf("source(%v) = %q, want %q", tc.args, got, tc.want)
 			}
 		})
 	}

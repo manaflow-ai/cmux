@@ -685,8 +685,13 @@ fi
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    # Per-user, never world-shared /tmp: this wrapper also runs on multi-user
+    # remote hosts where TMPDIR is typically unset, and a predictable /tmp
+    # path could be pre-owned or swapped by another user between install and
+    # the module being --require'd into node.
+    local guard_dir="$HOME/.cmux/run"
+    mkdir -p "$guard_dir" && chmod 700 "$guard_dir" || return 1
+    guard_dir="$guard_dir/cmux-claude-node-options"
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path
@@ -1015,8 +1020,13 @@ announce_agent_surface_identity "$CMUX_AGENT_HOOK_TOKEN"
 # literals, and a tmux branch, and hand-escaping that through JSON-inside-bash
 # would be unreviewable and could break every launch if it were malformed.
 ensure_claude_hook_dispatch_script() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-hook-dispatch"
+    # Per-user, never world-shared /tmp: this wrapper also runs on multi-user
+    # remote hosts where TMPDIR is typically unset, and a predictable /tmp
+    # path could be pre-owned or swapped by another user between install and
+    # every Stop/Notification hook executing it.
+    local guard_dir="$HOME/.cmux/run"
+    mkdir -p "$guard_dir" && chmod 700 "$guard_dir" || return 1
+    guard_dir="$guard_dir/cmux-claude-hook-dispatch"
     mkdir -p "$guard_dir" || return 1
     local dispatch_path="$guard_dir/dispatch.sh"
     local temp_path

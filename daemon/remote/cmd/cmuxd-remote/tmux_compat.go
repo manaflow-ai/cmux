@@ -33,11 +33,20 @@ func runTmuxCompat(socketPath string, args []string, refreshAddr func() string) 
 type rpcContext struct {
 	socketPath  string
 	refreshAddr func() string
+	// readTimeout overrides the default socket read deadline when positive.
+	// Hook relays that legitimately outlast the default set it: the feed
+	// lane's PermissionRequest blocks on the user's decision (~125s) and
+	// auto-name may run a summarizer (~120s).
+	readTimeout time.Duration
 }
 
 // call makes a JSON-RPC call and returns the parsed result.
 func (rc *rpcContext) call(method string, params map[string]any) (map[string]any, error) {
-	resp, err := socketRoundTripV2(rc.socketPath, method, params, rc.refreshAddr)
+	timeout := rc.readTimeout
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	resp, err := socketRoundTripV2Deadline(rc.socketPath, method, params, rc.refreshAddr, timeout)
 	if err != nil {
 		return nil, err
 	}

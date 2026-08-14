@@ -65,6 +65,10 @@ struct ControlCommandExecutionPolicyTests {
             ControlCommandExecutionPolicy(forMethod: "agent.hook.run")
                 == .socketWorker(mainThreadCallable: false)
         )
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "agent.identity.resolve")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func everythingElseRunsOnTheMainActor() {

@@ -260,6 +260,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // entry the policy routes the method to the main-actor switch, which
         // lacks the case, and remote hook forwarding gets method_not_found.
         "agent.hook.run",
+        // Its resolution twin: a lock-guarded read invoked before every hook
+        // delivery, kept off the main lane like the other resolution reads.
+        "agent.identity.resolve",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
         // Their nonisolated coordinator bodies

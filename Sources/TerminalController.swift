@@ -1079,18 +1079,22 @@ class TerminalController {
                     return response
                 }
             }
-            // `agent.hook.run` runs a child process and waits for it to exit.
-            // PermissionRequest legitimately blocks for up to 125s waiting on
-            // the user, so this must never occupy the main actor — it answers
-            // on the async lane rather than the legacy main-actor switch. The
-            // body is nonisolated, so no hop puts it back on main.
+            // `agent.hook.run` runs a child process and waits for it to exit
+            // (a PermissionRequest legitimately blocks up to ~125s on the
+            // user's decision). It blocks THIS socket-worker thread directly,
+            // like browser.download.wait: bouncing it through the async lane
+            // would park a cooperative-pool thread per concurrent prompt, and
+            // a handful of prompts could starve the pool. The remote caller
+            // enforces its own read deadline.
             if request.method == "agent.hook.run" {
-                return v2AsyncResultCall(
-                    id: request.id,
-                    timeoutSeconds: 130
-                ) {
-                    self.v2AgentHookRun(params: request.params)
-                }
+                return v2Result(id: request.id, self.v2AgentHookRun(params: request.params))
+            }
+            // `agent.identity.resolve` is a lock-guarded read plus one main
+            // hop for live-owner resolution; it runs on every hook
+            // invocation, so it stays off the main lane like the other
+            // resolution reads.
+            if request.method == "agent.identity.resolve" {
+                return v2Result(id: request.id, self.v2AgentIdentityResolve(params: request.params))
             }
             if request.method == "mobile.task.models.list" {
                 return v2AsyncResultCall(
@@ -2376,8 +2380,6 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
-        case "agent.identity.resolve":
-            return v2Result(id: id, self.v2AgentIdentityResolve(params: params))
 
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.

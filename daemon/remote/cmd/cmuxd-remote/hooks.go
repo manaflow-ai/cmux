@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -65,7 +64,11 @@ func runHooksRelay(socketPath string, args []string, refreshAddr func() string) 
 		return hookRelayFailure(isVisible)
 	}
 
-	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
+	rc := &rpcContext{
+		socketPath:  socketPath,
+		refreshAddr: refreshAddr,
+		readTimeout: hookRelayReadTimeouts[event],
+	}
 	result, err := rc.call("agent.hook.run", map[string]any{
 		"token": token,
 		"agent": agent,
@@ -86,19 +89,6 @@ func runHooksRelay(socketPath string, args []string, refreshAddr func() string) 
 		fmt.Println()
 	}
 	return 0
-}
-
-// feedSourceFromArgs extracts the --source value from a
-// `cmux hooks feed --source <agent>` invocation's trailing arguments,
-// last occurrence winning, or "" when absent.
-func feedSourceFromArgs(args []string) string {
-	source := ""
-	for i := 0; i+1 < len(args); i++ {
-		if strings.TrimSpace(args[i]) == "--source" {
-			source = strings.TrimSpace(args[i+1])
-		}
-	}
-	return source
 }
 
 // relayErrorIndicatesBindingGone reports whether an agent.hook.run error means
@@ -149,19 +139,11 @@ func hookRelayFailure(isVisible bool) int {
 	return 0
 }
 
-// callAgentHookRun performs one agent.hook.run round trip with a caller-chosen
-// read deadline (rpcContext.call is fixed at the 15s default, which is too
-// short for the blocking permission lane).
-func callAgentHookRun(socketPath string, refreshAddr func() string, timeout time.Duration, params map[string]any) (map[string]any, error) {
-	resp, err := socketRoundTripV2Deadline(socketPath, "agent.hook.run", params, refreshAddr, timeout)
-	if err != nil {
-		return nil, err
-	}
-	var result map[string]any
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		return nil, err
-	}
-	return result, nil
+// hookRelayReadTimeouts gives slow events a socket deadline that outlasts
+// their Claude-side hook timeout; the wrapper installs auto-name with 120s
+// because it may run a summarizer. Absent events get the default deadline.
+var hookRelayReadTimeouts = map[string]time.Duration{
+	"auto-name": 130 * time.Second,
 }
 
 // feedHookTimeout bounds the feed hook's round trip. The feed lane carries
@@ -181,7 +163,10 @@ const feedHookTimeout = 130 * time.Second
 // falls back to Claude's own terminal prompt and a Stop-feed update is simply
 // lost — neither may surface an error into the agent's turn.
 func runFeedHookRelay(socketPath string, args []string, refreshAddr func() string) int {
-	source := feedSourceFromArgs(args)
+	source := ""
+	if parsed, err := parseFlags(args, []string{"source"}); err == nil {
+		source = strings.TrimSpace(parsed.flags["source"])
+	}
 	if source == "" {
 		fmt.Fprintln(os.Stderr, "cmux hooks feed: usage: cmux hooks feed --source <agent>")
 		return 2
@@ -197,7 +182,12 @@ func runFeedHookRelay(socketPath string, args []string, refreshAddr func() strin
 		return hookRelayFailure(false)
 	}
 
-	result, err := callAgentHookRun(socketPath, refreshAddr, feedHookTimeout, map[string]any{
+	rc := &rpcContext{
+		socketPath:  socketPath,
+		refreshAddr: refreshAddr,
+		readTimeout: feedHookTimeout,
+	}
+	result, err := rc.call("agent.hook.run", map[string]any{
 		"token": token,
 		"agent": "feed",
 		"event": source,

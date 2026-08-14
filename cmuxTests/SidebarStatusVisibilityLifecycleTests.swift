@@ -28,7 +28,7 @@ struct SidebarStatusVisibilityLifecycleTests {
                 livePanelIds: [panelId],
                 storedStatusKeys: [reservedKey]
             )
-            #expect(admitted == [reservedKey], "\(lifecycle)")
+            #expect(admitted == [panelId: [reservedKey]], "\(lifecycle)")
         }
     }
 
