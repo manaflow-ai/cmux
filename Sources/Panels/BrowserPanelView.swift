@@ -348,6 +348,10 @@ struct BrowserPanelView: View {
     private var addressBarButtonHitSize: CGFloat { chromeMetrics.buttonHitSize }
     private var devToolsButtonIconSize: CGFloat { chromeMetrics.accessoryIconFontSize }
 
+    private var resolvedThemeBackgroundIdentity: String {
+        resolvedThemeBackgroundColor?.hexString(includeAlpha: true) ?? ""
+    }
+
     init(
         panel: BrowserPanel,
         paneId: PaneID,
@@ -1078,6 +1082,9 @@ struct BrowserPanelView: View {
         }
         .onChange(of: colorScheme) { _ in
             handleSystemColorSchemeChange()
+        }
+        .onChange(of: resolvedThemeBackgroundIdentity) { _ in
+            refreshBrowserChromeStyle()
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()

@@ -39,7 +39,7 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
     /// Resolved cmux scheme used by native group-header chrome.
-    let colorSchemeIsDark: Bool = false
+    var colorSchemeIsDark: Bool = false
 }
 
 /// Behavior bundle for one group header row; recreated per apply and excluded
