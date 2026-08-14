@@ -62,6 +62,7 @@ tmp/
 tmp-*/
 .iter-logs/
 .claude/worktrees/
+.worktrees/
 .claude/scheduled_tasks.lock
 
 # Local dogfood scratch (screenshots, recordings) — never commit
