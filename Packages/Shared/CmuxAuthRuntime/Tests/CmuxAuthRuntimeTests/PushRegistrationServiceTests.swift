@@ -1027,6 +1027,21 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func coordinatorGenerationZeroEnablesPreviouslyAuthorizedStartup() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let (service, defaults) = makeScriptedService(accountID: "account-a")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+
+        await service.applyEnabledIntent(true, generation: 0)
+
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(await service.snapshot.backendState == .registered)
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST"]
+        )
+    }
+
     @Test func directMutationSupersedesQueuedCoordinatorIntent() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
