@@ -20,7 +20,7 @@ extension WorkspaceListView {
             items.append(.chrome(.recoveryBanner))
         case .macStatusRow:
             items.append(.chrome(.macStatusRow))
-        case .tailscalePairingRequired, .statusLine, .none:
+        case .statusLine, .none:
             // The status line renders under the computers picker in the
             // toolbar, not as a list row; content stays uncovered.
             break
