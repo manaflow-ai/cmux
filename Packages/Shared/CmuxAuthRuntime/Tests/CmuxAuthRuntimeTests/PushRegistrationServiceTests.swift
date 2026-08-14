@@ -698,6 +698,42 @@ actor RetryDelayRecorder {
         #expect(await relaunched.snapshot == .disabled)
     }
 
+    @Test func disabledStartupDurablyRecoversOwnedRegistrationCleanup() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let suite = "push-disabled-startup-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            suite: suite,
+            accountID: "account-a",
+            seedDefaults: { defaults in
+                defaults.set(false, forKey: "cmux.notifications.pushEnabled")
+                defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+                defaults.set(
+                    "account-a",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+            }
+        )
+
+        let persisted = try? JSONDecoder().decode(
+            [[String: String]].self,
+            from: defaults.data(
+                forKey: "cmux.notifications.pendingUnregisters.v2"
+            ) ?? Data()
+        )
+        #expect(persisted == [["tokenHex": "aa", "accountID": "account-a"]])
+
+        await service.syncTokenIfPossible()
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["DELETE"]
+        )
+        #expect(
+            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
+                == nil
+        )
+    }
+
     @Test func optOutWithoutLiveSessionPersistsOwnerBeforeAuthentication() async {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-optout-no-session-\(UUID().uuidString)"
