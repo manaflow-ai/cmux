@@ -210,7 +210,7 @@ async function ensureResumeBinding(
   if (verification.surfaceUnavailable) return;
   const verified = parseJSONOutput(verification);
   if (!resumeBindingMatches(verified, sessionId)) {
-    warn(context, "Pi resume binding did not verify after write", {
+    await warn(context, "Pi resume binding did not verify after write", {
       session_id: sessionId,
       hook_name: "surface-resume-get",
       reason: "verification-failure",
@@ -322,11 +322,11 @@ function prepareFeedDispatch(
   };
 }
 
-function warnFeedDeliveryDropped(
+async function warnFeedDeliveryDropped(
   context: PiExtensionContextSnapshot,
   sessionId: string,
-): void {
-  warn(context, "cmux feed delivery dropped", {
+): Promise<void> {
+  await warn(context, "cmux feed delivery dropped", {
     session_id: sessionId,
     hook_name: "feed",
     reason: "dispatch-dropped",
@@ -344,7 +344,7 @@ async function publishPendingCompletion(
   const state = stateFor(sessionStates, sessionId);
   const feedDelivered = !state.feedDeliveryFailed;
   state.feedDeliveryFailed = false;
-  if (!feedDelivered) warnFeedDeliveryDropped(context, sessionId);
+  if (!feedDelivered) await warnFeedDeliveryDropped(context, sessionId);
   const stopPayload: HookExtra = {
     last_assistant_message: completion.lastAssistantMessage,
     turn_id: completion.turnId,
