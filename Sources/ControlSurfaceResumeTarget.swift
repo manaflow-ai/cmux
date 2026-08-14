@@ -149,8 +149,12 @@ extension SurfaceResumeBindingSnapshot {
               incoming.mayOwnBinding else {
             return false
         }
-        guard let existing,
-              existing.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex" else {
+        guard let existing else {
+            return true
+        }
+        let existingKind = existing.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let existingIsLegacyCodex = existing.isAgentHookBinding && existingKind == nil
+        guard existingKind == "codex" || existingIsLegacyCodex else {
             return true
         }
         guard let previous = existing.codexResumeEvidenceProvenance else {

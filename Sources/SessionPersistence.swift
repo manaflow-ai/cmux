@@ -324,7 +324,11 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.launchCommand = Self.normalizedLaunchCommand(launchCommand)
         self.permissionMode = Self.normalized(permissionMode)
         self.autoResume = autoResume
-        self.resumeEvidenceProvenance = Self.normalized(resumeEvidenceProvenance)
+        let retainsCodexEvidence = normalizedSource?.lowercased() == "agent-hook"
+            && normalizedKind?.lowercased() == "codex"
+        self.resumeEvidenceProvenance = retainsCodexEvidence
+            ? Self.normalized(resumeEvidenceProvenance)
+            : nil
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
         self.launchFlavor = launchFlavor

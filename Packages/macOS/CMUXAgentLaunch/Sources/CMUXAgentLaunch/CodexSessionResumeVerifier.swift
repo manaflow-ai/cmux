@@ -7,6 +7,7 @@ public struct CodexSessionResumeVerifier: Sendable {
     private static let maximumRolloutBytes = 8 * 1024 * 1024
     private static let maximumRolloutLines = 32
     private static let maximumFallbackCandidates = 512
+    private static let maximumMatchingCandidates = 32
     private static let maximumScannedEntries = 8_192
     /// Creates a stateless Codex resume verifier.
     public init() {}
@@ -59,9 +60,12 @@ public struct CodexSessionResumeVerifier: Sendable {
                 // The index proves that this durable thread exists. If its
                 // rollout cannot be read, fail closed instead of treating a
                 // transient filesystem failure as a missing session.
-                databaseUnavailable = true
-            default:
-                break
+                return .unavailable
+            case .metadata, .readableWithoutMetadata:
+                // An indexed row is authoritative. Never accept a transcript
+                // or legacy scan result after its rollout fails identity
+                // validation, because that could bind a different session.
+                return .unavailable
             }
         case .absent:
             break
@@ -312,6 +316,7 @@ public struct CodexSessionResumeVerifier: Sendable {
         var fallbackCandidates: [URL] = []
         var sawUnavailable = false
         var scannedEntries = 0
+        var matchingCandidates = 0
         while let item = enumerator.nextObject() as? URL {
             scannedEntries += 1
             if scannedEntries > Self.maximumScannedEntries {
@@ -319,6 +324,10 @@ public struct CodexSessionResumeVerifier: Sendable {
             }
             guard item.pathExtension.lowercased() == "jsonl" else { continue }
             if item.lastPathComponent.contains(sessionId) {
+                matchingCandidates += 1
+                guard matchingCandidates <= Self.maximumMatchingCandidates else {
+                    return .unavailable
+                }
                 // Codex includes the session id in rollout filenames. Parse
                 // focused candidates while walking so a hit does not require
                 // traversing and reopening every file in the sessions tree.

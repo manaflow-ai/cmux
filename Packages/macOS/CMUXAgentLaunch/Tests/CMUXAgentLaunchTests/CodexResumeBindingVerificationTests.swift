@@ -58,6 +58,82 @@ struct CodexResumeBindingVerificationTests {
                 sessionId: sessionId,
                 transcriptPath: nil,
                 codexHome: fixture.codexHome.path
+        ) == .unavailable
+        )
+    }
+
+    @Test func indexedThreadWithMismatchedRolloutMetadataDoesNotUseFallbackEvidence() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let requestedSessionID = "019ff9aa-cbe1-7231-9478-0c55a8c44560"
+        let indexedRollout = try fixture.writeRollout(
+            sessionId: "019ff9ab-cbe1-7231-9478-0c55a8c44560"
+        )
+        let matchingTranscript = try fixture.writeRollout(sessionId: requestedSessionID)
+        try fixture.insertThread(sessionId: requestedSessionID, rolloutPath: indexedRollout.path)
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: requestedSessionID,
+                transcriptPath: matchingTranscript.path,
+                codexHome: fixture.codexHome.path
+            ) == .unavailable
+        )
+    }
+
+    @Test func indexedThreadWithoutSessionMetadataDoesNotUseFallbackEvidence() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9ac-cbe1-7231-9478-0c55a8c44560"
+        let indexedRollout = fixture.codexHome
+            .appendingPathComponent("sessions/2026/08/12/indexed-(sessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: indexedRollout.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let event: [String: Any] = [
+            "type": "event_msg",
+            "payload": ["type": "task_started"],
+        ]
+        try JSONSerialization.data(withJSONObject: event, options: [.sortedKeys])
+            .write(to: indexedRollout, options: .atomic)
+        let matchingTranscript = try fixture.writeRollout(sessionId: sessionID)
+        try fixture.insertThread(sessionId: sessionID, rolloutPath: indexedRollout.path)
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: sessionID,
+                transcriptPath: matchingTranscript.path,
+                codexHome: fixture.codexHome.path
+            ) == .unavailable
+        )
+    }
+
+    @Test func matchingFilenameProbeLimitFailsClosed() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9ad-cbe1-7231-9478-0c55a8c44560"
+        let directory = fixture.codexHome
+            .appendingPathComponent("sessions/2026/08/12", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let event: [String: Any] = [
+            "type": "event_msg",
+            "payload": ["type": "task_started"],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: event, options: [.sortedKeys])
+        for index in 0..<33 {
+            let path = directory.appendingPathComponent("rollout-\(sessionID)-\(index).jsonl")
+            try data.write(to: path, options: .atomic)
+        }
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: sessionID,
+                transcriptPath: nil,
+                codexHome: fixture.codexHome.path
             ) == .unavailable
         )
     }
