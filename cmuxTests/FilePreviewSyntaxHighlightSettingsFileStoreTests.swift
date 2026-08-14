@@ -7,52 +7,42 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("File preview syntax highlight settings file store", .serialized)
+@Suite("File preview syntax highlight settings file store")
 struct FilePreviewSyntaxHighlightSettingsFileStoreTests {
-    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
-
     @Test("Settings file parses file editor syntax highlighting")
     func settingsFileParsesFileEditorSyntaxHighlighting() throws {
-        let defaults = UserDefaults.standard
+        let defaultsSuiteName = "com.cmuxterm.tests.file-preview-syntax.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
-        try preservingDefaults(keys: [
-            FilePreviewSyntaxHighlightSettings.key,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey
-        ]) {
-            defaults.removeObject(forKey: FilePreviewSyntaxHighlightSettings.key)
-            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            defaults.removeObject(forKey: importedManagedDefaultsKey)
+        #expect(FilePreviewSyntaxHighlightSettings.isEnabled(defaults: defaults))
 
-            #expect(FilePreviewSyntaxHighlightSettings.isEnabled(defaults: defaults))
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try writeSettingsFile(
-                """
-                {
-                  "fileEditor": {
-                    "syntaxHighlighting": false
-                  }
-                }
-                """,
-                to: settingsFileURL
-            )
-
-            let store = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-
-            withExtendedLifetime(store) {
-                #expect(!defaults.bool(forKey: FilePreviewSyntaxHighlightSettings.key))
-                #expect(!FilePreviewSyntaxHighlightSettings.isEnabled(defaults: defaults))
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "fileEditor": {
+                "syntaxHighlighting": false
+              }
             }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            defaults: defaults,
+            startWatching: false
+        )
+
+        withExtendedLifetime(store) {
+            #expect(defaults.object(forKey: FilePreviewSyntaxHighlightSettings.key) as? Bool == false)
+            #expect(!FilePreviewSyntaxHighlightSettings.isEnabled(defaults: defaults))
         }
     }
 
@@ -71,22 +61,5 @@ struct FilePreviewSyntaxHighlightSettingsFileStoreTests {
             withIntermediateDirectories: true
         )
         try contents.write(to: url, atomically: true, encoding: .utf8)
-    }
-
-    private func preservingDefaults(keys: [String], _ body: () throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
-        let previousValues = keys.map { key in
-            (key: key, value: defaults.object(forKey: key))
-        }
-        defer {
-            for previous in previousValues {
-                if let value = previous.value {
-                    defaults.set(value, forKey: previous.key)
-                } else {
-                    defaults.removeObject(forKey: previous.key)
-                }
-            }
-        }
-        try body()
     }
 }
