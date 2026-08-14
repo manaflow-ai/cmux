@@ -39,9 +39,7 @@ public actor PushRegistrationService: PushRegistering {
     private var operationGeneration = UUID()
     private var enabledIntentGeneration = UUID()
     private var coordinatorIntentGeneration: UInt64 = 0
-    private var coordinatorIntentTask: Task<Void, Never>?
-    private var coordinatorIntentTaskGeneration: UInt64?
-    private var coordinatorIntentTaskID: UUID?
+    private var coordinatorIntentQueue: PushRegistrationIntentQueue?
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
         [UUID: AsyncStream<PushRegistrationSnapshot>.Continuation] = [:]
@@ -154,8 +152,8 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    /// Applies the newest coordinator-owned preference exactly once while it
-    /// is in flight, ignoring older generations that are still queued.
+    /// Applies the newest coordinator-owned preference, replacing stale work
+    /// that has not started and sharing a live mutation with duplicate callers.
     ///
     /// - Parameters:
     ///   - enabled: The latest user preference.
@@ -169,29 +167,28 @@ public actor PushRegistrationService: PushRegistering {
             generation
         )
         guard coordinatorIntentGeneration == generation else { return }
-        if let task = coordinatorIntentTask,
-           coordinatorIntentTaskGeneration == generation {
-            await task.value
-            return
-        }
-        let taskID = UUID()
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.intentGate.withLock { [self] in
-                guard await self.isCurrentCoordinatorIntent(generation) else {
-                    return
-                }
-                await self.applyEnabledIntentUnlocked(enabled)
+        if coordinatorIntentQueue == nil {
+            coordinatorIntentQueue = PushRegistrationIntentQueue { [weak self] intent in
+                await self?.applyCoordinatorIntent(intent)
             }
         }
-        coordinatorIntentTask = task
-        coordinatorIntentTaskGeneration = generation
-        coordinatorIntentTaskID = taskID
-        await task.value
-        guard coordinatorIntentTaskID == taskID else { return }
-        coordinatorIntentTask = nil
-        coordinatorIntentTaskGeneration = nil
-        coordinatorIntentTaskID = nil
+        let queue = coordinatorIntentQueue!
+        await queue.submit(PushRegistrationIntentQueue.Intent(
+            enabled: enabled,
+            generation: generation
+        ))
+    }
+
+    private func applyCoordinatorIntent(
+        _ intent: PushRegistrationIntentQueue.Intent
+    ) async {
+        guard isCurrentCoordinatorIntent(intent.generation) else { return }
+        await intentGate.withLock { [self] in
+            guard await self.isCurrentCoordinatorIntent(intent.generation) else {
+                return
+            }
+            await self.applyEnabledIntentUnlocked(intent.enabled)
+        }
     }
 
     private func applyEnabledIntentUnlocked(_ enabled: Bool) async {
