@@ -5,8 +5,19 @@ extension GitMetadataService {
     /// Branch name git writes into the vestigial `HEAD` stub for reftable repos.
     static let reftableHeadBranchSentinel = ".invalid"
 
-    /// Test hook for git-plumbing reads. When set, overrides the system runner.
-    nonisolated(unsafe) static var gitPlumbingRunnerForTests: (any GitMetadataGitRunning)?
+    private enum GitPlumbingRunnerOverride {
+        @TaskLocal static var current: (any GitMetadataGitRunning)?
+    }
+
+    /// Runs `body` with a git-plumbing runner override isolated to this task.
+    static func withGitPlumbingRunnerForTesting<T>(
+        _ runner: any GitMetadataGitRunning,
+        perform body: () async throws -> T
+    ) async rethrows -> T {
+        try await GitPlumbingRunnerOverride.$current.withValue(runner) {
+            try await body()
+        }
+    }
 
     /// Runs a read-only git command in the repository work tree.
     nonisolated static func gitPlumbingOutput(
@@ -14,7 +25,7 @@ extension GitMetadataService {
         arguments: [String],
         acceptedExitCodes: Set<Int32> = [0]
     ) -> String? {
-        let result = (gitPlumbingRunnerForTests ?? SystemGitMetadataGitRunner()).run(
+        let result = (GitPlumbingRunnerOverride.current ?? SystemGitMetadataGitRunner()).run(
             arguments: arguments,
             in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true)
         )

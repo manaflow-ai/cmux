@@ -154,9 +154,7 @@ import Testing
         let fixture = try GitRepositoryFixture()
         try fixture.writeReftableHeadStub()
         let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
-        let priorRunner = GitMetadataService.gitPlumbingRunnerForTests
-        defer { GitMetadataService.gitPlumbingRunnerForTests = priorRunner }
-        GitMetadataService.gitPlumbingRunnerForTests = FakeGitMetadataGitRunner(responses: [
+        await GitMetadataService.withGitPlumbingRunnerForTesting(FakeGitMetadataGitRunner(responses: [
             ["symbolic-ref", "--quiet", "--short", "HEAD"]: GitMetadataGitResult(
                 output: "theo.leruitte/support-dog/preprod\n",
                 exitCode: 0
@@ -169,41 +167,39 @@ import Testing
                 output: String(repeating: "a", count: 40) + "\n",
                 exitCode: 0
             ),
-        ])
+        ])) {
+            let service = GitMetadataService()
+            let meta = await service.workspaceMetadata(for: fixture.root.path)
+            let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
 
-        let service = GitMetadataService()
-        let meta = await service.workspaceMetadata(for: fixture.root.path)
-        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
-
-        #expect(GitMetadataService.gitBranchName(repository: repository) == "theo.leruitte/support-dog/preprod")
-        #expect(meta.branch == "theo.leruitte/support-dog/preprod")
-        #expect(branch == .branch("theo.leruitte/support-dog/preprod"))
-        #expect(GitMetadataService.gitHeadSignature(repository: repository) == """
-            refs/heads/theo.leruitte/support-dog/preprod
-            \(String(repeating: "a", count: 40))
-            """)
-        #expect(GitMetadataService.gitCurrentCommit(repository: repository) == String(repeating: "a", count: 40))
+            #expect(GitMetadataService.gitBranchName(repository: repository) == "theo.leruitte/support-dog/preprod")
+            #expect(meta.branch == "theo.leruitte/support-dog/preprod")
+            #expect(branch == .branch("theo.leruitte/support-dog/preprod"))
+            #expect(GitMetadataService.gitHeadSignature(repository: repository) == """
+                refs/heads/theo.leruitte/support-dog/preprod
+                \(String(repeating: "a", count: 40))
+                """)
+            #expect(GitMetadataService.gitCurrentCommit(repository: repository) == String(repeating: "a", count: 40))
+        }
     }
 
     @Test func reftableHeadStubDetachedCheckoutUsesGitPlumbing() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeReftableHeadStub()
-        let priorRunner = GitMetadataService.gitPlumbingRunnerForTests
-        defer { GitMetadataService.gitPlumbingRunnerForTests = priorRunner }
-        GitMetadataService.gitPlumbingRunnerForTests = FakeGitMetadataGitRunner(responses: [
+        await GitMetadataService.withGitPlumbingRunnerForTesting(FakeGitMetadataGitRunner(responses: [
             ["symbolic-ref", "--quiet", "--short", "HEAD"]: GitMetadataGitResult(output: "", exitCode: 1),
             ["rev-parse", "HEAD"]: GitMetadataGitResult(
                 output: String(repeating: "b", count: 40) + "\n",
                 exitCode: 0
             ),
-        ])
+        ])) {
+            let service = GitMetadataService()
+            let meta = await service.workspaceMetadata(for: fixture.root.path)
+            let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
 
-        let service = GitMetadataService()
-        let meta = await service.workspaceMetadata(for: fixture.root.path)
-        let branch = await service.checkedOutBranch(forDirectory: fixture.root.path)
-
-        #expect(meta.branch == nil)
-        #expect(branch == .detached)
+            #expect(meta.branch == nil)
+            #expect(branch == .detached)
+        }
     }
 
     // MARK: Dirty detection (index v2)
