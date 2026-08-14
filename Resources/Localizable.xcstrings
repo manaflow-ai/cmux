@@ -4001,6 +4001,23 @@
         }
       }
     },
+    "agent.codex.error.status.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex model at capacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex モデルが混雑しています"
+          }
+        }
+      }
+    },
     "agent.codex.error.status.generic": {
       "extractionState": "manual",
       "localizations": {
@@ -4048,6 +4065,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Codex レート制限"
+          }
+        }
+      }
+    },
+    "agent.codex.error.status.quota": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex quota exhausted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex クォータを使い切りました"
+          }
+        }
+      }
+    },
+    "agent.codex.error.status.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex request timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex リクエストがタイムアウトしました"
           }
         }
       }
@@ -4522,6 +4573,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "エラー"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model at capacity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルが混雑しています"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.quota": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quota exhausted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クォータを使い切りました"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.rateLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rate limited"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レート制限中"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リクエストがタイムアウトしました"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.authentication": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authentication error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証エラー"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークエラー"
           }
         }
       }

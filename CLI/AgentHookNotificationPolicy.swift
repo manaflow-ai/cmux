@@ -123,8 +123,27 @@ enum AgentHookNotificationClassifier {
         message: String,
         isFallback: Bool
     ) -> AgentHookNotificationSummary {
+        // Stop banners are the only place where a provider error can replace a
+        // completion classification. Notification hooks also carry free-form
+        // assistant text, so keep this promotion scoped to an explicit stop
+        // signal to avoid turning ordinary prose into an error alert.
+        if AgentHookAbnormalStopClassifier.isStopSignal(signal),
+           let abnormal = classifyAbnormalStop(
+               displayName: displayName,
+               signal: signal,
+               message: message,
+               isFallback: isFallback
+           ) {
+            return abnormal
+        }
+
         let lower = "\(signal) \(message)".lowercased()
-        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
+        let isUserInitiatedStop = AgentHookAbnormalStopClassifier.isUserInitiatedStop(
+            signal: signal,
+            message: message
+        )
+        if !isUserInitiatedStop,
+           (lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt")) {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
                 : message
@@ -136,7 +155,8 @@ enum AgentHookNotificationClassifier {
                 notifyCategory: .needsPermission
             )
         }
-        if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
+        if !isUserInitiatedStop,
+           (lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception")) {
             let body = message.isEmpty
                 ? String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
@@ -196,6 +216,31 @@ enum AgentHookNotificationClassifier {
             isFallback: true,
             notifyCategory: .idleReminder
         )
+    }
+
+    /// Compatibility entry point used by the generic hook classifier.
+    static func classifyAbnormalStop(
+        displayName: String,
+        signal: String,
+        message: String,
+        isFallback: Bool = false
+    ) -> AgentHookNotificationSummary? {
+        AgentHookAbnormalStopClassifier.summary(
+            displayName: displayName,
+            signal: signal,
+            message: message,
+            isFallback: isFallback
+        )
+    }
+
+    /// Compatibility entry point for integrations that only need the class.
+    static func abnormalStopClass(signal: String, message: String) -> AgentHookAbnormalStopClass? {
+        AgentHookAbnormalStopClassifier.abnormalStopClass(signal: signal, message: message)
+    }
+
+    /// Compatibility entry point for payload-level user-abort guards.
+    static func isUserInitiatedStop(signal: String, message: String) -> Bool {
+        AgentHookAbnormalStopClassifier.isUserInitiatedStop(signal: signal, message: message)
     }
 
     static func isGrokInternalSessionNotification(_ message: String) -> Bool {
