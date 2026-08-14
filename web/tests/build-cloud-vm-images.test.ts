@@ -52,6 +52,52 @@ describe("Cloud VM image build helpers", () => {
     expect(cloudMachineBinaryInstallCommands(plan)).toEqual([]);
   });
 
+  test("does not silently select a legacy build for explicit machine options", async () => {
+    const cmuxCommit = "a".repeat(40);
+    const binaryName = "cmux-tui-x86_64-unknown-linux-musl";
+    const manifestUrl =
+      `https://files.cmux.com/cmux-tui/${cmuxCommit}/machine-release-v1.json`;
+    const dependencies = {
+      loadReleaseManifest: async () => ({
+        schemaVersion: 1,
+        commit: cmuxCommit,
+        artifacts: [{
+          architecture: "x86_64",
+          binaryName,
+          binarySha256: "b".repeat(64),
+          downloadUrl: `https://files.cmux.com/cmux-tui/${cmuxCommit}/${binaryName}`,
+        }],
+      }),
+      loadSourceMetadata: async () => ({ cmuxVersion: "0.1.0", protocolVersion: 12 }),
+    };
+
+    await expect(resolveCloudMachineBuildPlan([
+      `--machine-commit=${cmuxCommit}`,
+      `--machine-release-manifest-url=${manifestUrl}`,
+    ], dependencies)).resolves.toMatchObject({
+      machineRuntime: { readiness: "built" },
+    });
+
+    await expect(resolveCloudMachineBuildPlan([
+      `--machine-comit=${cmuxCommit}`,
+      `--machine-release-manifest-url=${manifestUrl}`,
+    ], dependencies)).rejects.toThrow("Unsupported machine build option");
+
+    await expect(resolveCloudMachineBuildPlan([
+      "--machine-commit",
+      cmuxCommit,
+      `--machine-commit=${cmuxCommit}`,
+      "--machine-release-manifest-url",
+      manifestUrl,
+    ], dependencies)).rejects.toThrow("--machine-commit may be supplied only once");
+
+    await expect(resolveCloudMachineBuildPlan([
+      "--machine-commit=",
+      "--machine-release-manifest-url",
+      manifestUrl,
+    ], dependencies)).rejects.toThrow("--machine-commit requires a value");
+  });
+
   test("uses only explicit immutable Rust artifact metadata when opted in", async () => {
     const cmuxCommit = "a".repeat(40);
     const binarySha256 = "b".repeat(64);

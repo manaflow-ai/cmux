@@ -89,6 +89,43 @@ describe("VM image resolver", () => {
     } as never)).toBe(false);
   });
 
+  test("rejects approved runtimes outside the current provider launch contract", () => {
+    const approved = {
+      ...firstManifestEntry(),
+      validationStatus: "passed",
+      machineRuntime: {
+        readiness: "approved",
+        cmuxCommit: "a".repeat(40),
+        cmuxVersion: "0.1.0",
+        binarySha256: "b".repeat(64),
+        protocolVersion: 12,
+        bootstrapGeneration: 1,
+        architecture: "x86_64",
+        supervisorVersion: "cmux-cloud-supervisor-v1",
+        transport: "websocket-provider-stream",
+        authentication: "server-side-websocket-ticket",
+        verifiedAt: "2026-08-14T12:00:00.000Z",
+      },
+    } as const;
+
+    for (const machineRuntime of [
+      { ...approved.machineRuntime, bootstrapGeneration: 2 },
+      { ...approved.machineRuntime, architecture: "aarch64" },
+      { ...approved.machineRuntime, supervisorVersion: "cmux-cloud-supervisor-v2" },
+      {
+        ...approved.machineRuntime,
+        transport: "ssh-provider-stream",
+        authentication: "ssh-edge-ticket",
+      },
+    ]) {
+      expect(isVmImageMachineConnectable({ ...approved, machineRuntime } as never)).toBe(false);
+    }
+
+    expect(isVmImageMachineConnectable({ ...approved, provider: "future-provider" } as never)).toBe(
+      false,
+    );
+  });
+
   test("requires a verification time for checked and approved machine stages", () => {
     const legacy = firstManifestEntry();
     const runtime = {
