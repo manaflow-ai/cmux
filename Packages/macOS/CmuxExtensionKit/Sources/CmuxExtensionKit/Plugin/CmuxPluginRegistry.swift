@@ -28,11 +28,18 @@ public struct CmuxPluginRegistrySnapshot: Equatable, Sendable {
     public let plugins: [CmuxPluginDescriptor]
     /// Load errors retained for diagnostics.
     public let failures: [CmuxPluginLoadFailure]
+    /// A fail-closed grant-file load failure retained for Settings diagnostics.
+    public let permissionStoreLoadFailure: CmuxPluginPermissionStoreLoadFailure?
 
     /// Creates a snapshot.
-    public init(plugins: [CmuxPluginDescriptor], failures: [CmuxPluginLoadFailure]) {
+    public init(
+        plugins: [CmuxPluginDescriptor],
+        failures: [CmuxPluginLoadFailure],
+        permissionStoreLoadFailure: CmuxPluginPermissionStoreLoadFailure? = nil
+    ) {
         self.plugins = plugins
         self.failures = failures
+        self.permissionStoreLoadFailure = permissionStoreLoadFailure
     }
 }
 
@@ -64,6 +71,7 @@ public actor CmuxPluginRegistry {
     private var approvalByID: [String: Bool] = [:]
     private var tokensByID: [String: String] = [:]
     private var reloadGeneration: UInt64 = 0
+    private var permissionStoreLoadFailure: CmuxPluginPermissionStoreLoadFailure?
 
     /// Creates a registry from a loader and permission store.
     public init(
@@ -81,6 +89,7 @@ public actor CmuxPluginRegistry {
         let generation = reloadGeneration
         let previousTokens = tokensByID
         let loadedReport = await loader.load()
+        let loadedPermissionStoreFailure = await permissionStore.storageLoadFailure()
         var nextPermissions: [String: CmuxPluginPermissions] = [:]
         var nextApprovals: [String: Bool] = [:]
         var nextTokens: [String: String] = [:]
@@ -101,6 +110,7 @@ public actor CmuxPluginRegistry {
         // replace its manifest, grant, or token projection afterward.
         guard generation == reloadGeneration else { return snapshot() }
         report = loadedReport
+        permissionStoreLoadFailure = loadedPermissionStoreFailure
         tokensByID = nextTokens
         permissionsByID = nextPermissions
         approvalByID = nextApprovals
@@ -118,7 +128,8 @@ public actor CmuxPluginRegistry {
                     isApproved: approvalByID[plugin.manifest.id] ?? false
                 )
             },
-            failures: report.failures
+            failures: report.failures,
+            permissionStoreLoadFailure: permissionStoreLoadFailure
         )
     }
 
@@ -161,21 +172,30 @@ public actor CmuxPluginRegistry {
         guard permissions.enabled else {
             throw CmuxPluginAuthorizationError.disabled
         }
-        guard tokensByID[pluginID] == token else {
+        guard let expectedToken = tokensByID[pluginID],
+              Self.constantTimeEquals(expectedToken, token) else {
             throw CmuxPluginAuthorizationError.invalidToken
         }
-        let allowed = CmuxPluginSubscriptionPolicy(
+        let allowedNames = CmuxPluginSubscriptionPolicy(
             pluginID: pluginID,
             permissions: permissions
         ).allowedEventNames
+        let canonicalAllowedNames = Set(allowedNames.compactMap(Self.canonicalEventName))
         guard requestedNames.isEmpty else {
-            let denied = requestedNames.subtracting(allowed)
+            let unresolved = requestedNames.filter { Self.canonicalEventName($0) == nil }
+            guard unresolved.isEmpty else {
+                throw CmuxPluginAuthorizationError.eventNotGranted(
+                    unresolved.sorted().joined(separator: ",")
+                )
+            }
+            let canonicalRequestedNames = Set(requestedNames.compactMap(Self.canonicalEventName))
+            let denied = canonicalRequestedNames.subtracting(canonicalAllowedNames)
             guard denied.isEmpty else {
                 throw CmuxPluginAuthorizationError.eventNotGranted(denied.sorted().joined(separator: ","))
             }
-            return requestedNames
+            return canonicalRequestedNames
         }
-        return allowed
+        return canonicalAllowedNames
     }
 
     /// Authorizes a plugin palette action invocation.
@@ -220,6 +240,22 @@ public actor CmuxPluginRegistry {
             throw CmuxPluginAuthorizationError.unknownPlugin
         }
         return plugin
+    }
+
+    private static func canonicalEventName(_ name: String) -> String? {
+        if name == CmuxPluginActionInvocation.eventName { return name }
+        return CmuxExtensionEvent.canonicalName(forWireName: name)
+    }
+
+    private static func constantTimeEquals(_ lhs: String, _ rhs: String) -> Bool {
+        let left = Array(lhs.utf8)
+        let right = Array(rhs.utf8)
+        guard left.count == right.count else { return false }
+        var difference: UInt8 = 0
+        for index in left.indices {
+            difference |= left[index] ^ right[index]
+        }
+        return difference == 0
     }
 
 }

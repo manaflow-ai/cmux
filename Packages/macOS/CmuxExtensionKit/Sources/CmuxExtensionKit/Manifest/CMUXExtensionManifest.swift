@@ -74,15 +74,11 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
         pluginScopes: [CmuxExtensionPluginScope] = [],
         eventSubscriptions: [CmuxExtensionEvent] = [],
         actions: [CmuxExtensionAction] = [],
-        entrypoint: String,
-        readScopes: [CmuxExtensionScope] = [],
-        actionScopes: [CmuxExtensionActionScope] = []
+        entrypoint: String
     ) -> Self {
         Self(
             id: id,
             displayName: displayName,
-            readScopes: readScopes,
-            actionScopes: actionScopes,
             minimumAPIVersion: .pluginV3,
             kind: .plugin,
             pluginScopes: pluginScopes,

@@ -231,7 +231,7 @@ public func validatePluginManifest(
             throw CmuxExtensionValidationError.invalidDeclaration(
                 kind: "action",
                 identifier: actionID,
-                reason: "defaultShortcut must contain one or two modifier-qualified strokes"
+                reason: "defaultShortcut must contain one or two valid strokes; the first stroke must be modifier-qualified"
             )
         }
     }
@@ -288,7 +288,8 @@ private enum CmuxPluginManifestValidation {
         for (index, stroke) in strokes.enumerated() {
             let parts = stroke.split(separator: "+", omittingEmptySubsequences: false)
             guard let key = parts.last,
-                  !key.isEmpty else { return false }
+                  !key.isEmpty,
+                  !isShortcutModifier(key) else { return false }
             let modifiers = parts.dropLast()
             guard modifiers.allSatisfy(isShortcutModifier) else { return false }
             // A chord's first stroke must own a modifier; the second stroke

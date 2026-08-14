@@ -175,21 +175,13 @@ public enum CmuxExtensionEvent: String, Codable, CaseIterable, Equatable, Hashab
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
-        switch raw {
-        case "notification.posted":
-            self = .notificationPosted
-        case "agent.session.state-changed", "agent.session.stateChanged":
-            self = .agentSessionStateChanged
-        default:
-            let normalized = Self.normalize(raw)
-            guard let value = Self.allCases.first(where: { Self.normalize($0.rawValue) == normalized }) else {
-                throw DecodingError.dataCorruptedError(
-                    in: container,
-                    debugDescription: "unknown CMUX plugin lifecycle event: \(raw)"
-                )
-            }
-            self = value
+        guard let value = Self.declaration(forEventName: raw) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "unknown CMUX plugin lifecycle event: \(raw)"
+            )
         }
+        self = value
     }
 
     /// Encodes the canonical event-bus name.
@@ -251,16 +243,11 @@ public extension CmuxExtensionEvent {
     /// Returns the event declaration for an event-bus name, if it is part of
     /// the stable plugin contract.
     static func declaration(forEventName name: String) -> Self? {
-        if let value = allCases.first(where: { $0.rawValue == name }) {
-            return value
-        }
-        switch name {
-        case "notification.posted":
-            return .notificationPosted
-        case "agent.session.state-changed", "agent.session.stateChanged":
-            return .agentSessionStateChanged
-        default:
-            return nil
+        let normalized = normalize(name)
+        return allCases.first { declaration in
+            declaration.acceptedWireNames.contains { wireName in
+                normalize(wireName) == normalized
+            }
         }
     }
 }

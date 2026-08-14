@@ -183,7 +183,9 @@ public actor CmuxPluginPermissionStore {
 
     private let storageURL: URL?
     private let fileManager: FileManager
-    private var grants: [String: CmuxPluginGrant]
+    private var grants: [String: CmuxPluginGrant] = [:]
+    private var hasLoaded = false
+    private var loadFailure: CmuxPluginPermissionStoreLoadFailure?
 
     /// Creates a store. Passing `nil` keeps grants in memory, which is useful
     /// for tests and hosts that provide their own persistence layer.
@@ -193,14 +195,6 @@ public actor CmuxPluginPermissionStore {
     ) {
         self.storageURL = storageURL?.standardizedFileURL
         self.fileManager = fileManager
-        if let storageURL,
-           let data = try? Data(contentsOf: storageURL),
-           let envelope = try? JSONDecoder().decode(FileEnvelope.self, from: data),
-           envelope.schemaVersion == Self.schemaVersion {
-            self.grants = envelope.grants
-        } else {
-            self.grants = [:]
-        }
     }
 
     /// Default grant location under Application Support.
@@ -213,6 +207,17 @@ public actor CmuxPluginPermissionStore {
 
     /// Returns the raw grant, or a disabled empty grant for a new plugin.
     public func grant(for plugin: CmuxLoadedPlugin) -> CmuxPluginGrant {
+        loadIfNeeded()
+        return loadedGrant(for: plugin)
+    }
+
+    /// Returns a diagnostic when an existing grant file could not be loaded.
+    public func storageLoadFailure() -> CmuxPluginPermissionStoreLoadFailure? {
+        loadIfNeeded()
+        return loadFailure
+    }
+
+    private func loadedGrant(for plugin: CmuxLoadedPlugin) -> CmuxPluginGrant {
         guard let grant = grants[plugin.manifest.id],
               grant.pluginID == plugin.manifest.id,
               grant.manifestFingerprint == plugin.manifestFingerprint else {
@@ -232,6 +237,7 @@ public actor CmuxPluginPermissionStore {
     /// Approves every capability currently declared by `plugin` and enables it.
     /// Hosts should call this only from an explicit user action.
     public func approveAll(for plugin: CmuxLoadedPlugin) throws {
+        try prepareForMutation()
         let manifest = plugin.manifest
         let grant = CmuxPluginGrant(
             pluginID: manifest.id,
@@ -244,33 +250,36 @@ public actor CmuxPluginPermissionStore {
             events: Set(manifest.eventSubscriptions),
             actions: Set(manifest.actions.map(\.id))
         )
-        try save(grant)
+        try saveLoaded(grant)
     }
 
     /// Enables or disables a plugin without changing its approved scopes.
     public func setEnabled(_ enabled: Bool, for plugin: CmuxLoadedPlugin) throws {
-        var grant = grant(for: plugin)
+        try prepareForMutation()
+        var grant = loadedGrant(for: plugin)
         if enabled && !grant.approved {
             throw CmuxPluginAuthorizationError.notApproved
         }
         grant.enabled = enabled
-        try save(grant)
+        try saveLoaded(grant)
     }
 
     /// Replaces a grant after a Settings permission review.
     public func setGrant(_ grant: CmuxPluginGrant) throws {
-        try save(grant)
+        try prepareForMutation()
+        try saveLoaded(grant)
     }
 
     /// Removes a plugin's persisted approval.
     public func revoke(pluginID: String) throws {
+        try prepareForMutation()
         var next = grants
         next.removeValue(forKey: pluginID)
         try persist(next)
         grants = next
     }
 
-    private func save(_ grant: CmuxPluginGrant) throws {
+    private func saveLoaded(_ grant: CmuxPluginGrant) throws {
         var next = grants
         next[grant.pluginID] = grant
         try persist(next)
@@ -284,5 +293,42 @@ public actor CmuxPluginPermissionStore {
         let envelope = FileEnvelope(schemaVersion: Self.schemaVersion, grants: grants)
         let data = try JSONEncoder().encode(envelope)
         try data.write(to: storageURL, options: [.atomic])
+    }
+
+    private func prepareForMutation() throws {
+        loadIfNeeded()
+        if let loadFailure {
+            throw loadFailure
+        }
+    }
+
+    private func loadIfNeeded() {
+        guard !hasLoaded else { return }
+        hasLoaded = true
+        guard let storageURL,
+              fileManager.fileExists(atPath: storageURL.path) else {
+            return
+        }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: storageURL)
+        } catch {
+            loadFailure = .unreadableFile
+            return
+        }
+
+        let envelope: FileEnvelope
+        do {
+            envelope = try JSONDecoder().decode(FileEnvelope.self, from: data)
+        } catch {
+            loadFailure = .malformedFile
+            return
+        }
+        guard envelope.schemaVersion == Self.schemaVersion else {
+            loadFailure = .unsupportedSchemaVersion(envelope.schemaVersion)
+            return
+        }
+        grants = envelope.grants
     }
 }

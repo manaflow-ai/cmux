@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// JSON values used by the language-neutral plugin wire contract.
@@ -20,11 +21,15 @@ public indirect enum CmuxExtensionJSONValue: Codable, Equatable, Hashable, Senda
         switch foundationValue {
         case is NSNull:
             self = .null
+        case let value as NSNumber:
+            if CFGetTypeID(value) == CFBooleanGetTypeID() {
+                self = .bool(value.boolValue)
+            } else {
+                let number = value.doubleValue
+                self = number.isFinite ? .number(number) : .null
+            }
         case let value as Bool:
             self = .bool(value)
-        case let value as NSNumber:
-            let number = value.doubleValue
-            self = number.isFinite ? .number(number) : .null
         case let value as String:
             self = .string(value)
         case let value as [Any]:
@@ -272,7 +277,7 @@ public struct CmuxPluginActionInvocation: Codable, Equatable, Sendable {
 public struct CmuxPluginSubscriptionPolicy: Equatable, Sendable {
     /// Plugin to which this policy applies.
     public let pluginID: String
-    /// Canonical and compatibility event names the grant permits.
+    /// Canonical event names the grant permits.
     public let allowedEventNames: Set<String>
     /// Plugin-local action identifiers the grant permits.
     public let allowedActionIDs: Set<String>
@@ -281,7 +286,7 @@ public struct CmuxPluginSubscriptionPolicy: Equatable, Sendable {
     public init(pluginID: String, permissions: CmuxPluginPermissions) {
         self.pluginID = pluginID
         var eventNames = permissions.enabled && permissions.pluginScopes.contains(.eventHooks)
-            ? Set(permissions.events.flatMap(\.acceptedWireNames))
+            ? Set(permissions.events.map(\.rawValue))
             : []
         if permissions.enabled && permissions.pluginScopes.contains(.paletteActions) {
             eventNames.insert(CmuxPluginActionInvocation.eventName)
@@ -294,7 +299,13 @@ public struct CmuxPluginSubscriptionPolicy: Equatable, Sendable {
 
     /// Whether the event name is authorized for this plugin.
     public func allowsEvent(name: String) -> Bool {
-        allowedEventNames.contains(name)
+        if name == CmuxPluginActionInvocation.eventName {
+            return allowedEventNames.contains(name)
+        }
+        guard let canonicalName = CmuxExtensionEvent.canonicalName(forWireName: name) else {
+            return false
+        }
+        return allowedEventNames.contains(canonicalName)
     }
 
     /// Whether the action is authorized for this plugin.

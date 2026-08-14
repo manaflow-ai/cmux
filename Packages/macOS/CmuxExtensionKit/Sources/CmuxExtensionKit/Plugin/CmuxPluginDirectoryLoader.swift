@@ -190,7 +190,7 @@ public actor CmuxPluginDirectoryLoader {
             ),
                   manifestValues.isRegularFile == true,
                   (manifestValues.fileSize ?? Self.maximumManifestBytes + 1) <= Self.maximumManifestBytes,
-                  let data = try? Data(contentsOf: resolvedManifest, options: .mappedIfSafe),
+                  let data = try? Data(contentsOf: resolvedManifest),
                   data.count <= Self.maximumManifestBytes else {
                 failures.append(CmuxPluginLoadFailure(
                     directoryURL: directory,
