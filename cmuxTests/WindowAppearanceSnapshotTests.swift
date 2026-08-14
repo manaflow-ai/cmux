@@ -176,9 +176,9 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         let snapshot = makeSnapshot(
             unifySurfaceBackdrops: false,
             backgroundHex: "#F8F8F2",
-            sidebarColorScheme: .dark,
             sidebarTintHexDark: "#FF0000",
-            sidebarTintOpacity: 0.4
+            sidebarTintOpacity: 0.4,
+            sidebarColorScheme: .dark
         )
 
         guard case let .sidebarMaterial(policy) = snapshot.policy(for: .rightSidebar) else {
