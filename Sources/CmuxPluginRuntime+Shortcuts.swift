@@ -1,3 +1,5 @@
+import CmuxExtensionKit
+import CmuxSettingsUI
 import Foundation
 
 extension CmuxPluginRuntime {
@@ -63,7 +65,7 @@ extension CmuxPluginRuntime {
 
     /// Persists one active plugin shortcut through the shared JSON settings path.
     func setPluginShortcut(_ shortcut: StoredShortcut, actionID: String) {
-        guard isSafePluginActionID(actionID), activePluginActionIDs().contains(actionID) else { return }
+        guard Self.isSafePluginActionID(actionID), activePluginActionIDs().contains(actionID) else { return }
         lock.lock()
         let store = pluginShortcutStore
         lock.unlock()
@@ -72,7 +74,7 @@ extension CmuxPluginRuntime {
 
     /// Removes an active plugin shortcut override.
     func clearPluginShortcut(actionID: String) {
-        guard isSafePluginActionID(actionID), activePluginActionIDs().contains(actionID) else { return }
+        guard Self.isSafePluginActionID(actionID), activePluginActionIDs().contains(actionID) else { return }
         lock.lock()
         let store = pluginShortcutStore
         lock.unlock()
