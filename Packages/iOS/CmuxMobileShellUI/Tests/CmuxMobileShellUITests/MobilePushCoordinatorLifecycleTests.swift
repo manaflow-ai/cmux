@@ -154,13 +154,13 @@ private actor LifecyclePushRegistration: PushRegistering {
 }
 
 private actor LifecycleSetEnabledGate {
-    private var didStart = false
+    private(set) var starts = 0
     private var released = false
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
     private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
 
     func pause() async {
-        didStart = true
+        starts += 1
         let waiters = startWaiters
         startWaiters.removeAll()
         for waiter in waiters {
@@ -173,10 +173,23 @@ private actor LifecycleSetEnabledGate {
     }
 
     func waitUntilStarted() async {
-        guard !didStart else { return }
+        guard starts == 0 else { return }
         await withCheckedContinuation { continuation in
             startWaiters.append(continuation)
         }
+    }
+
+    func waitUntilStartCount(
+        _ count: Int,
+        timeout: Duration = .seconds(1)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while starts < count {
+            guard clock.now < deadline else { return false }
+            try? await clock.sleep(for: .milliseconds(1))
+        }
+        return true
     }
 
     func release() {
@@ -865,6 +878,48 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
         await settingsGate.release()
         #expect(!(await enabling.value))
+    }
+
+    @MainActor
+    @Test func timedOutOptOutRetriesAndSurfacesUnconfirmedCleanup() async {
+        let disableGate = LifecycleSetEnabledGate()
+        let timeoutGate = LifecycleSyncGate()
+        let timeoutSleeper = LifecycleSettingsMutationSleeper(
+            firstGate: timeoutGate
+        )
+        let registration = LifecyclePushRegistration(
+            enabled: true,
+            setEnabledGate: disableGate
+        )
+        let suiteName = "push-coordinator-optout-timeout-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            settingsMutationSleep: { duration in
+                try await timeoutSleeper.sleep(for: duration)
+            }
+        )
+
+        coordinator.setEnabledIntent(false)
+        await disableGate.waitUntilStarted()
+        await timeoutGate.waitUntilStarted()
+        await timeoutGate.release()
+
+        #expect(await disableGate.waitUntilStartCount(2))
+        #expect(!coordinator.isEnabled)
+        #expect(coordinator.isDisableCleanupUnconfirmed)
+
+        await disableGate.release()
+        for _ in 0..<100 where coordinator.isDisableCleanupUnconfirmed {
+            await Task.yield()
+        }
+
+        #expect(!coordinator.isDisableCleanupUnconfirmed)
+        #expect(await registration.snapshot == .disabled)
     }
 
     @MainActor
