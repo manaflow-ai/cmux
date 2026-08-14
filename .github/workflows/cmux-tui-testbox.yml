@@ -9,33 +9,34 @@ on:
         default: ""
         type: string
 
-# Candidate source is absent during hydration. After this job reports ready,
-# the Blacksmith CLI syncs candidate changes into this same vendor Testbox job.
-# Candidate code can then read Testbox-scoped state by Testbox design. This job
-# gets no cmux repository secret, OIDC permission, GitHub environment, or GitHub
-# token permission. The job timeout and `blacksmith testbox stop --id <id>`
-# bound spend. Stronger hostile-code token isolation needs a Blacksmith
-# primitive and is not claimed here.
+# External prerequisite: create cmux-testbox-broker-v1 at the reviewed merge
+# commit, then protect that exact tag from update and deletion. Dispatch with
+# `--ref cmux-testbox-broker-v1`. github.sha identifies the broker tag commit;
+# it does not select source for hydration.
+#
+# After this job reports ready, the Blacksmith CLI syncs candidate changes into
+# this tag-scoped vendor Testbox job. Candidate code can read Testbox state and
+# tag-job Actions runtime and results credentials. It can read any default-branch
+# cache available to tag runs and consume shared cache quota. GitHub cache scope
+# prevents a cache created by this tag from being restored by main. This job gets
+# no cmux repository secret, OIDC permission, GitHub environment, or GITHUB_TOKEN
+# permission. The 120-minute timeout and explicit
+# `blacksmith testbox stop --id <id>` command bound spend. Stronger hostile-code
+# runtime isolation needs a Blacksmith primitive and is not claimed here.
 permissions: {}
 
 jobs:
   cmux-tui-testbox:
     name: cmux-tui-testbox
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/tags/cmux-testbox-broker-v1'
     runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 120
     steps:
-      - name: Require protected main dispatch
+      - name: Require protected broker tag dispatch
         shell: bash
-        env:
-          EXPECTED_MAIN_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [[ ! "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::github.sha must be a lowercase 40-character commit ID" >&2
-            exit 1
-          fi
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+          if [[ "$GITHUB_REF" != "refs/tags/cmux-testbox-broker-v1" ]]; then
             echo "::error::refusing Testbox dispatch from $GITHUB_REF" >&2
             exit 1
           fi
@@ -49,25 +50,49 @@ jobs:
 
       - name: Checkout trusted main without a repository token
         shell: bash
-        env:
-          EXPECTED_MAIN_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          repository_url=https://github.com/manaflow-ai/cmux.git
+          main_ref=refs/heads/main
+          git_network_config=(
+            -c credential.helper=
+            -c http.extraHeader=
+            -c http.lowSpeedLimit=1024
+            -c http.lowSpeedTime=30
+          )
+
+          main_listing="$(
+            GIT_ASKPASS=/bin/false GIT_TERMINAL_PROMPT=0 \
+              timeout --signal=TERM --kill-after=10s 60s \
+              git "${git_network_config[@]}" \
+              ls-remote --exit-code --refs "$repository_url" "$main_ref"
+          )"
+          main_records=()
+          mapfile -t main_records <<< "$main_listing"
+          if [[ "${#main_records[@]}" -ne 1 ]]; then
+            echo "::error::public main did not resolve to exactly one ref" >&2
+            exit 1
+          fi
+          IFS=$'\t' read -r main_sha resolved_ref extra <<< "${main_records[0]}"
+          if [[ ! "$main_sha" =~ ^[0-9a-f]{40}$ || "$resolved_ref" != "$main_ref" || -n "$extra" ]]; then
+            echo "::error::public main ref has an invalid identity" >&2
+            exit 1
+          fi
+
           git -c init.defaultBranch=main init .
-          git remote add origin https://github.com/manaflow-ai/cmux.git
+          git remote add origin "$repository_url"
           GIT_ASKPASS=/bin/false GIT_TERMINAL_PROMPT=0 \
             timeout --signal=TERM --kill-after=10s 180s \
-            git -c credential.helper= -c http.extraHeader= \
-            -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 \
-            fetch --no-tags --depth=1 origin "$EXPECTED_MAIN_SHA"
+            git "${git_network_config[@]}" \
+            fetch --no-tags --depth=1 origin "$main_sha"
 
           fetched_main_sha="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
-          if [[ "$fetched_main_sha" != "$EXPECTED_MAIN_SHA" ]]; then
-            echo "::error::anonymous fetch did not return the dispatched main commit" >&2
+          if [[ "$fetched_main_sha" != "$main_sha" ]]; then
+            echo "::error::anonymous fetch did not return resolved public main" >&2
             exit 1
           fi
           git checkout --detach "$fetched_main_sha"
-          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git rev-parse --verify HEAD)" = "$main_sha"
           test -z "$(git symbolic-ref -q HEAD || true)"
           if git config --local --get-regexp '(^|\.)http\..*extraheader$' >/dev/null 2>&1; then
             echo "::error::anonymous checkout retained an HTTP authorization header" >&2
