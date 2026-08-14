@@ -157,8 +157,8 @@ public actor PushRegistrationService: PushRegistering {
     /// Disables local delivery and removes the owned token from the server.
     ///
     /// The caller may persist the user's opt-out before invoking this method;
-    /// cleanup therefore uses the registered owner or live session rather than
-    /// the now-false preference to decide whether a delete is required.
+    /// cleanup therefore uses the persisted registration owner rather than the
+    /// now-false preference to decide whether a delete is required.
     public func disableAndUnregister() async {
         invalidateCoordinatorIntents()
         await submitPreferenceIntent(
@@ -265,7 +265,7 @@ public actor PushRegistrationService: PushRegistering {
         cancelRetry()
         defaults.set(false, forKey: Self.enabledKey)
         publish(.disabled)
-        await unregisterFromServerUnlocked(requireKnownOwner: false)
+        await unregisterFromServerUnlocked()
         publish(.disabled)
     }
 
@@ -363,18 +363,18 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    private func unregisterFromServerUnlocked(
-        requireKnownOwner: Bool = false
-    ) async {
+    private func unregisterFromServerUnlocked() async {
         cancelRetry()
         guard let hex = cachedTokenHex else { return }
+        // A live session identifies who is signed in now, not who owns this
+        // token. During an account switch those can differ, so fail closed
+        // unless the registration owner is persisted in either the owner
+        // marker or a durable cleanup obligation.
+        guard let ownerID = persistedOwnerID(for: hex) else {
+            pushLog.info("Skipping push-token unregister: persisted owner unavailable")
+            return
+        }
         let session = try? await tokenProvider.authenticatedSessionSnapshot()
-        let registeredOwnerID = defaults.string(
-            forKey: Self.registeredAccountIDKey
-        )
-        let ownerID = registeredOwnerID
-            ?? (requireKnownOwner ? nil : session?.accountID)
-        guard let ownerID, !ownerID.isEmpty else { return }
         // Persist before requiring live auth. This is the privacy guarantee for
         // an offline or signed-out opt-out.
         persistPendingUnregister(tokenHex: hex, accountID: ownerID)
@@ -427,10 +427,7 @@ public actor PushRegistrationService: PushRegistering {
     /// that cancellable queue.
     private func persistCapturedUnregisterObligation(accountID: String?) {
         guard let hex = cachedTokenHex else { return }
-        let registeredOwnerID = defaults.string(
-            forKey: Self.registeredAccountIDKey
-        )
-        let ownerID = registeredOwnerID ?? accountID
+        let ownerID = persistedOwnerID(for: hex) ?? accountID
         guard let ownerID, !ownerID.isEmpty else { return }
         persistPendingUnregister(tokenHex: hex, accountID: ownerID)
     }
@@ -442,18 +439,17 @@ public actor PushRegistrationService: PushRegistering {
     ) async {
         cancelRetry()
         guard let hex = cachedTokenHex else { return }
-        let registeredOwnerID = defaults.string(
-            forKey: Self.registeredAccountIDKey
-        )
-        let ownerID = registeredOwnerID ?? capturedAccountID
+        let persistedOwner = persistedOwnerID(for: hex)
+        let ownerID = persistedOwner ?? capturedAccountID
         if let ownerID, !ownerID.isEmpty {
             // Persist the recovery record before validating credentials.
             // Offline sign-out commonly has only the refresh token, but a
             // later sign-in to this same account can safely finish the DELETE.
             persistPendingUnregister(tokenHex: hex, accountID: ownerID)
         }
-        if let registeredOwnerID,
-           capturedAccountID != registeredOwnerID {
+        if let persistedOwner,
+           let capturedAccountID,
+           capturedAccountID != persistedOwner {
             // The legacy overload has no account identity, and a caller
             // explicitly carrying B must never apply B's credentials to A's
             // acknowledged token. Keep A's tombstone until A returns.
@@ -983,6 +979,26 @@ public actor PushRegistrationService: PushRegistering {
         }
         var seen = Set<PendingUnregister>()
         return entries.filter { seen.insert($0).inserted }
+    }
+
+    /// Returns the only owner that durable local state can prove for a token.
+    /// A current auth session is deliberately not an ownership proof because
+    /// it may already belong to the next account after sign-in races opt-out.
+    private func persistedOwnerID(for tokenHex: String) -> String? {
+        if let registeredOwnerID = defaults.string(
+            forKey: Self.registeredAccountIDKey
+        ), !registeredOwnerID.isEmpty {
+            return registeredOwnerID
+        }
+        let owners = Set<String>(
+            pendingUnregisters.compactMap { pending in
+                guard pending.tokenHex == tokenHex,
+                      !pending.accountID.isEmpty else { return nil }
+                return pending.accountID
+            }
+        )
+        guard owners.count == 1 else { return nil }
+        return owners.first
     }
 
     private static func migrateLegacyPendingUnregisters(
