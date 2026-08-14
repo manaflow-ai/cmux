@@ -230,11 +230,11 @@ function modelLoadingLabel(): string {
     : modelLoadingMessages.en;
 }
 
-function providerModelItems(p: Provider, currentProvider: string, options: SessionOption[], isLoading: boolean): PickerModelItem[] {
+export function providerModelItemsForState(p: Provider, currentProvider: string, options: SessionOption[], isLoading: boolean): PickerModelItem[] {
+  if (isLoading) return [];
   const model = modelOption(options);
   const choices = model?.choices?.length ? model.choices : [];
   if (!choices.length) {
-    if (isLoading) return [];
     return [{
       id: `${p.id}:default`,
       provider: p,
@@ -316,7 +316,7 @@ export function HarnessModelPicker({
   const activeProvider = installed.find((p) => p.id === railProvider) ?? installed.find((p) => p.id === provider) ?? installed[0];
   const providerItems = useMemo(() => new Map(installed.map((p) => {
     const opts = p.id === provider ? options : (allProviderOptions[p.id] ?? []);
-    return [p.id, providerModelItems(p, provider, opts, loadingProviderIds.has(p.id))];
+    return [p.id, providerModelItemsForState(p, provider, opts, loadingProviderIds.has(p.id))];
   })), [allProviderOptions, installed, loadingProviderIds, options, provider]);
   const q = query.trim();
   const listItems = useMemo(() => {
@@ -428,11 +428,16 @@ export function HarnessModelPicker({
                               type="button"
                               role="tab"
                               className={"rail-btn" + (p.id === activeProvider?.id ? " active" : "")}
-                              aria-label={p.label}
+                              aria-label={loadingProviderIds.has(p.id) ? `${p.label}: ${loadingLabel}` : p.label}
                               aria-selected={p.id === activeProvider?.id}
                               onClick={() => setRailProvider(p.id)}
                             >
                               <ProviderIcon provider={p} />
+                              {loadingProviderIds.has(p.id) ? (
+                                <span className="rail-loading-indicator" aria-hidden="true">
+                                  <PinwheelSpinner size={8} />
+                                </span>
+                              ) : null}
                             </button>
                           </HintTooltip>
                         ))}
@@ -474,12 +479,13 @@ export function HarnessModelPicker({
                       />
                     </div>
                     {isListLoading ? (
-                      <div className="model-picker-loading" role="status" aria-live="polite">
-                        <PinwheelSpinner size={12} />
+                      <div className={"model-picker-loading" + (listItems.length ? "" : " model-picker-loading-full")} role="status" aria-live="polite">
+                        <PinwheelSpinner size={listItems.length ? 12 : 20} />
                         <span>{loadingLabel}</span>
                       </div>
                     ) : null}
-                    <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models" aria-busy={isListLoading} ref={listRef}>
+                    {!isListLoading || listItems.length ? (
+                      <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models" aria-busy={isListLoading} ref={listRef}>
                       {listItems.length ? listItems.map((item, i) => {
                         const row = (
                           <button
@@ -510,7 +516,8 @@ export function HarnessModelPicker({
                       }) : !isListLoading ? (
                         <div className="model-picker-empty">No models found</div>
                       ) : null}
-                    </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </Popover.Popup>

@@ -150,7 +150,10 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .static-provider:hover { background: transparent; color: color-mix(in srgb, var(--fg) 70%, var(--bg)); }
 .select-trigger[data-popup-open] .chev { transform: rotate(180deg); }
 .row-control .chev { display: inline-flex; opacity: .55; margin-left: 1px; }
-.model-picker-trigger-loading { display: inline-flex; color: var(--text-faint); }
+.model-picker-trigger-loading {
+  width: 18px; height: 18px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 999px;
+}
 .dot {
   width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--text-faint);
   box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent);
@@ -219,6 +222,7 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 }
 .model-picker-rail-top, .model-picker-rail-bottom { display: flex; flex-direction: column; gap: 4px; align-items: center; }
 .rail-btn {
+  position: relative;
   width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--text-faint);
   display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: default;
 }
@@ -226,6 +230,10 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .rail-btn.active { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent); }
 .rail-btn.missing { opacity: .36; }
 .rail-btn.missing:hover { opacity: .7; }
+.rail-loading-indicator {
+  position: absolute; right: 1px; bottom: 1px; width: 12px; height: 12px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent); background: var(--bg-raised); border-radius: 999px; box-shadow: 0 0 0 1px var(--bg-raised);
+}
 .model-picker-main {
   min-width: 0; flex: 1; display: flex; flex-direction: column;
   border-left: 1px solid var(--border);
@@ -245,8 +253,14 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 }
 .model-picker-loading {
   flex: none; display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px;
-  color: var(--text-faint); border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
+  color: var(--text-dim); background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  font: 500 calc(var(--font-size-base) - 1px) var(--font-sans);
+}
+.model-picker-loading .pinwheel-spinner { color: var(--accent); }
+.model-picker-loading-full {
+  flex: 1; min-height: 0; flex-direction: column; gap: 11px; border-bottom: 0;
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--accent) 9%, transparent), transparent 58%);
 }
 .model-row {
   width: 100%; min-height: 42px; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 8px;
