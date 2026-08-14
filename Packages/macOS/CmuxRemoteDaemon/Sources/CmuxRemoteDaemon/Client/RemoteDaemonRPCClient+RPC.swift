@@ -264,6 +264,15 @@ extension RemoteDaemonRPCClient {
         return result["sessions"] as? [[String: Any]] ?? []
     }
 
+    /// Lists ended persistent PTY sessions that retained a foreground-process
+    /// tombstone (`pty.list` → `ended_sessions`): the last agent command the
+    /// daemon sampled before the session died (#7989). Older daemons omit the
+    /// key; absence decodes as no tombstones.
+    public func listEndedPTY() throws -> [[String: Any]] {
+        let result = try call(method: "pty.list", params: [:], timeout: 8.0)
+        return result["ended_sessions"] as? [[String: Any]] ?? []
+    }
+
     /// Drops a local PTY subscription without telling the daemon.
     public func unregisterPTY(sessionID: String, attachmentID: String, attachmentToken: String? = nil) {
         let key = Self.ptySubscriptionKey(

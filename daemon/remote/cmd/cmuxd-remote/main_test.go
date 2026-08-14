@@ -2490,6 +2490,20 @@ func TestPTYRPCSessionReattachListAndClose(t *testing.T) {
 	if len(emptySessions) != 0 {
 		t.Fatalf("pty.list after close sessions = %v, want none", emptyResult["sessions"])
 	}
+	// The close races with the pump's foreground sample, so the session may or
+	// may not have left a tombstone; pin the response shape and ownership.
+	emptyEnded, ok := emptyResult["ended_sessions"].([]map[string]any)
+	if !ok {
+		t.Fatalf(
+			"pty.list after close ended_sessions = %v (%T), want an array",
+			emptyResult["ended_sessions"], emptyResult["ended_sessions"],
+		)
+	}
+	for _, entry := range emptyEnded {
+		if entry["session_id"] != "pty-rpc" {
+			t.Fatalf("pty.list after close ended_sessions = %v, want only pty-rpc entries", emptyEnded)
+		}
+	}
 }
 
 func TestPTYRPCCommandUsesPOSIXShellForConfiguredLoginShell(t *testing.T) {

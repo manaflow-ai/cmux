@@ -115,6 +115,13 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
+    /// Lists ended-session foreground tombstones through the ready tunnel (#7989).
+    public func listEndedPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] {
+        try withReadyTunnel(configuration: configuration) { tunnel in
+            try tunnel.listEndedPTY()
+        }
+    }
+
     /// Closes a persistent PTY session through the ready tunnel.
     ///
     /// The broker queue is used only to pin the tunnel; the potentially

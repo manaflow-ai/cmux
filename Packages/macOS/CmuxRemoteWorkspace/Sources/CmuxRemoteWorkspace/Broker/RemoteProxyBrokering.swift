@@ -30,6 +30,10 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
     /// `configuration`; throws when no tunnel is ready.
     func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]]
 
+    /// Lists ended-session foreground tombstones through the ready tunnel for
+    /// `configuration` (#7989); throws when no tunnel is ready.
+    func listEndedPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]]
+
     /// Closes a persistent PTY session through the ready tunnel before `deadline`.
     ///
     /// - Parameters:
@@ -194,4 +198,9 @@ extension RemoteProxyBrokering {
             wasCurrent: wasCurrent
         )
     }
+
+    /// Foreground tombstones are an optional daemon capability; brokers that
+    /// predate it (and test fakes) report none. ``RemoteProxyBroker``
+    /// overrides this with the ready-tunnel query.
+    public func listEndedPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] { [] }
 }

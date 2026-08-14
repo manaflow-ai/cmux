@@ -32,6 +32,9 @@ struct ControlCommandExecutionPolicyTests {
             "feed.push", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
+            // Tombstone-backed hookless resume outwaits daemon bootstrap and
+            // queries the tunnel; it must never hold the main actor (#7989).
+            "workspace.remote.pty_session_lost_resume",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "debug.window.screenshot", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",

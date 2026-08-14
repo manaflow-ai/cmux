@@ -1451,6 +1451,8 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
         case "workspace.remote.pty_sessions":
             return v2Result(id: request.id, v2WorkspaceRemotePTYSessions(params: request.params))
+        case "workspace.remote.pty_session_lost_resume":
+            return v2Result(id: request.id, v2WorkspaceRemotePTYSessionLostResume(params: request.params))
         case "workspace.remote.pty_close":
             return v2Result(id: request.id, v2WorkspaceRemotePTYClose(params: request.params))
         case "workspace.remote.pty_detach":
@@ -2721,7 +2723,8 @@ class TerminalController {
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
             "workspace.remote.status",
-            "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
+            "workspace.remote.pty_sessions", "workspace.remote.pty_session_lost_resume",
+            "workspace.remote.pty_close", "workspace.remote.pty_detach",
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
             "workspace.remote.terminal_session_launching",
             "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
@@ -4214,6 +4217,16 @@ class TerminalController {
         remotePTYControllerAvailabilityCondition.unlock()
     }
 
+    /// Blocks the calling (socket) thread until the next remote-PTY
+    /// availability signal or `deadline`, whichever comes first. Companion to
+    /// ``v2ResolveRemotePTYTargetWaitingForController`` for callers that must
+    /// also outwait a coordinator whose daemon link is still bootstrapping.
+    private nonisolated func waitForRemotePTYControllerAvailabilitySignal(until deadline: Date) {
+        remotePTYControllerAvailabilityCondition.lock()
+        _ = remotePTYControllerAvailabilityCondition.wait(until: deadline)
+        remotePTYControllerAvailabilityCondition.unlock()
+    }
+
     private nonisolated func v2ResolveRemotePTYTargetWaitingForController(
         params: [String: Any],
         requestedWorkspaceId: UUID?,
@@ -4448,6 +4461,90 @@ class TerminalController {
         payload["workspace_ref"] = target.workspaceRef
         payload["workspace_title"] = target.workspaceTitle
         return payload
+    }
+
+    /// Synthesizes a hookless remote continue command after the
+    /// ssh-pty-attach wrapper confirmed a persistent session died (#7989).
+    /// The daemon's ended-session foreground tombstone supplies the facts
+    /// (agent executable + working directory); `Workspace` applies binding
+    /// precedence, auto-resume, and approval policy. `command` is null when
+    /// the replacement session should start a plain shell.
+    ///
+    /// The wrapper reaches this method during restore, racing the workspace
+    /// coordinator's daemon bootstrap (its session-lost verdict travels the
+    /// shared tunnel's lifecycle channel, which can settle first), so both
+    /// the controller resolution and the tombstone query wait — bounded and
+    /// signal-driven on the shared availability condition — instead of
+    /// degrading to a plain shell on a transient "daemon is not ready".
+    private nonisolated func v2WorkspaceRemotePTYSessionLostResume(params: [String: Any]) -> V2CallResult {
+        let workspaceSelection = v2RequestedRemotePTYWorkspaceID(params: params)
+        if let error = workspaceSelection.error { return error }
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
+        guard let surfaceId = surfaceSelection.surfaceId else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid session_id", data: nil)
+        }
+        let deadline = Date().addingTimeInterval(20)
+        let resolved = v2ResolveRemotePTYTargetWaitingForController(
+            params: params,
+            requestedWorkspaceId: workspaceSelection.workspaceId,
+            preferredSurfaceId: surfaceId,
+            deadline: deadline
+        )
+        if let error = resolved.error { return error }
+        guard let target = resolved.target else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let controller = target.controller else {
+            return .err(
+                code: "remote_pty_error",
+                message: "remote connection is not active",
+                data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef]
+            )
+        }
+        // Daemon-side facts: the last foreground process sampled before the
+        // session died. An error is a not-yet-ready daemon and retries until
+        // the deadline; an empty list is the authoritative "no tombstones"
+        // (older daemon, no agent, sampling never ran) and does not. Either
+        // way an existing binding still resolves; only synthesis needs facts.
+        var endedSessions: [[String: Any]] = []
+        while true {
+            do {
+                endedSessions = try controller.listEndedPTYSessions()
+                break
+            } catch {
+                guard Date() < deadline else { break }
+                waitForRemotePTYControllerAvailabilitySignal(
+                    until: min(deadline, Date().addingTimeInterval(1))
+                )
+            }
+        }
+        let tombstone = endedSessions.first {
+            ($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == sessionID
+        }
+        var command: String?
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: target.workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == target.workspaceId }) else {
+                return
+            }
+            command = workspace.remoteContinueResumeCommandAfterSessionLoss(
+                panelId: surfaceId,
+                persistentPTYSessionID: sessionID,
+                foregroundCommand: tombstone?["foreground_command"] as? String,
+                foregroundCwd: tombstone?["foreground_cwd"] as? String
+            )
+        }
+        var payload = v2RemotePTYTargetPayload(target)
+        payload["session_id"] = sessionID
+        payload["surface_id"] = surfaceId.uuidString
+        payload["command"] = command ?? NSNull()
+        return .ok(payload)
     }
 
     private nonisolated func v2WorkspaceRemotePTYClose(params: [String: Any]) -> V2CallResult {

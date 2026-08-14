@@ -54821,6 +54821,23 @@
         }
       }
     },
+    "cli.sshPtyAttach.remoteSessionLostResume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] resuming the agent that was running in the lost session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 失われたセッションで実行されていたエージェントを再開します。"
+          }
+        }
+      }
+    },
     "cli.sshSessionList.remoteStateUnavailable": {
       "extractionState": "manual",
       "localizations": {

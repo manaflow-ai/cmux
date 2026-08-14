@@ -125,6 +125,14 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // lane like the other workspace reads below.
         "workspace.env",
         "workspace.remote.pty_sessions",
+        // `workspace.remote.pty_session_lost_resume` deliberately outwaits the
+        // workspace coordinator's daemon bootstrap (bounded, signal-driven) and
+        // then queries the daemon's ended-session tombstones over the tunnel
+        // (#7989), so it must never hold the main actor; policy and binding
+        // registration take one `v2MainSync` hop. Without this entry the
+        // policy routes it to the main-actor processV2Command switch, which
+        // lacks the case, and the control socket returns method_not_found.
+        "workspace.remote.pty_session_lost_resume",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",

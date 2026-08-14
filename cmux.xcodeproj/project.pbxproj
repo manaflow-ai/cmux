@@ -1882,6 +1882,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */; };
 		F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */; };
 		9DCE2D1C84A5FB5D00BF4437 /* RemoteAgentContinueSynthesizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D87115779C1B5E4B9ADB2C /* RemoteAgentContinueSynthesizerTests.swift */; };
+		5BA8D26CDC2D1569CA382E1E /* RemoteSessionLossResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F712A646D87A7AF51BAB57BD /* RemoteSessionLossResumeTests.swift */; };
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
 		812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 812600000000000000000004 /* SessionRemoteWorkspaceMoshRestoreTests.swift */; };
 		E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */; };
@@ -4635,6 +4636,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+CrashStorage.swift"; sourceTree = "<group>"; };
 		F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceResumeBindingTests.swift; sourceTree = "<group>"; };
 		72D87115779C1B5E4B9ADB2C /* RemoteAgentContinueSynthesizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAgentContinueSynthesizerTests.swift; sourceTree = "<group>"; };
+		F712A646D87A7AF51BAB57BD /* RemoteSessionLossResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionLossResumeTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
 		812600000000000000000004 /* SessionRemoteWorkspaceMoshRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRemoteWorkspaceMoshRestoreTests.swift; sourceTree = "<group>"; };
 		E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRemoteWorkspaceSnapshot+Restore.swift"; sourceTree = "<group>"; };
@@ -7753,6 +7755,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					B79500320000000000000002 /* PortScannerIdentityContinuityTests.swift */,
 					F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */,
 					72D87115779C1B5E4B9ADB2C /* RemoteAgentContinueSynthesizerTests.swift */,
+					F712A646D87A7AF51BAB57BD /* RemoteSessionLossResumeTests.swift */,
 					7989A0027989A0027989A002 /* RemoteResumeBindingTests.swift */,
 				812600000000000000000004 /* SessionRemoteWorkspaceMoshRestoreTests.swift */,
 					F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */,
@@ -11380,6 +11383,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
 				F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */,
 				9DCE2D1C84A5FB5D00BF4437 /* RemoteAgentContinueSynthesizerTests.swift in Sources */,
+				5BA8D26CDC2D1569CA382E1E /* RemoteSessionLossResumeTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */,
 				806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */,

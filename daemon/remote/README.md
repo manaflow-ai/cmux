@@ -41,7 +41,7 @@ When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the bin
 16. `pty.resize`
 17. `pty.detach`
 18. `pty.close`
-19. `pty.list`
+19. `pty.list` (session snapshots include the sampled `foreground_command`/`foreground_cwd`; the response also carries `ended_sessions`, bounded tombstones of finished persistent sessions whose foreground process had been sampled, for restore after a remote agent dies)
 
 Current integration in cmux:
 1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.

@@ -4794,8 +4794,27 @@ struct CMUXCLI {
                     defaultValue: "[cmux] remote session was lost; starting a new shell."
                 )
                 cliWriteStderr(Data((notice + "\n").utf8))
+                var respawnArgs = stableAttachArgs.filter { $0 != "--require-existing" }
+                // Hookless remote resume (#7989): the app can synthesize a
+                // directory-scoped continue command from the daemon's
+                // foreground tombstone for the session that just died. Any
+                // failure degrades to the plain replacement shell.
+                if let resumeCommand = sessionLostResumeRemoteCommand(
+                    client: client,
+                    attachArgs: stableAttachArgs
+                ) {
+                    let resumeNotice = String(
+                        localized: "cli.sshPtyAttach.remoteSessionLostResume",
+                        defaultValue: "[cmux] resuming the agent that was running in the lost session."
+                    )
+                    cliWriteStderr(Data((resumeNotice + "\n").utf8))
+                    respawnArgs = replacingSSHPTYAttachCommandB64(
+                        in: respawnArgs,
+                        with: Data(resumeCommand.utf8).base64EncodedString()
+                    )
+                }
                 try runSSHPTYAttach(
-                    commandArgs: stableAttachArgs.filter { $0 != "--require-existing" },
+                    commandArgs: respawnArgs,
                     client: client,
                     explicitPassword: socketPasswordArg
                 )
@@ -12799,6 +12818,67 @@ struct CMUXCLI {
             throw CLIError(message: "\(commandName): workspace not found")
         }
         return ["workspace_id": workspaceId]
+    }
+
+    /// Asks the app for a hookless remote continue command (#7989) after the
+    /// wrapper confirmed the persistent session was lost. The daemon's
+    /// foreground tombstone supplies the facts; binding precedence,
+    /// auto-resume, and approval policy stay in the app. Every failure —
+    /// older app, no tombstone, policy says attach plain — returns nil so the
+    /// respawn degrades to the existing replacement-shell behavior.
+    private func sessionLostResumeRemoteCommand(
+        client: SocketClient,
+        attachArgs: [String]
+    ) -> String? {
+        let (workspaceOpt, _) = parseOption(attachArgs, name: "--workspace")
+        let (sessionIDOpt, _) = parseOption(attachArgs, name: "--session-id")
+        let (attachmentIDOpt, _) = parseOption(attachArgs, name: "--attachment-id")
+        let environmentSurfaceID = Self.normalizedEnvValue(
+            ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        )
+        let surfaceID = environmentSurfaceID
+            ?? Self.normalizedEnvValue(attachmentIDOpt).flatMap { UUID(uuidString: $0) == nil ? nil : $0 }
+        guard let workspaceID = Self.normalizedEnvValue(workspaceOpt)
+            ?? Self.normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]),
+            let sessionID = Self.normalizedEnvValue(sessionIDOpt),
+            let surfaceID else {
+            return nil
+        }
+        // The app-side handler deliberately outwaits the coordinator's daemon
+        // bootstrap (bounded at 20s), so this call must outlast it.
+        guard let payload = try? client.sendV2(
+            method: "workspace.remote.pty_session_lost_resume",
+            params: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "session_id": sessionID,
+            ],
+            responseTimeout: 30
+        ) else {
+            return nil
+        }
+        guard let command = payload["command"] as? String,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return command
+    }
+
+    /// Returns `args` with any `--command-b64 <value>` pair replaced by the
+    /// synthesized resume payload.
+    private func replacingSSHPTYAttachCommandB64(in args: [String], with base64: String) -> [String] {
+        var result: [String] = []
+        var index = 0
+        while index < args.count {
+            if args[index] == "--command-b64", index + 1 < args.count {
+                index += 2
+                continue
+            }
+            result.append(args[index])
+            index += 1
+        }
+        result.append(contentsOf: ["--command-b64", base64])
+        return result
     }
 
     private func runSSHPTYAttach(commandArgs: [String], client: SocketClient, explicitPassword: String?) throws {

@@ -5773,6 +5773,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return try controller.listPTYSessions()
     }
 
+    /// Lists the remote daemon's ended-session foreground tombstones (#7989).
+    func listEndedRemotePTYSessions() throws -> [[String: Any]] {
+        guard let controller = remoteSessionController else {
+            throw NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
+                NSLocalizedDescriptionKey: "remote connection is not active",
+            ])
+        }
+        return try controller.listEndedPTYSessions()
+    }
+
     func closeRemotePTYSession(sessionID: String) throws {
         guard let controller = remoteSessionController else {
             throw NSError(domain: "cmux.remote.pty", code: 11, userInfo: [

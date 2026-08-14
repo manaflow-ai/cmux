@@ -79,10 +79,16 @@ extension Workspace {
                         )
                     }
                     : nil
+                // An ended session with no binding keeps `--require-existing`:
+                // the replacement wrapper then confirms the loss itself and
+                // owns the tombstone-backed hookless synthesis (#7989) before
+                // degrading to the same replacement shell. Only a binding the
+                // app can already inject skips that round trip.
+                let delegatesSessionLossToWrapper = sessionEnded && injectableResumeCommand == nil
                 command = remotePTYAttachStartupCommand(
                     sessionID: sessionID,
                     remoteCommand: injectableResumeCommand ?? restartedShellCommand,
-                    requireExisting: !sessionEnded
+                    requireExisting: !sessionEnded || delegatesSessionLossToWrapper
                 )
             } else {
                 guard let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration) else {
