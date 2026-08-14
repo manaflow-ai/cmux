@@ -553,6 +553,8 @@ public actor PushRegistrationService: PushRegistering {
             return
         }
         switch result {
+        case .cancelled:
+            return
         case let .success(pushServiceConfigured):
             if let requestSession {
                 defaults.set(
@@ -759,7 +761,7 @@ public actor PushRegistrationService: PushRegistering {
     private func performRegistration(_ request: URLRequest) async -> RegistrationResult {
         await networkMutationGate.withLock { [self] in
             await self.performRegistrationRequest(request)
-        }
+        } ?? .cancelled
     }
 
     private func performRegistrationRequest(_ request: URLRequest) async -> RegistrationResult {
@@ -797,7 +799,7 @@ public actor PushRegistrationService: PushRegistering {
     private func performDelete(_ request: URLRequest) async -> Bool {
         await networkMutationGate.withLock { [self] in
             await self.performDeleteRequest(request)
-        }
+        } ?? false
     }
 
     private func performDeleteRequest(_ request: URLRequest) async -> Bool {
@@ -1140,6 +1142,7 @@ private func persistDisabledPushRegistrationCleanupIfNeeded(
 }
 
 private enum RegistrationResult {
+    case cancelled
     case success(pushServiceConfigured: Bool)
     case failure(PushRegistrationFailure, retryAfter: Duration?)
 }

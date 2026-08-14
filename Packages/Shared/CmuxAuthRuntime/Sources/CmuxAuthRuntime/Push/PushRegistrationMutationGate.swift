@@ -6,12 +6,15 @@ import Foundation
 /// abandon a request after the server may have committed it.
 actor PushRegistrationMutationGate {
     private var isHeld = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [(
+        id: UUID,
+        continuation: CheckedContinuation<Bool, Never>
+    )] = []
 
     func withLock<Value: Sendable>(
         _ operation: @escaping @Sendable () async -> Value
-    ) async -> Value {
-        await acquire()
+    ) async -> Value? {
+        guard await acquire() else { return nil }
         let worker = Task {
             await operation()
         }
@@ -19,21 +22,40 @@ actor PushRegistrationMutationGate {
         return await worker.value
     }
 
-    private func acquire() async {
+    private func acquire() async -> Bool {
+        guard !Task.isCancelled else { return false }
         guard isHeld else {
             isHeld = true
+            return true
+        }
+        let id = UUID()
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else {
+                    waiters.append((id: id, continuation: continuation))
+                }
+            }
+        }, onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        })
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else {
             return
         }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(returning: false)
     }
 
     private func release() {
-        guard !waiters.isEmpty else {
-            isHeld = false
+        while !waiters.isEmpty {
+            let waiter = waiters.removeFirst()
+            waiter.continuation.resume(returning: true)
             return
         }
-        waiters.removeFirst().resume()
+        isHeld = false
     }
 }
