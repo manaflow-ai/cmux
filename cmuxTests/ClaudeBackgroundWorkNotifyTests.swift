@@ -99,8 +99,39 @@ struct ClaudeBackgroundWorkNotifyTests {
         // Truly-idle turn end keeps the "Idle" pill and the hibernatable lifecycle.
         #expect(statusLine(snapshot, value: "Idle") != nil,
                 "Truly-idle stop must show the Idle pill; saw \(snapshot)")
-        #expect(lifecycleLine(snapshot, value: "idle") != nil,
+        let idleLifecycle = lifecycleLine(snapshot, value: "idle")
+        #expect(idleLifecycle != nil,
                 "Truly-idle stop must publish an idle lifecycle; saw \(snapshot)")
+        #expect(idleLifecycle?.contains("--prompt-boundary") == true)
+        #expect(idleLifecycle?.contains("--normal-completion") == true)
+    }
+
+    @Test func stopWithProviderFailureMessageDoesNotClaimNormalCompletion() throws {
+        let session = "provider-failure-message-session"
+        let stdin = #"""
+        {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"This request requires usage credits. Add credits to continue.","background_tasks":[],"session_crons":[]}
+        """#
+        let (snapshot, _) = try runStopHook(name: "provider-failure-message", sessionId: session, stdin: stdin)
+        let idleLifecycle = lifecycleLine(snapshot, value: "idle")
+        #expect(idleLifecycle != nil,
+                "A provider failure still returns to the idle prompt; saw \(snapshot)")
+        #expect(idleLifecycle?.contains("--prompt-boundary") == true)
+        #expect(idleLifecycle?.contains("--normal-completion") != true,
+                "A quota banner echoed as last_assistant_message must not be marked normal; saw \(snapshot)")
+    }
+
+    @Test func stopWithNestedProviderFailureDoesNotClaimNormalCompletion() throws {
+        let session = "nested-provider-failure-session"
+        let stdin = #"""
+        {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"The turn ended.","provider_result":{"details":{"error":{"code":"quota_exhausted","message":"requires usage credits"}}},"background_tasks":[],"session_crons":[]}
+        """#
+        let (snapshot, _) = try runStopHook(name: "nested-provider-failure", sessionId: session, stdin: stdin)
+        let idleLifecycle = lifecycleLine(snapshot, value: "idle")
+        #expect(idleLifecycle != nil,
+                "A nested provider failure still returns to the idle prompt; saw \(snapshot)")
+        #expect(idleLifecycle?.contains("--prompt-boundary") == true)
+        #expect(idleLifecycle?.contains("--normal-completion") != true,
+                "Nested structured provider errors must keep completion proof conservative; saw \(snapshot)")
     }
 
     @Test func stopWithPendingCronTagsPending() throws {

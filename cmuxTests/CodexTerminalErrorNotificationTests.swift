@@ -76,6 +76,14 @@ struct CodexTerminalErrorNotificationTests {
             },
             "Expected the nested terminal error to set error status, saw \(server.commands)"
         )
+        #expect(
+            server.commands.contains { command in
+                command.hasPrefix("set_agent_lifecycle codex needsInput ") &&
+                    command.contains("--prompt-boundary") &&
+                    !command.contains("--normal-completion")
+            },
+            "Expected the failed turn to publish an error prompt boundary, saw \(server.commands)"
+        )
     }
 }
 

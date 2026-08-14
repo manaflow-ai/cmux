@@ -186,6 +186,36 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testAutoRetryAgentSessionsCommandTogglesAndPostsChangeNotification() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.autoRetryAgentSessions"
+                )
+            )
+            let notificationCenter = NotificationCenter()
+            var didNotify = false
+            let token = notificationCenter.addObserver(
+                forName: AgentSessionAutoRetrySettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                didNotify = true
+            }
+            defer { notificationCenter.removeObserver(token) }
+
+            XCTAssertFalse(descriptor.isOn(defaults))
+            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+            XCTAssertEqual(
+                defaults.object(forKey: AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey) as? Bool,
+                true
+            )
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertTrue(didNotify)
+        }
+    }
+
     func testWarnBeforeQuitCommandWritesConfirmQuitSourceOfTruth() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

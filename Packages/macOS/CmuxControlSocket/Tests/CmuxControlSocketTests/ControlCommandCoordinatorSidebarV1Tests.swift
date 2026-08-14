@@ -5,6 +5,27 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator sidebar v1 dispatch")
 struct ControlCommandCoordinatorSidebarV1Tests {
+    @Test func agentLifecycleForwardsManagedPromptBoundary() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex idle --tab=\(workspaceID.uuidString) "
+                + "--panel=\(panelID.uuidString) --prompt-boundary --normal-completion"
+        )
+
+        #expect(response == "OK")
+        #expect(context.agentLifecycleCall?.target == .workspace(workspaceID))
+        #expect(context.agentLifecycleCall?.key == "codex")
+        #expect(context.agentLifecycleCall?.lifecycleRawValue == "idle")
+        #expect(context.agentLifecycleCall?.panelID == panelID)
+        #expect(context.agentLifecycleCall?.promptBoundary == true)
+        #expect(context.agentLifecycleCall?.normalCompletion == true)
+    }
+
     @Test func agentPIDClearForwardsOwnedKeyRequirement() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
