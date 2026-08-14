@@ -36,6 +36,27 @@ private actor GateClock: FileWatchClock {
     }
 }
 
+private actor WatchRecheckCounter {
+    private var count = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func record() {
+        count += 1
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending { waiter.resume() }
+    }
+
+    func waitForFirstRecheck() async {
+        if count > 0 { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    var recheckCount: Int { count }
+}
+
 @Suite struct RecursivePathWatcherTests {
     @Test func emptyPathsFailsInitialization() {
         let watcher = RecursivePathWatcher(paths: [])
@@ -102,5 +123,29 @@ private actor GateClock: FileWatchClock {
         let next: Void? = await iterator.next()
         #expect(next == nil)
         #expect(await clock.sleeperCount == 0)
+    }
+
+    /// A rapid notification burst drives exactly one consumer re-check, not one
+    /// re-check per filesystem callback.
+    @Test func rapidEventsCoalesceIntoOneConsumerRecheck() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let counter = WatchRecheckCounter()
+        let consumer = Task {
+            for await _ in watcher.events {
+                await counter.record()
+            }
+        }
+
+        for _ in 0..<25 {
+            await watcher.simulateFileSystemEventForTesting()
+        }
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+        await counter.waitForFirstRecheck()
+        await watcher.stop()
+        await consumer.value
+
+        #expect(await counter.recheckCount == 1)
     }
 }
