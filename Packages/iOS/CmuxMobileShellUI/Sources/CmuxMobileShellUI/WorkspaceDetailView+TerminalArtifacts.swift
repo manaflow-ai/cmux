@@ -38,7 +38,7 @@ extension WorkspaceDetailView {
         configThemeGeneration: store.terminalConfigThemeGeneration,
         artifactFilesEnabled: store.supportsTerminalArtifacts,
         terminalFolderTapEnabled: terminalFolderTapEnabled,
-        terminalFilesChipEnabled: terminalFilesChipEnabled,
+        terminalFilesChipEnabled: isTerminalFilesChipEnabled,
         showMissingFiles: showMissingFiles,
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,

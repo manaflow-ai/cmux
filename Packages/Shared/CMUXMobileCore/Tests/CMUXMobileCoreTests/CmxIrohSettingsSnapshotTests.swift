@@ -25,12 +25,12 @@ struct CmxIrohSettingsSnapshotTests {
         #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
     }
 
-    @Test func pathPreferenceMapsToTransportVerificationMode() {
+    @Test func retiredPathPreferencesNormalizeToAutomaticTransport() {
         #expect(
             CmxIrohPathPreference.automatic.transportVerificationMode == .automatic
         )
         #expect(
-            CmxIrohPathPreference.relayOnly.transportVerificationMode == .relayOnly
+            CmxIrohPathPreference.relayOnly.transportVerificationMode == .automatic
         )
         #expect(
             CmxIrohPathPreference.neverUseRelays.transportVerificationMode == .directOnly

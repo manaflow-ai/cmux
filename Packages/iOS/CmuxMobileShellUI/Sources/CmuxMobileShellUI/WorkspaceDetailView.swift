@@ -49,6 +49,7 @@ struct WorkspaceDetailView: View {
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
+    @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -157,9 +158,6 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    var terminalFilesChipEnabled: Bool {
-        displaySettings.terminalFilesChipEnabled
-    }
     var showMissingFiles: Bool {
         displaySettings.showMissingFiles
     }

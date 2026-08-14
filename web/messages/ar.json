@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "توجيه طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
-      "coderouterLink": "فتح coderouter"
+      "coderouterLink": "فتح coderouter",
+      "iosAppName": "تطبيق iOS",
+      "iosAppDescription": "ثبّت تطبيق cmux لنظام iOS عبر TestFlight (وصول تجريبي).",
+      "iosLink": "فتح تطبيق iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -211,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {

@@ -30,6 +30,9 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// This Mac's workspace groups, in section order (empty when the Mac reports
     /// none or is too old to emit them).
     public var groups: [MobileWorkspaceGroupPreview]
+    /// Whether ``groups`` came from a complete host snapshot. A false value
+    /// means an empty list can still be a loading or capability projection.
+    public var workspaceGroupsAreAuthoritative: Bool
     /// Liveness of THIS Mac's data, so the UI can show per-Mac
     /// connecting/reconnecting/offline and the derivation can decide whether a
     /// dropped Mac's last-known rows stay (greyed) or are dropped.
@@ -53,6 +56,7 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         displayName: String? = nil,
         workspaces: [MobileWorkspacePreview] = [],
         groups: [MobileWorkspaceGroupPreview] = [],
+        workspaceGroupsAreAuthoritative: Bool = false,
         status: MobileMacConnectionStatus = .reconnecting,
         actionCapabilities: MobileWorkspaceActionCapabilities = .none
     ) {
@@ -61,6 +65,7 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         self.displayName = displayName
         self.workspaces = workspaces
         self.groups = groups
+        self.workspaceGroupsAreAuthoritative = workspaceGroupsAreAuthoritative
         self.status = status
         self.actionCapabilities = actionCapabilities
     }

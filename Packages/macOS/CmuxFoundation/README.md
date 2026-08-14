@@ -16,6 +16,7 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 - `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
 - `MoshTerminalCommandBuilder` — a pure Mosh startup-command builder with explicit SSH fallback.
+- `MoshRemoteIPMode` — the address-discovery mode selected for a Mosh connection.
 - `RemoteTmuxCommandBuilder` — shared remote `tmux` resolution and argv preservation.
 - `WorkspaceRemoteTerminalProfile` — durable shell-or-named-tmux terminal intent.
 - `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
@@ -51,7 +52,9 @@ let command = MoshTerminalCommandBuilder(
     localMoshMissingMessage: "Mosh is unavailable locally; using SSH.",
     localMoshUnsupportedMessage: "Mosh is too old for shared SSH setup; using SSH.",
     remoteMoshMissingMessage: "mosh-server is unavailable remotely; using SSH.",
-    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH."
+    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH.",
+    remoteBootstrapInstallFailedMessage: "Remote bootstrap install failed; using SSH.",
+    remoteMoshAddressFallbackMessage: "Remote SSH address is unusable; using local Mosh resolution."
 ).command()
 ```
 
