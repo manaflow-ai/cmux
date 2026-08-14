@@ -88,7 +88,7 @@ def _wait_for_workspaces(
     deadline = time.monotonic() + timeout
     found: dict[str, dict] = {}
     while len(found) < len(titles) and time.monotonic() < deadline:
-        code, out, _ = run(cli_path, "--json", "tree")
+        code, out, _ = run(cli_path, "--json", "--id-format", "both", "tree")
         if code == 0:
             for title in titles:
                 workspace = _workspace_from_tree(out, title)
@@ -138,7 +138,15 @@ def _wait_for_dock_panes(
     """Poll until a workspace exposes at least one Dock pane in its tree."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        code, out, _ = run(cli_path, "--json", "tree", "--workspace", workspace_ref)
+        code, out, _ = run(
+            cli_path,
+            "--json",
+            "--id-format",
+            "both",
+            "tree",
+            "--workspace",
+            workspace_ref,
+        )
         if code == 0:
             workspace = _workspace_from_tree(out, title)
             if workspace is not None and _has_dock_panes(workspace):
@@ -223,7 +231,15 @@ def main() -> int:
 
         # --- single pane: layout is a bare pane leaf ---
         if single_ref:
-            code, out, err = run(cli, "--json", "tree", "--workspace", single_ref)
+            code, out, err = run(
+                cli,
+                "--json",
+                "--id-format",
+                "both",
+                "tree",
+                "--workspace",
+                single_ref,
+            )
             ws = _workspace_from_tree(out, single_title) if code == 0 else None
             if ws is None:
                 failures.append(f"single-pane workspace not found in tree (exit {code}): {err}")
@@ -245,7 +261,15 @@ def main() -> int:
 
         # --- nested H-over-V: both directions + nesting + ratios round-trip ---
         if nested_ref:
-            code, out, err = run(cli, "--json", "tree", "--workspace", nested_ref)
+            code, out, err = run(
+                cli,
+                "--json",
+                "--id-format",
+                "both",
+                "tree",
+                "--workspace",
+                nested_ref,
+            )
             ws = _workspace_from_tree(out, nested_title) if code == 0 else None
             if ws is None:
                 failures.append(f"nested workspace not found in tree (exit {code}): {err}")
