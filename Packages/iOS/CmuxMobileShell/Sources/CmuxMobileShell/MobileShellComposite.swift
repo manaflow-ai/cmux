@@ -2559,13 +2559,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func reconnectActiveMacIfAvailable(
         stackUserID: String?,
-        refreshBackupBeforeDial: Bool = true
+        refreshBackupBeforeDial: Bool = true,
+        force: Bool = false
     ) async -> Bool {
         let startedAt = appDiagnosticNow()
         recordAppEvent(.reconnectStarted)
         let outcome = await reconnectActiveMacOutcome(
             stackUserID: stackUserID,
-            refreshBackupBeforeDial: refreshBackupBeforeDial
+            refreshBackupBeforeDial: refreshBackupBeforeDial,
+            force: force
         )
         switch outcome {
         case .connected:
@@ -2593,19 +2595,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Starts one user-requested retry and exposes its loading state before any await.
     @discardableResult
     public func retryActiveMacReconnect(
-        stackUserID: String?
+        stackUserID: String?,
+        force: Bool = false
     ) async -> Bool {
         guard !isReconnectingStoredMac else { return false }
         if let accountID = stackUserID ?? identityProvider?.currentUserID {
             clearTransientAutomaticReconnectBackoff(accountID: accountID)
         }
         isReconnectingStoredMac = true
-        return await reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+        return await reconnectActiveMacIfAvailable(
+            stackUserID: stackUserID,
+            force: force
+        )
     }
 
     func reconnectActiveMacOutcome(
         stackUserID: String?,
-        refreshBackupBeforeDial: Bool = true
+        refreshBackupBeforeDial: Bool = true,
+        force: Bool = false
     ) async -> StoredMacReconnectOutcome {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
@@ -2613,7 +2620,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // attach already established the foreground session. Treat the live
         // client as authoritative instead of replacing it with another client
         // for the same saved route.
-        guard !hasActiveMacConnection else {
+        guard force || !hasActiveMacConnection else {
             isReconnectingStoredMac = false
             didFinishStoredMacReconnectAttempt = true
             return .connected
