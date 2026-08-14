@@ -1048,8 +1048,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // Apply the same explicit foreground transform used by the text
             // and background styling so resting custom icons stay white and
             // armed built-ins keep their blue active state.
+            let restingForeground = themeChromeColor
             config.imageColorTransformer = UIConfigurationColorTransformer { _ in
-                armed || sticky ? activeForeground : self.themeChromeColor
+                armed || sticky ? activeForeground : restingForeground
             }
             config.attributedTitle = nil
         } else {
