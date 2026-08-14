@@ -27,4 +27,3 @@ struct SidebarAgentActivityLabel: NSViewRepresentable {
         nsView.disconnectClock()
     }
 }
-

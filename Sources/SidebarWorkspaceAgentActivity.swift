@@ -1,4 +1,5 @@
 import CmuxSidebar
+import CmuxWorkspaces
 import Foundation
 
 enum SidebarAgentResolvedState: String, Equatable, Sendable {
