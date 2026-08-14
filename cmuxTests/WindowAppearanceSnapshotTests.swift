@@ -172,6 +172,34 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
     }
 
+    func testDockAndSidebarChromeShareResolvedTerminalThemeWhenSystemDisagrees() {
+        let cases: [(backgroundHex: String, expected: ColorScheme)] = [
+            ("#F8F8F2", .light),
+            ("#101820", .dark),
+        ]
+
+        for testCase in cases {
+            for systemResolvedSidebarScheme in [ColorScheme.light, .dark] {
+                let snapshot = makeSnapshot(
+                    unifySurfaceBackdrops: false,
+                    backgroundHex: testCase.backgroundHex,
+                    sidebarColorScheme: systemResolvedSidebarScheme
+                )
+
+                XCTAssertEqual(
+                    snapshot.chromeColorScheme,
+                    testCase.expected,
+                    "Unexpected terminal theme resolution for \(testCase.backgroundHex)"
+                )
+                XCTAssertEqual(
+                    snapshot.sidebarContentColorScheme,
+                    testCase.expected,
+                    "Dock/sidebar chrome diverged for terminal \(testCase.expected) and system \(systemResolvedSidebarScheme)"
+                )
+            }
+        }
+    }
+
     func testMatchedLeftAndRightSidebarBackdropsShareTerminalRootBackdrop() {
         let cases: [(backgroundHex: String, opacity: CGFloat)] = [
             ("#FFFFFF", 1),
