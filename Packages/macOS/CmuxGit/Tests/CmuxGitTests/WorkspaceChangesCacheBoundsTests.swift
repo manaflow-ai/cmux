@@ -124,6 +124,7 @@ import Testing
             repoRoot: repoRoot,
             branch: "feature",
             baseRef: "main",
+            comparisonBase: .mergeBase,
             diffBase: baseCommitOID,
             diffBaseCommitOID: baseCommitOID
         )

@@ -57,6 +57,14 @@ public struct WorkspaceChangesSummary: Sendable, Equatable {
     )
 }
 
+/// Why a changed-file snapshot's diff base was chosen.
+public enum WorkspaceComparisonBase: String, Sendable, Equatable {
+    /// Compared against the resolved default branch's merge base.
+    case mergeBase
+    /// Compared against `HEAD` (on the default branch, or no default ref resolved).
+    case head
+}
+
 /// A wire-compatible category for one changed workspace path.
 public enum WorkspaceChangeStatus: String, Sendable, Equatable {
     /// A tracked path was added.
@@ -127,6 +135,8 @@ public struct WorkspaceChangedFiles: Sendable, Equatable {
     public let branch: String?
     /// The default-branch reference used as the comparison base, or `nil` when comparing from `HEAD`.
     public let baseRef: String?
+    /// Why the diff base was chosen.
+    public let comparisonBase: WorkspaceComparisonBase
     /// The path-sorted changed files, capped at 500 entries.
     public let files: [WorkspaceChangedFile]
     /// The number of changed files before the file-list cap.
@@ -145,6 +155,7 @@ public struct WorkspaceChangedFiles: Sendable, Equatable {
     ///   - repoRoot: The repository's absolute top-level path.
     ///   - branch: The checked-out branch name.
     ///   - baseRef: The default-branch reference used as the comparison base.
+    ///   - comparisonBase: Why the diff base was chosen.
     ///   - files: The capped, path-sorted changed files.
     ///   - filesChanged: The uncapped number of changed files.
     ///   - additions: The uncapped number of added lines.
@@ -155,6 +166,7 @@ public struct WorkspaceChangedFiles: Sendable, Equatable {
         repoRoot: String?,
         branch: String?,
         baseRef: String?,
+        comparisonBase: WorkspaceComparisonBase = .head,
         files: [WorkspaceChangedFile],
         filesChanged: Int,
         additions: Int,
@@ -165,6 +177,7 @@ public struct WorkspaceChangedFiles: Sendable, Equatable {
         self.repoRoot = repoRoot
         self.branch = branch
         self.baseRef = baseRef
+        self.comparisonBase = comparisonBase
         self.files = files
         self.filesChanged = filesChanged
         self.additions = additions

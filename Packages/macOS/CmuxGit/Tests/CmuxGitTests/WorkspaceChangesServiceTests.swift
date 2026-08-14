@@ -282,4 +282,29 @@ import Testing
         #expect(result.baseRef == "main")
         #expect(result.files.map(\.path) == ["feature.txt"])
     }
+
+    @Test func nonDefaultBranchComparesAgainstMergeBase() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        try repo.git(["switch", "-c", "feature/comparison"])
+        try repo.write("feature.txt", "feature\n")
+        try repo.git(["add", "feature.txt"])
+        try repo.commit("feature")
+
+        let result = try await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+
+        #expect(result.baseRef == "main")
+        #expect(result.comparisonBase == .mergeBase)
+    }
+
+    @Test func defaultBranchComparesAgainstHead() async throws {
+        let repo = try WorkspaceChangesGitRepositoryFixture()
+        try repo.makeBaseline()
+        try repo.write("tracked.txt", "changed\n")
+
+        let result = try await WorkspaceChangesService().changedFiles(forDirectory: repo.root.path)
+
+        #expect(result.baseRef == nil)
+        #expect(result.comparisonBase == .head)
+    }
 }
