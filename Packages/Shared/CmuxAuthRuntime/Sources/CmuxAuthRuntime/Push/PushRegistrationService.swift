@@ -27,6 +27,12 @@ public actor PushRegistrationService: PushRegistering {
     private let retrySleep: @Sendable (Duration) async throws -> Void
     private var retryTask: Task<Void, Never>?
     private var unregisterDrainTask: Task<Void, Never>?
+    /// One app-lifetime worker owns coordinator-triggered POST/DELETE work.
+    /// New toggle intents only replace its desired state.
+    private var intentReconciliationTask: Task<Void, Never>?
+    private var intentReconciliationRequested = false
+    private var coordinatorIntentGeneration: UInt64 = 0
+    private var coordinatorIntentEnabled: Bool?
     private var operationGeneration = UUID()
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
@@ -97,6 +103,21 @@ public actor PushRegistrationService: PushRegistering {
                 ? (hasToken ? .registrationRequired : .awaitingDeviceToken)
                 : .awaitingDeviceToken
         )
+        if !enabled,
+           let tokenHex = self.defaults.string(forKey: Self.cachedTokenKey),
+           !tokenHex.isEmpty,
+           let accountID = self.defaults.string(
+               forKey: Self.registeredAccountIDKey
+           ),
+           !accountID.isEmpty {
+            // The app can terminate after the coordinator persists opt-out but
+            // before its actor hop arrives. Reconstruct that cleanup on launch.
+            Self.persistPendingUnregister(
+                tokenHex: tokenHex,
+                accountID: accountID,
+                in: self.defaults
+            )
+        }
     }
 
     public var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
@@ -104,6 +125,11 @@ public actor PushRegistrationService: PushRegistering {
 
     public func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
         let id = UUID()
+        if !isEnabled, !pendingUnregisters.isEmpty {
+            coordinatorIntentEnabled = false
+            intentReconciliationRequested = true
+            scheduleIntentReconciliation()
+        }
         return AsyncStream { continuation in
             snapshotContinuations[id] = continuation
             continuation.yield(snapshotValue)
@@ -135,6 +161,81 @@ public actor PushRegistrationService: PushRegistering {
                     preferenceGeneration: generation
                 )
             }
+        }
+    }
+
+    public func applyEnabledIntent(
+        _ enabled: Bool,
+        generation: UInt64
+    ) async {
+        guard generation >= coordinatorIntentGeneration else { return }
+        if generation == coordinatorIntentGeneration,
+           coordinatorIntentEnabled == enabled {
+            return
+        }
+        coordinatorIntentGeneration = generation
+        coordinatorIntentEnabled = enabled
+        cancelRetry()
+        defaults.set(enabled, forKey: Self.enabledKey)
+        if enabled {
+            let hasToken = cachedTokenHex != nil
+            publish(PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: hasToken,
+                backendState: hasToken
+                    ? .registrationRequired
+                    : .awaitingDeviceToken
+            ))
+        } else {
+            if let tokenHex = cachedTokenHex,
+               let accountID = defaults.string(
+                   forKey: Self.registeredAccountIDKey
+               ),
+               !accountID.isEmpty {
+                // Persist the cleanup before the worker can suspend on auth.
+                persistPendingUnregister(
+                    tokenHex: tokenHex,
+                    accountID: accountID
+                )
+            }
+            publish(.disabled)
+        }
+        intentReconciliationRequested = true
+        scheduleIntentReconciliation()
+    }
+
+    private func scheduleIntentReconciliation() {
+        guard intentReconciliationTask == nil else { return }
+        intentReconciliationTask = Task { [weak self] in
+            await self?.drainIntentReconciliation()
+        }
+    }
+
+    private func drainIntentReconciliation() async {
+        while intentReconciliationRequested {
+            intentReconciliationRequested = false
+            guard let enabled = coordinatorIntentEnabled else { break }
+            let generation = coordinatorIntentGeneration
+            if enabled {
+                await syncTokenIfPossible()
+            } else {
+                let preferenceGeneration = operationGeneration
+                await unregisterFromServer(
+                    preferenceGeneration: preferenceGeneration
+                )
+                await retryPendingUnregisterIfPossible(
+                    preferenceGeneration: preferenceGeneration
+                )
+            }
+            guard generation == coordinatorIntentGeneration,
+                  enabled == coordinatorIntentEnabled else { continue }
+            if !enabled {
+                publish(.disabled)
+            }
+        }
+        intentReconciliationTask = nil
+        if intentReconciliationRequested {
+            scheduleIntentReconciliation()
         }
     }
 
@@ -723,15 +824,34 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private func persistPendingUnregister(tokenHex: String, accountID: String) {
+        Self.persistPendingUnregister(
+            tokenHex: tokenHex,
+            accountID: accountID,
+            in: defaults
+        )
+    }
+
+    private static func persistPendingUnregister(
+        tokenHex: String,
+        accountID: String,
+        in defaults: UserDefaults
+    ) {
         let entry = PendingUnregister(tokenHex: tokenHex, accountID: accountID)
-        var queue = pendingUnregisters
-        if !queue.contains(entry) {
-            queue.append(entry)
-        }
+        var queue = (defaults.data(forKey: pendingUnregisterQueueKey)
+            .flatMap {
+                try? JSONDecoder().decode([PendingUnregister].self, from: $0)
+            }) ?? []
+        var seen = Set<PendingUnregister>()
+        queue = queue.filter { seen.insert($0).inserted }
+        if !queue.contains(entry) { queue.append(entry) }
         // Never evict a privacy cleanup obligation merely to enforce a local
         // storage cap. The set is deduplicated by (account, token), and drains
         // in bounded network batches so size cannot stall current readiness.
-        storePendingUnregisters(queue)
+        if let data = try? JSONEncoder().encode(queue) {
+            defaults.set(data, forKey: pendingUnregisterQueueKey)
+        }
+        defaults.removeObject(forKey: pendingUnregisterTokenKey)
+        defaults.removeObject(forKey: pendingUnregisterAccountIDKey)
     }
 
     private func schedulePendingUnregisterContinuation() {

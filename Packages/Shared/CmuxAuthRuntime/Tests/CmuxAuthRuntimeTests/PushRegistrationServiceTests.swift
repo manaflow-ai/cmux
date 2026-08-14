@@ -742,6 +742,28 @@ actor RetryDelayRecorder {
         )
     }
 
+    @Test func relaunchRecoversOptOutCommittedBeforeServiceHandoff() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let (service, _) = makeScriptedService(
+            seedDefaults: { defaults in
+                defaults.set(false, forKey: "cmux.notifications.pushEnabled")
+                defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+                defaults.set(
+                    "push-user-1",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+            }
+        )
+
+        _ = await service.snapshots()
+        await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
+                == ["DELETE"]
+        )
+    }
+
     @Test func accountBOwnedOptOutNeverDeletesAccountATokenWithBCredentials() async {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-optout-owner-mismatch-\(UUID().uuidString)"
@@ -874,6 +896,30 @@ actor RetryDelayRecorder {
                 == ["POST", "DELETE", "POST", "POST"]
         )
         #expect(await service.snapshot.backendState == .registered)
+    }
+
+    @Test func coordinatorIntentWorkerDrainsLatestOptOutAfterLatePost() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+            .response(200),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService()
+        await service.register(deviceToken: Data([0xAA]))
+
+        await service.applyEnabledIntent(true, generation: 1)
+        await started.waitUntilStarted()
+        await service.applyEnabledIntent(false, generation: 2)
+        await blocker.release()
+        await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
+                == ["POST", "DELETE", "DELETE"]
+        )
+        #expect(await service.snapshot == .disabled)
     }
 
     @Test func signOutDuringInFlightRegistrationDeletesAfterLatePost() async {

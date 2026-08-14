@@ -7,6 +7,7 @@ import UserNotifications
 
 private actor LifecyclePushRegistration: PushRegistering {
     private var value: PushRegistrationSnapshot
+    private var intentGeneration: UInt64 = 0
     private let setEnabledGate: LifecycleSetEnabledGate?
     private let syncGate: LifecycleSyncGate?
 
@@ -39,6 +40,16 @@ private actor LifecyclePushRegistration: PushRegistering {
 
     func setEnabled(_ enabled: Bool) async {
         await setEnabledGate?.pause()
+        apply(enabled)
+    }
+
+    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async {
+        guard generation >= intentGeneration else { return }
+        intentGeneration = generation
+        apply(enabled)
+    }
+
+    private func apply(_ enabled: Bool) {
         value = enabled
             ? PushRegistrationSnapshot(
                 isEnabled: true,

@@ -21,6 +21,10 @@ public protocol PushRegistering: Sendable {
     /// removing it server-side on disable.
     func setEnabled(_ enabled: Bool) async
 
+    /// Commits a coordinator-owned preference in generation order and queues
+    /// its backend reconciliation without tying that work to the caller task.
+    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async
+
     /// Cache and (when opted in) upload a freshly registered APNs device token.
     func register(deviceToken: Data) async
 
