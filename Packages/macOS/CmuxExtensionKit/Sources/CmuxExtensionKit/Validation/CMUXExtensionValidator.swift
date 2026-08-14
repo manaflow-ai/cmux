@@ -226,7 +226,7 @@ public func validatePluginManifest(
                 reason: "defaultShortcut is too long or contains control characters"
             )
         }
-        if let defaultShortcut,
+        if let defaultShortcut = action.defaultShortcut,
            !CmuxPluginManifestValidation.isValidShortcutDeclaration(defaultShortcut) {
             throw CmuxExtensionValidationError.invalidDeclaration(
                 kind: "action",
