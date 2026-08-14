@@ -51344,6 +51344,559 @@
         }
       }
     },
+    "agentManifest.error.duplicateID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@: duplicate agent id '%2$@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@: エージェント ID '%2$@' が重複しています" } }
+      }
+    },
+    "agentManifest.error.invalidFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@: %2$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@: %2$@" } }
+      }
+    },
+    "agentManifest.error.invalidOverrideFilename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@: filename must be %2$@.json" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@: ファイル名は %2$@.json である必要があります" } }
+      }
+    },
+    "agentManifest.error.noBundledManifests": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No bundled agent manifests were found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バンドルされたエージェントマニフェストが見つかりません" } }
+      }
+    },
+    "agentManifest.error.unsupportedMergeStrategy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@: unsupported mergeStrategy '%2$@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@: mergeStrategy '%2$@' はサポートされていません" } }
+      }
+    },
+    "agentManifest.validation.cannotDecodeManifest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cannot decode manifest: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マニフェストをデコードできません: %@" } }
+      }
+    },
+    "agentManifest.validation.cannotEnumerateOverrides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cannot enumerate override directory: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オーバーライドディレクトリを列挙できません: %@" } }
+      }
+    },
+    "agentManifest.validation.cannotMergeManifest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cannot merge manifest: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マニフェストをマージできません: %@" } }
+      }
+    },
+    "agentManifest.validation.cannotReadBundled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cannot read bundled manifest: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バンドルされたマニフェストを読み込めません: %@" } }
+      }
+    },
+    "agentManifest.validation.cannotReadManifest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cannot read manifest: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マニフェストを読み込めません: %@" } }
+      }
+    },
+    "agentManifest.validation.commandPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must include {{sessionId}} or {{sessionPath}}" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "{{sessionId}} または {{sessionPath}} を含める必要があります" } }
+      }
+    },
+    "agentManifest.validation.cwdPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must be 'preserve', 'ignore', or 'none' (an alias for 'ignore')" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "'preserve'、'ignore'、または 'none'（'ignore' の別名）である必要があります" } }
+      }
+    },
+    "agentManifest.validation.duplicateMatcherID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Duplicate process matcher id '%@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスマッチャー ID '%@' が重複しています" } }
+      }
+    },
+    "agentManifest.validation.duplicateStateRuleID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Duplicate state rule id '%@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "状態ルール ID '%@' が重複しています" } }
+      }
+    },
+    "agentManifest.validation.fieldMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Required field '%@' is missing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "必須フィールド '%@' がありません" } }
+      }
+    },
+    "agentManifest.validation.idRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "id is required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "id は必須です" } }
+      }
+    },
+    "agentManifest.validation.internalEncoding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Internal manifest encoding failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内部マニフェストのエンコードに失敗しました" } }
+      }
+    },
+    "agentManifest.validation.invalidID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must start with a letter or number and contain only letters, numbers, dots, underscores, and hyphens" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "英字または数字で始まり、英字、数字、ピリオド、アンダースコア、ハイフンのみを含める必要があります" } }
+      }
+    },
+    "agentManifest.validation.invalidJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid JSON: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効な JSON です: %@" } }
+      }
+    },
+    "agentManifest.validation.invalidRegex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid regular expression: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効な正規表現です: %@" } }
+      }
+    },
+    "agentManifest.validation.invalidValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid value" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効な値です" } }
+      }
+    },
+    "agentManifest.validation.manifestObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Manifest must be a JSON object" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マニフェストは JSON オブジェクトである必要があります" } }
+      }
+    },
+    "agentManifest.validation.manifestTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Manifest exceeds 512 KiB" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マニフェストが 512 KiB を超えています" } }
+      }
+    },
+    "agentManifest.validation.matcherNoCriteria": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Matcher has no criteria" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マッチャーに条件がありません" } }
+      }
+    },
+    "agentManifest.validation.matcherRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "At least one process matcher is required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "少なくとも 1 つのプロセスマッチャーが必要です" } }
+      }
+    },
+    "agentManifest.validation.mergeStrategy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "mergeStrategy must be either 'overlay' or 'replace'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "mergeStrategy は 'overlay' または 'replace' である必要があります" } }
+      }
+    },
+    "agentManifest.validation.mustBeArray": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must be an array" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "配列である必要があります" } }
+      }
+    },
+    "agentManifest.validation.mustBeObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must be an object" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オブジェクトである必要があります" } }
+      }
+    },
+    "agentManifest.validation.mustBeString": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must be a string" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "文字列である必要があります" } }
+      }
+    },
+    "agentManifest.validation.notBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must not be blank" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "空白にはできません" } }
+      }
+    },
+    "agentManifest.validation.notNull": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must not be null" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "null にはできません" } }
+      }
+    },
+    "agentManifest.validation.oscBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OSC sequence must not be blank" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OSC シーケンスは空にできません" } }
+      }
+    },
+    "agentManifest.validation.oscFieldConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Declare only one of 'osc' or 'oscSequences'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "'osc' と 'oscSequences' のどちらか一方だけを宣言してください" } }
+      }
+    },
+    "agentManifest.validation.oscIntroducer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must begin with ESC ] or the C1 OSC byte (write ESC ] in JSON as \\u001b])" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ESC ] または C1 OSC バイトで始める必要があります（JSON では ESC ] を \\u001b] と記述します）" } }
+      }
+    },
+    "agentManifest.validation.oscTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OSC sequence is too long" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OSC シーケンスが長すぎます" } }
+      }
+    },
+    "agentManifest.validation.overlayOrReplace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must be either 'overlay' or 'replace'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "'overlay' または 'replace' である必要があります" } }
+      }
+    },
+    "agentManifest.validation.overrideNotDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Override path is not a directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オーバーライドパスがディレクトリではありません" } }
+      }
+    },
+    "agentManifest.validation.regexBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Regular expression must not be blank" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "正規表現は空にできません" } }
+      }
+    },
+    "agentManifest.validation.regexTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Regular expression is too long" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "正規表現が長すぎます" } }
+      }
+    },
+    "agentManifest.validation.requiresSessionContract": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Requires a session restoration contract" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション復元コントラクトが必要です" } }
+      }
+    },
+    "agentManifest.validation.runtimeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Manifest runtime is unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マニフェストランタイムを利用できません" } }
+      }
+    },
+    "agentManifest.validation.sessionContract": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sessionIdSource and resumeCommand are required; omit session for detection-only agents" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sessionIdSource と resumeCommand は必須です。検出のみのエージェントでは session を省略してください" } }
+      }
+    },
+    "agentManifest.validation.sessionSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must be a supported session source name or an argv option beginning with '-'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サポートされるセッションソース名、または '-' で始まる argv オプションである必要があります" } }
+      }
+    },
+    "agentManifest.validation.stateRuleNoConditions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "State rule has no screen or OSC conditions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "状態ルールに画面または OSC の条件がありません" } }
+      }
+    },
+    "agentManifest.validation.stringObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must be an object of string values" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "文字列値のオブジェクトである必要があります" } }
+      }
+    },
+    "agentManifest.validation.stringOrArray": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Must be a string or an array of strings" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "文字列または文字列の配列である必要があります" } }
+      }
+    },
+    "agentManifest.validation.tooManyBundled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Too many bundled manifests (maximum %lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バンドルされたマニフェストが多すぎます（最大 %lld）" } }
+      }
+    },
+    "agentManifest.validation.tooManyEnvironmentEntries": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Too many environment entries (maximum %lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "環境エントリが多すぎます（最大 %lld）" } }
+      }
+    },
+    "agentManifest.validation.tooManyMatchers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Too many process matchers" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロセスマッチャーが多すぎます" } }
+      }
+    },
+    "agentManifest.validation.tooManyPredicates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Matcher has too many predicates (maximum %lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マッチャーの述語が多すぎます（最大 %lld）" } }
+      }
+    },
+    "agentManifest.validation.tooManyStateConditions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "State rule has too many conditions (maximum %lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "状態ルールの条件が多すぎます（最大 %lld）" } }
+      }
+    },
+    "agentManifest.validation.tooManyStateRules": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Too many state rules" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "状態ルールが多すぎます" } }
+      }
+    },
+    "agentManifest.validation.tooManyUserManifests": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Too many user manifests (maximum %lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ユーザーマニフェストが多すぎます（最大 %lld）" } }
+      }
+    },
+    "agentManifest.validation.unknownField": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown manifest field" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なマニフェストフィールドです" } }
+      }
+    },
+    "agentManifest.validation.unknownOSCMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown OSC match mode '%@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な OSC マッチモード '%@' です" } }
+      }
+    },
+    "agentManifest.validation.unknownState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown agent detection state '%@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なエージェント検出状態 '%@' です" } }
+      }
+    },
+    "agentManifest.validation.unsupportedSchemaVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unsupported schema version %1$lld; expected %2$lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スキーマバージョン %1$lld はサポートされていません。%2$lld が必要です" } }
+      }
+    },
+    "agentManifest.validation.valueMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Required value is missing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "必須の値がありません" } }
+      }
+    },
+    "agentManifest.validation.valueTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Value is too long" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "値が長すぎます" } }
+      }
+    },
+    "agentManifest.validation.wrongType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Value has the wrong type" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "値の型が正しくありません" } }
+      }
+    },
+    "cli.agentManifests.error.debugUnexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest received an unexpected argument '%@'." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest に予期しない引数 '%@' が指定されました。" } }
+      }
+    },
+    "cli.agentManifests.error.danglingEscape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest ends with an incomplete escape sequence." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest の末尾に不完全なエスケープシーケンスがあります。" } }
+      }
+    },
+    "cli.agentManifests.error.encode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Failed to encode agent manifest diagnostics." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントマニフェスト診断のエンコードに失敗しました。" } }
+      }
+    },
+    "cli.agentManifests.error.multipleSurfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest accepts only one surface." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest で指定できるサーフェスは 1 件だけです。" } }
+      }
+    },
+    "cli.agentManifests.error.optionDuplicate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest accepts %@ only once." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest で %@ を指定できるのは 1 回だけです。" } }
+      }
+    },
+    "cli.agentManifests.error.optionValueEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest does not accept an empty value for %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest では %@ に空の値を指定できません。" } }
+      }
+    },
+    "cli.agentManifests.error.optionValueMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest requires a value after %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest の %@ の後には値が必要です。" } }
+      }
+    },
+    "cli.agentManifests.error.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent manifest reload failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントマニフェストの再読み込みに失敗しました: %@" } }
+      }
+    },
+    "cli.agentManifests.error.reloadTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent manifest reload timed out." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントマニフェストの再読み込みがタイムアウトしました。" } }
+      }
+    },
+    "cli.agentManifests.error.runtimeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent manifest reload is unavailable because cmux is still starting." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux の起動中のため、エージェントマニフェストを再読み込みできません。" } }
+      }
+    },
+    "cli.agentManifests.error.screenUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal screen text is unavailable for this surface." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このサーフェスではターミナル画面のテキストを利用できません。" } }
+      }
+    },
+    "cli.agentManifests.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal surface not found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルサーフェスが見つかりません。" } }
+      }
+    },
+    "cli.agentManifests.error.tabManagerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent manifest diagnostics are unavailable because no tab manager is active." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブマネージャーがアクティブでないため、エージェントマニフェスト診断を利用できません。" } }
+      }
+    },
+    "cli.agentManifests.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "reload-agent-manifests does not accept arguments. Unexpected argument '%@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "reload-agent-manifests は引数を受け付けません。予期しない引数 '%@'" } }
+      }
+    },
+    "cli.agentManifests.error.unterminatedQuote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest has an unterminated %@ quote." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest の %@ の引用符が閉じられていません。" } }
+      }
+    },
+    "cli.help.debugAgentManifest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux debug-agent-manifest [--surface <id|ref|index>] [--osc <sequence>]\n\nCapture a terminal pane and report the manifest, process matcher, state classification, and rule trace. This command is read-only and does not change focus. The surface defaults to $CMUX_SURFACE_ID.\n\nExample:\n  cmux debug-agent-manifest\n  cmux debug-agent-manifest --surface surface:2\n  cmux debug-agent-manifest --osc $'\\e]9;cmux;idle\\a'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux debug-agent-manifest [--surface <id|ref|index>] [--osc <sequence>]\n\nターミナルペインを取得し、マニフェスト、プロセスマッチャー、状態分類、ルールトレースを表示します。このコマンドは読み取り専用で、フォーカスを変更しません。サーフェスはデフォルトで $CMUX_SURFACE_ID になります。\n\n例:\n  cmux debug-agent-manifest\n  cmux debug-agent-manifest --surface surface:2\n  cmux debug-agent-manifest --osc $'\\e]9;cmux;idle\\a'" } }
+      }
+    },
+    "cli.help.debugAgentManifestSynopsis": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest [--surface <id|ref|index>] [--osc <sequence>]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "debug-agent-manifest [--surface <id|ref|index>] [--osc <sequence>]" } }
+      }
+    },
+    "cli.help.reloadAgentManifests": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux reload-agent-manifests\n\nReload bundled and user agent-detection manifests in the live app. Invalid files are rejected and the last-known-good rules remain active.\n\nExample:\n  cmux reload-agent-manifests" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux reload-agent-manifests\n\nアプリでバンドル済みおよびユーザーのエージェント検出マニフェストを再読み込みします。無効なファイルは拒否され、最後に正常だったルールが引き続き使用されます。\n\n例:\n  cmux reload-agent-manifests" } }
+      }
+    },
+    "cli.help.reloadAgentManifestsSynopsis": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "reload-agent-manifests" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "reload-agent-manifests" } }
+      }
+    },
     "cli.sessions.error.agentRequiresValue": {
       "extractionState": "manual",
       "localizations": {
