@@ -1466,6 +1466,49 @@ actor RetryDelayRecorder {
         #expect(deletedTokens == ["aa", "bb", "aa", "bb"])
     }
 
+    @Test func pendingCleanupStorageKeepsNewestTwoHundredEntries() async throws {
+        let existing = (0..<200).map { index in
+            [
+                "tokenHex": String(format: "%064x", index),
+                "accountID": "historical-account-\(index)",
+            ]
+        }
+        let (service, defaults) = makeScriptedService(
+            accountID: nil,
+            seedDefaults: { defaults in
+                defaults.set(
+                    try? JSONSerialization.data(withJSONObject: existing),
+                    forKey: "cmux.notifications.pendingUnregisters.v2"
+                )
+                defaults.set(
+                    true,
+                    forKey: "cmux.notifications.pushEnabled"
+                )
+                defaults.set(
+                    String(repeating: "f", count: 64),
+                    forKey: "cmux.notifications.deviceTokenHex"
+                )
+                defaults.set(
+                    "current-account",
+                    forKey: "cmux.notifications.registeredAccountID"
+                )
+            }
+        )
+
+        await service.applyEnabledIntent(false, generation: 1)
+
+        let data = try #require(defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        ))
+        let stored = try #require(
+            JSONSerialization.jsonObject(with: data)
+                as? [[String: String]]
+        )
+        #expect(stored.count == 200)
+        #expect(stored.first?["accountID"] == "historical-account-1")
+        #expect(stored.last?["accountID"] == "current-account")
+    }
+
     @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-owner-reassignment-\(UUID().uuidString)"
