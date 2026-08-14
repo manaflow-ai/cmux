@@ -487,7 +487,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             guard !selected.contains(where: { $0.endpoint == route.endpoint }) else { continue }
             selected.append(route)
         }
-        return selected
+        return selected == local ? nil : selected
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac

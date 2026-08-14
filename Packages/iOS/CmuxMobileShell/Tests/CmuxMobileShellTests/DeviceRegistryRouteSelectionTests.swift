@@ -55,6 +55,13 @@ import Testing
         )
         #expect(selected.map(\.kind) == [.iroh, .tailscale])
         #expect(selected.last?.endpoint == local[0].endpoint)
+
+        // Once the merged routes are persisted, the same Iroh-only registry
+        // response must not trigger another write on every refresh.
+        #expect(DeviceRegistryService.selectReconnectRoutes(
+            local: selected,
+            registry: [iroh]
+        ) == nil)
     }
 
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
