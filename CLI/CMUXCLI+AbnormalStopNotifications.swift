@@ -50,21 +50,33 @@ extension CMUXCLI {
         }
     }
 
+    /// Collects the complete stop signal and every terminal message field from a hook payload.
+    func abnormalStopPayloadInputs(
+        from object: [String: Any]?,
+        fallbackMessage: String? = nil
+    ) -> (signal: String, messages: [String]) {
+        let nestedObjects = abnormalStopNestedObjects(from: object)
+        let signal = (["Stop"] + nestedObjects.flatMap {
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys)
+        }).joined(separator: " ")
+        let messages = nestedObjects.flatMap {
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopMessageKeys)
+        } + [fallbackMessage].compactMap { $0 }
+        return (signal, messages)
+    }
+
     /// Gathers the signal and message fields for one Claude stop boundary.
     private func claudeAbnormalStopInputs(
         parsedInput: ClaudeHookParsedInput,
         transcriptMessage: String?
     ) -> (signal: String, messages: [String]) {
-        let nestedObjects = abnormalStopNestedObjects(from: parsedInput.object)
-        let signalParts = ["Stop"] + nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys)
-        }
-        let signal = signalParts.joined(separator: " ")
-        let messages = nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: Self.abnormalStopMessageKeys)
-        } + [
+        let payloadInputs = abnormalStopPayloadInputs(
+            from: parsedInput.object,
+            fallbackMessage: parsedInput.rawFallback
+        )
+        let signal = payloadInputs.signal
+        let messages = payloadInputs.messages + [
             transcriptMessage,
-            parsedInput.rawFallback,
             signal == "Stop" ? nil : signal,
         ].compactMap { $0 }
         return (signal, messages)
@@ -87,16 +99,13 @@ extension CMUXCLI {
 
     /// Reports whether a generic managed-agent stop carries a user cancellation cue.
     func isManagedAgentUserInitiatedStop(input: ClaudeHookParsedInput) -> Bool {
-        let nestedObjects = abnormalStopNestedObjects(from: input.object)
-        let signal = (["Stop"] + nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys)
-        }).joined(separator: " ")
-        let messages = nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: Self.abnormalStopMessageKeys)
-        } + [input.rawFallback].compactMap { $0 }
+        let payloadInputs = abnormalStopPayloadInputs(
+            from: input.object,
+            fallbackMessage: input.rawFallback
+        )
         return AgentHookAbnormalStopClassifier().isUserInitiatedStop(
-            signal: signal,
-            message: messages.joined(separator: " ")
+            signal: payloadInputs.signal,
+            message: payloadInputs.messages.joined(separator: " ")
         )
     }
 
@@ -143,13 +152,13 @@ extension CMUXCLI {
         fallbackMessage: String? = nil
     ) -> CodexHookFailureCandidate? {
         let nestedObjects = abnormalStopNestedObjects(from: object)
-        let reason = nestedObjects.lazy.compactMap {
-            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys).first
-        }.first
-        let signal = ["Stop", reason].compactMap { $0 }.joined(separator: " ")
+        let reasonMessages = nestedObjects.flatMap {
+            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys)
+        }
+        let signal = (["Stop"] + reasonMessages).joined(separator: " ")
         let messages = nestedObjects.flatMap {
             abnormalStopStrings(in: $0, keys: Self.abnormalStopAssistantMessageKeys)
-        } + [fallbackMessage, reason].compactMap { $0 }
+        } + [fallbackMessage].compactMap { $0 } + reasonMessages
         for message in messages {
             let message = normalizedSingleLine(message)
             guard !message.isEmpty else { continue }
@@ -174,17 +183,14 @@ extension CMUXCLI {
         lastMessage: String?
     ) -> AgentHookNotificationSummary? {
         guard def.name != "codex", def.name != "antigravity" else { return nil }
-        let nestedObjects = abnormalStopNestedObjects(from: input.object)
-        let reasonMessages = nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: Self.abnormalStopReasonKeys)
-        }
-        let signal = (["Stop"] + reasonMessages).joined(separator: " ")
-        let messages = nestedObjects.flatMap {
-            abnormalStopStrings(in: $0, keys: Self.abnormalStopMessageKeys)
-        } + [
+        let payloadInputs = abnormalStopPayloadInputs(
+            from: input.object,
+            fallbackMessage: input.rawFallback
+        )
+        let signal = payloadInputs.signal
+        let messages = payloadInputs.messages + [
             lastMessage,
-            input.rawFallback,
-        ] + reasonMessages
+        ].compactMap { $0 }
         let normalizedMessages = messages
         guard !AgentHookAbnormalStopClassifier().isUserInitiatedStop(
             signal: signal,
