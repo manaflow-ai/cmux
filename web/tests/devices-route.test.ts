@@ -109,11 +109,13 @@ beforeEach(async () => {
 
 describe("device registry route", () => {
   test("maps Stack Auth throttles instead of returning a platform 500", async () => {
-    getUser.mockRejectedValueOnce(
-      new AggregateError([
+    (getUser as unknown as {
+      mockImplementationOnce(implementation: () => Promise<never>): void;
+    }).mockImplementationOnce(async () => {
+      throw new AggregateError([
         new Error("Rate limited, no retry-after header received"),
-      ]),
-    );
+      ]);
+    });
 
     const response = await GET(
       new Request("https://cmux.test/api/devices", {
