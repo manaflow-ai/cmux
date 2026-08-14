@@ -912,6 +912,19 @@ actor RetryDelayRecorder {
         await service.applyEnabledIntent(true, generation: 1)
         await started.waitUntilStarted()
         await service.applyEnabledIntent(false, generation: 2)
+
+        // Opt-out cleanup must start while the superseded POST is still
+        // parked. Waiting for that POST could leave the backend token active
+        // indefinitely even though the UI already reports notifications off.
+        #expect(
+            await PushRegistrationURLProtocol.script.waitForRequestCount(2)
+        )
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
+                == ["POST", "DELETE"]
+        )
+        #expect(await service.snapshot == .disabled)
+
         await blocker.release()
         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
 
