@@ -32,6 +32,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// unrelated invalidation — historically an app deactivate/reactivate
     /// (issue #9690).
     var onDeferredRowClickAwaitingApply: (() -> Void)?
+    var onOptionHoverWorkspace: ((UUID) -> Void)?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
@@ -169,6 +170,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let postUpdateActions = detachLoadedCells()
         workspaceDragSessionDidEnd()
         actions = nil
+        onOptionHoverWorkspace = nil
         unreadObservation?.cancel()
         unreadObservation = nil
         unreadSource = nil
@@ -1261,7 +1263,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         setHoveredRowId(nil)
     }
 
-    func recomputeHoveredRow() {
+    func recomputeHoveredRow(modifiers: NSEvent.ModifierFlags = []) {
         guard contextMenuRowId == nil,
               let table = containerView?.tableView else {
             return
@@ -1272,7 +1274,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             rowAtPoint: { table.row(at: $0) },
             rowCount: rows.count
         )
-        setHoveredRowId(row.map { rows[$0].id })
+        let nextRowId = row.map { rows[$0].id }
+        let previousRowId = hoveredRowId
+        setHoveredRowId(nextRowId)
+        guard let row = SidebarWorkspaceTableHoverResolver().newOptionHoveredRow(
+            row,
+            previousRowId: previousRowId,
+            rows: rows,
+            modifiers: modifiers
+        ) else { return }
+        onOptionHoverWorkspace?(rows[row].workspaceId)
     }
 
     func viewportDidChange() {

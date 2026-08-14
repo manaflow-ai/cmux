@@ -23,6 +23,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     /// Invoked when a completed row click parks awaiting live actions; the
     /// owner must invalidate itself so this view re-applies (issue #9690).
     let onDeferredClickAwaitingApply: () -> Void
+    let onOptionHoverWorkspace: (UUID) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -49,6 +50,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
 #endif
         context.coordinator.setUnreadSource(unreadSource)
         context.coordinator.onDeferredRowClickAwaitingApply = onDeferredClickAwaitingApply
+        context.coordinator.onOptionHoverWorkspace = onOptionHoverWorkspace
         context.coordinator.setPresentationActive(isPresented, workspaceIds: workspaceIds)
         guard isPresented else { return }
         guard case let .apply(rows, actions) = contentUpdate else { return }

@@ -67,15 +67,18 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     }
 
     private func updatePointer(with event: NSEvent) {
-        setPointerWindowLocation(event.locationInWindow)
+        setPointerWindowLocation(event.locationInWindow, modifiers: event.modifierFlags)
     }
 
-    func setPointerWindowLocation(_ point: NSPoint?) {
+    func setPointerWindowLocation(
+        _ point: NSPoint?,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
         lastPointerWindowLocation = point
         if point == nil {
             workspaceController?.pointerDidLeaveTable()
         } else {
-            workspaceController?.recomputeHoveredRow()
+            workspaceController?.recomputeHoveredRow(modifiers: modifiers)
         }
     }
 }

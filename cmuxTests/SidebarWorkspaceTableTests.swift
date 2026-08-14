@@ -505,13 +505,49 @@ struct SidebarWorkspaceTableTests {
         #expect(resolvedId() == "c")
     }
 
+    @Test
+    @MainActor
+    func optionHoverFocusesOnlyWhenThePointerEntersANewTableRow() {
+        let resolver = SidebarWorkspaceTableHoverResolver()
+        let first = makeRowConfiguration()
+        let second = makeRowConfiguration()
+        let groupHeader = makeRowConfiguration(isGroupHeader: true)
+        let rows = [first, second, groupHeader]
+
+        #expect(resolver.newOptionHoveredRow(
+            1,
+            previousRowId: first.id,
+            rows: rows,
+            modifiers: [.option]
+        ) == 1)
+        #expect(resolver.newOptionHoveredRow(
+            1,
+            previousRowId: second.id,
+            rows: rows,
+            modifiers: [.option]
+        ) == nil)
+        #expect(resolver.newOptionHoveredRow(
+            1,
+            previousRowId: first.id,
+            rows: rows,
+            modifiers: []
+        ) == nil)
+        #expect(resolver.newOptionHoveredRow(
+            2,
+            previousRowId: second.id,
+            rows: rows,
+            modifiers: [.option]
+        ) == nil)
+    }
+
     @MainActor
     private func makeRowConfiguration(
         workspaceId: UUID = UUID(),
         contentToken: Int = 0,
         fontMagnificationPercent: Int = 100,
         colorScheme: ColorScheme = .light,
-        fixedHeight: CGFloat? = nil
+        fixedHeight: CGFloat? = nil,
+        isGroupHeader: Bool = false
     ) -> SidebarWorkspaceTableRowConfiguration {
 #if DEBUG
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
@@ -526,10 +562,10 @@ struct SidebarWorkspaceTableTests {
         )
 #endif
         return SidebarWorkspaceTableRowConfiguration(
-            id: .workspace(workspaceId),
+            id: isGroupHeader ? .group(workspaceId) : .workspace(workspaceId),
             workspaceId: workspaceId,
             groupId: nil,
-            isGroupHeader: false,
+            isGroupHeader: isGroupHeader,
             isPinned: false,
             environment: environment,
             equivalenceValue: TestRowContent(token: contentToken, fixedHeight: fixedHeight)
