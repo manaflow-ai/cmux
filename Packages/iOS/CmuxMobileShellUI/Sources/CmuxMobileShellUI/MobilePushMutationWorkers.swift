@@ -4,6 +4,7 @@ import Foundation
 /// so a superseding intent can cancel every worker that belongs to one
 /// mutation.
 struct MobilePushMutationWorkers {
+    let token: UUID
     let operation: Task<Void, Never>
     let timeout: Task<Void, Never>
     let completion: MobilePushMutationCompletion

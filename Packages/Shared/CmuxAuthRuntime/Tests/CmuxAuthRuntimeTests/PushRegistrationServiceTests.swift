@@ -1108,20 +1108,27 @@ actor RetryDelayRecorder {
             await service.applyEnabledIntent(false, generation: 2)
             await disableFinished.markStarted()
         }
-        for _ in 0..<100 where !(await disableFinished.didStart) {
+        for _ in 0..<1_000
+            where defaults.bool(
+                forKey: "cmux.notifications.pushEnabled"
+            ) {
             await Task.yield()
         }
 
-        #expect(await disableFinished.didStart)
         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
-        #expect(
-            await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["DELETE"]
-        )
+        let pendingText = defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        ).flatMap { String(data: $0, encoding: .utf8) }
+        #expect(pendingText?.contains("account-a") == true)
 
         await enableBlocker.release()
         await enable.value
         await disable.value
+        #expect(await disableFinished.didStart)
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["DELETE"]
+        )
         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
     }
 

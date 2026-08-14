@@ -25,10 +25,9 @@ public actor PushRegistrationService: PushRegistering {
     private let retryDelays: [Duration]
     private let retryJitter: @Sendable (ClosedRange<Double>) -> Double
     private let retrySleep: @Sendable (Duration) async throws -> Void
-    /// Settings/sign-out intents are ordered before any network suspension, so
-    /// a later toggle cannot enqueue cleanup behind an earlier enable after a
-    /// delayed auth lookup.
-    private let intentGate = PushRegistrationMutationGate()
+    /// Direct sign-out cleanup overloads share captured credentials and remain
+    /// serialized independently from preference reconciliation.
+    private let unregisterIntentGate = PushRegistrationMutationGate()
     /// The actor itself is re-entrant across URLSession suspension points.
     /// Serialize actual POST/DELETE requests so a late response cannot race a
     /// newer request. Higher-level reconciliation remains concurrent so account
@@ -239,12 +238,10 @@ public actor PushRegistrationService: PushRegistering {
     private func applyPreferenceIntent(
         _ intent: PushRegistrationIntent
     ) async {
-        await intentGate.withLock { [self] in
-            guard await self.isCurrentPreferenceIntent(intent.generation) else {
-                return
-            }
-            await self.applyPreferenceIntentUnlocked(intent)
+        guard isCurrentPreferenceIntent(intent.generation) else {
+            return
         }
+        await applyPreferenceIntentUnlocked(intent)
     }
 
     /// Validates and commits the preference in one service-actor turn. Work
@@ -255,17 +252,26 @@ public actor PushRegistrationService: PushRegistering {
     ) async {
         switch intent.kind {
         case .setEnabled:
-            await setEnabledUnlocked(intent.enabled)
+            await setEnabledUnlocked(
+                intent.enabled,
+                preferenceGeneration: intent.generation
+            )
         case .disableAndUnregister:
-            await disableAndUnregisterUnlocked()
+            await disableAndUnregisterUnlocked(
+                preferenceGeneration: intent.generation
+            )
         }
     }
 
-    private func disableAndUnregisterUnlocked() async {
+    private func disableAndUnregisterUnlocked(
+        preferenceGeneration: UInt64
+    ) async {
         cancelRetry()
         defaults.set(false, forKey: Self.enabledKey)
         publish(.disabled)
-        await unregisterFromServerUnlocked()
+        await unregisterFromServerUnlocked(
+            preferenceGeneration: preferenceGeneration
+        )
         publish(.disabled)
     }
 
@@ -273,7 +279,10 @@ public actor PushRegistrationService: PushRegistering {
         preferenceIntentGeneration == generation
     }
 
-    private func setEnabledUnlocked(_ enabled: Bool) async {
+    private func setEnabledUnlocked(
+        _ enabled: Bool,
+        preferenceGeneration: UInt64
+    ) async {
         let wasEnabled = isEnabled
         cancelRetry()
         defaults.set(enabled, forKey: Self.enabledKey)
@@ -282,9 +291,13 @@ public actor PushRegistrationService: PushRegistering {
         } else {
             publish(.disabled)
             if wasEnabled {
-                await unregisterFromServerUnlocked()
+                await unregisterFromServerUnlocked(
+                    preferenceGeneration: preferenceGeneration
+                )
             } else {
-                await retryPendingUnregisterIfPossible()
+                await retryPendingUnregisterIfPossible(
+                    preferenceGeneration: preferenceGeneration
+                )
             }
         }
     }
@@ -358,12 +371,14 @@ public actor PushRegistrationService: PushRegistering {
     /// Durably schedules and attempts removal of the currently owned token.
     public func unregisterFromServer() async {
         persistCapturedUnregisterObligation(accountID: nil)
-        await intentGate.withLock { [self] in
+        await unregisterIntentGate.withLock { [self] in
             await self.unregisterFromServerUnlocked()
         }
     }
 
-    private func unregisterFromServerUnlocked() async {
+    private func unregisterFromServerUnlocked(
+        preferenceGeneration: UInt64? = nil
+    ) async {
         cancelRetry()
         guard let hex = cachedTokenHex else { return }
         // A live session identifies who is signed in now, not who owns this
@@ -374,14 +389,18 @@ public actor PushRegistrationService: PushRegistering {
             pushLog.info("Skipping push-token unregister: persisted owner unavailable")
             return
         }
-        let session = try? await tokenProvider.authenticatedSessionSnapshot()
         // Persist before requiring live auth. This is the privacy guarantee for
         // an offline or signed-out opt-out.
         persistPendingUnregister(tokenHex: hex, accountID: ownerID)
+        let session = try? await tokenProvider.authenticatedSessionSnapshot()
         // A token acknowledged for account A must never be deleted using
         // account B credentials. Its tombstone waits for A to return.
         guard let session, session.accountID == ownerID else { return }
-        if await sendDelete(tokenHex: hex, sessionSnapshot: session) {
+        if await sendDelete(
+            tokenHex: hex,
+            sessionSnapshot: session,
+            preferenceGeneration: preferenceGeneration
+        ) {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
         }
@@ -396,7 +415,7 @@ public actor PushRegistrationService: PushRegistering {
     ///   - refreshToken: The captured refresh token.
     public func unregisterFromServer(accessToken: String?, refreshToken: String?) async {
         persistCapturedUnregisterObligation(accountID: nil)
-        await intentGate.withLock { [self] in
+        await unregisterIntentGate.withLock { [self] in
             await self.unregisterFromServerUnlocked(
                 accountID: nil,
                 accessToken: accessToken,
@@ -412,7 +431,7 @@ public actor PushRegistrationService: PushRegistering {
         refreshToken: String?
     ) async {
         persistCapturedUnregisterObligation(accountID: capturedAccountID)
-        await intentGate.withLock { [self] in
+        await unregisterIntentGate.withLock { [self] in
             await self.unregisterFromServerUnlocked(
                 accountID: capturedAccountID,
                 accessToken: accessToken,
@@ -726,7 +745,8 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
-        sessionSnapshot: AuthenticatedSessionSnapshot? = nil
+        sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
+        preferenceGeneration: UInt64? = nil
     ) async -> Bool {
         guard case let .success(context) = await makeRequest(
             method: "DELETE",
@@ -736,7 +756,10 @@ public actor PushRegistrationService: PushRegistering {
             capturedRefreshToken: capturedRefreshToken,
             sessionSnapshot: sessionSnapshot
         ) else { return false }
-        guard await performDelete(context.request) else { return false }
+        guard await performDelete(
+            context.request,
+            preferenceGeneration: preferenceGeneration
+        ) else { return false }
         if let session = context.session {
             return await tokenProvider.isAuthenticatedSessionCurrent(session)
         }
@@ -845,10 +868,22 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    private func performDelete(_ request: URLRequest) async -> Bool {
+    private func performDelete(
+        _ request: URLRequest,
+        preferenceGeneration: UInt64? = nil
+    ) async -> Bool {
         await networkMutationGate.withLock { [self] in
-            await self.performDeleteRequest(request)
+            if let preferenceGeneration {
+                guard await self.isCurrentOptOut(preferenceGeneration) else {
+                    return false
+                }
+            }
+            return await self.performDeleteRequest(request)
         } ?? false
+    }
+
+    private func isCurrentOptOut(_ generation: UInt64) -> Bool {
+        preferenceIntentGeneration == generation && !isEnabled
     }
 
     private func performDeleteRequest(_ request: URLRequest) async -> Bool {
@@ -882,7 +917,9 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    private func retryPendingUnregisterIfPossible() async {
+    private func retryPendingUnregisterIfPossible(
+        preferenceGeneration: UInt64? = nil
+    ) async {
         guard let session = try? await tokenProvider
             .authenticatedSessionSnapshot() else { return }
         let currentAccountID = session.accountID
@@ -902,7 +939,8 @@ public actor PushRegistrationService: PushRegistering {
                         pending,
                         await sendDelete(
                             tokenHex: pending.tokenHex,
-                            sessionSnapshot: session
+                            sessionSnapshot: session,
+                            preferenceGeneration: preferenceGeneration
                         )
                     )
                 }
@@ -925,7 +963,9 @@ public actor PushRegistrationService: PushRegistering {
         }
         if matching.count > batch.count,
            results.contains(where: { $0.1 }) {
-            schedulePendingUnregisterContinuation()
+            schedulePendingUnregisterContinuation(
+                preferenceGeneration: preferenceGeneration
+            )
         }
     }
 
@@ -941,18 +981,26 @@ public actor PushRegistrationService: PushRegistering {
         storePendingUnregisters(queue)
     }
 
-    private func schedulePendingUnregisterContinuation() {
+    private func schedulePendingUnregisterContinuation(
+        preferenceGeneration: UInt64? = nil
+    ) {
         guard unregisterDrainTask == nil else { return }
         unregisterDrainTask = Task { [weak self] in
             await Task.yield()
             guard !Task.isCancelled, let self else { return }
-            await self.runPendingUnregisterContinuation()
+            await self.runPendingUnregisterContinuation(
+                preferenceGeneration: preferenceGeneration
+            )
         }
     }
 
-    private func runPendingUnregisterContinuation() async {
+    private func runPendingUnregisterContinuation(
+        preferenceGeneration: UInt64?
+    ) async {
         unregisterDrainTask = nil
-        await retryPendingUnregisterIfPossible()
+        await retryPendingUnregisterIfPossible(
+            preferenceGeneration: preferenceGeneration
+        )
     }
 
     private func clearPendingUnregister(

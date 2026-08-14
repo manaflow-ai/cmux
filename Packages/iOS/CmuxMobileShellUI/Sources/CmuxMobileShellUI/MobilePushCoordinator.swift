@@ -120,13 +120,11 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var registrationRecoveryTask:
         Task<PushRegistrationSnapshot, Never>?
     @ObservationIgnored private var registrationRecoveryToken: UUID?
-    /// Settings owns the user intent, while the registration service owns the
-    /// network side effect. This task is app-lifetime state, not view-lifetime
-    /// state, and a newer intent cancels the coordinator work without waiting
-    /// for the old task to unwind.
-    @ObservationIgnored private var settingsMutationTask: Task<Bool, Never>?
+    /// Authentication and settings reads may ignore cancellation. Keep one
+    /// owned worker per direction until it actually exits, so an opt-out can
+    /// advance independently without repeated retries accumulating tasks.
     @ObservationIgnored private var settingsMutationWorkers:
-        MobilePushMutationWorkers?
+        [Bool: MobilePushMutationWorkers] = [:]
     @ObservationIgnored private var settingsMutationToken = UUID()
     @ObservationIgnored private var settingsMutationNeedsRetry = false
     @ObservationIgnored private var registrationIntentGeneration: UInt64 = 0
@@ -225,7 +223,10 @@ public final class MobilePushCoordinator {
             return
         }
         let intent = beginSettingsIntent(enabled)
-        _ = startSettingsMutation(token: intent.token) { [weak self] in
+        _ = startSettingsMutation(
+            enabled: enabled,
+            token: intent.token
+        ) { [weak self] in
             guard let self else { return false }
             if enabled {
                 return await self.enable(
@@ -242,75 +243,64 @@ public final class MobilePushCoordinator {
         }
     }
 
-    /// Starts the one app-lifetime worker used by every settings/reconciliation
-    /// entry point. The returned task is independent from the caller's waiter;
-    /// a newer intent cancels it through `settingsMutationTask`.
+    /// Starts or reuses the one owned worker for this preference direction.
+    /// Opposite directions have separate lanes so a non-cooperative enable
+    /// cannot prevent an opt-out from reaching the registration service.
     @discardableResult
     private func startSettingsMutation(
+        enabled: Bool,
         token: UUID,
         operation: @escaping @MainActor () async -> Bool
-    ) -> Task<Bool, Never> {
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return false }
-            let result = await self.runSettingsMutation(
-                token: token,
-                operation: operation
-            )
-            self.finishSettingsMutation(token)
-            return result
+    ) -> MobilePushMutationWorkers {
+        if let running = settingsMutationWorkers[enabled] {
+            if running.token != token {
+                settingsMutationNeedsRetry = true
+            }
+            return running
         }
-        settingsMutationTask = task
-        return task
-    }
-
-    /// Runs a settings mutation with an independent deadline. The operation
-    /// remains app-lifetime work until the deadline, while a timed-out waiter
-    /// is cancelled and the coordinator immediately exposes a retryable state.
-    private func runSettingsMutation(
-        token: UUID,
-        operation: @escaping @MainActor () async -> Bool
-    ) async -> Bool {
         let completion = MobilePushMutationCompletion()
-        let operationTask = Task { @MainActor in
+        let operationTask = Task { @MainActor [weak self] in
+            guard let self else {
+                await completion.resolve(.cancelled)
+                return
+            }
             let succeeded = await operation()
             await completion.resolve(.completed, succeeded: succeeded)
+            self.finishSettingsMutation(
+                enabled: enabled,
+                token: token,
+                completion: completion,
+                succeeded: succeeded
+            )
         }
-        let timeoutTask = Task { [settingsMutationSleep] in
+        let timeoutTask = Task { @MainActor [weak self, settingsMutationSleep] in
             do {
                 try await settingsMutationSleep(Self.settingsMutationTimeout)
                 await completion.resolve(.timedOut)
+                self?.handleSettingsMutationTimeout(token)
             } catch {
                 // The mutation completed first and cancelled this sleeper.
             }
         }
-        settingsMutationWorkers = MobilePushMutationWorkers(
+        let workers = MobilePushMutationWorkers(
+            token: token,
             operation: operationTask,
             timeout: timeoutTask,
             completion: completion
         )
-        let result = await withTaskCancellationHandler {
-            await completion.wait()
-        } onCancel: {
-            operationTask.cancel()
-            timeoutTask.cancel()
-            Task { await completion.resolve(.cancelled) }
-        }
-        if settingsMutationWorkers?.completion === completion {
-            settingsMutationWorkers = nil
-        }
-        timeoutTask.cancel()
-        guard result.outcome == .timedOut else {
-            return result.outcome == .completed && result.succeeded
-        }
-        operationTask.cancel()
-        handleSettingsMutationTimeout(token)
-        return false
+        settingsMutationWorkers[enabled] = workers
+        return workers
+    }
+
+    private func waitForSettingsMutation(
+        _ workers: MobilePushMutationWorkers
+    ) async -> Bool {
+        let result = await workers.completion.wait()
+        return result.outcome == .completed && result.succeeded
     }
 
     private func handleSettingsMutationTimeout(_ token: UUID) {
         guard isCurrentSettingsMutation(token) else { return }
-        settingsMutationTask = nil
-        settingsMutationToken = UUID()
         settingsMutationNeedsRetry = true
         if enabledMirror {
             registrationSnapshot = PushRegistrationSnapshot(
@@ -415,7 +405,10 @@ public final class MobilePushCoordinator {
     @discardableResult
     public func enable() async -> Bool {
         let intent = beginSettingsIntent(true)
-        let operation = startSettingsMutation(token: intent.token) { [weak self] in
+        let workers = startSettingsMutation(
+            enabled: true,
+            token: intent.token
+        ) { [weak self] in
             guard let self else { return false }
             return await self.enable(
                 trigger: "settings_toggle",
@@ -423,7 +416,7 @@ public final class MobilePushCoordinator {
                 registrationGeneration: intent.registrationGeneration
             )
         }
-        return await operation.value
+        return await waitForSettingsMutation(workers)
     }
 
     /// Requests or recovers push only after the authenticated workspace shell
@@ -432,20 +425,23 @@ public final class MobilePushCoordinator {
         // A Settings intent is the freshest user decision. Do not let the
         // workspace lifecycle reconcile an older persisted value while its
         // backend mutation is still draining.
-        guard settingsMutationTask == nil else { return }
+        guard settingsMutationWorkers[true] == nil else { return }
         if defaults.object(forKey: Self.enabledKey) as? Bool == false {
             return
         }
         let intentToken = settingsMutationToken
         let intentGeneration = registrationIntentGeneration
-        let operation = startSettingsMutation(token: intentToken) { [weak self] in
+        let workers = startSettingsMutation(
+            enabled: true,
+            token: intentToken
+        ) { [weak self] in
             guard let self else { return false }
             return await self.reconcileWorkspaceListDidBecomeVisible(
                 settingsMutationToken: intentToken,
                 registrationGeneration: intentGeneration
             )
         }
-        _ = await operation.value
+        _ = await waitForSettingsMutation(workers)
     }
 
     private func reconcileWorkspaceListDidBecomeVisible(
@@ -588,7 +584,10 @@ public final class MobilePushCoordinator {
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
         let intent = beginSettingsIntent(false)
-        let operation = startSettingsMutation(token: intent.token) { [weak self] in
+        let workers = startSettingsMutation(
+            enabled: false,
+            token: intent.token
+        ) { [weak self] in
             guard let self else { return false }
             await self.finishDisable(
                 settingsMutationToken: intent.token,
@@ -596,24 +595,34 @@ public final class MobilePushCoordinator {
             )
             return self.isCurrentSettingsMutation(intent.token)
         }
-        _ = await operation.value
+        _ = await waitForSettingsMutation(workers)
     }
 
     private func cancelSettingsMutation() {
-        settingsMutationTask?.cancel()
-        settingsMutationTask = nil
-        settingsMutationWorkers?.operation.cancel()
-        settingsMutationWorkers?.timeout.cancel()
-        if let completion = settingsMutationWorkers?.completion {
-            Task { await completion.resolve(.cancelled) }
+        for workers in settingsMutationWorkers.values {
+            workers.operation.cancel()
         }
-        settingsMutationWorkers = nil
         settingsMutationToken = UUID()
     }
 
-    private func finishSettingsMutation(_ token: UUID) {
-        guard settingsMutationToken == token else { return }
-        settingsMutationTask = nil
+    private func finishSettingsMutation(
+        enabled: Bool,
+        token: UUID,
+        completion: MobilePushMutationCompletion,
+        succeeded: Bool
+    ) {
+        guard settingsMutationWorkers[enabled]?.completion === completion else {
+            return
+        }
+        let workers = settingsMutationWorkers.removeValue(forKey: enabled)
+        workers?.timeout.cancel()
+        guard enabledMirror == enabled else { return }
+        if succeeded, settingsMutationToken == token {
+            settingsMutationNeedsRetry = false
+            return
+        }
+        guard settingsMutationNeedsRetry else { return }
+        setEnabledIntent(enabled)
     }
 
     private func prepareDisable() {
@@ -986,7 +995,10 @@ public final class MobilePushCoordinator {
     }
 
     deinit {
-        settingsMutationTask?.cancel()
+        for workers in settingsMutationWorkers.values {
+            workers.operation.cancel()
+            workers.timeout.cancel()
+        }
         registrationSnapshotTask?.cancel()
         registrationRecoveryTask?.cancel()
     }

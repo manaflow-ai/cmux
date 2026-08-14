@@ -1,18 +1,31 @@
 import Foundation
 
-/// Runs one preference mutation at a time while replacing stale pending work.
+/// Runs at most one enable and one disable preparation concurrently.
 ///
-/// A committed network request cannot be canceled safely, but a preference
-/// intent that has not started has no value after a newer toggle arrives. The
-/// queue therefore keeps one in-flight operation, one latest pending intent,
-/// and only the waiters for those live generations.
+/// Authentication and other pre-request work is not guaranteed to cooperate
+/// with task cancellation. A stalled enable must therefore remain owned while
+/// a newer opt-out advances on the independent disable lane. Repeated intents
+/// on either lane replace one pending value instead of accumulating tasks.
 actor PushRegistrationIntentQueue {
+    private enum Lane: Hashable {
+        case enable
+        case disable
+
+        init(_ intent: PushRegistrationIntent) {
+            self = intent.enabled ? .enable : .disable
+        }
+    }
+
+    private struct RunningIntent {
+        let generation: UInt64
+        let task: Task<Void, Never>
+    }
+
     private let operation: @Sendable (PushRegistrationIntent) async -> Void
     private var latestGeneration: UInt64 = 0
-    private var pendingIntent: PushRegistrationIntent?
-    private var runningGeneration: UInt64?
+    private var pendingIntents: [Lane: PushRegistrationIntent] = [:]
+    private var runningIntents: [Lane: RunningIntent] = [:]
     private var completedIntent: PushRegistrationIntent?
-    private var workerTask: Task<Void, Never>?
     private var waiters: [UInt64: [UUID: CheckedContinuation<Void, Never>]] = [:]
 
     /// Creates a queue that delegates each live intent to the registration service.
@@ -23,26 +36,28 @@ actor PushRegistrationIntentQueue {
     /// Replaces stale pending work and waits for this intent to be handled.
     func submit(_ intent: PushRegistrationIntent) async {
         guard intent.generation >= latestGeneration else { return }
+        let lane = Lane(intent)
         if intent == completedIntent,
-           pendingIntent == nil,
-           runningGeneration == nil {
+           pendingIntents[lane] == nil,
+           runningIntents[lane] == nil {
             return
         }
+
         if intent.generation > latestGeneration {
             latestGeneration = intent.generation
-            pendingIntent = intent
+            pendingIntents.removeAll()
+            pendingIntents[lane] = intent
             resumeWaiters(before: intent.generation)
-        } else if runningGeneration != intent.generation {
-            pendingIntent = intent
+            for running in runningIntents.values
+                where running.generation < intent.generation {
+                running.task.cancel()
+            }
+        } else if runningIntents[lane]?.generation != intent.generation {
+            pendingIntents[lane] = intent
         }
 
         let waiterID = UUID()
-        if workerTask == nil {
-            let operation = self.operation
-            workerTask = Task { [weak self] in
-                await self?.drain(operation: operation)
-            }
-        }
+        startPendingIntentIfNeeded(on: lane)
         await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
                 if Task.isCancelled {
@@ -59,18 +74,38 @@ actor PushRegistrationIntentQueue {
         })
     }
 
-    private func drain(
-        operation: @escaping @Sendable (PushRegistrationIntent) async -> Void
-    ) async {
-        while let intent = pendingIntent {
-            pendingIntent = nil
-            runningGeneration = intent.generation
+    private func startPendingIntentIfNeeded(on lane: Lane) {
+        guard runningIntents[lane] == nil,
+              let intent = pendingIntents.removeValue(forKey: lane)
+        else { return }
+        let operation = self.operation
+        let task = Task { [weak self] in
             await operation(intent)
-            runningGeneration = nil
-            completedIntent = intent
-            resumeWaiters(for: intent.generation)
+            await self?.intentCompleted(intent, on: lane)
         }
-        workerTask = nil
+        runningIntents[lane] = RunningIntent(
+            generation: intent.generation,
+            task: task
+        )
+    }
+
+    private func intentCompleted(
+        _ intent: PushRegistrationIntent,
+        on lane: Lane
+    ) {
+        guard runningIntents[lane]?.generation == intent.generation else {
+            return
+        }
+        runningIntents.removeValue(forKey: lane)
+        if let completedIntent {
+            if intent.generation >= completedIntent.generation {
+                self.completedIntent = intent
+            }
+        } else {
+            completedIntent = intent
+        }
+        resumeWaiters(for: intent.generation)
+        startPendingIntentIfNeeded(on: lane)
     }
 
     private func resumeWaiters(before generation: UInt64) {

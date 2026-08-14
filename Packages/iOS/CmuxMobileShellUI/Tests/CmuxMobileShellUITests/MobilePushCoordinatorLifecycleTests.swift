@@ -1017,7 +1017,6 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         }
 
         #expect(await cancellationRecorder.didCancelAuthorization)
-        #expect(await timeoutSleeper.didCancelFirstSleep)
         #expect(!coordinator.isEnabled)
         #expect(await registration.snapshot == .disabled)
     }
