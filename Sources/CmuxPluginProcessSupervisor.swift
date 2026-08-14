@@ -3,6 +3,11 @@ import CmuxSettings
 import Foundation
 import OSLog
 
+nonisolated private let pluginProcessLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "Plugins"
+)
+
 /// Owns the child processes for enabled, manifest-declared plugins.
 ///
 /// Plugins communicate through the existing control socket rather than a
@@ -12,8 +17,6 @@ import OSLog
 /// a single, testable composition-root concern.
 @MainActor
 final class CmuxPluginProcessSupervisor {
-    static let shared = CmuxPluginProcessSupervisor()
-
     private struct RunningProcess {
         let process: Process
         let fingerprint: String
@@ -22,10 +25,9 @@ final class CmuxPluginProcessSupervisor {
         let processID: pid_t
     }
 
-    private let logger = Logger(subsystem: "com.cmuxterm.app", category: "plugins")
     private var processes: [String: RunningProcess] = [:]
 
-    private init() {}
+    init() {}
 
     /// Reconciles child processes with the registry's authoritative snapshot.
     ///
@@ -37,11 +39,12 @@ final class CmuxPluginProcessSupervisor {
         sessionTokens: [String: String],
         socketPath: String,
         allowLaunch: Bool = true,
+        runtime: CmuxPluginRuntime,
         reportError: @escaping @Sendable (String, String?) -> Void
     ) {
-        let desired = Dictionary(uniqueKeysWithValues: snapshot.plugins.map {
+        let desired = Dictionary(snapshot.plugins.map {
             ($0.plugin.manifest.id, $0)
-        })
+        }, uniquingKeysWith: { _, replacement in replacement })
 
         // Collect first: mutating a dictionary while iterating its storage is
         // undefined and can leave a stale child running after a revoke.
@@ -57,7 +60,7 @@ final class CmuxPluginProcessSupervisor {
         }
         for pluginID in staleIDs {
             guard let running = processes.removeValue(forKey: pluginID) else { continue }
-            stop(pluginID: pluginID, running: running)
+            stop(pluginID: pluginID, running: running, runtime: runtime)
         }
 
         guard allowLaunch else { return }
@@ -80,7 +83,7 @@ final class CmuxPluginProcessSupervisor {
                     pluginID,
                     String(
                         localized: "settings.plugins.error.missingEntrypoint",
-                        defaultValue: "The plugin manifest does not provide an executable entrypoint."
+                        defaultValue: "The plugin does not provide a usable executable."
                     )
                 )
                 continue
@@ -90,15 +93,16 @@ final class CmuxPluginProcessSupervisor {
                 entrypointURL: entrypointURL,
                 sessionToken: sessionToken,
                 socketPath: socketPath,
+                runtime: runtime,
                 reportError: reportError
             )
         }
     }
 
     /// Terminates all managed plugin children during app shutdown.
-    func stopAll() {
+    func stopAll(runtime: CmuxPluginRuntime) {
         for (pluginID, running) in processes {
-            stop(pluginID: pluginID, running: running)
+            stop(pluginID: pluginID, running: running, runtime: runtime)
         }
         processes.removeAll()
     }
@@ -108,6 +112,7 @@ final class CmuxPluginProcessSupervisor {
         entrypointURL: URL,
         sessionToken: String,
         socketPath: String,
+        runtime: CmuxPluginRuntime,
         reportError: @escaping @Sendable (String, String?) -> Void
     ) {
         let pluginID = descriptor.plugin.manifest.id
@@ -142,20 +147,21 @@ final class CmuxPluginProcessSupervisor {
         environment[CmuxPluginEnvironment.socketPathKey] = socketPath
         process.environment = environment
         process.standardInput = launchGate
-        process.standardOutput = FileHandle.standardOutput
-        process.standardError = FileHandle.standardError
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
 
         // Install the callback before `run()`: a short-lived plugin can exit
         // between process creation and the first supervisor bookkeeping step.
-        process.terminationHandler = { [weak self] terminatedProcess in
+        process.terminationHandler = { [weak self, weak runtime] terminatedProcess in
             let terminatedID = terminatedProcess.processIdentifier
             let status = terminatedProcess.terminationStatus
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+            Task { @MainActor [weak self, weak runtime] in
+                guard let self, let runtime else { return }
                 self.processDidTerminate(
                     pluginID: pluginID,
                     processID: terminatedID,
                     status: status,
+                    runtime: runtime,
                     reportError: reportError
                 )
             }
@@ -166,11 +172,16 @@ final class CmuxPluginProcessSupervisor {
         } catch {
             try? launchGate.fileHandleForReading.close()
             try? launchGate.fileHandleForWriting.close()
-            let format = String(
-                localized: "settings.plugins.error.launch",
-                defaultValue: "The plugin could not be launched: %@"
+            pluginProcessLogger.error(
+                "Plugin \(pluginID, privacy: .public) launch failed: \(String(describing: error), privacy: .private)"
             )
-            reportError(pluginID, String(format: format, error.localizedDescription))
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
             return
         }
 
@@ -182,7 +193,7 @@ final class CmuxPluginProcessSupervisor {
             socketPath: socketPath,
             processID: processID
         )
-        CmuxPluginRuntime.shared.registerProcess(processID, for: pluginID)
+        runtime.registerProcess(processID, for: pluginID)
         try? launchGate.fileHandleForReading.close()
         do {
             try launchGate.fileHandleForWriting.write(contentsOf: Data([0x0A]))
@@ -190,15 +201,20 @@ final class CmuxPluginProcessSupervisor {
         } catch {
             try? launchGate.fileHandleForWriting.close()
             processes.removeValue(forKey: pluginID)
-            CmuxPluginRuntime.shared.revokeProcess(processID)
+            runtime.revokeProcess(processID)
             if process.isRunning {
                 process.terminate()
             }
-            let format = String(
-                localized: "settings.plugins.error.launch",
-                defaultValue: "The plugin could not be launched: %@"
+            pluginProcessLogger.error(
+                "Plugin \(pluginID, privacy: .public) launch gate failed: \(String(describing: error), privacy: .private)"
             )
-            reportError(pluginID, String(format: format, error.localizedDescription))
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
             return
         }
         reportError(pluginID, nil)
@@ -210,25 +226,29 @@ final class CmuxPluginProcessSupervisor {
                 pluginID: pluginID,
                 processID: processID,
                 status: process.terminationStatus,
+                runtime: runtime,
                 reportError: reportError
             )
             return
         }
-        logger.debug("Started plugin \(pluginID, privacy: .public) with pid \(processID)")
+        pluginProcessLogger.debug(
+            "Started plugin \(pluginID, privacy: .public) with pid \(processID)"
+        )
     }
 
     private func processDidTerminate(
         pluginID: String,
         processID: pid_t,
         status: Int32,
+        runtime: CmuxPluginRuntime,
         reportError: @escaping @Sendable (String, String?) -> Void
     ) {
         guard let running = processes[pluginID], running.processID == processID else {
-            CmuxPluginRuntime.shared.processDidExit(processID)
+            runtime.processDidExit(processID)
             return
         }
         processes.removeValue(forKey: pluginID)
-        CmuxPluginRuntime.shared.processDidExit(processID)
+        runtime.processDidExit(processID)
         if status == 0 {
             reportError(
                 pluginID,
@@ -237,26 +257,32 @@ final class CmuxPluginProcessSupervisor {
                     defaultValue: "The plugin exited unexpectedly."
                 )
             )
-            logger.error("Plugin \(pluginID, privacy: .public) exited unexpectedly")
+            pluginProcessLogger.error("Plugin \(pluginID, privacy: .public) exited unexpectedly")
         } else {
             let format = String(
                 localized: "settings.plugins.error.exit",
                 defaultValue: "The plugin exited with status %d."
             )
-            reportError(pluginID, String(format: format, status))
-            logger.error("Plugin \(pluginID, privacy: .public) exited with status \(status)")
+            reportError(pluginID, String.localizedStringWithFormat(format, status))
+            pluginProcessLogger.error(
+                "Plugin \(pluginID, privacy: .public) exited with status \(status)"
+            )
         }
     }
 
-    private func stop(pluginID: String, running: RunningProcess) {
+    private func stop(
+        pluginID: String,
+        running: RunningProcess,
+        runtime: CmuxPluginRuntime
+    ) {
         // Revoke the old generation before a replacement can subscribe. Its
         // delayed termination callback must never tear down the replacement's
         // streams merely because both generations share a plugin id.
-        CmuxPluginRuntime.shared.revokeProcess(running.processID)
+        runtime.revokeProcess(running.processID)
         if running.process.isRunning {
             running.process.terminate()
         }
-        logger.debug("Stopped plugin \(pluginID, privacy: .public)")
+        pluginProcessLogger.debug("Stopped plugin \(pluginID, privacy: .public)")
     }
 
     private static func inheritedPluginEnvironment(

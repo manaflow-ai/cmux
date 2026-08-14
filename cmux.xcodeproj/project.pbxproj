@@ -889,7 +889,9 @@
 		E7E100000000000000000007 /* CmuxPluginRuntime+ProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E100000000000000000008 /* CmuxPluginRuntime+ProcessIdentity.swift */; };
 		E7E10000000000000000000F /* CmuxPluginRuntime+Registry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E100000000000000000010 /* CmuxPluginRuntime+Registry.swift */; };
 		E7E100000000000000000009 /* CmuxPluginRuntime+Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E10000000000000000000A /* CmuxPluginRuntime+Shortcuts.swift */; };
+		E7E100000000000000000019 /* CmuxPluginRuntime+SocketAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E10000000000000000001A /* CmuxPluginRuntime+SocketAuthorization.swift */; };
 		E7E100000000000000000003 /* CmuxPluginRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E100000000000000000004 /* CmuxPluginRuntime.swift */; };
+		E7E10000000000000000001B /* CmuxPluginRuntimeEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E10000000000000000001C /* CmuxPluginRuntimeEnvironment.swift */; };
 		E7E10000000000000000000B /* CmuxPluginShortcutBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E10000000000000000000C /* CmuxPluginShortcutBinding.swift */; };
 		E7E100000000000000000005 /* CmuxPluginShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E100000000000000000006 /* CmuxPluginShortcutSettings.swift */; };
 		A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */ = {isa = PBXBuildFile; productRef = A5C0DE0000000000000000A2 /* CMUXProjectModel */; };
@@ -3999,7 +4001,9 @@
 		E7E100000000000000000008 /* CmuxPluginRuntime+ProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxPluginRuntime+ProcessIdentity.swift"; sourceTree = "<group>"; };
 		E7E100000000000000000010 /* CmuxPluginRuntime+Registry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxPluginRuntime+Registry.swift"; sourceTree = "<group>"; };
 		E7E10000000000000000000A /* CmuxPluginRuntime+Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxPluginRuntime+Shortcuts.swift"; sourceTree = "<group>"; };
+		E7E10000000000000000001A /* CmuxPluginRuntime+SocketAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxPluginRuntime+SocketAuthorization.swift"; sourceTree = "<group>"; };
 		E7E100000000000000000004 /* CmuxPluginRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxPluginRuntime.swift; sourceTree = "<group>"; };
+		E7E10000000000000000001C /* CmuxPluginRuntimeEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxPluginRuntimeEnvironment.swift; sourceTree = "<group>"; };
 		E7E10000000000000000000C /* CmuxPluginShortcutBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxPluginShortcutBinding.swift; sourceTree = "<group>"; };
 		E7E100000000000000000006 /* CmuxPluginShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxPluginShortcutSettings.swift; sourceTree = "<group>"; };
 		A9F100000000000000000005 /* CmuxRuntimeDebugCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCapture.swift; sourceTree = "<group>"; };
@@ -7437,6 +7441,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E7E100000000000000000008 /* CmuxPluginRuntime+ProcessIdentity.swift */,
 				E7E100000000000000000010 /* CmuxPluginRuntime+Registry.swift */,
 				E7E10000000000000000000A /* CmuxPluginRuntime+Shortcuts.swift */,
+				E7E10000000000000000001A /* CmuxPluginRuntime+SocketAuthorization.swift */,
+				E7E10000000000000000001C /* CmuxPluginRuntimeEnvironment.swift */,
 				E7E100000000000000000002 /* CmuxPluginProcessSupervisor.swift */,
 				E7E10000000000000000000C /* CmuxPluginShortcutBinding.swift */,
 				E7E100000000000000000006 /* CmuxPluginShortcutSettings.swift */,
@@ -10344,7 +10350,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E7E100000000000000000007 /* CmuxPluginRuntime+ProcessIdentity.swift in Sources */,
 				E7E10000000000000000000F /* CmuxPluginRuntime+Registry.swift in Sources */,
 				E7E100000000000000000009 /* CmuxPluginRuntime+Shortcuts.swift in Sources */,
+				E7E100000000000000000019 /* CmuxPluginRuntime+SocketAuthorization.swift in Sources */,
 				E7E100000000000000000003 /* CmuxPluginRuntime.swift in Sources */,
+				E7E10000000000000000001B /* CmuxPluginRuntimeEnvironment.swift in Sources */,
 				E7E10000000000000000000B /* CmuxPluginShortcutBinding.swift in Sources */,
 				E7E100000000000000000005 /* CmuxPluginShortcutSettings.swift in Sources */,
 				A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */,

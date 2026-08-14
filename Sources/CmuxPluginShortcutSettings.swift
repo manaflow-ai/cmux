@@ -1,43 +1,12 @@
 import CmuxSettings
 import CmuxSettingsUI
 import Foundation
+import OSLog
 
-/// Accesses runtime plugin bindings through the shared cmux JSON settings path.
-///
-/// Built-in ``KeyboardShortcutSettings.Action`` values remain a closed enum, so
-/// plugin action ids are kept in the namespaced `shortcuts.pluginBindings` map
-/// in `~/.config/cmux/cmux.json`. The runtime owns the small synchronous cache
-/// used by AppKit's key-event path; writes still go through ``JSONConfigStore``
-/// so they are serialized with every other settings mutation.
-enum CmuxPluginShortcutSettings {
-    /// Returns a stored plugin binding, or the manifest default when no user
-    /// override exists. Invalid/bare defaults fail closed and are not routed.
-    static func shortcut(for actionID: String, defaultValue: String?) -> StoredShortcut? {
-        if let stored = CmuxPluginRuntime.shared.pluginShortcut(for: actionID) {
-            return stored
-        }
-        guard let parsed = CmuxPluginRuntime.parsePluginShortcut(defaultValue),
-              !parsed.isUnbound else {
-            return nil
-        }
-        return parsed
-    }
-
-    /// Returns all persisted plugin bindings for conflict validation.
-    static func storedShortcuts() -> [String: StoredShortcut] {
-        CmuxPluginRuntime.shared.pluginShortcuts()
-    }
-
-    /// Persists a binding through the runtime's shared JSON-backed repository.
-    static func set(_ shortcut: StoredShortcut, for actionID: String) {
-        CmuxPluginRuntime.shared.setPluginShortcut(shortcut, actionID: actionID)
-    }
-
-    /// Removes a user override, allowing the manifest default to become active.
-    static func clear(for actionID: String) {
-        CmuxPluginRuntime.shared.clearPluginShortcut(actionID: actionID)
-    }
-}
+nonisolated private let pluginShortcutStoreLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "PluginShortcutStore"
+)
 
 /// Actor-backed persistence plus a lock-protected projection for shortcut
 /// matching, which must remain synchronous on AppKit's key-event path.
@@ -48,6 +17,7 @@ final class CmuxPluginShortcutStore: @unchecked Sendable {
     )
 
     private let jsonStore: JSONConfigStore
+    private let onChange: @MainActor @Sendable () -> Void
     private let lock = NSLock()
     private var rawBindings: [String: CmuxPluginShortcutBinding]
     private var observationTask: Task<Void, Never>?
@@ -56,8 +26,12 @@ final class CmuxPluginShortcutStore: @unchecked Sendable {
     /// The lock is a narrow synchronous projection carve-out: AppKit's key
     /// monitor cannot suspend, while the actor remains authoritative for disk
     /// reads/writes. No caller uses this lock for a long-lived domain state.
-    init(jsonStore: JSONConfigStore) {
+    init(
+        jsonStore: JSONConfigStore,
+        onChange: @escaping @MainActor @Sendable () -> Void
+    ) {
         self.jsonStore = jsonStore
+        self.onChange = onChange
         self.rawBindings = jsonStore.snapshotValue(for: Self.key)
         observationTask = nil
         mutationTail = nil
@@ -106,10 +80,14 @@ final class CmuxPluginShortcutStore: @unchecked Sendable {
                     values[actionID] = binding
                 }
                 self?.replace(values)
-                await Self.postChange()
+                await self?.postChange()
             } catch {
+                pluginShortcutStoreLogger.warning(
+                    "Plugin shortcut write failed; reverting projection: \(String(describing: error), privacy: .private)"
+                )
                 let values = await jsonStore.value(for: Self.key)
                 self?.replace(values)
+                await self?.postChange()
             }
         }
     }
@@ -123,10 +101,14 @@ final class CmuxPluginShortcutStore: @unchecked Sendable {
                     values.removeValue(forKey: actionID)
                 }
                 self?.replace(values)
-                await Self.postChange()
+                await self?.postChange()
             } catch {
+                pluginShortcutStoreLogger.warning(
+                    "Plugin shortcut clear failed; reverting projection: \(String(describing: error), privacy: .private)"
+                )
                 let values = await jsonStore.value(for: Self.key)
                 self?.replace(values)
+                await self?.postChange()
             }
         }
     }
@@ -152,11 +134,7 @@ final class CmuxPluginShortcutStore: @unchecked Sendable {
     }
 
     @MainActor
-    private static func postChange() {
-        CmuxPluginRuntime.shared.refreshRoutablePluginShortcuts()
-        NotificationCenter.default.post(
-            name: PluginShortcutSettings.didChangeNotification,
-            object: nil
-        )
+    private func postChange() {
+        onChange()
     }
 }

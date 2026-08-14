@@ -2039,7 +2039,7 @@
       "settingsFileDesc": "cmux.json には cmux 管理のアプリ設定、ショートカット、アクション、コマンド、ワークスペースレイアウトを保存します。",
       "settingsFilePrecedence": "cmux.json で定義したショートカットはアプリ内設定より優先されます。管理対象のショートカットは設定画面に表示されたままですが、そこでの編集は無効になります。",
       "settingsFileChords": "単発ショートカットは文字列、コードは2要素の配列で指定します。例: [\"ctrl+b\", \"c\"] は Ctrl+B の後に C を押します。",
-      "pluginBindingsTitle": "shortcuts.pluginBindings",
+      "pluginBindingsTitle": "プラグインコマンドのバインディング",
       "pluginBindingsIntro": "プラグインコマンドのショートカットは shortcuts.pluginBindings に保存し、完全な plugin.<plugin-id>.<action-id> 形式のコマンド ID をキーにします。組み込みバインディングと同じく、文字列、2要素のコード、または null を使えます。",
       "pluginBindingsNote": "保存済みのプラグインバインディングは、プラグインが無効、未承認、見つからない、またはそのアクションを宣言しなくなった場合は無視されます。",
       "exampleConfig": "設定例",

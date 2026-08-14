@@ -877,6 +877,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
+    @Environment(\.cmuxPluginRuntime) var pluginRuntime
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -2876,6 +2877,17 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: CmuxPluginRuntime.snapshotDidChangeNotification)) { _ in
             pluginSnapshotRevision &+= 1
             commandPaletteResultsRevision &+= 1
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: PluginShortcutSettings.didChangeNotification
+        )) { _ in
+            commandPaletteResultsRevision &+= 1
+            scheduleCommandPaletteResultsRefresh(
+                query: commandPaletteQuery,
+                forceSearchCorpusRefresh: true,
+                preservePendingActivation: true
+            )
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in

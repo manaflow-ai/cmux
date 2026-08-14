@@ -35,17 +35,16 @@ enum CmuxPluginSocketPeerPolicy: Sendable, Equatable {
 /// to those fields is lock-protected, and process, disk, socket, notification,
 /// and subscription-close work runs only after releasing the lock.
 final class CmuxPluginRuntime: @unchecked Sendable {
-    static let shared = CmuxPluginRuntime()
-
     static let snapshotDidChangeNotification = PluginManagementSettings.didChangeNotification
 
     let registry: CmuxPluginRegistry
+    private let processSupervisor: CmuxPluginProcessSupervisor
     // Internal so feature-specific extensions can share the synchronous
     // projection boundary. Package actors remain authoritative for manifests,
     // grants, tokens, and persistence.
     let lock = NSLock()
-    private var snapshot = CmuxPluginRegistrySnapshot(plugins: [], failures: [])
-    private var sessionTokens: [String: String] = [:]
+    var snapshot = CmuxPluginRegistrySnapshot(plugins: [], failures: [])
+    var sessionTokens: [String: String] = [:]
     var processAuthorizations: [pid_t: CmuxPluginProcessAuthorization] = [:]
     var subscriptionsByPluginID: [String: [UUID: CmuxEventSubscription]] = [:]
     var actionSubscriptionIDsByPluginID: [String: Set<UUID>] = [:]
@@ -57,13 +56,20 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     private var socketListenerObserver: NSObjectProtocol?
     private var shortcutSettingsObserver: NSObjectProtocol?
     var registryUpdateTail: Task<Void, Never>?
+    private var processReconciliationTask: Task<Void, Never>?
     var isStopping = false
 
-    private init() {
-        registry = CmuxPluginRegistry()
+    @MainActor
+    init(
+        registry: CmuxPluginRegistry = CmuxPluginRegistry(),
+        processSupervisor: CmuxPluginProcessSupervisor = CmuxPluginProcessSupervisor()
+    ) {
+        self.registry = registry
+        self.processSupervisor = processSupervisor
         socketListenerObserver = nil
         shortcutSettingsObserver = nil
         registryUpdateTail = nil
+        processReconciliationTask = nil
         socketListenerObserver = NotificationCenter.default.addObserver(
             forName: .socketListenerDidStart,
             object: nil,
@@ -110,10 +116,21 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     /// Installs the app's shared JSON settings repository before plugin UI or
     /// key-event routing starts. The composition root owns the concrete store;
     /// the runtime only keeps its injected repository and projection.
+    @MainActor
     func configure(jsonStore: JSONConfigStore) {
         lock.lock()
         if pluginShortcutStore == nil {
-            pluginShortcutStore = CmuxPluginShortcutStore(jsonStore: jsonStore)
+            pluginShortcutStore = CmuxPluginShortcutStore(
+                jsonStore: jsonStore,
+                onChange: { [weak self] in
+                    guard let self else { return }
+                    self.refreshRoutablePluginShortcuts()
+                    NotificationCenter.default.post(
+                        name: PluginShortcutSettings.didChangeNotification,
+                        object: nil
+                    )
+                }
+            )
         }
         lock.unlock()
         refreshRoutablePluginShortcuts()
@@ -144,112 +161,6 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return pluginErrors[pluginID]
-    }
-
-    /// Checks a plugin-tagged `events.stream` request on the socket worker.
-    func authorizeSubscription(
-        pluginID: String,
-        token: String,
-        requestedNames: Set<String>,
-        peerProcessID: pid_t? = nil
-    ) -> CmuxPluginSocketAuthorization {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let peerProcessID,
-              Self.processAuthorization(
-                  for: peerProcessID,
-                  in: processAuthorizations
-              ) == .active(pluginID: pluginID) else {
-            return .denied("plugin identity does not match a supervised process")
-        }
-        guard let descriptor = snapshot.plugins.first(where: { $0.plugin.manifest.id == pluginID }) else {
-            return .denied("unknown plugin")
-        }
-        guard descriptor.isEnabled, sessionTokens[pluginID] == token else {
-            return .denied(descriptor.isEnabled ? "invalid plugin session token" : "plugin is disabled")
-        }
-        let allowedNames = CmuxPluginSubscriptionPolicy(
-            pluginID: pluginID,
-            permissions: descriptor.permissions
-        ).allowedEventNames
-        guard !allowedNames.isEmpty else {
-            return .denied("plugin has no approved event or action subscriptions")
-        }
-        if requestedNames.isEmpty {
-            return .allowed(Self.canonicalEventNames(allowedNames))
-        }
-        let denied = requestedNames.subtracting(allowedNames)
-        guard denied.isEmpty else {
-            return .denied("event scope not granted: \(denied.sorted().joined(separator: ", "))")
-        }
-        return .allowed(Self.canonicalEventNames(requestedNames))
-    }
-
-    /// Registers a live stream under the same lock as the token projection.
-    /// This closes the authorization-to-subscription race: a disable or grant
-    /// change either wins first and rejects registration, or wins second and
-    /// closes the newly registered stream.
-    func registerSubscription(
-        _ subscription: CmuxEventSubscription,
-        pluginID: String,
-        token: String,
-        peerProcessID: pid_t?
-    ) -> Bool {
-        lock.lock()
-        guard let peerProcessID,
-              Self.processAuthorization(
-                  for: peerProcessID,
-                  in: processAuthorizations
-              ) == .active(pluginID: pluginID),
-              sessionTokens[pluginID] == token,
-              snapshot.plugins.contains(where: {
-                  $0.plugin.manifest.id == pluginID && $0.isEnabled
-              }) else {
-            lock.unlock()
-            return false
-        }
-        subscriptionsByPluginID[pluginID, default: [:]][subscription.id] = subscription
-        let receivesActions = subscription.names.contains(CmuxPluginActionInvocation.eventName)
-        let becameActionReady: Bool
-        if receivesActions {
-            let wasReady = actionSubscriptionIDsByPluginID[pluginID]?.isEmpty == false
-            actionSubscriptionIDsByPluginID[pluginID, default: []].insert(subscription.id)
-            becameActionReady = !wasReady
-        } else {
-            becameActionReady = false
-        }
-        lock.unlock()
-        if becameActionReady {
-            actionReadinessDidChange()
-        }
-        return true
-    }
-
-    /// Removes a completed stream from the revocation registry.
-    func unregisterSubscription(_ subscription: CmuxEventSubscription, pluginID: String) {
-        lock.lock()
-        subscriptionsByPluginID[pluginID]?[subscription.id] = nil
-        if subscriptionsByPluginID[pluginID]?.isEmpty == true {
-            subscriptionsByPluginID[pluginID] = nil
-        }
-        let wasActionReady = actionSubscriptionIDsByPluginID[pluginID]?.isEmpty == false
-        actionSubscriptionIDsByPluginID[pluginID]?.remove(subscription.id)
-        if actionSubscriptionIDsByPluginID[pluginID]?.isEmpty == true {
-            actionSubscriptionIDsByPluginID[pluginID] = nil
-        }
-        let becameActionUnavailable = wasActionReady
-            && actionSubscriptionIDsByPluginID[pluginID] == nil
-        lock.unlock()
-        if becameActionUnavailable {
-            actionReadinessDidChange()
-        }
-    }
-
-    /// Synchronous generation check used immediately before socket writes.
-    func subscriptionIsCurrent(pluginID: String, token: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return sessionTokens[pluginID] == token
     }
 
     /// Resolves an enabled palette action by its namespaced id.
@@ -307,12 +218,12 @@ final class CmuxPluginRuntime: @unchecked Sendable {
             lock.unlock()
             return
         }
-        let previousByID = Dictionary(uniqueKeysWithValues: snapshot.plugins.map {
+        let previousByID = Dictionary(snapshot.plugins.map {
             ($0.plugin.manifest.id, $0)
-        })
-        let nextByID = Dictionary(uniqueKeysWithValues: next.plugins.map {
+        }, uniquingKeysWith: { _, replacement in replacement })
+        let nextByID = Dictionary(next.plugins.map {
             ($0.plugin.manifest.id, $0)
-        })
+        }, uniquingKeysWith: { _, replacement in replacement })
         let revokedPluginIDs = Set(subscriptionsByPluginID.keys.filter { pluginID in
             guard let previous = previousByID[pluginID],
                   let replacement = nextByID[pluginID] else {
@@ -339,14 +250,10 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         lock.unlock()
         revokedSubscriptions.forEach { $0.close() }
         refreshRoutablePluginShortcuts()
-        let preferredSocketPath = SocketControlSettings.socketPath()
-        let activeSocketPath = TerminalController.shared.activeSocketPath(
-            preferredPath: preferredSocketPath
-        )
         reconcileProcesses(
             snapshot: next,
             tokens: tokens,
-            socketPath: activeSocketPath,
+            socketPath: nil,
             generation: generation
         )
         postSnapshotNotifications()
@@ -372,25 +279,33 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     private func reconcileProcesses(
         snapshot next: CmuxPluginRegistrySnapshot,
         tokens: [String: String],
-        socketPath: String,
+        socketPath: String?,
         generation: UInt64
     ) {
-        Task { @MainActor [weak self] in
+        lock.lock()
+        processReconciliationTask?.cancel()
+        processReconciliationTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            guard !Task.isCancelled else { return }
             guard processReconciliationIsAllowed(generation: generation) else { return }
+            let resolvedSocketPath = socketPath ?? TerminalController.shared.activeSocketPath(
+                preferredPath: SocketControlSettings.socketPath()
+            )
             let listenerReady = TerminalController.shared
-                .socketListenerHealth(expectedSocketPath: socketPath)
+                .socketListenerHealth(expectedSocketPath: resolvedSocketPath)
                 .isHealthy
-            CmuxPluginProcessSupervisor.shared.reconcile(
+            processSupervisor.reconcile(
                 snapshot: next,
                 sessionTokens: tokens,
-                socketPath: socketPath,
+                socketPath: resolvedSocketPath,
                 allowLaunch: listenerReady,
-                reportError: { pluginID, error in
-                    CmuxPluginRuntime.shared.recordPluginError(error, for: pluginID)
+                runtime: self,
+                reportError: { [weak self] pluginID, error in
+                    self?.recordPluginError(error, for: pluginID)
                 }
             )
         }
+        lock.unlock()
     }
 
     private func processReconciliationIsAllowed(generation: UInt64) -> Bool {
@@ -455,6 +370,7 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         lock.lock()
         isStopping = true
         registryUpdateTail?.cancel()
+        processReconciliationTask?.cancel()
         let subscriptions = subscriptionsByPluginID.values.flatMap(\.values)
         subscriptionsByPluginID.removeAll()
         actionSubscriptionIDsByPluginID.removeAll()
@@ -465,7 +381,7 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         routablePluginShortcuts.removeAll()
         pluginErrors.removeAll()
         lock.unlock()
-        CmuxPluginProcessSupervisor.shared.stopAll()
+        processSupervisor.stopAll(runtime: self)
         subscriptions.forEach { $0.close() }
     }
 
@@ -473,13 +389,6 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
-    }
-
-    private static func canonicalEventNames(_ names: Set<String>) -> Set<String> {
-        Set(names.compactMap { name in
-            if name == CmuxPluginActionInvocation.eventName { return name }
-            return CmuxExtensionEvent.canonicalName(forWireName: name)
-        })
     }
 
 }

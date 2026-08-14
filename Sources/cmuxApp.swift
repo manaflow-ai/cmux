@@ -222,7 +222,8 @@ struct cmuxApp: App {
             accountFlow: authComposition.accountFlow,
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
-                computerUseRuntimeService: computerUseRuntimeService
+                computerUseRuntimeService: computerUseRuntimeService,
+                pluginRuntime: appDelegate.pluginRuntime
             )
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")

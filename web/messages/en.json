@@ -2117,7 +2117,7 @@
       "settingsFileDesc": "cmux.json stores cmux-owned app settings, shortcuts, actions, commands, and workspace layouts.",
       "settingsFilePrecedence": "Shortcuts defined in cmux.json override the in-app Settings value. Managed shortcuts stay visible in Settings but become read-only there.",
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
-      "pluginBindingsTitle": "shortcuts.pluginBindings",
+      "pluginBindingsTitle": "Plugin command bindings",
       "pluginBindingsIntro": "Plugin command shortcuts use shortcuts.pluginBindings, keyed by the full namespaced plugin.<plugin-id>.<action-id> command id. Use the same string, two-item chord, or null syntax as built-in bindings.",
       "pluginBindingsNote": "A saved plugin binding is ignored while its plugin is disabled, unapproved, missing, or no longer declares that action.",
       "exampleConfig": "Example config",

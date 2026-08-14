@@ -5,7 +5,10 @@ import Foundation
 
 extension HostSettingsActions {
     func pluginManagementDescriptors() -> [PluginManagementDescriptor] {
-        let snapshot = CmuxPluginRuntime.shared.currentSnapshot()
+        let snapshot = pluginRuntime.currentSnapshot()
+        let permissionStoreError = snapshot.permissionStoreLoadFailure.map {
+            localizedPluginPermissionStoreFailure($0)
+        }
         let valid = snapshot.plugins.map { descriptor in
             PluginManagementDescriptor(
                 id: descriptor.plugin.manifest.id,
@@ -13,7 +16,9 @@ extension HostSettingsActions {
                 isEnabled: descriptor.isEnabled,
                 needsApproval: !descriptor.isApproved,
                 requestedCapabilities: pluginRequestedCapabilities(for: descriptor.plugin.manifest),
-                loadError: CmuxPluginRuntime.shared.pluginError(for: descriptor.plugin.manifest.id)
+                loadError: pluginRuntime.pluginError(
+                    for: descriptor.plugin.manifest.id
+                ) ?? permissionStoreError
             )
         }
         let failures = snapshot.failures.map { failure in
@@ -32,16 +37,18 @@ extension HostSettingsActions {
         return (valid + failures).sorted { $0.id < $1.id }
     }
 
-    func approvePlugin(_ pluginID: String) {
-        CmuxPluginRuntime.shared.approveAll(pluginID: pluginID)
+    func approveAndEnablePlugin(_ pluginID: String) {
+        pluginRuntime.approveAll(pluginID: pluginID)
     }
 
     func setPluginEnabled(_ enabled: Bool, pluginID: String) {
-        CmuxPluginRuntime.shared.setEnabled(enabled, pluginID: pluginID)
+        pluginRuntime.setEnabled(enabled, pluginID: pluginID)
     }
 
     func pluginShortcutDescriptors() -> [PluginShortcutDescriptor] {
-        let snapshot = CmuxPluginRuntime.shared.currentSnapshot()
+        let snapshot = pluginRuntime.currentSnapshot()
+        let activeBindings = pluginRuntime.activePluginShortcutBindings()
+        let conflicts = KeyboardShortcutSettings.pluginShortcutConflicts(in: activeBindings)
         return snapshot.plugins
             .filter { $0.isEnabled && $0.permissions.pluginScopes.contains(.paletteActions) }
             .flatMap { descriptor -> [PluginShortcutDescriptor] in
@@ -54,23 +61,23 @@ extension HostSettingsActions {
                         pluginID: pluginID,
                         actionID: action.id
                     )
-                    let shortcut = CmuxPluginShortcutSettings.shortcut(
+                    let shortcut = pluginRuntime.effectivePluginShortcut(
                         for: actionID,
                         defaultValue: action.defaultShortcut
                     )
                     return PluginShortcutDescriptor(
                         id: actionID,
                         title: action.title,
-                        subtitle: String(
-                            format: String(
+                        subtitle: String.localizedStringWithFormat(
+                            String(
                                 localized: "settings.plugin.shortcutSubtitle",
                                 defaultValue: "Plugin • %@"
                             ),
                             pluginName
                         ),
                         shortcut: shortcut?.cmuxSettingsStoredShortcut,
-                        conflictDisplayName: shortcut.flatMap {
-                            pluginShortcutConflictName($0, excluding: actionID)
+                        conflictDisplayName: conflicts[actionID].map {
+                            pluginShortcutConflictName(for: $0)
                         }
                     )
                 }
@@ -80,28 +87,32 @@ extension HostSettingsActions {
 
     func setPluginShortcut(_ shortcut: CmuxSettings.StoredShortcut, actionID: String) {
         let appShortcut = StoredShortcut(cmuxSettingsStoredShortcut: shortcut)
-        guard CmuxPluginRuntime.shared.activePluginActionIDs().contains(actionID) else { return }
+        guard pluginRuntime.activePluginActionIDs().contains(actionID) else { return }
+        let activeBindings = pluginRuntime.activePluginShortcutBindings()
         guard KeyboardShortcutSettings.pluginShortcutConflict(
             appShortcut,
-            excluding: actionID
+            excluding: actionID,
+            activePluginBindings: activeBindings
         ) == nil else { return }
-        CmuxPluginShortcutSettings.set(appShortcut, for: actionID)
+        pluginRuntime.setPluginShortcut(appShortcut, actionID: actionID)
     }
 
     func pluginShortcutConflict(
         _ shortcut: CmuxSettings.StoredShortcut,
         actionID: String
     ) -> String? {
-        guard CmuxPluginRuntime.shared.activePluginActionIDs().contains(actionID) else {
+        guard pluginRuntime.activePluginActionIDs().contains(actionID) else {
             return String(
                 localized: "settings.plugins.shortcut.actionUnavailable",
                 defaultValue: "Unavailable plugin action"
             )
         }
-        return pluginShortcutConflictName(
+        let conflictID = KeyboardShortcutSettings.pluginShortcutConflict(
             StoredShortcut(cmuxSettingsStoredShortcut: shortcut),
-            excluding: actionID
+            excluding: actionID,
+            activePluginBindings: pluginRuntime.activePluginShortcutBindings()
         )
+        return conflictID.map { pluginShortcutConflictName(for: $0) }
     }
 
     private func pluginRequestedCapabilities(for manifest: CmuxExtensionManifest) -> [String] {
@@ -112,8 +123,8 @@ extension HostSettingsActions {
         capabilities.append(contentsOf: manifest.pluginScopes.map(localizedPluginScope))
         capabilities.append(contentsOf: manifest.eventSubscriptions.map(localizedPluginEvent))
         capabilities.append(contentsOf: manifest.actions.map {
-            String(
-                format: String(
+            String.localizedStringWithFormat(
+                String(
                     localized: "settings.plugins.capability.action",
                     defaultValue: "Action: %@"
                 ),
@@ -163,18 +174,11 @@ extension HostSettingsActions {
         }
     }
 
-    private func pluginShortcutConflictName(
-        _ shortcut: StoredShortcut,
-        excluding actionID: String
-    ) -> String? {
-        guard let conflictID = KeyboardShortcutSettings.pluginShortcutConflict(
-            shortcut,
-            excluding: actionID
-        ) else { return nil }
+    private func pluginShortcutConflictName(for conflictID: String) -> String {
         if let builtIn = ShortcutAction(rawValue: conflictID) {
             return builtIn.displayName
         }
-        let snapshot = CmuxPluginRuntime.shared.currentSnapshot()
+        let snapshot = pluginRuntime.currentSnapshot()
         for descriptor in snapshot.plugins {
             let pluginID = descriptor.plugin.manifest.id
             for action in descriptor.plugin.manifest.actions
@@ -186,6 +190,15 @@ extension HostSettingsActions {
             }
         }
         return conflictID
+    }
+
+    private func localizedPluginPermissionStoreFailure(
+        _: CmuxPluginPermissionStoreLoadFailure
+    ) -> String {
+        String(
+            localized: "settings.plugins.error.permissionsUnreadable",
+            defaultValue: "Plugin permissions could not be loaded. The existing grants were left unchanged."
+        )
     }
 
     private func localizedPluginLoadFailure(_ failure: CmuxPluginLoadFailure) -> String {

@@ -275095,6 +275095,176 @@
           }
         }
       }
+    },
+    "socket.events.pluginAuthorization.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plugin is disabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインは無効です。"
+          }
+        }
+      }
+    },
+    "socket.events.pluginAuthorization.eventScopeNotGranted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event scope not granted: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントスコープが許可されていません: %@"
+          }
+        }
+      }
+    },
+    "socket.events.pluginAuthorization.identityMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plugin identity does not match a supervised process."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインの識別情報が管理対象プロセスと一致しません。"
+          }
+        }
+      }
+    },
+    "socket.events.pluginAuthorization.invalidToken": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plugin session token is invalid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインのセッショントークンが無効です。"
+          }
+        }
+      }
+    },
+    "socket.events.pluginAuthorization.noApprovedSubscriptions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plugin has no approved event or action subscriptions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインには承認済みのイベントまたはアクション購読がありません。"
+          }
+        }
+      }
+    },
+    "socket.events.pluginAuthorization.requiredFields": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "plugin_id and plugin_token are required together."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "plugin_id と plugin_token は両方指定してください。"
+          }
+        }
+      }
+    },
+    "socket.events.pluginAuthorization.revokedBeforeOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plugin authorization changed before the stream opened."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリームを開く前にプラグイン認証が変更されました。"
+          }
+        }
+      }
+    },
+    "socket.events.pluginAuthorization.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plugin authorization is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグイン認証を利用できません。"
+          }
+        }
+      }
+    },
+    "socket.events.pluginAuthorization.unknownPlugin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown plugin."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なプラグインです。"
+          }
+        }
+      }
+    },
+    "settings.plugins.error.permissionsUnreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plugin permissions could not be loaded. The existing grants were left unchanged."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインの権限を読み込めませんでした。既存の許可情報は変更されていません。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -613,6 +613,20 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(snapshot.ack["replay_count"] as? Int, 1)
         let payload = snapshot.replay.first?["payload"] as? [String: Any]
         XCTAssertEqual(payload?["plugin_id"] as? String, "dev.example.one")
+
+        defer { bus.unsubscribe(snapshot.subscription) }
+        for pluginID in ["dev.example.one", "dev.example.two"] {
+            bus.publish(
+                name: "plugin.action.invoked",
+                category: "plugin",
+                source: "test",
+                payload: ["plugin_id": pluginID]
+            )
+        }
+        let liveEvent = snapshot.subscription.next(timeout: 0.1)
+        let livePayload = liveEvent?["payload"] as? [String: Any]
+        XCTAssertEqual(livePayload?["plugin_id"] as? String, "dev.example.one")
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.01))
     }
 
     func testPublishAppendsDurableEventLog() throws {

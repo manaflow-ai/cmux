@@ -20,17 +20,10 @@ extension CmuxPluginRuntime {
         } else {
             pluginID = nil
         }
-        let subscriptions = pluginID.flatMap { subscriptionsByPluginID.removeValue(forKey: $0) }
-        let removedActionReceiver: Bool
-        if let pluginID,
-           let actionSubscriptions = actionSubscriptionIDsByPluginID.removeValue(forKey: pluginID) {
-            removedActionReceiver = !actionSubscriptions.isEmpty
-        } else {
-            removedActionReceiver = false
-        }
+        let detached = detachSubscriptionsLocked(pluginID: pluginID)
         lock.unlock()
-        subscriptions?.values.forEach { $0.close() }
-        if removedActionReceiver {
+        detached.subscriptions.forEach { $0.close() }
+        if detached.removedActionReceiver {
             actionReadinessDidChange()
         }
     }
@@ -45,17 +38,10 @@ extension CmuxPluginRuntime {
         } else {
             pluginID = nil
         }
-        let subscriptions = pluginID.flatMap { subscriptionsByPluginID.removeValue(forKey: $0) }
-        let removedActionReceiver: Bool
-        if let pluginID,
-           let actionSubscriptions = actionSubscriptionIDsByPluginID.removeValue(forKey: pluginID) {
-            removedActionReceiver = !actionSubscriptions.isEmpty
-        } else {
-            removedActionReceiver = false
-        }
+        let detached = detachSubscriptionsLocked(pluginID: pluginID)
         lock.unlock()
-        subscriptions?.values.forEach { $0.close() }
-        if removedActionReceiver {
+        detached.subscriptions.forEach { $0.close() }
+        if detached.removedActionReceiver {
             actionReadinessDidChange()
         }
     }
@@ -64,8 +50,18 @@ extension CmuxPluginRuntime {
     func processAuthorization(forProcess processID: pid_t?) -> CmuxPluginProcessAuthorization? {
         guard let processID else { return nil }
         lock.lock()
+        let authorizationSnapshot = processAuthorizations
+        lock.unlock()
+        guard let resolved = Self.processAuthorizationRecord(
+            for: processID,
+            in: authorizationSnapshot
+        ) else { return nil }
+        lock.lock()
         defer { lock.unlock() }
-        return Self.processAuthorization(for: processID, in: processAuthorizations)
+        guard processAuthorizations[resolved.rootProcessID] == resolved.authorization else {
+            return nil
+        }
+        return resolved.authorization
     }
 
     /// Walks a peer's ancestry to find an active or revoked plugin root.
@@ -75,17 +71,38 @@ extension CmuxPluginRuntime {
         for processID: pid_t,
         in authorizations: [pid_t: CmuxPluginProcessAuthorization]
     ) -> CmuxPluginProcessAuthorization? {
+        processAuthorizationRecord(for: processID, in: authorizations)?.authorization
+    }
+
+    /// Resolves the supervised root and its authorization from one projection.
+    static func processAuthorizationRecord(
+        for processID: pid_t,
+        in authorizations: [pid_t: CmuxPluginProcessAuthorization]
+    ) -> (rootProcessID: pid_t, authorization: CmuxPluginProcessAuthorization)? {
         var current = processID
         var visited = Set<pid_t>()
         for _ in 0..<32 {
             guard visited.insert(current).inserted else { return nil }
-            if let authorization = authorizations[current] { return authorization }
+            if let authorization = authorizations[current] {
+                return (current, authorization)
+            }
             guard let parent = parentProcessID(current), parent > 0, parent != current else {
                 return nil
             }
             current = parent
         }
         return nil
+    }
+
+    /// Detaches a plugin's streams while the caller holds ``lock``.
+    private func detachSubscriptionsLocked(
+        pluginID: String?
+    ) -> (subscriptions: [CmuxEventSubscription], removedActionReceiver: Bool) {
+        guard let pluginID else { return ([], false) }
+        let subscriptions = subscriptionsByPluginID.removeValue(forKey: pluginID)
+            .map { Array($0.values) } ?? []
+        let actionSubscriptions = actionSubscriptionIDsByPluginID.removeValue(forKey: pluginID)
+        return (subscriptions, actionSubscriptions?.isEmpty == false)
     }
 
     private static func parentProcessID(_ processID: pid_t) -> pid_t? {

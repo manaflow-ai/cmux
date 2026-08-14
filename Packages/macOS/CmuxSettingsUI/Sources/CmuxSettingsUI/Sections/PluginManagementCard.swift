@@ -23,8 +23,8 @@ struct PluginManagementCard: View {
                     : String(localized: "settings.plugins.disabled", defaultValue: "Disabled")
                 let requestSummary = descriptor.requestedCapabilities.isEmpty
                     ? status
-                    : String(
-                        format: String(
+                    : String.localizedStringWithFormat(
+                        String(
                             localized: "settings.plugins.requests",
                             defaultValue: "%@ · Requests: %@"
                         ),

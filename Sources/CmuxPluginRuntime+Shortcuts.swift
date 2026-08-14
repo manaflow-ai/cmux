@@ -11,6 +11,21 @@ extension CmuxPluginRuntime {
         return store?.shortcut(for: actionID)
     }
 
+    /// Returns a persisted override or a valid manifest default.
+    func effectivePluginShortcut(
+        for actionID: String,
+        defaultValue: String?
+    ) -> StoredShortcut? {
+        if let stored = pluginShortcut(for: actionID) {
+            return stored
+        }
+        guard let parsed = Self.parsePluginShortcut(defaultValue),
+              !parsed.isUnbound else {
+            return nil
+        }
+        return parsed
+    }
+
     /// Returns all persisted plugin shortcuts for conflict checks.
     func pluginShortcuts() -> [String: StoredShortcut] {
         lock.lock()
@@ -100,18 +115,35 @@ extension CmuxPluginRuntime {
 
     func refreshRoutablePluginShortcuts() {
         let candidates = activePluginShortcutBindings()
+        let invocableActionIDs = invocablePluginActionIDs()
+        let conflicts = KeyboardShortcutSettings.pluginShortcutConflicts(in: candidates)
         var next: [String: StoredShortcut] = [:]
         for (actionID, shortcut) in candidates {
-            guard action(forNamespacedID: actionID) != nil else { continue }
-            guard KeyboardShortcutSettings.pluginShortcutConflict(
-                shortcut,
-                excluding: actionID
-            ) == nil else { continue }
+            guard invocableActionIDs.contains(actionID), conflicts[actionID] == nil else { continue }
             next[actionID] = shortcut
         }
         lock.lock()
         routablePluginShortcuts = next
         lock.unlock()
+    }
+
+    private func invocablePluginActionIDs() -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        return Set(snapshot.plugins.flatMap { descriptor -> [String] in
+            let pluginID = descriptor.plugin.manifest.id
+            guard descriptor.isEnabled,
+                  actionSubscriptionIDsByPluginID[pluginID]?.isEmpty == false else {
+                return []
+            }
+            return descriptor.plugin.manifest.actions.compactMap { action in
+                guard descriptor.permissions.allowsAction(action.id) else { return nil }
+                return CmuxPluginRegistry.namespacedActionID(
+                    pluginID: pluginID,
+                    actionID: action.id
+                )
+            }
+        })
     }
 
     static func isSafePluginActionID(_ actionID: String) -> Bool {

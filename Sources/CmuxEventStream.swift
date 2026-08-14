@@ -20,6 +20,7 @@ extension TerminalController {
         socket: Int32,
         peerProcessID: pid_t?,
         pluginAuthorizationRequired: Bool,
+        pluginRuntime: CmuxPluginRuntime?,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         passwordAuthorization: SocketPasswordAuthorization
@@ -55,16 +56,37 @@ extension TerminalController {
         // clients without the two fields keep their existing behavior.
         let pluginID = params["plugin_id"] as? String
         let pluginToken = params["plugin_token"] as? String
+        let authorizedPluginRuntime: CmuxPluginRuntime?
         if pluginAuthorizationRequired || pluginID != nil || pluginToken != nil {
             guard let pluginID, let pluginToken else {
                 _ = writeEventsStreamLine([
                     "type": "error",
                     "ok": false,
-                    "error": ["code": "plugin_authorization_required", "message": "plugin_id and plugin_token are required together"]
+                    "error": [
+                        "code": "plugin_authorization_required",
+                        "message": String(
+                            localized: "socket.events.pluginAuthorization.requiredFields",
+                            defaultValue: "plugin_id and plugin_token are required together."
+                        ),
+                    ],
                 ], socket: socket)
                 return
             }
-            switch CmuxPluginRuntime.shared.authorizeSubscription(
+            guard let pluginRuntime else {
+                _ = writeEventsStreamLine([
+                    "type": "error",
+                    "ok": false,
+                    "error": [
+                        "code": "plugin_authorization_unavailable",
+                        "message": String(
+                            localized: "socket.events.pluginAuthorization.unavailable",
+                            defaultValue: "Plugin authorization is unavailable."
+                        ),
+                    ],
+                ], socket: socket)
+                return
+            }
+            switch pluginRuntime.authorizeSubscription(
                 pluginID: pluginID,
                 token: pluginToken,
                 requestedNames: names,
@@ -83,6 +105,9 @@ extension TerminalController {
                 ], socket: socket)
                 return
             }
+            authorizedPluginRuntime = pluginRuntime
+        } else {
+            authorizedPluginRuntime = nil
         }
 
         if pluginID == nil {
@@ -117,27 +142,34 @@ extension TerminalController {
             categories: categories,
             deliveryFilter: pluginEventIsVisible
         )
-        if let pluginID, let pluginToken,
-           !CmuxPluginRuntime.shared.registerSubscription(
-               snapshot.subscription,
-               pluginID: pluginID,
-               token: pluginToken,
-               peerProcessID: peerProcessID
-           ) {
-            CmuxEventBus.shared.unsubscribe(snapshot.subscription)
-            _ = writeEventsStreamLine([
-                "type": "error",
-                "ok": false,
-                "error": [
-                    "code": "plugin_authorization_revoked",
-                    "message": "plugin authorization changed before the stream opened",
-                ],
-            ], socket: socket)
-            return
+        if let pluginID, let pluginToken {
+            guard let authorizedPluginRuntime,
+                  authorizedPluginRuntime.registerSubscription(
+                      snapshot.subscription,
+                      pluginID: pluginID,
+                      token: pluginToken,
+                      peerProcessID: peerProcessID
+                  ) else {
+                CmuxEventBus.shared.unsubscribe(snapshot.subscription)
+                _ = writeEventsStreamLine([
+                    "type": "error",
+                    "ok": false,
+                    "error": [
+                        "code": "plugin_authorization_revoked",
+                        "message": String(
+                            localized: "socket.events.pluginAuthorization.revokedBeforeOpen",
+                            defaultValue: "Plugin authorization changed before the stream opened."
+                        ),
+                    ],
+                ], socket: socket)
+                return
+            }
         }
         let pluginAuthorizationIsCurrent: () -> Bool = {
-            guard let pluginID, let pluginToken else { return true }
-            return CmuxPluginRuntime.shared.subscriptionIsCurrent(
+            guard let pluginID, let pluginToken, let authorizedPluginRuntime else {
+                return pluginID == nil && pluginToken == nil
+            }
+            return authorizedPluginRuntime.subscriptionIsCurrent(
                 pluginID: pluginID,
                 token: pluginToken
             )
@@ -148,8 +180,8 @@ extension TerminalController {
         )
         defer {
             revocationSource?.cancel()
-            if let pluginID {
-                CmuxPluginRuntime.shared.unregisterSubscription(
+            if let pluginID, let authorizedPluginRuntime {
+                authorizedPluginRuntime.unregisterSubscription(
                     snapshot.subscription,
                     pluginID: pluginID
                 )

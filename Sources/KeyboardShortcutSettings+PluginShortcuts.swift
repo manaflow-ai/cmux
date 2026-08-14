@@ -2,89 +2,90 @@ import Foundation
 
 /// Shared validation for runtime plugin bindings.
 extension KeyboardShortcutSettings {
+    /// Hashes shortcut strokes by their logical key, ignoring recorder-specific key codes.
+    private struct PluginShortcutKey: Hashable {
+        let firstStroke: ShortcutStroke
+        let secondStroke: ShortcutStroke?
+
+        init(_ shortcut: StoredShortcut) {
+            firstStroke = Self.normalized(shortcut.firstStroke)
+            secondStroke = shortcut.secondStroke.map(Self.normalized)
+        }
+
+        private static func normalized(_ stroke: ShortcutStroke) -> ShortcutStroke {
+            ShortcutStroke(
+                key: stroke.key,
+                command: stroke.command,
+                shift: stroke.shift,
+                option: stroke.option,
+                control: stroke.control
+            )
+        }
+    }
+
     /// Returns a conflicting built-in or active plugin action id, if any.
     /// Plugin actions are global (they have no `shortcuts.when` clause), so a
     /// conservative overlap with any built-in context is rejected.
     static func pluginShortcutConflict(
         _ proposed: StoredShortcut,
-        excluding actionID: String
+        excluding actionID: String,
+        activePluginBindings: [String: StoredShortcut]
     ) -> String? {
-        for action in Action.allCases {
-            let configured = shortcut(for: action)
-            guard pluginShortcutsConflict(
-                proposed,
-                proposedUsesNumberedDigits: false,
-                configured,
-                configuredUsesNumberedDigits: action.usesNumberedDigitMatching
-            ) else { continue }
-            return action.rawValue
-        }
-
-        for (configuredID, configured) in CmuxPluginRuntime.shared.activePluginShortcutBindings()
-        where configuredID != actionID {
-            guard pluginShortcutsConflict(
-                proposed,
-                proposedUsesNumberedDigits: false,
-                configured,
-                configuredUsesNumberedDigits: false
-            ) else { continue }
-            return configuredID
-        }
-        return nil
+        var bindings = activePluginBindings
+        bindings[actionID] = proposed
+        return pluginShortcutConflicts(in: bindings)[actionID]
     }
 
-    private static func pluginShortcutsConflict(
-        _ lhs: StoredShortcut,
-        proposedUsesNumberedDigits: Bool,
-        _ rhs: StoredShortcut,
-        configuredUsesNumberedDigits: Bool
-    ) -> Bool {
-        guard !lhs.isUnbound, !rhs.isUnbound else { return false }
-        switch (lhs.hasChord, rhs.hasChord) {
-        case (false, false):
-            return pluginStrokesConflict(
-                lhs.firstStroke,
-                numberedDigits: proposedUsesNumberedDigits,
-                rhs.firstStroke,
-                numberedDigits: configuredUsesNumberedDigits
-            )
-        case (true, true):
-            guard pluginStrokesConflict(lhs.firstStroke, numberedDigits: false, rhs.firstStroke, numberedDigits: false),
-                  let lhsSecond = lhs.secondStroke,
-                  let rhsSecond = rhs.secondStroke else { return false }
-            return pluginStrokesConflict(
-                lhsSecond,
-                numberedDigits: proposedUsesNumberedDigits,
-                rhsSecond,
-                numberedDigits: configuredUsesNumberedDigits
-            )
-        case (true, false):
-            return pluginStrokesConflict(lhs.firstStroke, numberedDigits: false, rhs.firstStroke, numberedDigits: configuredUsesNumberedDigits)
-        case (false, true):
-            return pluginStrokesConflict(lhs.firstStroke, numberedDigits: proposedUsesNumberedDigits, rhs.firstStroke, numberedDigits: false)
+    /// Returns every plugin-to-plugin conflict in one linear projection pass.
+    static func pluginShortcutConflicts(
+        in bindings: [String: StoredShortcut]
+    ) -> [String: String] {
+        var singlesByFirstStroke: [ShortcutStroke: [String]] = [:]
+        var chordsByFirstStroke: [ShortcutStroke: [String]] = [:]
+        var exactChords: [PluginShortcutKey: [String]] = [:]
+        for (actionID, shortcut) in bindings where !shortcut.isUnbound {
+            let key = PluginShortcutKey(shortcut)
+            if shortcut.hasChord {
+                chordsByFirstStroke[key.firstStroke, default: []].append(actionID)
+                exactChords[key, default: []].append(actionID)
+            } else {
+                singlesByFirstStroke[key.firstStroke, default: []].append(actionID)
+            }
         }
-    }
+        singlesByFirstStroke.keys.forEach { singlesByFirstStroke[$0]?.sort() }
+        chordsByFirstStroke.keys.forEach { chordsByFirstStroke[$0]?.sort() }
+        exactChords.keys.forEach { exactChords[$0]?.sort() }
 
-    private static func pluginStrokesConflict(
-        _ lhs: ShortcutStroke,
-        numberedDigits lhsNumberedDigits: Bool,
-        _ rhs: ShortcutStroke,
-        numberedDigits rhsNumberedDigits: Bool
-    ) -> Bool {
-        guard lhs.command == rhs.command,
-              lhs.shift == rhs.shift,
-              lhs.option == rhs.option,
-              lhs.control == rhs.control else { return false }
-        if lhsNumberedDigits || rhsNumberedDigits {
-            let lhsIsDigit = isShortcutDigit(lhs.key)
-            let rhsIsDigit = isShortcutDigit(rhs.key)
-            if lhsIsDigit && rhsIsDigit { return true }
+        var conflicts: [String: String] = [:]
+        for (actionID, shortcut) in bindings where !shortcut.isUnbound {
+            let key = PluginShortcutKey(shortcut)
+            if let builtInConflict = Action.allCases.first(where: { action in
+                shortcutsConflict(
+                    shortcut,
+                    proposedUsesNumberedDigitMatching: false,
+                    Self.shortcut(for: action),
+                    configuredUsesNumberedDigitMatching: action.usesNumberedDigitMatching
+                )
+            }) {
+                conflicts[actionID] = builtInConflict.rawValue
+                continue
+            }
+            if shortcut.hasChord {
+                if let single = singlesByFirstStroke[key.firstStroke]?.first {
+                    conflicts[actionID] = single
+                } else if let duplicate = exactChords[key]?.first(where: {
+                    $0 != actionID
+                }) {
+                    conflicts[actionID] = duplicate
+                }
+            } else if let duplicate = singlesByFirstStroke[key.firstStroke]?.first(where: {
+                $0 != actionID
+            }) {
+                conflicts[actionID] = duplicate
+            } else if let chord = chordsByFirstStroke[key.firstStroke]?.first {
+                conflicts[actionID] = chord
+            }
         }
-        return lhs.key == rhs.key
-    }
-
-    private static func isShortcutDigit(_ key: String) -> Bool {
-        guard let value = Int(key) else { return false }
-        return (1...9).contains(value)
+        return conflicts
     }
 }

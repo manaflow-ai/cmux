@@ -33,7 +33,7 @@ struct PluginManagementSettingsCard: View {
         ) {
             Button(String(localized: "settings.plugins.review.approve", defaultValue: "Approve & Enable")) {
                 if let plugin = pendingApproval {
-                    hostActions.approvePlugin(plugin.id)
+                    hostActions.approveAndEnablePlugin(plugin.id)
                 }
                 pendingApproval = nil
             }
@@ -42,8 +42,8 @@ struct PluginManagementSettingsCard: View {
             }
         } message: {
             if let plugin = pendingApproval {
-                Text(String(
-                    format: String(
+                Text(String.localizedStringWithFormat(
+                    String(
                         localized: "settings.plugins.review.message",
                         defaultValue: "%@ requests: %@\n\nPlugins run as your macOS user and may access your files and network."
                     ),
