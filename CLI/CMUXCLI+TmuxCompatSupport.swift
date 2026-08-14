@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -122,11 +123,14 @@ extension CMUXCLI {
     ///
     /// Teammate panes are respawned by cmux's surface layer, not by `cmux
     /// claude-teams`, so they do NOT inherit the launcher environment the lead
-    /// got from `configureClaudeTeamsEnvironment`. The one variable that matters
-    /// for startup is `CLAUDE_CODE_SANDBOXED`: Claude Code short-circuits its
-    /// interactive "Do you trust this folder?" gate on it, and a teammate that
-    /// hits that gate hangs forever (its pane opens but it never checks in —
-    /// issue #6447). Re-supply it so teammates start the same way the lead does.
+    /// got from `configureClaudeTeamsEnvironment`. The launcher records a
+    /// replay-safe snapshot in
+    /// ``ClaudeTeamsRespawnEnvironmentTransport/environmentKey``;
+    /// re-supply that snapshot so PATH-based tools and allowlisted Claude
+    /// configuration match the lead without copying secrets or surface identity.
+    /// `CLAUDE_CODE_SANDBOXED` is handled alongside it: Claude Code short-circuits
+    /// its interactive "Do you trust this folder?" gate on that variable, and a
+    /// teammate that hits the gate hangs forever (issue #6447).
     ///
     /// That trust gate is a real safety boundary, so it is only waived when the
     /// user already opted into skipping safety prompts. The opt-in is NOT inferred
@@ -146,10 +150,17 @@ extension CMUXCLI {
     /// it correctly falls back to Claude's trust prompt rather than silently bypassing
     /// the trust boundary outside an explicit opt-in.
     func tmuxClaudeTeamsRespawnEnvironment() -> [(key: String, value: String)] {
-        guard ProcessInfo.processInfo.environment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" else {
-            return []
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let transport = ClaudeTeamsRespawnEnvironmentTransport()
+        var environment = transport.decodedEnvironment(
+            from: processEnvironment[ClaudeTeamsRespawnEnvironmentTransport.environmentKey]
+        )
+        if processEnvironment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" {
+            environment["CLAUDE_CODE_SANDBOXED"] = "1"
         }
-        return [(key: "CLAUDE_CODE_SANDBOXED", value: "1")]
+        return environment.keys.sorted().compactMap { key in
+            environment[key].map { (key: key, value: $0) }
+        }
     }
 
     func tmuxShellWords(_ commandText: String) -> [String] {
@@ -317,30 +328,6 @@ extension CMUXCLI {
         return Int(trimmed)
     }
 
-    func tmuxResizePaneToCells(
-        workspaceId: String,
-        paneId: String,
-        targetCells: Int,
-        currentCellsKey: String,
-        cellSizeKey: String,
-        client: SocketClient
-    ) throws {
-        guard targetCells > 0 else { return }
-        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
-        let panes = panePayload["panes"] as? [[String: Any]] ?? []
-        guard let matchingPane = panes.first(where: { ($0["id"] as? String) == paneId }),
-              let cellSize = intFromAny(matchingPane[cellSizeKey]), cellSize > 0 else {
-            return
-        }
-        let axis = currentCellsKey == "columns" ? "horizontal" : "vertical"
-        _ = try client.sendV2(method: "pane.resize", params: [
-            "workspace_id": workspaceId,
-            "pane_id": paneId,
-            "absolute_axis": axis,
-            "target_pixels": targetCells * cellSize
-        ])
-    }
-
     func tmuxInitialDividerPosition(
         workspaceId: String,
         paneId: String,
@@ -439,12 +426,4 @@ extension CMUXCLI {
         return ordered.joined(separator: ":")
     }
 
-    struct TmuxCompatFocusedContext {
-        let socketPath: String
-        let workspaceId: String
-        let windowId: String?
-        let paneHandle: String
-        let paneId: String?
-        let surfaceId: String?
-    }
 }

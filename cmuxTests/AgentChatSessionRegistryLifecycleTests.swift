@@ -464,6 +464,39 @@ struct AgentChatSessionRegistryLifecycleTests {
         #expect(service.hasBoundedReadableTranscript(record))
     }
 
+    @MainActor
+    @Test func restoreStyleInitializationRebuildsSurfaceLookup() throws {
+        let surfaceID = UUID().uuidString
+        let older = AgentChatSessionRecord(
+            sessionID: "older",
+            agentKind: .codex,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: "/tmp/older.jsonl",
+            state: .ended,
+            lastActivityAt: Date(timeIntervalSince1970: 100),
+            title: nil,
+            pid: nil
+        )
+        let newer = AgentChatSessionRecord(
+            sessionID: "newer",
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: "/tmp/newer.jsonl",
+            state: .ended,
+            lastActivityAt: Date(timeIntervalSince1970: 200),
+            title: nil,
+            pid: nil
+        )
+        let registry = AgentChatSessionRegistry(restoredRecords: [older, newer])
+
+        let resolved = try #require(registry.currentOrMostRecentSession(surfaceID: surfaceID))
+        #expect(resolved.sessionID == newer.sessionID)
+    }
+
     private func temporaryHomeDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)

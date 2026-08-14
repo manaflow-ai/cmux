@@ -55,10 +55,11 @@ extension AppDelegate {
 
     private func tabManagerHasRegisteredTerminalSurface(_ manager: TabManager) -> Bool {
         for workspace in manager.tabs {
-            for panel in workspace.panels.values {
-                guard let terminalPanel = panel as? TerminalPanel else { continue }
-                if GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface {
-                    return true
+            for panelID in workspace.panels.keys {
+                for terminalPanel in workspace.terminalPanels(projectedFromPanelID: panelID) {
+                    if GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface {
+                        return true
+                    }
                 }
             }
         }
@@ -353,7 +354,7 @@ extension AppDelegate {
 
     func contextContainingTabId(_ tabId: UUID) -> MainWindowContext? {
         for context in mainWindowContexts.values {
-            if context.tabManager.tabs.contains(where: { $0.id == tabId }) {
+            if context.tabManager.workspacesById[tabId] != nil {
                 return context
             }
         }
@@ -361,22 +362,25 @@ extension AppDelegate {
     }
 
     /// One-pass `tabId -> workspace title` index across every window context.
-    /// Notification lists call this once per render and look up each row's title
-    /// in O(1), instead of scanning the tab list per notification row, which was
-    /// O(notifications × tabs). Resolution mirrors `tabTitle(for:)`: window
-    /// contexts win, then the active `tabManager` covers any tab not yet present
-    /// in a context. See https://github.com/manaflow-ai/cmux/issues/5794.
-    func tabTitlesByTabId() -> [UUID: String] {
+    /// Callers can limit the projection to the workspace ids they render, keeping
+    /// notification lists O(tabs + groups) rather than O(notifications × tabs).
+    /// Window contexts win, then the active `tabManager` fills any missing ids.
+    /// See https://github.com/manaflow-ai/cmux/issues/5794.
+    func tabTitlesByTabId(for requestedTabIds: Set<UUID>? = nil) -> [UUID: String] {
         var titles: [UUID: String] = [:]
-        for context in mainWindowContexts.values {
-            for tab in context.tabManager.tabs where titles[tab.id] == nil {
-                titles[tab.id] = tab.title
-            }
+
+        func appendTitles(from manager: TabManager) {
+            let candidateIds = requestedTabIds ?? Set(manager.tabs.map(\.id))
+            let unresolvedIds = candidateIds.subtracting(titles.keys)
+            titles.merge(manager.resolvedWorkspaceDisplayTitles(for: unresolvedIds)) { current, _ in current }
         }
-        if let activeTabs = tabManager?.tabs {
-            for tab in activeTabs where titles[tab.id] == nil {
-                titles[tab.id] = tab.title
-            }
+
+        for context in mainWindowContexts.values {
+            appendTitles(from: context.tabManager)
+            if let requestedTabIds, titles.count == requestedTabIds.count { return titles }
+        }
+        if let remainingTitleSource = tabManager {
+            appendTitles(from: remainingTitleSource)
         }
         return titles
     }
@@ -386,10 +390,14 @@ extension AppDelegate {
         if let manager = contextContainingTabId(tabId)?.tabManager {
             return manager
         }
-        return recoverableMainWindowRoutes()
+        if let manager = recoverableMainWindowRoutes()
             .compactMap(\.tabManager)
-            .first { manager in
-                manager.tabs.contains(where: { $0.id == tabId })
-            }
+            .first(where: { $0.workspacesById[tabId] != nil }) {
+            return manager
+        }
+        guard let tabManager, tabManager.workspacesById[tabId] != nil else {
+            return nil
+        }
+        return tabManager
     }
 }

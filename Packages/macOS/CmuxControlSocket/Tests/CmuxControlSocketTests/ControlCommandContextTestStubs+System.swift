@@ -42,6 +42,8 @@ extension ControlSystemContext {
         requestedFocus: Bool,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution { .tabManagerUnavailable }
+    func controlSystemSurfaceNotFoundMessage() -> String { "Surface not found" }
+    func controlSystemTabNotFoundMessage() -> String { "Tab not found" }
     func controlSurfaceSplitOff(params: [String: JSONValue]) -> ControlCallResult {
         .err(code: "unavailable", message: "AppDelegate not available", data: nil)
     }

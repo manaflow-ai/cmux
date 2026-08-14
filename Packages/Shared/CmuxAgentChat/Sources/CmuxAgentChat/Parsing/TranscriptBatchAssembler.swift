@@ -6,6 +6,7 @@ import Foundation
 struct TranscriptBatchAssembler {
     private var messages: [ChatMessage] = []
     private var updatedMessages: [ChatMessage] = []
+    private var artifactReferences: [ChatArtifactTranscriptReference] = []
     private var pending: [String: [ChatMessage]]
     private var batchIndexByMessageID: [String: Int] = [:]
     private let budget: TranscriptTextBudget
@@ -46,6 +47,22 @@ struct TranscriptBatchAssembler {
         messages.append(message)
     }
 
+    /// Appends paths captured from raw transcript text or artifacts-only rows.
+    ///
+    /// - Parameters:
+    ///   - paths: Path tokens in display order.
+    ///   - provenance: Provenance established by the originating channel.
+    ///   - seq: Sequence of the containing transcript line.
+    mutating func appendArtifactReferences(
+        paths: [String],
+        provenance: ChatArtifactProvenance = .referenced,
+        seq: Int
+    ) {
+        artifactReferences.append(contentsOf: paths.map {
+            ChatArtifactTranscriptReference(path: $0, provenance: provenance, seq: seq)
+        })
+    }
+
     /// Pairs a tool result with its pending invocation, if registered.
     ///
     /// - Parameters:
@@ -76,6 +93,7 @@ struct TranscriptBatchAssembler {
         ChatTranscriptParseResult(
             messages: messages,
             updatedMessages: updatedMessages,
+            artifactReferences: artifactReferences,
             state: ChatTranscriptParseState(
                 pendingToolUses: Self.bounded(pending),
                 lastTimestamp: lastTimestamp

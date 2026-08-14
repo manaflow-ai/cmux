@@ -21,7 +21,7 @@ import Foundation
 final class DeviceRegistryClient {
     static let shared = DeviceRegistryClient()
 
-    private let session: URLSession = .shared
+    private let session = CmxCredentialedHTTPSession()
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
     /// The scope (team + tag + routes) most recently registered, used to skip
@@ -105,7 +105,7 @@ final class DeviceRegistryClient {
         // dedup decision and the request header, so a team switch with unchanged
         // routes is detected and the POST targets the intended team.
         let teamID = auth.resolvedTeamID
-        let tag = Self.buildTag()
+        let tag = MobileHostIdentity.instanceTag()
         let registration = Registration(teamID: teamID, tag: tag, routes: routes)
         guard Self.shouldReRegister(previous: lastRegistration, current: registration) else { return }
 
@@ -115,13 +115,17 @@ final class DeviceRegistryClient {
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + "/api/devices"
         guard let url = comps.url else { return }
 
+        let disclosureDate = Date()
         var bodyDict: [String: Any] = [
             "deviceId": MobileHostIdentity.deviceID(),
             "platform": "mac",
             "tag": tag,
-            "routes": routes.map(\.mobileHostJSONObject),
+            "routes": routes.mobileHostJSONObjects(
+                for: .cloudRendezvous,
+                at: disclosureDate
+            ),
         ]
-        if let displayName = MobileHostIdentity.displayName(), !displayName.isEmpty {
+        if let displayName = MobileHostIdentity.baseDisplayName(), !displayName.isEmpty {
             bodyDict["displayName"] = displayName
         }
 
@@ -152,12 +156,4 @@ final class DeviceRegistryClient {
         }
     }
 
-    /// The build tag for this cmux instance, distinguishing dev/tagged builds
-    /// from stable. Defaults to "default" so untagged stable builds register
-    /// under a stable instance key.
-    private static func buildTag() -> String {
-        let tag = ProcessInfo.processInfo.environment["CMUX_TAG"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (tag?.isEmpty == false) ? tag! : "default"
-    }
 }

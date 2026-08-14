@@ -95,6 +95,8 @@ struct MobileFeedbackRouteTests {
     }
 
     @Test func releaseNonBetaBundleIsProd() {
+        // com.cmux.app is the public App Store bundle id.
+        #expect(MobileBuildType.resolve(isDebugBuild: false, bundleIdentifier: "com.cmux.app") == .prod)
         #expect(MobileBuildType.resolve(isDebugBuild: false, bundleIdentifier: "dev.cmux.app") == .prod)
         #expect(MobileBuildType.resolve(isDebugBuild: false, bundleIdentifier: nil) == .prod)
     }

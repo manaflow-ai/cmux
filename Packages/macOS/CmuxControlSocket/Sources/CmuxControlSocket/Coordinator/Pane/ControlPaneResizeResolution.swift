@@ -1,8 +1,7 @@
 public import Foundation
 
-/// The outcome of `pane.resize`, preserving every distinct branch of the legacy
-/// `v2PaneResize` body — both the absolute and the relative resize paths, with
-/// their separate success payloads.
+/// The outcome of `pane.resize`, including local Bonsplit mutations and resize
+/// requests forwarded to an authoritative remote-tmux layout owner.
 ///
 /// The coordinator performs the pre-flight `invalid_params` validation (the
 /// absolute-axis / target-pixels / direction checks that do not touch app
@@ -21,6 +20,12 @@ public enum ControlPaneResizeResolution: Sendable, Equatable {
     /// The pane id did not match any pane (legacy `not_found` / "Pane not
     /// found", `data: {"pane_id": …}`). Carries the unresolved pane id.
     case paneNotFound(UUID)
+    /// The pane resolved, but its remote layout owner could not accept the
+    /// resize. Carries the pane id and localized recovery message.
+    case remoteResizeUnavailable(paneID: UUID, message: String)
+    /// The pane resolved locally, but a tmux-compatible request did not carry
+    /// the native point fallback needed to mutate its Bonsplit layout.
+    case localResizeUnavailable(paneID: UUID, message: String)
     /// The pane was not found in the split tree (legacy `not_found` / "Pane not
     /// found in split tree", `data: {"pane_id": …}`). Carries the pane id.
     case paneNotFoundInTree(UUID)
@@ -43,6 +48,24 @@ public enum ControlPaneResizeResolution: Sendable, Equatable {
     /// "Failed to set split divider position", `data: {"split_id": …}`). Carries
     /// the split id.
     case setDividerFailed(splitID: UUID)
+    /// A remote absolute resize was accepted by the control-mode writer. Tmux's
+    /// next layout publication remains authoritative for the applied geometry.
+    case remoteAbsoluteResizeRequested(
+        windowID: UUID?,
+        workspaceID: UUID,
+        paneID: UUID,
+        absoluteAxis: String,
+        targetPixels: Double?
+    )
+    /// A remote relative resize was accepted by the control-mode writer. Tmux's
+    /// next layout publication remains authoritative for the applied geometry.
+    case remoteRelativeResizeRequested(
+        windowID: UUID?,
+        workspaceID: UUID,
+        paneID: UUID,
+        direction: String,
+        amount: Int?
+    )
     /// The absolute resize succeeded. Carries the echoed identity plus the
     /// split, axis, target pixels, and old/new divider positions.
     case absoluteResized(

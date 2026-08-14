@@ -1,32 +1,47 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import WebKit
 
 @MainActor final class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
+    enum PolicyCancellationKind { case terminal(restoreAttemptID: UUID?) }
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
+    private let externalNavigationPolicy = BrowserExternalNavigationPolicy(
+        trustedOrigin: AuthEnvironment.appWebOrigin
+    )
     private var shouldPrintAfterCurrentNavigationFinishes = false
-    var didStartProvisionalNavigation: ((WKWebView) -> Void)?
-    var didCommit: ((WKWebView) -> Void)?
+    var didStartProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
+    var didCommit: ((WKWebView, WKNavigation?) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
-    var didFailNavigation: ((WKWebView, String) -> Void)?
-    var didCancelProvisionalNavigation: ((WKWebView) -> Void)?
+    var didFailNavigation: ((WKWebView, String, String, WKNavigation?) -> Void)?
+    var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
+    var didChooseMainFrameDownloadPolicy: ((WKWebView, WKNavigation?) -> Void)?
+    var didInterruptProvisionalNavigationByPolicy: ((WKWebView, WKNavigation?) -> Bool)?
+    var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
+    var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
-    var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var openAppLinkInBrowserSplit: ((URL) -> Bool)?
+    var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent, ((WKNavigation?) -> Void)?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var handleDroppedFileNavigation: (([URL]) -> Bool)?
+    var currentRestoreAttemptID: (() -> UUID?)?
+    var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
+    var willReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?) -> Void)?
+    var didReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?, WKNavigation?) -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
-    /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
-    /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
+    /// Last attempted navigation URL, used to preserve the omnibar URL after provisional failures.
     var lastAttemptedURL: URL?
     private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
+    weak var owner: BrowserPanel?
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedRequest: URLRequest?
     private var lastAttemptedRequestWasDiscardedForReplay = false
@@ -34,6 +49,9 @@ import WebKit
     private var activeSSLTrustBypassErrorPageFailedURL: String?
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
+    private var pendingMainFrameDownloadRestoreAttemptID: UUID?
+    // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
+    private var activeMainFrameNavigation: WKNavigation?
 
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -84,21 +102,24 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        activeMainFrameNavigation = navigation
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
         shouldPrintAfterCurrentNavigationFinishes = false
         didClearPDFDocument?()
-        didStartProvisionalNavigation?(webView)
+        didStartProvisionalNavigation?(webView, navigation)
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
         }
-        didCommit?(webView)
+        didCommit?(webView, navigation)
+        clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         didFinish?(webView)
+        clearActiveMainFrameNavigation(ifMatching: navigation)
         if shouldPrintAfterCurrentNavigationFinishes {
             shouldPrintAfterCurrentNavigationFinishes = false
             webView.cmuxRunPrintOperation()
@@ -110,7 +131,8 @@ import WebKit
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
-        didFailNavigation?(webView, failedURL)
+        didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
+        clearActiveMainFrameNavigation(ifMatching: navigation)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -119,22 +141,27 @@ import WebKit
 
         // Cancelled navigations (e.g. rapid typing) are not real errors.
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
-            didCancelProvisionalNavigation?(webView)
+            didCancelProvisionalNavigation?(webView, navigation)
+            clearActiveMainFrameNavigation(ifMatching: navigation)
             return
         }
 
-        // "Frame load interrupted" (WebKitErrorDomain code 102) fires when a
-        // navigation response is converted into a download via .download policy.
-        // This is expected and should not show an error page.
+        // "Frame load interrupted" (WebKitErrorDomain code 102) can result from
+        // several policy transfers. Only an explicit .download decision is success.
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
-            didCancelProvisionalNavigation?(webView)
+            let isDownload = didInterruptProvisionalNavigationByPolicy?(webView, navigation) == true
+            if !isDownload {
+                didCancelProvisionalNavigation?(webView, navigation)
+            }
+            clearActiveMainFrameNavigation(ifMatching: navigation)
             return
         }
 
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
-        didFailNavigation?(webView, failedURL)
+        didFailNavigation?(webView, failedURL, error.localizedDescription, navigation)
+        clearActiveMainFrameNavigation(ifMatching: navigation)
         loadErrorPage(
             in: webView,
             failedURL: failedURL,
@@ -160,11 +187,12 @@ import WebKit
 
         if basicAuthPromptCoordinator.handle(
             challenge: challenge,
-            startPrompt: { [presentAlert] finishPrompt, registerCancelPrompt in
+            startPrompt: { [presentAlert, owner] finishPrompt, registerCancelPrompt in
                 browserHandleHTTPBasicAuthenticationChallenge(
                     in: webView,
                     challenge: challenge,
                     presentAlert: presentAlert,
+                    browserPanel: owner,
                     registerCancelPrompt: registerCancelPrompt,
                     completionHandler: finishPrompt
                 )
@@ -177,7 +205,18 @@ import WebKit
         if clientCertificateAuthenticationController.handle(
             challenge: challenge,
             in: webView,
-            presentAlert: presentAlert,
+            presentAlert: { [weak owner, presentAlert] alert, webView, completion, cancel in
+                if let owner {
+                    owner.presentMobileClientCertificateAlert(
+                        alert,
+                        webView: webView,
+                        completion: completion,
+                        cancel: cancel
+                    )
+                } else {
+                    presentAlert(alert, webView, completion, cancel)
+                }
+            },
             completionHandler: completionHandler
         ) {
             return
@@ -207,6 +246,11 @@ import WebKit
         return .urlOnly
     }
 
+    func activeErrorPageRetryForAutomation() -> BrowserErrorPageRetry? {
+        guard let failedURL = activeErrorPageDisplayURL?.absoluteString else { return nil }
+        return retryForFailedNavigation(failedURL: failedURL)
+    }
+
     private func loadErrorPage(in webView: WKWebView, failedURL: String, retry: BrowserErrorPageRetry, error: NSError) {
         activeSSLTrustBypassReplayRequest = nil
         activeSSLTrustBypassErrorPageRetryRequest = nil
@@ -234,9 +278,24 @@ import WebKit
             return
         }
 
+        if let url = navigationAction.request.url,
+           BrowserFileDropNavigationGuard.isDropFallbackNavigation(
+               url: url,
+               isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+               navigationType: navigationAction.navigationType
+           ),
+           let droppedURLs = BrowserFileDropNavigationGuard.shared.consumeDropNavigation(webView: webView, url: url),
+           handleDroppedFileNavigation?(droppedURLs) == true {
+#if DEBUG
+            cmuxDebugLog("browser.nav.decidePolicy.action kind=dropFilePreview url=\(browserNavigationDebugURL(url))")
+#endif
+            decisionHandler(.cancel)
+            return
+        }
+
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
             if let requestNavigation {
-                requestNavigation(request, .newTab)
+                requestNavigation(request, .newTab, nil)
                 return
             }
             if let url = request.url {
@@ -252,6 +311,9 @@ import WebKit
         )
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
+        if navigationAction.targetFrame?.isMainFrame == true {
+            pendingMainFrameDownloadRestoreAttemptID = currentRestoreAttemptID?()
+        }
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -268,6 +330,58 @@ import WebKit
             "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
         )
 #endif
+
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.targetFrame?.isMainFrame != false,
+           let url = navigationAction.request.url,
+           let appLink = BrowserAppLinkOpenRequest(
+               url: url,
+               webOrigin: AuthEnvironment.appSessionHandoffOrigin
+           ),
+           openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
+            clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                navigationAction,
+                webView
+            ) ?? {}
+            reportTerminalCancellation()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=openAppLinkInBrowserSplit " +
+                "url=\(browserNavigationDebugURL(appLink.destinationURL))"
+            )
+#endif
+            decisionHandler(.cancel)
+            return
+        }
+
+        if let url = navigationAction.request.url,
+           shouldOpenInSystemBrowser(navigationAction, url: url) {
+            clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let opened = NSWorkspace.shared.open(url)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=openExternalIntentInSystemBrowser opened=\(opened ? 1 : 0) " +
+                "url=\(browserNavigationDebugURL(url))"
+            )
+#endif
+            if opened {
+                reportTerminalCancellation()
+            } else if restartNavigationForUserAgentPolicyIfNeeded(
+                navigationAction,
+                in: webView,
+                decisionHandler: decisionHandler
+            ) {
+                return
+            }
+            decisionHandler(opened ? .cancel : .allow)
+            return
+        }
+
+        if handleAuthCallbackNavigationAction(navigationAction, webView: webView, decisionHandler: decisionHandler) {
+            return
+        }
 
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
@@ -289,25 +403,29 @@ import WebKit
             return
         }
 
-        // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
-        // Hand these off to macOS so the owning app can handle them.
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            // WKNavigationAction has no public WKNavigation identity. Keep the replacement
+            // unbound so the exact original policy cancellation terminates automation.
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
                 webView: webView,
                 loadFallbackRequest: { [requestNavigation] request in
-                    requestNavigation?(request, .currentTab)
+                    requestNavigation?(request, .currentTab, nil)
                 },
-                presentAlert: presentAlert
+                presentAlert: presentAlert,
+                onTerminalExternalNavigation: reportTerminalCancellation
             )
             decisionHandler(.cancel)
             return
         }
 
         if navigationAction.shouldPerformDownload {
+            // Action-policy downloads expose no WKNavigation identity. Only a response-policy
+            // conversion can authorize automation success for an exact provisional navigation.
             if navigationAction.targetFrame?.isMainFrame == false {
                 guard let url = navigationAction.request.url else {
                     decisionHandler(.cancel)
@@ -337,14 +455,13 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
+            reportTerminalCancellation()
             decisionHandler(.cancel)
             return
         }
 
-        // target=_blank link navigations should open in a new tab.
-        // Scripted popups (navigationType == .other) are handled in
-        // WKUIDelegate.createWebViewWith so OAuth opener linkage survives.
         if navigationAction.targetFrame == nil,
            browserNavigationShouldFallbackNilTargetToNewTab(
                navigationType: navigationAction.navigationType
@@ -356,7 +473,9 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
+            reportTerminalCancellation()
             decisionHandler(.cancel)
             return
         }
@@ -379,7 +498,110 @@ import WebKit
                 clearAttemptedRequest()
             }
         }
+        if restartNavigationForUserAgentPolicyIfNeeded(
+            navigationAction,
+            in: webView,
+            decisionHandler: decisionHandler
+        ) {
+            return
+        }
         decisionHandler(.allow)
+    }
+
+    let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy(
+        trustedSourcePageOrigin: AuthEnvironment.appSessionHandoffOrigin,
+        callbackScheme: AuthEnvironment.callbackScheme
+    )
+
+    /// Handles auth-callback-shaped navigation actions. Returns `true` when
+    /// the navigation was consumed (delivered in-app or blocked); the caller
+    /// must stop policy evaluation in that case.
+    private func handleAuthCallbackNavigationAction(
+        _ navigationAction: WKNavigationAction,
+        webView: WKWebView,
+        decisionHandler: (WKNavigationActionPolicy) -> Void
+    ) -> Bool {
+        guard let url = navigationAction.request.url else { return false }
+        let disposition = authCallbackNavigationPolicy.disposition(
+            for: navigationAction,
+            url: url
+        )
+        return authCallbackNavigationPolicy.consume(
+            disposition: disposition,
+            callbackURL: url,
+            sourcePageURL: webView.url,
+            cancelNavigation: { [self] in
+                clearAttemptedRequest(discardPendingBypasses: true)
+                decisionHandler(.cancel)
+            },
+            reportTerminalCancellation: { [self] in
+                let report = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+                report()
+            },
+            deliver: authCallbackNavigationPolicy.deliverAuthCallbackInApp,
+            completion: { [weak self, weak webView] delivered, returnURL in
+                guard let self, let webView else { return }
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.nav.decidePolicy.action kind=deliverNativeAuthCallbackInApp " +
+                    "delivered=\(delivered ? 1 : 0) scheme=\(url.scheme ?? "nil")"
+                )
+#endif
+                BrowserAuthCallbackNavigationPolicy.finishDelivery(
+                    delivered: delivered,
+                    returnURL: returnURL,
+                    in: webView,
+                    prepareReturnRequest: { [weak self] request in
+                        self?.recordAttemptedRequest(request)
+                    },
+                    presentAlert: presentAlert
+                )
+            }
+        )
+    }
+
+    private func restartNavigationForUserAgentPolicyIfNeeded(
+        _ navigationAction: WKNavigationAction,
+        in webView: WKWebView,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) -> Bool {
+        guard let requestNavigation else {
+            _ = webView.browserUserAgentPolicyRestartRequest(
+                for: navigationAction.request,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            )
+            return false
+        }
+
+        let replacedNavigation = activeMainFrameNavigation
+        let reportReplacementWillStart = willReplaceNavigationForUserAgentPolicy
+        return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
+            navigationAction,
+            decisionHandler: decisionHandler,
+            willRestart: {
+                reportReplacementWillStart?(webView, replacedNavigation)
+            },
+            startReplacement: { restartRequest in
+                requestNavigation(restartRequest, .currentTab, { [weak self, weak webView] replacementNavigation in
+                    guard let self, let webView else { return }
+                    self.didReplaceNavigationForUserAgentPolicy?(
+                        webView,
+                        replacedNavigation,
+                        replacementNavigation
+                    )
+                })
+            }
+        )
+    }
+
+    private func shouldOpenInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
+        guard navigationAction.targetFrame?.isMainFrame != false else { return false }
+        guard navigationAction.navigationType == .linkActivated else { return false }
+        return externalNavigationPolicy.shouldOpenInSystemBrowser(
+            url,
+            sourceURL: navigationAction.sourceFrame.request.url
+                ?? owner?.webView.url
+        )
     }
 
     func canHandleSSLTrustBypassToken(_ token: String) -> Bool {
@@ -456,9 +678,6 @@ import WebKit
         let mime = navigationResponse.response.mimeType ?? "unknown"
         let canShow = navigationResponse.canShowMIMEType
 
-        // Only classify HTTP(S) responses as downloads. Subframes are eligible
-        // only for explicit attachment/force-download MIME decisions; the
-        // resolver keeps cannot-show MIME fallback scoped to main-frame loads.
         if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
            scheme != "http", scheme != "https" {
             decisionHandler(.allow)
@@ -516,6 +735,11 @@ import WebKit
             #if DEBUG
             cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
+            if navigationResponse.isForMainFrame {
+                // A main-frame response follows didStartProvisionalNavigation, so this is the
+                // exact WKNavigation whose response WebKit is converting into a download.
+                didChooseMainFrameDownloadPolicy?(webView, activeMainFrameNavigation)
+            }
             decisionHandler(.download)
             return
         }
@@ -556,35 +780,31 @@ import WebKit
             .caseInsensitiveCompare("application/pdf") == .orderedSame
     }
 
+    private func clearActiveMainFrameNavigation(ifMatching navigation: WKNavigation?) {
+        guard activeMainFrameNavigation === navigation else { return }
+        activeMainFrameNavigation = nil
+    }
+
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        let restoreAttemptID = isMainFrame ? pendingMainFrameDownloadRestoreAttemptID : nil
         #if DEBUG
         cmuxDebugLog("download.didBecome source=navigationAction")
         #endif
         NSLog("BrowserPanel download didBecome from navigationAction")
+        didBecomeDownload?(webView, isMainFrame, restoreAttemptID)
+        if isMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        let restoreAttemptID = navigationResponse.isForMainFrame ? pendingMainFrameDownloadRestoreAttemptID : nil
         #if DEBUG
         cmuxDebugLog("download.didBecome source=navigationResponse")
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
+        didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
+        if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         download.delegate = downloadDelegate
-    }
-}
-
-extension WKWebView {
-    @MainActor
-    func cmuxRunPrintOperation() {
-        guard #available(macOS 11.0, *) else { return }
-        let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
-        let operation = printOperation(with: printInfo)
-        operation.showsPrintPanel = true
-        operation.showsProgressPanel = true
-        if let window {
-            operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
-        } else {
-            operation.run()
-        }
     }
 }

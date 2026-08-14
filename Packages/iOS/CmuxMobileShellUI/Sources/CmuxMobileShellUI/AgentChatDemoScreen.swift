@@ -1,4 +1,5 @@
 #if DEBUG
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileSupport
@@ -11,13 +12,29 @@ import SwiftUI
 /// host serves real transcripts.
 struct AgentChatDemoScreen: View {
     let style: AgentChatDemoScreenStyle
+    private let fixedArtifactLoader: ChatArtifactLoader?
 
     @Environment(\.dismiss) private var dismiss
     @State private var stack: DemoStack?
     @State private var contentWidth: CGFloat = 0
+    @State private var selectedFailureScenario: AgentChatFailureScenario
+    @State private var showingFailureScenarioPicker = false
 
-    init(style: AgentChatDemoScreenStyle = .standalone) {
+    init(
+        style: AgentChatDemoScreenStyle = .standalone,
+        artifactLoader: ChatArtifactLoader? = nil
+    ) {
         self.style = style
+        self.fixedArtifactLoader = artifactLoader
+        _selectedFailureScenario = State(initialValue: .fileNotFound)
+    }
+
+    private var usesFailureScenarioPicker: Bool {
+        style == .standalone && fixedArtifactLoader == nil
+    }
+
+    private var activeArtifactLoader: ChatArtifactLoader {
+        fixedArtifactLoader ?? selectedFailureScenario.loader
     }
 
     var body: some View {
@@ -42,8 +59,32 @@ struct AgentChatDemoScreen: View {
                         Button(L10n.string("mobile.common.done", defaultValue: "Done")) { dismiss() }
                             .accessibilityIdentifier("AgentChatDemoDone")
                     }
+                    if usesFailureScenarioPicker {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                showingFailureScenarioPicker = true
+                            } label: {
+                                Label(
+                                    L10n.string(
+                                        "mobile.settings.agentChat.failureScenario",
+                                        defaultValue: "Failure scenario"
+                                    ),
+                                    systemImage: "list.bullet.rectangle"
+                                )
+                            }
+                            .accessibilityIdentifier("AgentChatFailureScenarioMenu")
+                            .accessibilityValue(Text(verbatim: selectedFailureScenario.title))
+                        }
+                    }
                 }
             }
+        }
+        .sheet(isPresented: $showingFailureScenarioPicker) {
+            AgentChatFailureScenarioPicker(selection: $selectedFailureScenario)
+        }
+        .onChange(of: selectedFailureScenario) { _, _ in
+            guard usesFailureScenarioPicker else { return }
+            stack = nil
         }
     }
 
@@ -59,6 +100,27 @@ struct AgentChatDemoScreen: View {
                     }
                 }
         case .inlineWorkspace:
+            let value = WorkspaceTitleMenuValue(
+                contentWidth: contentWidth,
+                hasBackButton: true,
+                hasTrailingCluster: true,
+                hasChatToggle: true,
+                isEnabled: true,
+                workspaceName: inlineWorkspaceTitle ?? "",
+                hasUnread: false,
+                canCustomizeWorkspace: false,
+                canRenameWorkspace: true,
+                canToggleReadState: true,
+                canCloseWorkspace: false,
+                labelToken: .chat(
+                    descriptor: stack.store.descriptor,
+                    agentState: stack.store.agentState,
+                    isConnected: stack.store.isConnected,
+                    titleOverride: inlineWorkspaceTitle,
+                    subtitle: inlineWorkspaceSubtitle
+                ),
+                terminalTheme: .monokai
+            )
             baseChatScreen(for: stack)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .toolbar {
@@ -71,18 +133,33 @@ struct AgentChatDemoScreen: View {
                     }
                     ToolbarItem(placement: .principal) {
                         WorkspaceTitleMenu(
-                            contentWidth: contentWidth,
-                            hasBackButton: true,
-                            hasTrailingCluster: true,
-                            hasChatToggle: true
-                        ) {
-                            Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
-                                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
-                            Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
-                                .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
-                        } label: {
-                            header(for: stack)
-                        }
+                            value: value,
+                            menuContent: {
+                                Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
+                                    .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
+                                Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
+                                    .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
+                            },
+                            label: {
+                                if case .chat(
+                                    let descriptor,
+                                    let agentState,
+                                    let isConnected,
+                                    let titleOverride,
+                                    let subtitle
+                                ) = value.labelToken {
+                                    ChatSessionHeaderView(
+                                        descriptor: descriptor,
+                                        agentState: agentState,
+                                        isConnected: isConnected,
+                                        titleOverride: titleOverride,
+                                        subtitle: subtitle,
+                                        style: .toolbarCompact
+                                    )
+                                }
+                            }
+                        )
+                        .equatable()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -111,6 +188,7 @@ struct AgentChatDemoScreen: View {
                 providesOwnChrome: false,
                 onOpenTerminal: {}
             )
+            .environment(\.chatArtifactLoader, activeArtifactLoader)
         case .inlineWorkspace:
             ChatScreen(
                 store: stack.store,
@@ -119,6 +197,7 @@ struct AgentChatDemoScreen: View {
                 providesOwnChrome: false,
                 onOpenTerminal: {}
             )
+            .environment(\.chatArtifactLoader, activeArtifactLoader)
         }
     }
 

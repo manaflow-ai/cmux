@@ -29,7 +29,7 @@ zero_test_files=()
 skipped_test_files=()
 for test_file in "${test_files[@]}"; do
   printf '\n==> bun test %s\n' "$test_file"
-  output_file="$(mktemp /tmp/cmux-db-behavior-test.XXXXXX.log)"
+  output_file="$(mktemp /tmp/cmux-db-behavior-test.XXXXXX)"
   set +e
   bun test "$test_file" 2>&1 | tee "$output_file"
   test_status=${PIPESTATUS[0]}

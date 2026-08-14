@@ -960,6 +960,10 @@ struct FileSearchControllerTests {
         // updateVisibility runs on every store/content update and is unguarded; a second
         // identical pass must not invalidate layout.
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        // This container is windowless and never runs a layout pass, so the real invalidations
+        // above leave layout pending and `needsLayout = false` does not take effect. Run the
+        // pending pass first so each probe below measures only new invalidations.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
         #expect(
@@ -969,6 +973,7 @@ struct FileSearchControllerTests {
 
         // The guard-else in updatePresentation(.find) re-runs updateSearchLayout on every
         // redundant pass (the Cmd+Shift+F re-entry path); it must be a no-op too.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updatePresentation(.find)
         #expect(
@@ -978,6 +983,7 @@ struct FileSearchControllerTests {
 
         // Positive control: a genuine visibility change must still invalidate layout, so
         // the no-op assertions above are meaningful rather than vacuous.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updateVisibility(hasContent: false, isLoading: false, statusMessage: nil)
         #expect(

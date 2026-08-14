@@ -34,6 +34,16 @@ enum AppearanceSettings {
         let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
         let systemAppearance: () -> NSAppearance?
 
+        init(
+            setApplicationAppearance: @escaping (NSAppearance?) -> Void,
+            synchronizeTerminalThemeWithAppearance: @escaping (NSAppearance?, String) -> Void,
+            systemAppearance: @escaping () -> NSAppearance?
+        ) {
+            self.setApplicationAppearance = setApplicationAppearance
+            self.synchronizeTerminalThemeWithAppearance = synchronizeTerminalThemeWithAppearance
+            self.systemAppearance = systemAppearance
+        }
+
         static var live: LiveApplyEnvironment {
             AppearanceSettings.currentLiveEnvironmentProvider()()
         }
@@ -136,6 +146,28 @@ enum AppearanceSettings {
 
     static func colorScheme(for rawValue: String?, fallback: ColorScheme) -> ColorScheme {
         colorSchemeOverride(for: rawValue) ?? fallback
+    }
+
+    /// Resolves the color scheme the chrome should render with. Explicit modes
+    /// win. After launch, system mode resolves from the app's live
+    /// effectiveAppearance, which (unlike the AppleInterfaceStyle default) stays
+    /// fresh on scripted appearance changes. During launch, use the ambient
+    /// fallback because Tahoe can crash if effectiveAppearance is touched before
+    /// applicationDidFinishLaunching.
+    @MainActor
+    static func effectiveColorScheme(
+        for rawValue: String?,
+        fallback: ColorScheme,
+        isApplicationFinishedLaunching: @MainActor () -> Bool = AppIconLaunchState.isApplicationFinishedLaunching,
+        effectivePrefersDark: @MainActor () -> Bool? = {
+            guard let app = NSApp else { return nil }
+            return app.effectiveAppearance.cmuxPrefersDark
+        }
+    ) -> ColorScheme {
+        if let override = colorSchemeOverride(for: rawValue) { return override }
+        guard isApplicationFinishedLaunching() else { return fallback }
+        guard let prefersDark = effectivePrefersDark() else { return fallback }
+        return prefersDark ? .dark : .light
     }
 
     @discardableResult
@@ -309,16 +341,34 @@ final class AppearanceSettingsUserDefaultsObserver {
     }
 }
 
+/// Re-resolves and re-injects the color scheme at the window root.
+///
+/// In system mode, the ambient `colorScheme` supplied by the hosting bridge's
+/// `@Environment` can go stale on scripted OS appearance changes (Shortcuts'
+/// "Set Appearance", #6385) — SwiftUI doesn't reliably re-resolve it for
+/// already-visible windows. So in system mode this modifier ignores the
+/// ambient value and instead resolves fresh from `NSApp.effectiveAppearance`
+/// (see `AppearanceSettings.effectiveColorScheme`), then re-injects the result
+/// at the window root via `.environment(\.colorScheme, ...)` so it propagates
+/// to every descendant that reads the ambient color scheme. Re-resolution is
+/// keyed off `.systemAppearanceDidChange`, which `SystemAppearanceObserver`
+/// posts whenever the effective appearance actually changes while in system
+/// mode.
 private struct AppearanceColorSchemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @State private var systemAppearanceGeneration = 0
     let rawValue: String?
 
     func body(content: Content) -> some View {
         let override = AppearanceSettings.colorSchemeOverride(for: rawValue)
-        let effective = AppearanceSettings.colorScheme(for: rawValue, fallback: colorScheme)
+        let _ = systemAppearanceGeneration
+        let effective = AppearanceSettings.effectiveColorScheme(for: rawValue, fallback: colorScheme)
         content
             .environment(\.colorScheme, effective)
             .preferredColorScheme(override)
+            .onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
+                systemAppearanceGeneration &+= 1
+            }
     }
 }
 

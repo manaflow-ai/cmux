@@ -16,15 +16,24 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentChat"),
         .package(path: "../CmuxMobileSupport"),
+        .package(path: "../CmuxMobileToast"),
+        .package(
+            url: "https://github.com/raspu/Highlightr.git",
+            exact: "2.3.0"
+        ),
     ],
     targets: [
         .target(
             name: "CmuxAgentChatUI",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxAgentChat",
                 "CmuxMobileSupport",
+                "CmuxMobileToast",
+                .product(name: "Highlightr", package: "Highlightr"),
             ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]

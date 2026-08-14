@@ -782,7 +782,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
     func assertSuccessfulHook(_ result: ProcessRunResult) {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout == "OK\n")
+        #expect(result.stdout == "{}\n")
     }
 
     private func resumeBindingRequests(in context: ClaudeHookContext) -> [[String: Any]] {

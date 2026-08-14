@@ -110,6 +110,20 @@ struct ErrorHandlingTests {
         #expect(userExistsError.code == "USER_EMAIL_ALREADY_EXISTS")
         #expect(notSignedInError.code == "USER_NOT_SIGNED_IN")
     }
+
+    @Test("Should preserve recovery details for an existing unverified email")
+    func existingUnverifiedEmailRecoveryDetails() {
+        let message = "The existing email must be verified before OTP sign-in."
+        let error = StackAuthError.from(
+            code: "USER_EMAIL_ALREADY_EXISTS",
+            message: message,
+            details: ["would_work_if_email_was_verified": true]
+        )
+
+        #expect(error is UserWithEmailAlreadyExistsError)
+        #expect(error.message == message)
+        #expect(error.details?["would_work_if_email_was_verified"] as? Bool == true)
+    }
     
     // MARK: - Error Recovery
     

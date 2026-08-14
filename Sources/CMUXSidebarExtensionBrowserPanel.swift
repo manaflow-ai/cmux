@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject {
     let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .extensionBrowser
     let browserViewController: NSViewController
 

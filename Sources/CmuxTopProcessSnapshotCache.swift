@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private nonisolated struct CmuxTopProcessSnapshotCacheState {
+private struct CmuxTopProcessSnapshotCacheState {
     var snapshot: CmuxTopProcessSnapshot?
     var includeProcessDetails = false
     var includeCMUXScope = true
@@ -13,7 +13,7 @@ private nonisolated let cmuxTopProcessSnapshotCache = OSAllocatedUnfairLock(
     initialState: CmuxTopProcessSnapshotCacheState()
 )
 
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     static func captureCached(
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true,

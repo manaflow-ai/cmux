@@ -131,6 +131,38 @@ public final class CanvasModel {
         revision &+= 1
     }
 
+    /// Reorders a panel within its current pane by a relative offset.
+    ///
+    /// The destination is clamped to the pane's tab bounds. Reordering at an
+    /// edge succeeds without changing the layout, matching adjacent-move
+    /// semantics used by the split layout.
+    ///
+    /// - Parameters:
+    ///   - panelId: The panel to move.
+    ///   - offset: The relative final-position offset.
+    /// - Returns: Whether the panel belongs to a canvas pane.
+    @discardableResult
+    public func reorderPanel(_ panelId: UUID, by offset: Int) -> Bool {
+        let panel = CanvasPanelID(rawValue: panelId)
+        guard let paneID = layout.pane(containing: panel),
+              let panelIds = layout.panelIds(in: paneID),
+              let currentIndex = panelIds.firstIndex(of: panel),
+              !panelIds.isEmpty else { return false }
+        // `offset` may be Int.min/Int.max; saturate instead of trapping.
+        let (sum, overflowed) = currentIndex.addingReportingOverflow(offset)
+        let target = overflowed ? (offset > 0 ? Int.max : Int.min) : sum
+        let destinationIndex = min(
+            max(target, panelIds.startIndex),
+            panelIds.index(before: panelIds.endIndex)
+        )
+        guard destinationIndex != currentIndex else { return true }
+
+        layout.removePanel(panel)
+        layout.addPanel(panel, toPane: paneID, at: destinationIndex, select: true)
+        revision &+= 1
+        return true
+    }
+
     /// Moves `panelId` into the pane hosting `targetPanelId` (a join). The
     /// source pane disappears when it loses its last tab.
     /// - Returns: Whether the join happened.

@@ -13,7 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -23,8 +23,8 @@ const provider = optionValue(rest, "--provider") ?? "e2b";
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
 
-if (shouldCreate && provider !== "e2b" && provider !== "freestyle") {
-  console.error("--provider must be e2b or freestyle");
+if (shouldCreate && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
+  console.error("--provider must be e2b, freestyle, or daytona");
   process.exit(2);
 }
 

@@ -80,6 +80,8 @@ public final class ChatConversationStore {
     @ObservationIgnored private let pageSize: Int
     @ObservationIgnored private let maxWindowCount: Int
     @ObservationIgnored private let now: @Sendable () -> Date
+    @ObservationIgnored private let diagnosticObserver:
+        (@MainActor (ChatConversationDiagnosticEvent) -> Void)?
     @ObservationIgnored private var pendingCounter = 0
     @ObservationIgnored private var isFlushingQueue = false
     @ObservationIgnored private var endedByUnversionedRemoval = false
@@ -112,7 +114,8 @@ public final class ChatConversationStore {
         pageSize: Int = 100,
         maxWindowCount: Int = 600,
         now: @escaping @Sendable () -> Date = { Date() },
-        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await ContinuousClock().sleep(for: $0) }
+        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await ContinuousClock().sleep(for: $0) },
+        diagnosticObserver: (@MainActor (ChatConversationDiagnosticEvent) -> Void)? = nil
     ) {
         self.descriptor = descriptor
         self.agentState = descriptor.state
@@ -123,6 +126,7 @@ public final class ChatConversationStore {
         self.maxWindowCount = maxWindowCount
         self.now = now
         self.idleSleep = idleSleep
+        self.diagnosticObserver = diagnosticObserver
         self.lastReadSeqAtActivation = lastReadSeq
     }
 
@@ -149,6 +153,7 @@ public final class ChatConversationStore {
             let stream = await source.events(sessionID: descriptor.id)
             guard runGeneration == sourceGeneration else { continue }
             isConnected = true
+            diagnosticObserver?(.eventStreamStarted)
             let hadHistory = hasLoadedInitialHistory
             await loadInitialHistoryIfNeeded(expectedGeneration: runGeneration)
             guard runGeneration == sourceGeneration else { continue }
@@ -180,6 +185,7 @@ public final class ChatConversationStore {
             }
             guard runGeneration == sourceGeneration else { continue }
             isConnected = false
+            diagnosticObserver?(.eventStreamEnded)
             guard !Task.isCancelled else { return }
             // Back off before resubscribing unless the stream was healthy
             // (survived a while): a flapping connection dies in well under
@@ -194,6 +200,15 @@ public final class ChatConversationStore {
                 await waitForBackoffOrSourceReplacement(backoff)
             }
         }
+    }
+
+    /// Records a privacy-safe presentation event owned by the shared chat UI.
+    ///
+    /// The UI cannot access the app's diagnostics implementation directly, so
+    /// it reports only fixed-vocabulary actions through the same observer as
+    /// the conversation pipeline.
+    public func recordDiagnostic(_ event: ChatConversationDiagnosticEvent) {
+        diagnosticObserver?(event)
     }
 
     private func waitForBackoffOrSourceReplacement(_ backoff: Duration) async {
@@ -233,6 +248,7 @@ public final class ChatConversationStore {
             return
         }
         isLoadingOlder = true
+        diagnosticObserver?(.olderHistoryLoadStarted)
         defer { isLoadingOlder = false }
         let generation = sourceGeneration
         do {
@@ -256,9 +272,13 @@ public final class ChatConversationStore {
             }
             lastErrorDescription = nil
             reproject()
+            diagnosticObserver?(
+                .olderHistoryLoadSucceeded(messageCount: page.messages.count)
+            )
         } catch {
             guard generation == sourceGeneration else { return }
             lastErrorDescription = error.localizedDescription
+            diagnosticObserver?(.olderHistoryLoadFailed(error))
         }
     }
 
@@ -271,6 +291,9 @@ public final class ChatConversationStore {
     public func send(text: String, attachments: [ChatOutboundAttachment] = []) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+        diagnosticObserver?(
+            .messageSubmitStarted(attachmentCount: attachments.count)
+        )
         pendingCounter += 1
         // While the agent is working, a paste-plus-submit lands the text in
         // Claude Code's input box but the running task swallows the submit
@@ -287,7 +310,10 @@ public final class ChatConversationStore {
         )
         pending.append(item)
         reproject()
-        guard !queueWhileBusy else { return }
+        guard !queueWhileBusy else {
+            diagnosticObserver?(.messageSubmitQueued)
+            return
+        }
         await deliver(item)
     }
 
@@ -299,9 +325,11 @@ public final class ChatConversationStore {
             try await source.send(text: item.text, attachments: item.attachments, sessionID: descriptor.id)
             updatePending(id: item.id, delivery: .delivered)
             lastErrorDescription = nil
+            diagnosticObserver?(.messageSubmitSucceeded)
         } catch {
             updatePending(id: item.id, delivery: .failed(error.localizedDescription))
             lastErrorDescription = error.localizedDescription
+            diagnosticObserver?(.messageSubmitFailed(error))
         }
     }
 
@@ -327,6 +355,7 @@ public final class ChatConversationStore {
     public func retry(pendingID: String) async {
         guard let index = pending.firstIndex(where: { $0.id == pendingID }),
               case .failed = pending[index].delivery else { return }
+        diagnosticObserver?(.messageRetried)
         // Same queue-while-busy rule as send(): delivering into a working agent
         // strands the submit Enter. Re-queue and let flushQueuedSends deliver it
         // in turn order on the next idle transition.
@@ -353,20 +382,27 @@ public final class ChatConversationStore {
         do {
             try await source.interrupt(sessionID: descriptor.id, hard: hard)
             lastErrorDescription = nil
+            diagnosticObserver?(.interruptSucceeded)
         } catch {
             lastErrorDescription = error.localizedDescription
+            diagnosticObserver?(.interruptFailed(error))
         }
     }
 
     /// Answers a pending question or permission card by option index.
     ///
     /// - Parameter optionIndex: Zero-based index of the chosen option.
-    public func answer(optionIndex: Int) async {
+    public func answer(
+        optionIndex: Int,
+        kind: ChatAnswerKind = .question
+    ) async {
         do {
             try await source.answer(optionIndex: optionIndex, sessionID: descriptor.id)
             lastErrorDescription = nil
+            diagnosticObserver?(.answerSucceeded(kind))
         } catch {
             lastErrorDescription = error.localizedDescription
+            diagnosticObserver?(.answerFailed(kind, error))
         }
     }
 
@@ -374,6 +410,7 @@ public final class ChatConversationStore {
 
     private func loadInitialHistoryIfNeeded(expectedGeneration: Int? = nil) async {
         guard !hasLoadedInitialHistory else { return }
+        diagnosticObserver?(.historyLoadStarted)
         let generation = expectedGeneration ?? sourceGeneration
         // A fresh newest-page load re-anchors paging; truncated-at-head is only
         // re-discovered if a later loadOlder hits the Mac cache head.
@@ -403,15 +440,18 @@ public final class ChatConversationStore {
             initialLoadFailed = false
             lastErrorDescription = nil
             reproject()
+            diagnosticObserver?(
+                .historyLoadSucceeded(messageCount: page.messages.count)
+            )
         } catch {
             guard generation == sourceGeneration else { return }
-            // Only flag failure while the initial load is still pending: a
-            // racing duplicate fetch (retry button vs reconnect) that fails
-            // AFTER another succeeded must not strand a dead error UI.
-            if !hasLoadedInitialHistory {
-                initialLoadFailed = true
-            }
+            // A racing duplicate fetch (retry button vs reconnect) can fail
+            // after another request already established the transcript. That
+            // stale outcome owns neither UI error state nor diagnostics.
+            guard !hasLoadedInitialHistory else { return }
+            initialLoadFailed = true
             lastErrorDescription = error.localizedDescription
+            diagnosticObserver?(.historyLoadFailed(error))
         }
     }
 
@@ -565,6 +605,17 @@ public final class ChatConversationStore {
         switch event {
         case .appended(let newMessages):
             let freshMessages = newMessages.filter { !knownWindowIDs.contains($0.id) }
+            let artifactCount = freshMessages.reduce(into: 0) { count, message in
+                switch message.kind {
+                case .fileEdit, .attachment:
+                    count += 1
+                default:
+                    break
+                }
+            }
+            if artifactCount > 0 {
+                diagnosticObserver?(.artifactDiscovered(count: artifactCount))
+            }
             var reconciledPendingEchoIDs = Set<String>()
             reconcilePending(against: newMessages) { reconciledPendingEchoIDs.insert($0.id) }
             let pendingEchoIDs = pendingEchoBatchIDs(in: newMessages, reconciledPendingEchoIDs: reconciledPendingEchoIDs)

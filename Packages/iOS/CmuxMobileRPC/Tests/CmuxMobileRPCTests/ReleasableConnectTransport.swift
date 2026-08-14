@@ -10,6 +10,14 @@ actor ReleasableConnectTransport: CmxByteTransport {
     private var connectStarted = false
     private var connectReleased = false
     private var isClosed = false
+    private var closeStarted = false
+    private var closeReleased: Bool
+    private var closeStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var closeReleaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(holdsClose: Bool = false) {
+        closeReleased = !holdsClose
+    }
 
     func connect() async throws {
         connectStarted = true
@@ -62,6 +70,15 @@ actor ReleasableConnectTransport: CmxByteTransport {
         for waiter in waiters {
             waiter.resume(returning: nil)
         }
+        closeStarted = true
+        for waiter in closeStartWaiters {
+            waiter.resume()
+        }
+        closeStartWaiters = []
+        guard !closeReleased else { return }
+        await withCheckedContinuation {
+            closeReleaseWaiters.append($0)
+        }
     }
 
     func releaseConnect() {
@@ -72,6 +89,21 @@ actor ReleasableConnectTransport: CmxByteTransport {
 
     func closed() -> Bool {
         isClosed
+    }
+
+    func waitUntilCloseStarted() async {
+        if closeStarted { return }
+        await withCheckedContinuation {
+            closeStartWaiters.append($0)
+        }
+    }
+
+    func releaseClose() {
+        closeReleased = true
+        for waiter in closeReleaseWaiters {
+            waiter.resume()
+        }
+        closeReleaseWaiters = []
     }
 
     func waitUntilConnectStarted() async -> Bool {

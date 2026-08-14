@@ -79,7 +79,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
-
         let highlightConfigChanged = textView.configureSyntaxHighlighting(
             language: syntaxLanguage,
             prefersDarkPalette: prefersDarkSyntaxPalette,
@@ -88,9 +87,26 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 
         let textChanged = textView.string != panel.textContent
         if textChanged {
+            let selectedRanges = textView.selectedRanges
+            let visibleOrigin = scrollView.contentView.bounds.origin
             context.coordinator.isApplyingPanelUpdate = true
             textView.string = panel.textContent
             context.coordinator.isApplyingPanelUpdate = false
+            let contentLength = (textView.string as NSString).length
+            let clampedRanges = selectedRanges.map { value -> NSValue in
+                let range = value.rangeValue
+                let location = min(range.location, contentLength)
+                let length = min(range.length, contentLength - location)
+                return NSValue(range: NSRange(location: location, length: length))
+            }
+            textView.setSelectedRanges(clampedRanges, affinity: .downstream, stillSelecting: false)
+            scrollView.layoutSubtreeIfNeeded()
+            let clipView = scrollView.contentView
+            let constrained = clipView.constrainBoundsRect(
+                NSRect(origin: visibleOrigin, size: clipView.bounds.size)
+            )
+            clipView.scroll(to: constrained.origin)
+            scrollView.reflectScrolledClipView(clipView)
         }
 
         if textChanged || highlightConfigChanged {
@@ -480,6 +496,12 @@ final class SavingTextView: NSTextView {
     }
 
     private func handleEditorShortcut(_ event: NSEvent) -> Bool {
+        if hasMarkedText(),
+           shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            clearPendingShortcutChordPrefixes()
+            return false
+        }
+
         let candidates = editorShortcutCandidates()
         if let pendingPrefix = pendingEditorShortcutChordPrefix {
             pendingEditorShortcutChordPrefix = nil

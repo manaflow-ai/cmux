@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileBrowser
@@ -23,9 +24,20 @@ struct WorkspaceChatPane: View {
     let onExitChat: () -> Void
 
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
 
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
+    @State private var artifactThumbnailCache = ChatArtifactThumbnailCache()
+    @State private var cachedArtifactLoader: CachedArtifactLoader?
+
+    private var shortcutSettingsPresentation: MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(
+            for: .workspaceDetail(.chatShortcutsSettings),
+            fallback: $isShowingShortcutSettings
+        )
+            ?? MobileChildSheetPresentation(isPresented: $isShowingShortcutSettings)
+    }
 
     var body: some View {
         Group {
@@ -36,12 +48,66 @@ struct WorkspaceChatPane: View {
                 accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
                 providesOwnChrome: false,
                 runsStoreTask: false,
+                onDictationDiagnosticEvent: { event in
+                    event.recordAppDiagnostic(
+                        correlationID: session.id,
+                        store: store
+                    )
+                },
                 onOpenTerminal: openTerminal
             )
+            .environment(\.chatArtifactLoader, artifactLoader)
         }
-        .sheet(isPresented: $isShowingShortcutSettings) {
+        .sheet(
+            isPresented: shortcutSettingsPresentation.isPresented,
+            onDismiss: shortcutSettingsPresentation.didDismiss
+        ) {
             TerminalShortcutsSettingsView(scope: .agentChat)
         }
+        .task(id: artifactLoaderKey) {
+            cachedArtifactLoader = CachedArtifactLoader(
+                key: artifactLoaderKey,
+                loader: makeArtifactLoader(for: artifactLoaderKey)
+            )
+        }
+        .onDisappear {
+            store.recordAppEvent(
+                .chatClosed,
+                correlationID: session.id
+            )
+        }
+    }
+
+    private var artifactLoader: ChatArtifactLoader {
+        let key = artifactLoaderKey
+        if let cachedArtifactLoader, cachedArtifactLoader.key == key {
+            return cachedArtifactLoader.loader
+        }
+        return .unsupported(cache: artifactThumbnailCache)
+    }
+
+    private var artifactLoaderKey: ArtifactLoaderKey {
+        ArtifactLoaderKey(
+            sessionID: session.id,
+            supportsArtifacts: store.supportsChatArtifacts
+        )
+    }
+
+    private func makeArtifactLoader(for key: ArtifactLoaderKey) -> ChatArtifactLoader {
+        guard key.supportsArtifacts,
+              let source = store.makeChatEventSource()
+        else {
+            return .unsupported(
+                cache: artifactThumbnailCache,
+                diagnosticLog: store.diagnosticLog
+            )
+        }
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: key.sessionID,
+            cache: artifactThumbnailCache,
+            diagnosticLog: store.diagnosticLog
+        )
     }
 
     /// The escape hatch: select the session's terminal surface, then leave
@@ -106,7 +172,7 @@ struct WorkspaceChatPane: View {
                 ),
                 tint: .secondary
             ) {
-                isShowingShortcutSettings = true
+                shortcutSettingsPresentation.present()
             },
         ]
     }
@@ -167,9 +233,7 @@ struct WorkspaceChatPane: View {
         guard let terminalID = session.terminalID,
               let data = text.data(using: .utf8)
         else { return }
-        Task {
-            await store.submitTerminalRawInput(data, surfaceID: terminalID)
-        }
+        store.sendTerminalRawInput(data, surfaceID: terminalID)
     }
 
     private func validSymbolName(_ symbolName: String?) -> String? {
@@ -182,4 +246,15 @@ struct WorkspaceChatPane: View {
         return symbolName
     }
 }
+
+private struct ArtifactLoaderKey: Equatable, Hashable {
+    let sessionID: String
+    let supportsArtifacts: Bool
+}
+
+private struct CachedArtifactLoader {
+    let key: ArtifactLoaderKey
+    let loader: ChatArtifactLoader
+}
+
 #endif

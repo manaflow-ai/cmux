@@ -14,6 +14,7 @@ This package owns the listener server (`SocketControlServer`: reservation, bind/
 ## Types
 
 - `SocketControlServer` — the listener state machine: startup path reservation, `start`/`stop`, generation-counted accept source with failure backoff and rearm, the socket-path monitor, and synchronous reads (`isRunning`, `activeSocketPath`, `listenerHealth`). State lives under one lock because every driver is synchronous (DispatchSource handlers, client reader threads, app-termination teardown); see the type docs for the carve-out rationale.
+- `SocketControlServerConfiguration` and `SocketControlServer.reconfigure(accessMode:)` — the value snapshot and live policy update seam used by config reload and Settings changes. Connection workers read the published current mode; active listeners reapply file permissions without rebinding, and `off` stops the listener.
 - `SocketControlServerEvents` — the host-callback seam: telemetry breadcrumbs/failures, listener-started, accepted-client hand-off (host owns the fd), path-missing and rearm restart triggers, last-socket-path recording.
 - `SocketFastPathState` — per-surface dedupe for high-frequency `report_*` telemetry.
 - `SocketTransport` — stateless syscall layer: socket-path identity (`SocketPathIdentity`) and liveness probing (`SocketPathProbeResult`), advisory lock-file arbitration (`SocketPathLockAcquisition`), listener binding (`SocketBindAttemptResult`), accepted-client configuration, peer PID/UID/ancestry checks, `writeAll`, and the one-shot `probeCommand` client.
@@ -29,6 +30,7 @@ The server is constructed with an injected initial path and a recording event se
 ```swift
 let server = SocketControlServer(
     initialSocketPath: path,
+    notificationCenter: .default,
     events: recorder.makeEvents()  // closures appending into a lock-guarded recorder
 )
 #expect(server.start(socketPath: path, accessMode: .cmuxOnly))

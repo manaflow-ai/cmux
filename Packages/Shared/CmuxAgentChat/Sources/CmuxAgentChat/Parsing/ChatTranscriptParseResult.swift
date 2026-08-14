@@ -20,6 +20,11 @@ public struct ChatTranscriptParseResult: Sendable, Equatable {
     /// seq; callers replace the stored message by id.
     public let updatedMessages: [ChatMessage]
 
+    /// Artifact occurrences captured from raw pre-budget text or from
+    /// artifacts-only sidechain traffic that is intentionally absent from
+    /// ``messages``.
+    public let artifactReferences: [ChatArtifactTranscriptReference]
+
     /// Carry-over state to pass into the next parse call.
     public let state: ChatTranscriptParseState
 
@@ -28,14 +33,17 @@ public struct ChatTranscriptParseResult: Sendable, Equatable {
     /// - Parameters:
     ///   - messages: Messages newly produced by this call.
     ///   - updatedMessages: Completed re-emissions of earlier messages.
+    ///   - artifactReferences: Raw-text and sidechain artifact occurrences.
     ///   - state: Carry-over state for the next call.
     public init(
         messages: [ChatMessage],
         updatedMessages: [ChatMessage],
+        artifactReferences: [ChatArtifactTranscriptReference] = [],
         state: ChatTranscriptParseState
     ) {
         self.messages = messages
         self.updatedMessages = updatedMessages
+        self.artifactReferences = artifactReferences
         self.state = state
     }
 }

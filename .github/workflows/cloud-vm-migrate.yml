@@ -30,7 +30,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/main
+          # Staging must rehearse the dispatched branch before it can merge.
+          # Production remains pinned to reviewed main for both preflight and
+          # the prerequisite staging migration.
+          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -63,7 +66,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/main
+          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

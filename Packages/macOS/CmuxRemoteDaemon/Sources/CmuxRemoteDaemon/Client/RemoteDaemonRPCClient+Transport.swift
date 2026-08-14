@@ -19,7 +19,7 @@ extension RemoteDaemonRPCClient {
             self.stderrPipe = stderrPipe
         }
 
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.executableURL = URL(fileURLWithPath: transportExecutableOverride ?? "/usr/bin/ssh")
         process.arguments = configuration.daemonTransportArguments(remotePath: remotePath)
         process.environment = configuration.sshProcessEnvironment
         process.standardInput = stdinPipe
@@ -233,7 +233,7 @@ extension RemoteDaemonRPCClient {
     }
 
     static func usesSocketForwardTransport(configuration: WorkspaceRemoteConfiguration) -> Bool {
-        configuration.transport == .ssh && configuration.skipDaemonBootstrap
+        configuration.transport == .ssh && configuration.skipDaemonBootstrap && configuration.daemonWebSocketEndpoint == nil
     }
 
     static func allocateLoopbackPort() throws -> Int {

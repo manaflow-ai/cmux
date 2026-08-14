@@ -18,6 +18,7 @@ private final class ServerEventRecorder: Sendable {
         var failures: [FailureEvent] = []
         var started: [(path: String, generation: UInt64)] = []
         var recordedPaths: [String] = []
+        var cleanedPaths: [(path: String, lockWasHeld: Bool)] = []
         var pathMissing: [(path: String, generation: UInt64)] = []
         var rearms: [(generation: UInt64, errnoCode: Int32, consecutiveFailures: Int, delayMs: Int)] = []
     }
@@ -28,6 +29,7 @@ private final class ServerEventRecorder: Sendable {
     var failures: [FailureEvent] { state.withLock { $0.failures } }
     var started: [(path: String, generation: UInt64)] { state.withLock { $0.started } }
     var recordedPaths: [String] { state.withLock { $0.recordedPaths } }
+    var cleanedPaths: [(path: String, lockWasHeld: Bool)] { state.withLock { $0.cleanedPaths } }
     var pathMissing: [(path: String, generation: UInt64)] { state.withLock { $0.pathMissing } }
     var rearms: [(generation: UInt64, errnoCode: Int32, consecutiveFailures: Int, delayMs: Int)] {
         state.withLock { $0.rearms }
@@ -48,6 +50,20 @@ private final class ServerEventRecorder: Sendable {
             },
             recordLastSocketPath: { path in
                 self.state.withLock { $0.recordedPaths.append(path) }
+            },
+            cleanupDiscoveryState: { path in
+                let transport = SocketTransport()
+                let lockWasHeld: Bool
+                switch transport.acquireSocketPathLock(for: path) {
+                case .acquired(let fd, _):
+                    transport.releaseSocketPathLock(fd)
+                    lockWasHeld = false
+                case .failed(let failure):
+                    lockWasHeld = failure.stage == "lock" && failure.errnoCode == EWOULDBLOCK
+                }
+                self.state.withLock {
+                    $0.cleanedPaths.append((path: path, lockWasHeld: lockWasHeld))
+                }
             },
             pathMissingDetected: { path, generation in
                 self.state.withLock { $0.pathMissing.append((path: path, generation: generation)) }
@@ -81,6 +97,7 @@ private struct ServerHarness: ~Copyable {
         recorder = ServerEventRecorder()
         server = SocketControlServer(
             initialSocketPath: socketPath,
+            notificationCenter: NotificationCenter(),
             events: recorder.makeEvents()
         )
     }
@@ -105,6 +122,14 @@ private func waitUntil(
         usleep(10_000)
     }
     return predicate()
+}
+
+private extension Int32 {
+    var peerIsClosed: Bool {
+        var descriptor = pollfd(fd: self, events: Int16(POLLIN | POLLHUP), revents: 0)
+        guard poll(&descriptor, 1, 0) > 0 else { return false }
+        return descriptor.revents & Int16(POLLHUP) != 0
+    }
 }
 
 extension AsyncStream where Element == ControlConnection {
@@ -225,6 +250,24 @@ struct SocketControlServerLifecycleTests {
         #expect(second.peerProcessID == getpid())
     }
 
+    @Test func connectionStreamBoundsPendingDescriptors() async throws {
+        let harness = try ServerHarness()
+        defer { harness.shutdown() }
+        let server = harness.server
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+
+        let clients = (0..<33).map { _ in connect(to: harness.socketPath) }
+        defer { clients.filter { $0 >= 0 }.forEach { close($0) } }
+        #expect(clients.allSatisfy { $0 >= 0 })
+
+        #expect(waitUntil { clients[32].peerIsClosed })
+
+        for _ in 0..<32 {
+            let connection = try #require(await server.connections.nextConnection())
+            close(connection.socket)
+        }
+    }
+
     @Test func stopUnlinksSocketAndClearsState() throws {
         let harness = try ServerHarness()
         defer { harness.shutdown() }
@@ -236,6 +279,9 @@ struct SocketControlServerLifecycleTests {
 
         #expect(!server.isRunning)
         #expect(!FileManager.default.fileExists(atPath: harness.socketPath))
+        #expect(!FileManager.default.fileExists(atPath: harness.socketPath + ".lock"))
+        #expect(harness.recorder.cleanedPaths.map(\.path) == [harness.socketPath])
+        #expect(harness.recorder.cleanedPaths.map(\.lockWasHeld) == [true])
         #expect(server.currentSocketPathForRemoteRestore() == nil)
         #expect(server.activeSocketPath(preferredPath: "/tmp/pref.sock") == "/tmp/pref.sock")
         let health = server.listenerHealth(expectedSocketPath: harness.socketPath)
@@ -309,6 +355,34 @@ struct SocketControlServerLifecycleTests {
         let fd = connect(to: harness.socketPath)
         #expect(fd >= 0)
         if fd >= 0 { close(fd) }
+    }
+
+    @Test func reclaimsUnmarkedStaleSocketAfterUncleanExit() throws {
+        let harness = try ServerHarness()
+        defer { harness.shutdown() }
+        let server = harness.server
+
+        // A process that dies before it writes the reusable marker still leaves
+        // behind an unheld lock and a socket inode. Recreate that exact state:
+        // acquire/release the lock, then close a bound socket without unlinking
+        // its path.
+        guard case .acquired(let previousLockFD, _) =
+                server.transport.acquireSocketPathLock(for: harness.socketPath) else {
+            Issue.record("could not create the stale socket lock")
+            return
+        }
+        server.transport.releaseSocketPathLock(previousLockFD)
+        let staleListener = try UnixSocketFixture.bindListeningSocket(at: harness.socketPath)
+        close(staleListener)
+
+        #expect(server.transport.pathProbeResult(at: harness.socketPath) == .refused)
+        #expect(server.transport.pathCanBeReclaimedForStartup(harness.socketPath))
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        #expect(server.isRunning)
+
+        let clientFD = connect(to: harness.socketPath)
+        #expect(clientFD >= 0)
+        if clientFD >= 0 { close(clientFD) }
     }
 
     @Test func refusesRegularFileAtSocketPath() throws {

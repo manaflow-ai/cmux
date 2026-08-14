@@ -1,0 +1,340 @@
+name: iOS App Store (production)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: CFBundleVersion to stamp (defaults to UTC yyyyMMddHHmmss)
+        required: false
+        default: ""
+      copy_metadata_from:
+        description: Optional source App Store version to copy metadata from during staging dry run
+        required: false
+        default: ""
+      submit_for_review:
+        description: Submit the prepared version for App Review after validation
+        required: false
+        default: false
+        type: boolean
+      retarget_initial_draft:
+        description: Change the app's sole PREPARE_FOR_SUBMISSION version to the configured initial version
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ios-app-store-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload-and-validate:
+    name: Upload and validate production App Store build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 90
+    env:
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      ASC_TIMEOUT_SECONDS: "120"
+      INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+      INPUT_COPY_METADATA_FROM: ${{ github.event.inputs.copy_metadata_from }}
+      INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
+      INPUT_RETARGET_INITIAL_DRAFT: ${{ github.event.inputs.retarget_initial_draft }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Provision GhosttyKit
+        run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Install asc CLI
+        run: |
+          set -euo pipefail
+          BREW_BIN="$(command -v brew || true)"
+          if [ -z "$BREW_BIN" ] && [ -x /opt/homebrew/bin/brew ]; then
+            BREW_BIN=/opt/homebrew/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then
+            BREW_BIN=/usr/local/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ]; then
+            echo "Homebrew is required to install asc CLI" >&2
+            exit 1
+          fi
+          "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
+          echo "$(dirname "$BREW_BIN")" >> "$GITHUB_PATH"
+
+      - name: Verify asc CLI
+        run: |
+          set -euo pipefail
+          command -v asc
+          asc --version
+
+      - name: Materialize App Store Connect API key
+        run: |
+          set -euo pipefail
+          if [ -z "${ASC_API_KEY_ID:-}" ] || [ -z "${ASC_API_ISSUER_ID:-}" ] || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
+            echo "Missing upload credential secrets" >&2
+            exit 1
+          fi
+          if [ -z "${ASC_APP_ID:-}" ]; then
+            echo "Missing configured app id repository variable" >&2
+            exit 1
+          fi
+          KEY_DIR="$RUNNER_TEMP/appstoreconnect/private_keys"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "ASC_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "ASC_KEY_ID=$ASC_API_KEY_ID" >> "$GITHUB_ENV"
+          echo "ASC_ISSUER_ID=$ASC_API_ISSUER_ID" >> "$GITHUB_ENV"
+          echo "ASC_PRIVATE_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Import iOS distribution signing cert
+        env:
+          IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${IOS_DISTRIBUTION_CERTIFICATE_BASE64:-}" ]; then
+            echo "Missing IOS_DISTRIBUTION_CERTIFICATE_BASE64 secret" >&2
+            exit 1
+          fi
+          if [ -z "${IOS_DISTRIBUTION_CERTIFICATE_PASSWORD:-}" ]; then
+            echo "Missing IOS_DISTRIBUTION_CERTIFICATE_PASSWORD secret" >&2
+            exit 1
+          fi
+
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          KEYCHAIN_NAME="ios-app-store.keychain"
+          CERT_PATH="$RUNNER_TEMP/ios-distribution.p12"
+          printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          security delete-keychain "$KEYCHAIN_NAME" >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security import "$CERT_PATH" -k "$KEYCHAIN_NAME" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security list-keychains -d user -s "$KEYCHAIN_NAME"
+          IOS_DISTRIBUTION_IDENTITY="$(
+            security find-identity -v -p codesigning "$KEYCHAIN_NAME" |
+              sed -n 's/.*"\(Apple Distribution: .* (7WLXT3NR37)\)".*/\1/p' |
+              head -n 1
+          )"
+          if [ -z "$IOS_DISTRIBUTION_IDENTITY" ]; then
+            echo "No Apple Distribution identity for team 7WLXT3NR37 was found in the imported certificate" >&2
+            exit 1
+          fi
+          echo "IOS_DISTRIBUTION_IDENTITY=$IOS_DISTRIBUTION_IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Install App Store provisioning profile
+        env:
+          IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 }}
+          IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
+          IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
+        run: ./.github/scripts/install-app-store-provisioning-profile.sh
+
+      - name: Prepare App Store version and metadata
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
+          require_locale_metadata() {
+            local metadata_dir="$1"
+            local metadata_file
+            local locale_file_count=0
+            shopt -s nullglob
+            for metadata_file in "$metadata_dir"/*.json; do
+              if [ "${metadata_file##*/}" != "default.json" ]; then
+                locale_file_count=$((locale_file_count + 1))
+              fi
+            done
+            shopt -u nullglob
+            if [ "$locale_file_count" -eq 0 ]; then
+              echo "No locale-specific App Store metadata found in $metadata_dir" >&2
+              exit 1
+            fi
+          }
+          require_locale_metadata "ios/AppStoreReview/metadata/version/$VERSION"
+          require_locale_metadata "ios/AppStoreReview/metadata/app-info"
+          VERSION_ID="$(
+            asc versions list --app "$ASC_APP_ID" --version "$VERSION" --platform IOS --output json |
+              python3 -c 'import json,sys; body=json.load(sys.stdin); data=body.get("data") if isinstance(body,dict) else body; data=data if isinstance(data,list) else ([data] if isinstance(data,dict) else []); print(data[0].get("id", "") if data else "")'
+          )"
+          if [ -z "$VERSION_ID" ]; then
+            if [ "${INPUT_RETARGET_INITIAL_DRAFT:-false}" = "true" ]; then
+              ALL_VERSIONS_JSON="$(asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json)"
+              INITIAL_DRAFT="$(ALL_VERSIONS_JSON="$ALL_VERSIONS_JSON" python3 <<'PY'
+          import json
+          import os
+          import sys
+
+          body = json.loads(os.environ["ALL_VERSIONS_JSON"])
+          data = body.get("data") if isinstance(body, dict) else body
+          items = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+          if len(items) != 1:
+              raise SystemExit(f"retarget_initial_draft requires exactly one existing iOS version; found {len(items)}")
+          item = items[0]
+          attrs = item.get("attributes", item)
+          state = attrs.get("appStoreState") or attrs.get("state")
+          version = attrs.get("versionString") or attrs.get("version") or "unknown"
+          if state != "PREPARE_FOR_SUBMISSION":
+              raise SystemExit(f"refusing to retarget iOS version {version} in state {state or 'unknown'}")
+          print(f"{item.get('id', '')}\t{version}")
+          PY
+              )"
+              IFS=$'\t' read -r INITIAL_DRAFT_ID INITIAL_DRAFT_VERSION <<< "$INITIAL_DRAFT"
+              if [ -z "$INITIAL_DRAFT_ID" ]; then
+                echo "retarget_initial_draft did not resolve a version id" >&2
+                exit 1
+              fi
+              echo "Changing initial App Store draft $INITIAL_DRAFT_VERSION to $VERSION"
+              asc versions update \
+                --version-id "$INITIAL_DRAFT_ID" \
+                --version "$VERSION" \
+                --copyright "2026 Manaflow, Inc." \
+                --release-type MANUAL
+            else
+              asc versions create \
+                --app "$ASC_APP_ID" \
+                --version "$VERSION" \
+                --platform IOS \
+                --copyright "2026 Manaflow, Inc." \
+                --release-type MANUAL
+            fi
+          else
+            asc versions update \
+              --version-id "$VERSION_ID" \
+              --copyright "2026 Manaflow, Inc." \
+              --release-type MANUAL
+          fi
+          asc metadata validate --dir ios/AppStoreReview/metadata
+          asc metadata apply \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --dir ios/AppStoreReview/metadata \
+            --allow-deletes \
+            --confirm \
+            --dry-run
+          asc metadata apply \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --dir ios/AppStoreReview/metadata \
+            --allow-deletes \
+            --confirm
+          asc screenshots validate \
+            --path ios/AppStoreReview/screenshots/en-US/iphone \
+            --device-type IPHONE_69
+          asc screenshots upload \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --path ios/AppStoreReview/screenshots \
+            --device-type IPHONE_69 \
+            --replace
+          asc screenshots validate \
+            --path ios/AppStoreReview/screenshots/en-US/ipad \
+            --device-type IPAD_PRO_3GEN_129
+          asc screenshots upload \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --path ios/AppStoreReview/screenshots \
+            --device-type IPAD_PRO_3GEN_129 \
+            --replace
+
+      - name: Ensure App Store availability
+        run: python3 ios/scripts/asc_bootstrap_app_availability.py --app "$ASC_APP_ID"
+
+      - name: Archive, export, and upload production build
+        id: upload
+        env:
+          CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-appstore-build-number.txt
+        run: |
+          set -euo pipefail
+          ARGS=(--signing manual)
+          if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
+            ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
+          fi
+          ./ios/scripts/upload-app-store.sh "${ARGS[@]}"
+          FINAL_BN="$(cat "$CMUX_BUILD_NUMBER_OUT_FILE")"
+          echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
+
+      - name: Validate App Store readiness
+        env:
+          FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
+          ./ios/scripts/validate-app-store-release.sh \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --build-number "$FINAL_BUILD_NUMBER" \
+            --wait-build \
+            --prepare-submission \
+            --screenshot-device-type IPHONE_69 \
+            --screenshot-device-type IPAD_PRO_3GEN_129 \
+            --strict
+          if [ -n "${INPUT_COPY_METADATA_FROM:-}" ]; then
+            ./ios/scripts/validate-app-store-release.sh \
+              --app "$ASC_APP_ID" \
+              --version "$VERSION" \
+              --build-number "$FINAL_BUILD_NUMBER" \
+              --copy-metadata-from "$INPUT_COPY_METADATA_FROM" \
+              --stage-dry-run \
+              --screenshot-device-type IPHONE_69 \
+              --screenshot-device-type IPAD_PRO_3GEN_129 \
+              --strict
+          fi
+          if [ "${INPUT_SUBMIT_FOR_REVIEW:-false}" = "true" ]; then
+            ./ios/scripts/validate-app-store-release.sh \
+              --app "$ASC_APP_ID" \
+              --version "$VERSION" \
+              --build-number "$FINAL_BUILD_NUMBER" \
+              --submit \
+              --confirm-submit \
+              --screenshot-device-type IPHONE_69 \
+              --screenshot-device-type IPAD_PRO_3GEN_129 \
+              --strict
+          fi
+
+      - name: Summary
+        if: always()
+        env:
+          FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number || 'unknown' }}
+          INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
+        run: |
+          {
+            echo "### iOS App Store production"
+            echo
+            echo "- lane: \`appstore\` (bundle id \`com.cmux.app\`)"
+            echo "- signing: manual (CI-imported iOS distribution cert + App Store profile)"
+            echo "- build number (CFBundleVersion): \`${FINAL_BUILD_NUMBER}\`"
+            echo "- submit for review: \`${INPUT_SUBMIT_FOR_REVIEW}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup signing material
+        if: always()
+        run: |
+          rm -f "${ASC_API_KEY_PATH:-}"
+          security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true

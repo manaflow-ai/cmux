@@ -1198,6 +1198,72 @@ func TestCLIWorkspaceGroupCreateMapsFlags(t *testing.T) {
 	}
 }
 
+func TestCLIWorkspaceGroupBareCreateSendsExplicitEmptyMembers(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "create"})
+	if code != 0 {
+		t.Fatalf("bare workspace group create should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.create")
+	ids, ok := params["child_workspace_ids"].([]any)
+	if !ok || len(ids) != 0 {
+		t.Fatalf("expected explicit empty child_workspace_ids, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupDeleteDefaultsToUngroupMethod(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "delete", "workspace_group:2"})
+	if code != 0 {
+		t.Fatalf("workspace group delete should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.ungroup")
+	if got := params["group_id"]; got != "workspace_group:2" {
+		t.Fatalf("expected group_id to survive safe delete routing, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupDeleteForwardsExplicitCloseIntent(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json", "workspace", "group", "delete",
+		"workspace_group:2", "--close-workspaces",
+	})
+	if code != 0 {
+		t.Fatalf("explicit destructive workspace group delete should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.delete")
+	if got, ok := params["close_workspaces"].(bool); !ok || !got {
+		t.Fatalf("expected close_workspaces=true, got %v", params)
+	}
+}
+
+func TestWorkspaceGroupRelayOutputReportsRemovalImpact(t *testing.T) {
+	tests := []struct {
+		name string
+		resp string
+		want string
+	}{
+		{
+			name: "dissolved",
+			resp: `{"operation":"dissolved","kept_workspace_count":2}`,
+			want: "OK operation=dissolved kept_workspace_count=2",
+		},
+		{
+			name: "closed workspaces",
+			resp: `{"operation":"closed_workspaces","closed_workspace_count":3}`,
+			want: "OK operation=closed_workspaces closed_workspace_count=3",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := workspaceGroupRelayOutput(test.resp); got != test.want {
+				t.Fatalf("workspace group output = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestCLIWorkspaceGroupAddRequiresGroupAndWorkspace(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "add", "--group", "g1"}); code != 2 {
@@ -1302,5 +1368,27 @@ func TestCLIWorkspaceGroupRemoveStillRequiresExplicitWorkspaceWithEnv(t *testing
 	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
 	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "remove"}); code != 2 {
 		t.Fatalf("remove without --workspace should return 2 even with env set, got %d", code)
+	}
+}
+
+func TestCLINotifyUsesCallerEnvForCloudBridge(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+
+	code := runCLI([]string{"--socket", sockPath, "--json", "notify", "--title", "Done", "--body", "Build finished"})
+	if code != 0 {
+		t.Fatalf("notify should return 0, got %d", code)
+	}
+
+	params := expectGroupRequest(t, requests, "notification.create_for_caller")
+	if params["preferred_workspace_id"] != "env-ws" || params["preferred_surface_id"] != "env-sf" {
+		t.Fatalf("expected caller env target, got %v", params)
+	}
+	if _, exists := params["workspace_id"]; exists {
+		t.Fatalf("workspace_id should be rewritten to preferred_workspace_id, got %v", params)
+	}
+	if _, exists := params["surface_id"]; exists {
+		t.Fatalf("surface_id should be rewritten to preferred_surface_id, got %v", params)
 	}
 }

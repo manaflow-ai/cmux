@@ -11,8 +11,14 @@ public import Foundation
 /// because clients cross queue boundaries by contract (the bridge server
 /// calls it from its own rpc queue).
 public protocol RemotePTYBridgeRPCClient: AnyObject, Sendable {
+    /// Whether the daemon attachment path supports sequenced input acks.
+    var supportsInputSeqAck: Bool { get }
+
     /// Attaches to (or creates) a remote PTY session and starts streaming
     /// events to `onEvent` on `queue`. Throws when the attach handshake fails.
+    /// `inputSeqAck` is the caller's one-time seq-ack decision; conformers
+    /// must not re-derive it so the attach opt-in and the sender's window
+    /// accounting can never diverge.
     func attachBridgePTY(
         sessionID: String,
         attachmentID: String,
@@ -20,6 +26,7 @@ public protocol RemotePTYBridgeRPCClient: AnyObject, Sendable {
         rows: Int,
         command: String?,
         requireExisting: Bool,
+        inputSeqAck: Bool,
         queue: DispatchQueue,
         onEvent: @escaping (RemotePTYBridgeEvent) -> Void
     ) throws -> RemotePTYBridgeAttachment
@@ -31,9 +38,16 @@ public protocol RemotePTYBridgeRPCClient: AnyObject, Sendable {
         attachmentID: String,
         attachmentToken: String,
         data: Data,
+        seq: UInt64?,
         completion: @escaping ((any Error)?) -> Void
     )
 
     /// Detaches an attachment; fire-and-forget like the legacy client.
     func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String)
+}
+
+/// Default for conformers predating sequenced input.
+public extension RemotePTYBridgeRPCClient {
+    /// Legacy clients do not opt into sequenced PTY input.
+    var supportsInputSeqAck: Bool { false }
 }

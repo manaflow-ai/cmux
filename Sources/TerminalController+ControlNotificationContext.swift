@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxNotifications
 import Foundation
 
 /// The notification-domain witnesses are the byte-faithful bodies of the former
@@ -16,24 +17,41 @@ extension TerminalController: ControlNotificationContext {
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String? = nil
     ) -> ControlNotificationCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
+            if let explicitSurfaceID,
+               let rehomed = controlNotificationRehomedDelivery(
+                   surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
+                   replyShapeWire: replyShapeWire
+               ) {
+                return .delivered(workspaceID: rehomed.workspaceID, surfaceID: rehomed.surfaceID)
+            }
             return .workspaceNotFound
         }
-        if let explicitSurfaceID, ws.panels[explicitSurfaceID] == nil {
+        if let explicitSurfaceID, !notificationWorkspace(ws, contains: explicitSurfaceID) {
+            if let rehomed = controlNotificationRehomedDelivery(
+                surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
+                replyShapeWire: replyShapeWire
+            ) {
+                return .delivered(workspaceID: rehomed.workspaceID, surfaceID: rehomed.surfaceID)
+            }
             return .surfaceNotFound(explicitSurfaceID)
         }
-        let surfaceId = explicitSurfaceID ?? ws.focusedPanelId
+        let surfaceId = (explicitSurfaceID ?? ws.focusedPanelId).flatMap {
+            ws.surfaceOwnershipTarget(for: $0)?.surfaceID
+        }
         deliverNotificationSynchronously(
             tabId: ws.id,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire)
         )
         return .delivered(workspaceID: ws.id, surfaceID: surfaceId)
     }
@@ -43,28 +61,86 @@ extension TerminalController: ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String? = nil
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        // Moved pane (issue #7939): a pane keeps its surface id across
+        // workspace moves, so resolve the surface's CURRENT owner before
+        // rejecting a claim the routing selectors no longer satisfy — whether
+        // the surface left the claimed workspace or that workspace was closed.
+        // `notification.create_for_surface` is NOT relay-reachable. The cloud
+        // tunnel rewrites scoped `notification.create` calls to the confined
+        // `create_for_target` path before they reach this trusted local path.
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
+            if let rehomed = controlNotificationRehomedDelivery(
+                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body,
+                replyShapeWire: replyShapeWire
+            ) {
+                return .delivered(
+                    workspaceID: rehomed.workspaceID,
+                    surfaceID: rehomed.surfaceID,
+                    windowID: rehomed.windowID
+                )
+            }
             return .workspaceNotFound(workspaceID: nil)
         }
-        guard ws.panels[surfaceID] != nil else {
+        guard notificationWorkspace(ws, contains: surfaceID) else {
+            if let rehomed = controlNotificationRehomedDelivery(
+                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body,
+                replyShapeWire: replyShapeWire
+            ) {
+                return .delivered(
+                    workspaceID: rehomed.workspaceID,
+                    surfaceID: rehomed.surfaceID,
+                    windowID: rehomed.windowID
+                )
+            }
             return .surfaceNotFound(surfaceID)
         }
+        let targetSurfaceID = ws.surfaceOwnershipTarget(for: surfaceID)?.surfaceID ?? surfaceID
         deliverNotificationSynchronously(
             tabId: ws.id,
-            surfaceId: surfaceID,
+            surfaceId: targetSurfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire)
         )
         return .delivered(
             workspaceID: ws.id,
-            surfaceID: surfaceID,
+            surfaceID: targetSurfaceID,
             windowID: AppDelegate.shared?.windowId(for: tabManager)
+        )
+    }
+
+    /// Shared trusted-local path for a surface that moved after its caller
+    /// captured a workspace address. Relay callers are rewritten to the
+    /// membership-confined `create_for_target` entrypoint before dispatch.
+    private func controlNotificationRehomedDelivery(
+        surfaceID: UUID,
+        title: String,
+        subtitle: String,
+        body: String,
+        replyShapeWire: String? = nil
+    ) -> (workspaceID: UUID, surfaceID: UUID, windowID: UUID?)? {
+        guard let owner = AppDelegate.shared?.notificationSurfaceOwner(surfaceID: surfaceID) else {
+            return nil
+        }
+        deliverNotificationSynchronously(
+            tabId: owner.tabID,
+            surfaceId: owner.surfaceID,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire)
+        )
+        return (
+            owner.tabID,
+            owner.surfaceID,
+            AppDelegate.shared?.windowId(for: owner.tabManager)
         )
     }
 
@@ -74,27 +150,41 @@ extension TerminalController: ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        replyShapeWire: String? = nil
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        // SECURITY: no live re-homing here. `notification.create_for_target`
+        // is reachable through the cloud relay (`RemoteDaemonProxyTunnel`),
+        // whose authorization only checks that the supplied workspace_id
+        // equals the relay's owner workspace — this membership guard is what
+        // actually confines a VM's deliveries to its authorized workspace. A
+        // global surface lookup would let a relay caller inject notifications
+        // into any workspace from a leaked pane UUID. Moved-pane re-homing
+        // for relayed notifications needs a trusted surface binding from the
+        // relay (follow-up); trusted local callers get it via
+        // `create_for_caller`/`create_for_surface`.
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return .workspaceNotFound(workspaceID: workspaceID)
         }
-        guard ws.panels[surfaceID] != nil else {
+        guard notificationWorkspace(ws, contains: surfaceID) else {
             return .surfaceNotFound(surfaceID)
         }
+        let targetSurfaceID = ws.surfaceOwnershipTarget(for: surfaceID)?.surfaceID ?? surfaceID
         deliverNotificationSynchronously(
             tabId: ws.id,
-            surfaceId: surfaceID,
+            surfaceId: targetSurfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire),
+            retargetsToLiveSurfaceOwner: false
         )
         return .delivered(
             workspaceID: ws.id,
-            surfaceID: surfaceID,
+            surfaceID: targetSurfaceID,
             windowID: AppDelegate.shared?.windowId(for: tabManager)
         )
     }
@@ -164,7 +254,10 @@ extension TerminalController: ControlNotificationContext {
         }
         let opened = AppDelegate.shared?.openTerminalNotification(notification) ?? false
         let current = store.notifications.first(where: { $0.id == notification.id }) ?? notification
-        let snapshot = Self.controlSnapshot(current)
+        let snapshot = Self.controlSnapshot(
+            current,
+            surfaceID: opened ? (current.panelId ?? current.surfaceId) : current.surfaceId
+        )
         return opened ? .opened(snapshot) : .targetNotFound(snapshot)
     }
 
@@ -172,7 +265,7 @@ extension TerminalController: ControlNotificationContext {
         guard let opened = AppDelegate.shared?.jumpToLatestUnread() else { return nil }
         let store = TerminalNotificationStore.shared
         let current = store.notifications.first(where: { $0.id == opened.id }) ?? opened
-        return Self.controlSnapshot(current)
+        return Self.controlSnapshot(current, surfaceID: current.panelId ?? current.surfaceId)
     }
 
     func controlNotificationClear() {
@@ -226,7 +319,7 @@ extension TerminalController: ControlNotificationContext {
             return tabManager.tabs.first(where: { $0.id == wsId })
         }
         if let surfaceId = routing.surfaceID {
-            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+            return tabManager.tabs.first(where: { notificationWorkspace($0, contains: surfaceId) })
         }
         if let paneId = routing.paneID, let located = v2LocatePane(paneId) {
             guard located.tabManager === tabManager else { return nil }
@@ -234,6 +327,10 @@ extension TerminalController: ControlNotificationContext {
         }
         guard let wsId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == wsId })
+    }
+
+    private func notificationWorkspace(_ workspace: Workspace, contains surfaceID: UUID) -> Bool {
+        workspace.surfaceOwnershipTarget(for: surfaceID) != nil
     }
 
     /// The marked-read delta the legacy bodies computed: notifications that were
@@ -251,12 +348,13 @@ extension TerminalController: ControlNotificationContext {
     /// the legacy `notificationPayload` builder did. The date rendering mirrors
     /// the (file-private) `TerminalController.notificationCreatedAtString`.
     private static func controlSnapshot(
-        _ notification: TerminalNotification
+        _ notification: TerminalNotification,
+        surfaceID: UUID? = nil
     ) -> ControlNotificationSnapshot {
         ControlNotificationSnapshot(
             id: notification.id,
             workspaceID: notification.tabId,
-            surfaceID: notification.surfaceId,
+            surfaceID: surfaceID ?? notification.surfaceId,
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,

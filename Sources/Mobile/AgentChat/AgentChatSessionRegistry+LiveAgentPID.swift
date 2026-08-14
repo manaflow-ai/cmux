@@ -94,7 +94,8 @@ extension AgentChatSessionRegistry {
                 guard let candidateSessionID = observedSessionID(
                     agentID: def.id,
                     pid: pid,
-                    details: loadDetails()
+                    details: loadDetails(),
+                    preferredSessionIDs: expectedSessionIDs
                 ) else {
                     if allowUnidentifiedFallback {
                         unidentifiedFallbackPID = preferredLiveAgentPID(
@@ -192,11 +193,16 @@ extension AgentChatSessionRegistry {
     private nonisolated static func observedSessionID(
         agentID: String,
         pid: Int,
-        details: CmuxTopProcessArguments?
+        details: CmuxTopProcessArguments?,
+        preferredSessionIDs: Set<String>
     ) -> String? {
         if agentID == "codex",
-           let rollout = openCodexRolloutPath(pid: pid) {
-            return firstUUIDLike(in: (rollout as NSString).lastPathComponent)
+           let identity = CodexRolloutIdentityResolver().resolve(
+               openRolloutPaths: openCodexRolloutPaths(pid: pid),
+               preferredSessionIDs: preferredSessionIDs,
+               sessionIDFromPath: firstUUIDLike(in:)
+           ) {
+            return identity.sessionID
         }
         let isClaudeForkLaunch = agentID == "claude"
             && (details?.arguments).map(Self.containsClaudeForkSessionOption(_:)) == true

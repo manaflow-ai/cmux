@@ -74,12 +74,14 @@ type rpcResponse struct {
 type rpcEvent struct {
 	Event           string `json:"event"`
 	StreamID        string `json:"stream_id,omitempty"`
+	RequestID       string `json:"request_id,omitempty"`
 	SessionID       string `json:"session_id,omitempty"`
 	AttachmentID    string `json:"attachment_id,omitempty"`
 	AttachmentToken string `json:"attachment_token,omitempty"`
 	DataBase64      string `json:"data_base64,omitempty"`
 	Message         string `json:"message,omitempty"`
 	Error           string `json:"error,omitempty"`
+	Seq             uint64 `json:"seq,omitempty"`
 }
 
 type rpcFrameWriter interface {
@@ -98,7 +100,10 @@ type stdioFrameWriter struct {
 }
 
 type rpcServer struct {
-	mu             sync.Mutex
+	mu sync.Mutex
+	// closed prevents an asynchronous attach from becoming owned after the
+	// connection teardown snapshot has already been drained.
+	closed         bool
 	nextStreamID   uint64
 	nextSessionID  uint64
 	streams        map[string]*streamState
@@ -107,6 +112,199 @@ type rpcServer struct {
 	ownsPTYHub     bool
 	ptyAttachments map[string]*wsPTYAttachment
 	frameWriter    rpcFrameWriter
+	cliBridge      *cloudCLIBridge
+}
+
+type rpcRequestDispatcher struct {
+	ctx              context.Context
+	cancelConnection context.CancelFunc
+	interruptRead    func()
+	server           *rpcServer
+	ptyAttachSlots   chan struct{}
+	// Request cancellation is separate from attachment lifetime: completed
+	// attachments remain connection-owned after their request leaves this map.
+	ptyAttachMu       sync.Mutex
+	ptyAttachRequests map[string]*rpcPTYAttachRequest
+	asyncErrors       chan error
+}
+
+type rpcPTYAttachRequest struct {
+	requestIDKey    string
+	sessionID       string
+	attachmentID    string
+	attachmentToken string
+	cancel          context.CancelFunc
+}
+
+func newRPCRequestDispatcher(
+	ctx context.Context,
+	cancelConnection context.CancelFunc,
+	interruptRead func(),
+	server *rpcServer,
+) *rpcRequestDispatcher {
+	return &rpcRequestDispatcher{
+		ctx:               ctx,
+		cancelConnection:  cancelConnection,
+		interruptRead:     interruptRead,
+		server:            server,
+		ptyAttachSlots:    make(chan struct{}, maxConcurrentPTYAttachRPCsPerConnection),
+		ptyAttachRequests: map[string]*rpcPTYAttachRequest{},
+		asyncErrors:       make(chan error, 1),
+	}
+}
+
+func (d *rpcRequestDispatcher) dispatch(req rpcRequest) error {
+	// PTY allocation can block inside the operating system. Only pty.attach is
+	// allowed to overtake the otherwise-serialized request stream; both frame
+	// writers serialize the resulting concurrent response writes. Before
+	// reading the next request, wait only until the attach has reserved or
+	// selected its hub generation so a following pty.close cannot overtake it.
+	if req.Method == "pty.attach.cancel" {
+		d.cancelPTYAttach(req)
+		return nil
+	}
+	if req.Method != "pty.attach" {
+		return d.server.handleRequestAndWriteResponse(req)
+	}
+
+	select {
+	case <-d.ctx.Done():
+		return d.ctx.Err()
+	case d.ptyAttachSlots <- struct{}{}:
+	default:
+		return d.server.frameWriter.writeResponse(rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "unavailable",
+				Message: "too many PTY attach requests are already in progress",
+			},
+		})
+	}
+
+	attachCtx, attachRequest, registered := d.registerPTYAttach(req)
+	if !registered {
+		<-d.ptyAttachSlots
+		return d.server.frameWriter.writeResponse(rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_request",
+				Message: "PTY attach request id is already in progress",
+			},
+		})
+	}
+
+	reservationReady := make(chan struct{})
+	go func() {
+		defer func() { <-d.ptyAttachSlots }()
+		defer d.finishPTYAttach(attachRequest)
+		if err := d.server.handlePTYAttachAndWriteResponseWithReservation(attachCtx, d.ctx, req, func() {
+			close(reservationReady)
+		}); err != nil {
+			select {
+			case d.asyncErrors <- err:
+			default:
+			}
+			d.cancelConnection()
+			if d.interruptRead != nil {
+				d.interruptRead()
+			}
+		}
+	}()
+	select {
+	case <-reservationReady:
+		return nil
+	case <-d.ctx.Done():
+		return d.ctx.Err()
+	}
+}
+
+func (d *rpcRequestDispatcher) registerPTYAttach(req rpcRequest) (context.Context, *rpcPTYAttachRequest, bool) {
+	ctx, cancel := context.WithCancel(d.ctx)
+	request := &rpcPTYAttachRequest{cancel: cancel}
+	request.sessionID, _ = getStringParam(req.Params, "session_id")
+	request.attachmentID, _ = getStringParam(req.Params, "attachment_id")
+	request.attachmentToken, _ = getStringParam(req.Params, "client_attachment_token")
+	request.sessionID = strings.TrimSpace(request.sessionID)
+	request.attachmentID = strings.TrimSpace(request.attachmentID)
+	request.attachmentToken = strings.TrimSpace(request.attachmentToken)
+
+	requestIDKey, hasRequestID := normalizedRPCRequestID(req.ID)
+	if !req.HasID || !hasRequestID {
+		return ctx, request, true
+	}
+	request.requestIDKey = requestIDKey
+
+	d.ptyAttachMu.Lock()
+	defer d.ptyAttachMu.Unlock()
+	if _, exists := d.ptyAttachRequests[requestIDKey]; exists {
+		cancel()
+		return nil, nil, false
+	}
+	d.ptyAttachRequests[requestIDKey] = request
+	return ctx, request, true
+}
+
+func (d *rpcRequestDispatcher) finishPTYAttach(request *rpcPTYAttachRequest) {
+	if request == nil {
+		return
+	}
+	request.cancel()
+	if request.requestIDKey == "" {
+		return
+	}
+	d.ptyAttachMu.Lock()
+	if current := d.ptyAttachRequests[request.requestIDKey]; current == request {
+		delete(d.ptyAttachRequests, request.requestIDKey)
+	}
+	d.ptyAttachMu.Unlock()
+}
+
+func (d *rpcRequestDispatcher) cancelPTYAttach(req rpcRequest) {
+	requestID, hasRequestID := req.Params["request_id"]
+	requestIDKey, normalized := normalizedRPCRequestID(requestID)
+	var request *rpcPTYAttachRequest
+	if hasRequestID && normalized {
+		d.ptyAttachMu.Lock()
+		request = d.ptyAttachRequests[requestIDKey]
+		d.ptyAttachMu.Unlock()
+	}
+
+	sessionID, _ := getStringParam(req.Params, "session_id")
+	attachmentID, _ := getStringParam(req.Params, "attachment_id")
+	attachmentToken, _ := getStringParam(req.Params, "client_attachment_token")
+	if request != nil {
+		request.cancel()
+		sessionID = request.sessionID
+		attachmentID = request.attachmentID
+		attachmentToken = request.attachmentToken
+	}
+	// The identity cleanup closes the race where the attach completed and left
+	// the request map just before its timeout notification arrived.
+	if d.server.ptyHub != nil {
+		d.server.ptyHub.detachByID(sessionID, attachmentID, attachmentToken)
+	}
+}
+
+func normalizedRPCRequestID(id any) (string, bool) {
+	if id == nil {
+		return "", false
+	}
+	encoded, err := json.Marshal(id)
+	if err != nil {
+		return "", false
+	}
+	return string(encoded), true
+}
+
+func (d *rpcRequestDispatcher) takeAsyncError() error {
+	select {
+	case err := <-d.asyncErrors:
+		return err
+	default:
+		return nil
+	}
 }
 
 type sessionAttachment struct {
@@ -123,7 +321,10 @@ type sessionState struct {
 	lastKnownRows int
 }
 
-const maxRPCFrameBytes = 4 * 1024 * 1024
+const (
+	maxRPCFrameBytes                        = 4 * 1024 * 1024
+	maxConcurrentPTYAttachRPCsPerConnection = 32
+)
 
 func main() {
 	if shouldRunCLIForInvocation(os.Args[0], os.Args[1:]) {
@@ -169,25 +370,48 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		ws := fs.Bool("ws", false, "serve terminal PTY transport over WebSocket")
 		persistent := fs.Bool("persistent", false, "proxy stdio to a persistent per-slot daemon")
 		persistentServer := fs.Bool("persistent-server", false, "run the persistent per-slot daemon")
+		persistentStop := fs.Bool("persistent-stop", false, "stop the persistent per-slot daemon")
 		persistentSlot := fs.String("slot", "", "persistent daemon slot")
+		persistentLeasePort := fs.Int("persistent-lease-port", 0, "relay port whose slot file leases the persistent daemon")
 		listen := fs.String("listen", "127.0.0.1:7777", "address for --ws")
 		authLeaseFile := fs.String("auth-lease-file", "", "required lease JSON path for --ws")
 		rpcAuthLeaseFile := fs.String("rpc-auth-lease-file", "", "optional daemon RPC lease JSON path for --ws /rpc")
+		adminTokenSHA256 := fs.String("admin-token-sha256", "", "optional bearer token SHA-256 for HTTPS lease installation")
+		adminEd25519PublicKey := fs.String("admin-ed25519-public-key", "", "optional base64 Ed25519 public key for signed HTTPS lease installation")
 		shell := fs.String("shell", "", "shell path for --ws PTY sessions")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
+		if *persistentLeasePort < 0 || *persistentLeasePort > 65535 {
+			_, _ = fmt.Fprintln(stderr, "serve --persistent-lease-port must be 0 or between 1 and 65535")
+			return 2
+		}
 		if *persistentServer {
-			if *stdio || *ws || *persistent {
-				_, _ = fmt.Fprintln(stderr, "serve --persistent-server cannot be combined with --stdio, --ws, or --persistent")
+			if *stdio || *ws || *persistent || *persistentStop {
+				_, _ = fmt.Fprintln(stderr, "serve --persistent-server cannot be combined with --stdio, --ws, --persistent, or --persistent-stop")
 				return 2
 			}
 			if strings.TrimSpace(*persistentSlot) == "" {
 				_, _ = fmt.Fprintln(stderr, "serve --persistent-server requires --slot")
 				return 2
 			}
-			if err := runPersistentDaemonServer(strings.TrimSpace(*persistentSlot), stderr); err != nil {
+			if err := runPersistentDaemonServer(strings.TrimSpace(*persistentSlot), *persistentLeasePort, stderr); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve --persistent-server failed: %v\n", err)
+				return 1
+			}
+			return 0
+		}
+		if *persistentStop {
+			if *stdio || *ws || *persistent || *persistentLeasePort != 0 {
+				_, _ = fmt.Fprintln(stderr, "serve --persistent-stop cannot be combined with --stdio, --ws, --persistent, or --persistent-lease-port")
+				return 2
+			}
+			if strings.TrimSpace(*persistentSlot) == "" {
+				_, _ = fmt.Fprintln(stderr, "serve --persistent-stop requires --slot")
+				return 2
+			}
+			if err := stopPersistentDaemon(strings.TrimSpace(*persistentSlot)); err != nil {
+				_, _ = fmt.Fprintf(stderr, "serve --persistent-stop failed: %v\n", err)
 				return 1
 			}
 			return 0
@@ -204,6 +428,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintln(stderr, "serve --slot requires --persistent")
 			return 2
 		}
+		if *persistentLeasePort != 0 && !*persistent {
+			_, _ = fmt.Fprintln(stderr, "serve --persistent-lease-port requires --persistent")
+			return 2
+		}
 		if *ws {
 			if strings.TrimSpace(*authLeaseFile) == "" {
 				_, _ = fmt.Fprintln(stderr, "serve --ws requires --auth-lease-file")
@@ -213,7 +441,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				ListenAddr:       strings.TrimSpace(*listen),
 				PTYAuthLeaseFile: strings.TrimSpace(*authLeaseFile),
 				RPCAuthLeaseFile: strings.TrimSpace(*rpcAuthLeaseFile),
-				Shell:            strings.TrimSpace(*shell),
+				AdminTokenSHA256: firstNonEmpty(strings.TrimSpace(*adminTokenSHA256), strings.TrimSpace(os.Getenv("CMUXD_WS_ADMIN_TOKEN_SHA256"))),
+				AdminEd25519PubKey: firstNonEmpty(
+					strings.TrimSpace(*adminEd25519PublicKey),
+					strings.TrimSpace(os.Getenv("CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY")),
+				),
+				Shell: strings.TrimSpace(*shell),
 			}, stderr); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve --ws failed: %v\n", err)
 				return 1
@@ -225,7 +458,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				_, _ = fmt.Fprintln(stderr, "serve --persistent requires --slot")
 				return 2
 			}
-			if err := runPersistentStdioProxy(stdin, stdout, stderr, strings.TrimSpace(*persistentSlot)); err != nil {
+			if err := runPersistentStdioProxy(stdin, stdout, stderr, strings.TrimSpace(*persistentSlot), *persistentLeasePort); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve --stdio --persistent failed: %v\n", err)
 				return 1
 			}
@@ -270,14 +503,27 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 		ownsPTYHub:    ownsPTYHub,
 		frameWriter:   writer,
 	}
-	defer server.closeAll()
+	connectionCtx, cancelConnection := context.WithCancel(context.Background())
+	defer func() {
+		cancelConnection()
+		server.closeAll()
+		_ = writer.flush()
+	}()
+	interruptRead := func() {
+		if closer, ok := stdin.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
+	dispatcher := newRPCRequestDispatcher(connectionCtx, cancelConnection, interruptRead, server)
 
 	reader := bufio.NewReaderSize(stdin, 64*1024)
-	defer writer.writer.Flush()
 
 	for {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
 		if readErr != nil {
+			if asyncErr := dispatcher.takeAsyncError(); asyncErr != nil {
+				return asyncErr
+			}
 			if errors.Is(readErr, io.EOF) {
 				return nil
 			}
@@ -315,7 +561,7 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 			continue
 		}
 
-		if err := server.handleRequestAndWriteResponse(req); err != nil {
+		if err := dispatcher.dispatch(req); err != nil {
 			return err
 		}
 	}
@@ -348,6 +594,8 @@ const (
 type persistentDaemonServerConfig struct {
 	emptyIdleTimeout time.Duration
 	acceptPollStep   time.Duration
+	slotLeasePresent func() (bool, error)
+	slotLeaseRemoved func()
 }
 
 func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error) {
@@ -658,7 +906,7 @@ func readPersistentDaemonTokenFile(tokenFile string) (string, error) {
 	return token, nil
 }
 
-func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot string) error {
+func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot string, leasePort int) error {
 	paths, err := persistentDaemonPathsForSlot(slot)
 	if err != nil {
 		return err
@@ -671,7 +919,7 @@ func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot str
 	if err != nil {
 		return err
 	}
-	if err := ensurePersistentDaemonRunning(paths, token, stderr); err != nil {
+	if err := ensurePersistentDaemonRunning(paths, token, leasePort, stderr); err != nil {
 		return err
 	}
 	conn, err := dialPersistentDaemon(paths.socket, token)
@@ -723,7 +971,7 @@ func persistentProxyCopyError(err error) error {
 	return err
 }
 
-func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, stderr io.Writer) error {
+func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, leasePort int, stderr io.Writer) error {
 	if conn, err := dialPersistentDaemon(paths.socket, token); err == nil {
 		_ = conn.Close()
 		return nil
@@ -750,7 +998,8 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 	defer readyReader.Close()
 	defer readyWriter.Close()
 
-	cmd := exec.Command(executable, "serve", "--persistent-server", "--slot", paths.slot)
+	serverArguments := persistentDaemonServerArguments(paths.slot, leasePort)
+	cmd := exec.Command(executable, serverArguments...)
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -785,6 +1034,14 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 	return err
 }
 
+func persistentDaemonServerArguments(slot string, leasePort int) []string {
+	arguments := []string{"serve", "--persistent-server", "--slot", slot}
+	if leasePort > 0 {
+		arguments = append(arguments, "--persistent-lease-port", strconv.Itoa(leasePort))
+	}
+	return arguments
+}
+
 func shouldRemovePersistentSocketAfterDialError(err error) bool {
 	return errors.Is(err, os.ErrNotExist) ||
 		errors.Is(err, syscall.ENOENT) ||
@@ -816,7 +1073,7 @@ func waitPersistentDaemonReady(reader *os.File, logFile string) error {
 	}
 }
 
-func runPersistentDaemonServer(slot string, stderr io.Writer) error {
+func runPersistentDaemonServer(slot string, leasePort int, stderr io.Writer) (resultErr error) {
 	paths, err := persistentDaemonPathsForSlot(slot)
 	if err != nil {
 		return err
@@ -839,6 +1096,44 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 	}
 	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
 
+	daemonLog, err := openPersistentDaemonLog(paths.logFile)
+	if err != nil {
+		return fmt.Errorf("open persistent daemon log: %w", err)
+	}
+	routeProcessOutput := shouldRoutePersistentDaemonProcessOutput(stderr)
+	stderr = daemonLog
+	var processOutputRoute *persistentDaemonProcessOutputRoute
+	defer func() {
+		if processOutputRoute != nil {
+			if closeErr := processOutputRoute.Close(); closeErr != nil && resultErr == nil {
+				resultErr = fmt.Errorf("restore persistent daemon process output: %w", closeErr)
+			}
+		}
+		fields := []string{"status", "clean"}
+		if resultErr != nil {
+			fields = []string{
+				"status", "error",
+				"error_category", persistentDaemonErrorCategory(resultErr),
+			}
+		}
+		logPersistentDaemonEvent(stderr, "daemon_stop", fields...)
+		_ = daemonLog.Close()
+	}()
+	if routeProcessOutput {
+		processOutputRoute, err = routePersistentDaemonProcessOutput(daemonLog)
+		if err != nil {
+			return fmt.Errorf("route persistent daemon process output: %w", err)
+		}
+	}
+	logPersistentDaemonEvent(
+		stderr,
+		"daemon_start",
+		"version", version,
+		"slot", paths.slot,
+		"lease_port", strconv.Itoa(leasePort),
+		"pid", strconv.Itoa(os.Getpid()),
+	)
+
 	_ = os.Remove(paths.socket)
 	listener, err := net.Listen("unix", paths.socket)
 	if err != nil {
@@ -847,14 +1142,31 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 	defer listener.Close()
 	defer os.Remove(paths.socket)
 	_ = os.Chmod(paths.socket, 0o600)
+	logPersistentDaemonEvent(stderr, "daemon_ready", "socket", paths.socket)
 
 	signalPersistentDaemonReady()
-	return servePersistentDaemonWithVerifierConfig(
+	config := persistentDaemonServerConfig{emptyIdleTimeout: persistentDaemonEmptyIdleTimeout}
+	leaseRemoved := false
+	if leasePort > 0 {
+		config.slotLeasePresent = func() (bool, error) {
+			return persistentDaemonSlotLeasePresent(paths.slot, leasePort)
+		}
+		config.slotLeaseRemoved = func() {
+			leaseRemoved = true
+		}
+	}
+	err = servePersistentDaemonWithVerifierConfig(
 		listener,
 		persistentDaemonFileTokenVerifier(token, paths.tokenFile),
 		stderr,
-		persistentDaemonServerConfig{emptyIdleTimeout: persistentDaemonEmptyIdleTimeout},
+		config,
 	)
+	if err == nil && leaseRemoved {
+		if cleanupErr := removePersistentDaemonRelayShellDirectoryIfUnleased(leasePort); cleanupErr != nil {
+			return cleanupErr
+		}
+	}
+	return err
 }
 
 func signalPersistentDaemonReady() {
@@ -918,26 +1230,75 @@ func servePersistentDaemonWithVerifierConfig(
 	defer hub.closeAll()
 	var activeConnections int64
 	var idleSince time.Time
+	var slotLeaseObserved bool
+	var shutdownOnce sync.Once
+	requestShutdown := func() {
+		shutdownOnce.Do(func() {
+			_ = listener.Close()
+		})
+	}
 	for {
+		now := time.Now()
+		var acceptDeadline time.Time
+		var slotLeaseMissing bool
+		if config.slotLeasePresent != nil {
+			present, err := config.slotLeasePresent()
+			if err == nil {
+				if present {
+					slotLeaseObserved = true
+				} else if slotLeaseObserved {
+					slotLeaseMissing = true
+				}
+			}
+			acceptDeadline = now.Add(persistentDaemonAcceptPollStep(config))
+		}
+		activity := persistentDaemonActivity{
+			activeConnections: atomic.LoadInt64(&activeConnections),
+		}
+		// Counting sessions takes the hub lock and scans the session map. A live
+		// connection already prevents automatic retirement, so inspect sessions
+		// only when their count can affect the decision.
+		if activity.activeConnections == 0 {
+			activity.activeSessions = hub.activeSessionCount()
+		}
+		var emptyIdleExpired bool
 		if config.emptyIdleTimeout > 0 {
-			now := time.Now()
-			isEmpty := atomic.LoadInt64(&activeConnections) == 0 && hub.activeSessionCount() == 0
-			if isEmpty {
+			if activity.isEmpty() {
 				if idleSince.IsZero() {
 					idleSince = now
 				}
 				remaining := config.emptyIdleTimeout - now.Sub(idleSince)
 				if remaining <= 0 {
-					return nil
+					emptyIdleExpired = true
+				} else {
+					idleDeadline := now.Add(minDuration(
+						remaining,
+						persistentDaemonAcceptPollStep(config),
+					))
+					acceptDeadline = earliestNonzeroTime(acceptDeadline, idleDeadline)
 				}
-				setPersistentDaemonAcceptDeadline(listener, now.Add(minDuration(
-					remaining,
-					persistentDaemonAcceptPollStep(config),
-				)))
 			} else {
 				idleSince = time.Time{}
-				setPersistentDaemonAcceptDeadline(listener, now.Add(persistentDaemonAcceptPollStep(config)))
+				acceptDeadline = earliestNonzeroTime(
+					acceptDeadline,
+					now.Add(persistentDaemonAcceptPollStep(config)),
+				)
 			}
+		}
+		exitReason := persistentDaemonAutomaticExitReason(
+			activity,
+			slotLeaseMissing,
+			emptyIdleExpired,
+		)
+		if exitReason != "" {
+			logPersistentDaemonExit(stderr, now, exitReason, activity)
+			if exitReason == persistentDaemonExitSlotLeaseRemoved && config.slotLeaseRemoved != nil {
+				config.slotLeaseRemoved()
+			}
+			return nil
+		}
+		if !acceptDeadline.IsZero() {
+			setPersistentDaemonAcceptDeadline(listener, acceptDeadline)
 		}
 		conn, err := listener.Accept()
 		if err != nil {
@@ -952,7 +1313,7 @@ func servePersistentDaemonWithVerifierConfig(
 		atomic.AddInt64(&activeConnections, 1)
 		go func() {
 			defer atomic.AddInt64(&activeConnections, -1)
-			handlePersistentDaemonConn(conn, verifier, hub)
+			handlePersistentDaemonConn(conn, verifier, hub, stderr, requestShutdown)
 		}()
 	}
 }
@@ -996,89 +1357,174 @@ func isClosedListenerError(err error) bool {
 	return strings.Contains(err.Error(), "use of closed network connection")
 }
 
-func handlePersistentDaemonConn(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub) {
-	handlePersistentDaemonConnWithAuthTimeout(conn, verifier, hub, persistentDaemonAuthTimeout)
+func handlePersistentDaemonConn(
+	conn net.Conn,
+	verifier persistentDaemonTokenVerifier,
+	hub *wsPTYHub,
+	stderr io.Writer,
+	requestShutdown func(),
+) {
+	handlePersistentDaemonConnWithAuthTimeout(
+		conn,
+		verifier,
+		hub,
+		stderr,
+		persistentDaemonAuthTimeout,
+		requestShutdown,
+	)
 }
 
-func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub, timeout time.Duration) {
+func handlePersistentDaemonConnWithAuthTimeout(
+	conn net.Conn,
+	verifier persistentDaemonTokenVerifier,
+	hub *wsPTYHub,
+	stderr io.Writer,
+	timeout time.Duration,
+	requestShutdown func(),
+) {
 	defer conn.Close()
+	defer logPersistentDaemonEvent(stderr, "connection_closed")
+	logPersistentDaemonEvent(stderr, "connection_accepted")
 	if timeout > 0 {
 		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+			logPersistentDaemonEvent(
+				stderr,
+				"connection_fault",
+				"phase", "auth_deadline",
+				"error_category", persistentDaemonErrorCategory(err),
+			)
 			return
 		}
 	}
 	reader := bufio.NewReaderSize(conn, 64*1024)
 	writer := &stdioFrameWriter{writer: bufio.NewWriter(conn)}
-	if !authenticatePersistentDaemonConn(reader, writer, verifier) {
+	if err := authenticatePersistentDaemonConn(reader, writer, verifier); err != nil {
+		logPersistentDaemonEvent(
+			stderr,
+			"connection_rejected",
+			"reason", persistentDaemonAuthenticationFailureReason(err),
+		)
 		return
 	}
+	logPersistentDaemonEvent(stderr, "connection_authenticated")
 	if timeout > 0 {
 		if err := conn.SetDeadline(time.Time{}); err != nil {
+			logPersistentDaemonEvent(
+				stderr,
+				"connection_fault",
+				"phase", "clear_auth_deadline",
+				"error_category", persistentDaemonErrorCategory(err),
+			)
 			return
 		}
 	}
-	_ = runRPCServerWithReader(reader, writer, hub, false)
+	if err := runRPCServerWithReader(reader, writer, hub, false, requestShutdown, func() {
+		_ = conn.Close()
+	}); err != nil {
+		logPersistentDaemonEvent(
+			stderr,
+			"connection_fault",
+			"phase", "rpc",
+			"error_category", persistentDaemonErrorCategory(err),
+		)
+	}
 }
 
-func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) bool {
+func persistentDaemonAuthenticationFailureReason(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+	switch err.Error() {
+	case "authentication frame exceeds size limit",
+		"authentication frame is invalid JSON",
+		"authentication method is missing",
+		"authentication method is invalid",
+		"authentication token is invalid":
+		return err.Error()
+	default:
+		return persistentDaemonErrorCategory(err)
+	}
+}
+
+func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) error {
 	line, oversized, err := readRPCFrame(reader, maxRPCFrameBytes)
 	if err != nil || oversized {
-		_ = writer.writeResponse(rpcResponse{
+		rejection := fmt.Errorf("authentication frame read failed: %w", err)
+		if oversized {
+			rejection = errors.New("authentication frame exceeds size limit")
+		}
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			OK: false,
 			Error: &rpcError{
 				Code:    "unauthorized",
 				Message: "persistent daemon authentication required",
 			},
-		})
-		return false
+		}, rejection)
 	}
 	line = bytes.TrimSuffix(line, []byte{'\n'})
 	line = bytes.TrimSuffix(line, []byte{'\r'})
 	var req rpcRequest
 	if err := json.Unmarshal(line, &req); err != nil {
-		_ = writer.writeResponse(rpcResponse{
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			OK: false,
 			Error: &rpcError{
 				Code:    "invalid_request",
 				Message: "invalid JSON request",
 			},
-		})
-		return false
+		}, errors.New("authentication frame is invalid JSON"))
 	}
 	if req.Method != persistentDaemonAuthMethod {
-		_ = writer.writeResponse(rpcResponse{
+		reason := "authentication method is invalid"
+		if req.Method == "" {
+			reason = "authentication method is missing"
+		}
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
 				Code:    "unauthorized",
 				Message: "persistent daemon authentication required",
 			},
-		})
-		return false
+		}, errors.New(reason))
 	}
 	provided, _ := getStringParam(req.Params, "token")
 	if !verifier(provided) {
-		_ = writer.writeResponse(rpcResponse{
+		return writePersistentDaemonAuthRejection(writer, rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
 				Code:    "unauthorized",
 				Message: "invalid persistent daemon token",
 			},
-		})
-		return false
+		}, errors.New("authentication token is invalid"))
 	}
-	_ = writer.writeResponse(rpcResponse{
+	if err := writer.writeResponse(rpcResponse{
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
 			"authenticated": true,
 		},
-	})
-	return true
+	}); err != nil {
+		return fmt.Errorf("authentication response write failed: %w", err)
+	}
+	return nil
 }
 
-func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyHub *wsPTYHub, ownsPTYHub bool) error {
+func writePersistentDaemonAuthRejection(writer *stdioFrameWriter, response rpcResponse, rejection error) error {
+	if err := writer.writeResponse(response); err != nil {
+		return fmt.Errorf("authentication response write failed: %w", err)
+	}
+	return rejection
+}
+
+func runRPCServerWithReader(
+	reader *bufio.Reader,
+	writer *stdioFrameWriter,
+	ptyHub *wsPTYHub,
+	ownsPTYHub bool,
+	requestShutdown func(),
+	interruptRead func(),
+) error {
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
@@ -1088,12 +1534,20 @@ func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyH
 		ownsPTYHub:    ownsPTYHub,
 		frameWriter:   writer,
 	}
-	defer server.closeAll()
-	defer writer.writer.Flush()
+	connectionCtx, cancelConnection := context.WithCancel(context.Background())
+	defer func() {
+		cancelConnection()
+		server.closeAll()
+		_ = writer.flush()
+	}()
+	dispatcher := newRPCRequestDispatcher(connectionCtx, cancelConnection, interruptRead, server)
 
 	for {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
 		if readErr != nil {
+			if asyncErr := dispatcher.takeAsyncError(); asyncErr != nil {
+				return asyncErr
+			}
 			if errors.Is(readErr, io.EOF) {
 				return nil
 			}
@@ -1130,8 +1584,21 @@ func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyH
 			}
 			continue
 		}
+		if req.Method == persistentDaemonShutdownMethod && requestShutdown != nil {
+			if err := writer.writeResponse(rpcResponse{
+				ID: req.ID,
+				OK: true,
+				Result: map[string]any{
+					"shutting_down": true,
+				},
+			}); err != nil {
+				return err
+			}
+			requestShutdown()
+			return nil
+		}
 
-		if err := server.handleRequestAndWriteResponse(req); err != nil {
+		if err := dispatcher.dispatch(req); err != nil {
 			return err
 		}
 	}
@@ -1265,6 +1732,12 @@ func (w *stdioFrameWriter) writeEvent(event rpcEvent) error {
 	return w.writeJSONFrame(event)
 }
 
+func (w *stdioFrameWriter) flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Flush()
+}
+
 func (w *stdioFrameWriter) writeJSONFrame(payload any) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -1313,6 +1786,9 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.session.persistent_daemon",
 					"pty.write.notification",
 					"pty.resize.notification",
+					"pty.attach.cancel",
+					"pty.input.seq_ack",
+					"cli.bridge",
 				},
 			},
 		}
@@ -1356,6 +1832,8 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handlePTYClose(req)
 	case "pty.list":
 		return s.handlePTYList(req)
+	case "cli.response":
+		return s.handleCLIResponse(req)
 	default:
 		return rpcResponse{
 			ID: req.ID,
@@ -1376,6 +1854,28 @@ func (s *rpcServer) handleRequestAndWriteResponse(req rpcRequest) error {
 	return s.frameWriter.writeResponse(resp)
 }
 
+func (s *rpcServer) handlePTYAttachAndWriteResponse(ctx context.Context, req rpcRequest) error {
+	return s.handlePTYAttachAndWriteResponseWithReservation(ctx, ctx, req, nil)
+}
+
+func (s *rpcServer) handlePTYAttachAndWriteResponseWithReservation(
+	operationCtx context.Context,
+	attachmentLifetimeCtx context.Context,
+	req rpcRequest,
+	reservationReady func(),
+) error {
+	response := s.handlePTYAttachContextWithReservation(
+		operationCtx,
+		attachmentLifetimeCtx,
+		req,
+		reservationReady,
+	)
+	if operationCtx.Err() != nil {
+		return nil
+	}
+	return s.frameWriter.writeResponse(response)
+}
+
 func rpcRequestExpectsResponse(req rpcRequest) bool {
 	// Only selected PTY attachment operations use JSON-RPC notification
 	// semantics; all other id-less requests still get a response for compatibility.
@@ -1390,18 +1890,16 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 	if !rpcRequestIsPTYAttachmentNotification(req) || resp.OK {
 		return nil
 	}
+	errorCode := "unknown"
+	if resp.Error != nil {
+		errorCode = persistentDaemonDiagnosticCode(resp.Error.Code)
+	}
 	if s.frameWriter == nil {
-		detail := "unknown error"
-		if resp.Error != nil {
-			detail = strings.TrimSpace(resp.Error.Code)
-			if message := strings.TrimSpace(resp.Error.Message); message != "" {
-				if detail != "" {
-					detail += ": "
-				}
-				detail += message
-			}
-		}
-		_, _ = fmt.Fprintf(os.Stderr, "cmuxd-remote: %s notification failed without response writer: %s\n", req.Method, detail)
+		s.logPTYEvent(
+			"pty_notification_fault",
+			"operation", persistentDaemonDiagnosticCode(req.Method),
+			"error_code", errorCode,
+		)
 		return nil
 	}
 	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, req.Method)
@@ -1417,6 +1915,13 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 	if resp.Error != nil && strings.TrimSpace(resp.Error.Message) != "" {
 		detail = strings.TrimSpace(resp.Error.Message)
 	}
+	s.logPTYEvent(
+		"pty_channel_fault",
+		"session_id", sessionID,
+		"attachment_id", attachmentID,
+		"operation", req.Method,
+		"error_code", errorCode,
+	)
 	err := s.frameWriter.writeEvent(rpcEvent{
 		Event:           "pty.error",
 		SessionID:       sessionID,
@@ -1425,7 +1930,8 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 		Error:           detail,
 		Message:         detail,
 	})
-	if req.Method == "pty.write" && resp.Error != nil && resp.Error.Code == "pty_input_queue_full" && s.ptyHub != nil {
+	if req.Method == "pty.write" && resp.Error != nil && s.ptyHub != nil &&
+		(resp.Error.Code == "pty_input_queue_full" || resp.Error.Code == "pty_input_seq_gap") {
 		s.ptyHub.detachByID(sessionID, attachmentID, attachmentToken)
 	}
 	return err
@@ -1922,6 +2428,31 @@ func (s *rpcServer) handleSessionStatus(req rpcRequest) rpcResponse {
 }
 
 func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
+	return s.handlePTYAttachContext(context.Background(), req)
+}
+
+func (s *rpcServer) handlePTYAttachContext(ctx context.Context, req rpcRequest) rpcResponse {
+	return s.handlePTYAttachContextWithReservation(ctx, ctx, req, nil)
+}
+
+func (s *rpcServer) handlePTYAttachContextWithReservation(
+	operationCtx context.Context,
+	attachmentLifetimeCtx context.Context,
+	req rpcRequest,
+	reservationReady func(),
+) rpcResponse {
+	var reservationOnce sync.Once
+	notifyReservationReady := func() {
+		reservationOnce.Do(func() {
+			if reservationReady != nil {
+				reservationReady()
+			}
+		})
+	}
+	// Validation and other errors before the hub owns a generation still need
+	// to release the serialized request reader.
+	defer notifyReservationReady()
+
 	sessionID, ok := getStringParam(req.Params, "session_id")
 	if !ok || strings.TrimSpace(sessionID) == "" {
 		return rpcResponse{
@@ -1933,7 +2464,18 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 			},
 		}
 	}
-	attachmentID, _ := getStringParam(req.Params, "attachment_id")
+	attachmentID, ok := getStringParam(req.Params, "attachment_id")
+	attachmentID = strings.TrimSpace(attachmentID)
+	if !ok || attachmentID == "" {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "invalid_params",
+				Message: "pty.attach requires attachment_id",
+			},
+		}
+	}
 	attachmentToken, _ := getStringParam(req.Params, "client_attachment_token")
 	attachmentToken = strings.TrimSpace(attachmentToken)
 	if attachmentToken == "" {
@@ -1963,6 +2505,7 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 	}
 	command, _ := getStringParam(req.Params, "command")
 	requireExisting, _ := getBoolParam(req.Params, "require_existing")
+	inputSeqAck, _ := getBoolParam(req.Params, "input_seq_ack")
 
 	hub := s.ptyHub
 	if hub == nil {
@@ -1975,8 +2518,9 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 			},
 		}
 	}
-	attachment, attachmentCtx, sessionDone, err := hub.attachRPC(
-		context.Background(),
+	attachment, attachmentCtx, sessionDone, err := hub.attachRPCWithReservation(
+		operationCtx,
+		attachmentLifetimeCtx,
 		sessionID,
 		attachmentID,
 		cols,
@@ -1984,18 +2528,65 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 		command,
 		attachmentToken,
 		requireExisting,
+		inputSeqAck,
+		notifyReservationReady,
 	)
 	if err != nil {
+		s.logPTYEvent(
+			"pty_attach_failed",
+			"session_id", strings.TrimSpace(sessionID),
+			"attachment_id", attachmentID,
+			"require_existing", strconv.FormatBool(requireExisting),
+			"error_code", ptyAttachErrorCode(err, requireExisting),
+			"error_category", persistentDaemonErrorCategory(err),
+		)
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
-				Code:    ptyAttachErrorCode(requireExisting),
-				Message: err.Error(),
+				Code:    ptyAttachErrorCode(err, requireExisting),
+				Message: ptyAttachErrorMessage(err),
 			},
 		}
 	}
-	s.trackPTYAttachment(attachment)
+	if err := operationCtx.Err(); err != nil {
+		hub.dropAttachment(attachment)
+		s.logPTYEvent(
+			"pty_attach_failed",
+			"session_id", strings.TrimSpace(sessionID),
+			"attachment_id", attachmentID,
+			"require_existing", strconv.FormatBool(requireExisting),
+			"error_code", ptyAttachErrorCode(err, requireExisting),
+			"error_category", persistentDaemonErrorCategory(err),
+		)
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    ptyAttachErrorCode(err, requireExisting),
+				Message: ptyAttachErrorMessage(err),
+			},
+		}
+	}
+	if !s.trackPTYAttachment(attachment) {
+		hub.dropAttachment(attachment)
+		s.logPTYEvent(
+			"pty_attach_failed",
+			"session_id", strings.TrimSpace(sessionID),
+			"attachment_id", attachmentID,
+			"require_existing", strconv.FormatBool(requireExisting),
+			"error_code", ptyAttachErrorCode(nil, requireExisting),
+			"error_category", "connection_closed",
+		)
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    ptyAttachErrorCode(nil, requireExisting),
+				Message: "RPC connection closed before PTY attachment completed",
+			},
+		}
+	}
 	go s.ptyAttachmentPump(attachmentCtx, attachment, sessionDone)
 
 	return rpcResponse{
@@ -2005,12 +2596,24 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 			"session_id":       strings.TrimSpace(sessionID),
 			"attachment_id":    attachment.id,
 			"attachment_token": attachment.clientToken,
+			"replay_bytes":     attachment.replayBytes,
 			"attached":         true,
 		},
 	}
 }
 
-func ptyAttachErrorCode(requireExisting bool) string {
+func ptyAttachErrorMessage(err error) string {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "RPC connection closed before PTY attachment completed"
+	}
+	return err.Error()
+}
+
+func ptyAttachErrorCode(err error, requireExisting bool) string {
+	if errors.Is(err, errWSPTYStartOwnersSaturated) ||
+		errors.Is(err, errWSPTYStartWaitersSaturated) {
+		return "unavailable"
+	}
 	if requireExisting {
 		return "pty_session_not_found"
 	}
@@ -2048,8 +2651,37 @@ func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 		}
 	}
 	writeStatus := wsPTYInputWriteNotFound
+	var seq uint64
+	var hasSeq bool
+	if _, provided := req.Params["seq"]; provided {
+		parsedSeq, ok := getIntParam(req.Params, "seq")
+		if !ok || parsedSeq < 0 {
+			return rpcResponse{
+				ID: req.ID,
+				OK: false,
+				Error: &rpcError{
+					Code:    "invalid_params",
+					Message: "seq must be a non-negative integer",
+				},
+			}
+		}
+		seq = uint64(parsedSeq)
+		hasSeq = true
+	}
+	writeResult := wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	if s.ptyHub != nil {
-		writeStatus = s.ptyHub.writeInputByID(sessionID, attachmentID, attachmentToken, payload)
+		writeResult = s.ptyHub.writeInputByIDWithSeq(sessionID, attachmentID, attachmentToken, payload, seq, hasSeq)
+		writeStatus = writeResult.status
+	}
+	if writeStatus == wsPTYInputWriteSeqGap {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "pty_input_seq_gap",
+				Message: fmt.Sprintf("PTY input sequence gap: got %d, want %d", writeResult.got, writeResult.want),
+			},
+		}
 	}
 	if writeStatus == wsPTYInputWriteQueueFull {
 		return rpcResponse{
@@ -2187,9 +2819,21 @@ func (s *rpcServer) handlePTYList(req rpcRequest) rpcResponse {
 
 func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAttachment, sessionDone <-chan struct{}) {
 	defer s.untrackPTYAttachment(attachment)
+	if attachment.cancel != nil {
+		defer attachment.cancel()
+	}
 	for {
 		select {
 		case <-ctx.Done():
+			s.logPTYEvent(
+				"pty_channel_closed",
+				"session_id", attachment.sessionKey.sessionID,
+				"attachment_id", attachment.id,
+				"reason", "connection_closed",
+			)
+			if s.ptyHub != nil {
+				s.ptyHub.dropAttachment(attachment)
+			}
 			_ = s.frameWriter.writeEvent(rpcPTYExitEvent(attachment))
 			return
 		case <-sessionDone:
@@ -2197,6 +2841,13 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 				select {
 				case frame := <-attachment.send:
 					if err := s.frameWriter.writeEvent(rpcPTYEventForFrame(attachment, frame)); err != nil {
+						s.logPTYEvent(
+							"pty_channel_fault",
+							"session_id", attachment.sessionKey.sessionID,
+							"attachment_id", attachment.id,
+							"direction", "daemon_to_client",
+							"error_category", persistentDaemonErrorCategory(err),
+						)
 						if s.ptyHub != nil {
 							s.ptyHub.dropAttachment(attachment)
 						}
@@ -2209,6 +2860,13 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 			}
 		case frame := <-attachment.send:
 			if err := s.frameWriter.writeEvent(rpcPTYEventForFrame(attachment, frame)); err != nil {
+				s.logPTYEvent(
+					"pty_channel_fault",
+					"session_id", attachment.sessionKey.sessionID,
+					"attachment_id", attachment.id,
+					"direction", "daemon_to_client",
+					"error_category", persistentDaemonErrorCategory(err),
+				)
 				if s.ptyHub != nil {
 					s.ptyHub.dropAttachment(attachment)
 				}
@@ -2218,16 +2876,27 @@ func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAtta
 	}
 }
 
-func (s *rpcServer) trackPTYAttachment(attachment *wsPTYAttachment) {
-	if attachment == nil {
+func (s *rpcServer) logPTYEvent(event string, fields ...string) {
+	if s == nil || s.ptyHub == nil {
 		return
+	}
+	logPersistentDaemonEvent(s.ptyHub.stderr, event, fields...)
+}
+
+func (s *rpcServer) trackPTYAttachment(attachment *wsPTYAttachment) bool {
+	if attachment == nil {
+		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
 	if s.ptyAttachments == nil {
 		s.ptyAttachments = map[string]*wsPTYAttachment{}
 	}
 	s.ptyAttachments[rpcPTYAttachmentKey(attachment)] = attachment
+	return true
 }
 
 func (s *rpcServer) untrackPTYAttachment(attachment *wsPTYAttachment) {
@@ -2403,6 +3072,7 @@ func (s *rpcServer) dropStream(streamID string) {
 
 func (s *rpcServer) closeAll() {
 	s.mu.Lock()
+	s.closed = true
 	streams := make([]net.Conn, 0, len(s.streams))
 	for id, state := range s.streams {
 		delete(s.streams, id)

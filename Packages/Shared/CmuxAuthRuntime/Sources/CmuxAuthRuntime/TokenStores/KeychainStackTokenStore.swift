@@ -100,6 +100,11 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return true
     }
 
+    /// Replaces tokens only while the stored refresh token is still `compareRefreshToken`.
+    ///
+    /// The compare value is the staleness guard. A double-nil replacement is the
+    /// Stack SDK's `RefreshOutcome.definitivelyRejected` clear, and must delete
+    /// the persisted session once the current refresh token still matches.
     public func compareAndSet(
         compareRefreshToken: String,
         newRefreshToken: String?,
@@ -109,12 +114,8 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         let matches = current == compareRefreshToken
         log.log("keychain.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false)")
         guard matches else { return }
-        // Don't let the StackClientApp's error cleanup path delete both tokens.
-        // If both new values are nil, it means the refresh failed and the SDK wants
-        // to clear the session. Preserve the refresh token so the user stays signed in.
         if newRefreshToken == nil && newAccessToken == nil {
-            log.log("keychain.compareAndSet: blocked double-nil clear (preserving session)")
-            return
+            log.log("keychain.compareAndSet: cleared definitively-rejected session")
         }
         await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
     }

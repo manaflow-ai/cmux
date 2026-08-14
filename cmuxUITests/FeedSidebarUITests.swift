@@ -42,7 +42,7 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     func testFeedReceivesAndResolvesPermissionRequest() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-\(modeKey)", "allowAll",
             "-\(dockBetaFeatureKey)", "YES",
@@ -127,7 +127,7 @@ final class FeedSidebarUITests: XCTestCase {
     }
 
     func testDockTerminalRerendersAfterRightSidebarHideShow() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-\(modeKey)", "allowAll",
             "-\(dockBetaFeatureKey)", "YES",

@@ -7,7 +7,7 @@ import Foundation
 /// comes from the agent's own argv, environment, or open transcript file, so a
 /// session launched through any indirection (a subrouter, a wrapper) is still
 /// found.
-nonisolated struct ObservedAgentSession: Sendable {
+struct ObservedAgentSession: Sendable {
     let sessionID: String
     let agentKind: ChatAgentKind
     let surfaceID: String

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import SwiftUI
 
 extension View {
@@ -11,35 +12,25 @@ extension View {
         #endif
     }
 
-    /// Translucent "liquid glass" navigation chrome for the terminal detail
-    /// screen: the system bar material (Liquid Glass on iOS 26+, the translucent
-    /// blur bar on iOS 18) lets the terminal / chat behind it show through,
-    /// instead of the previous opaque terminal-colored fill.
-    ///
-    /// iOS 26: clear the bar's own background so the pane shows through the whole
-    /// header. The readable "liquid glass" then comes from per-element glass —
-    /// toolbar buttons get it automatically, and the title is wrapped in an
-    /// explicit Liquid Glass capsule (`mobileGlassNavigationTitle`) so it stays
-    /// legible over busy terminal text instead of floating bare.
-    ///
-    /// iOS 18 has no per-element glass, so keep a translucent material bar as the
-    /// backing (which also backs the title); `mobileGlassNavigationTitle` is a
-    /// no-op there. Keep the dark color scheme so the title and toolbar buttons
-    /// stay light and legible over the dark panes.
+    /// Terminal-colored navigation chrome for the terminal detail screen.
+    /// The selected surface's theme is explicit so both the bar fill and system
+    /// glyph contrast repaint when a live render-grid theme changes.
     @ViewBuilder
-    func mobileTerminalNavigationChrome() -> some View {
+    func mobileTerminalNavigationChrome(theme: TerminalTheme? = nil) -> some View {
         #if os(iOS)
-        if #available(iOS 26.0, *) {
+        let colorScheme = theme.map { $0.terminalColorScheme } ?? .dark
+        if let theme {
             self
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(.hidden, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarBackground(theme.terminalBackgroundColor, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
         } else {
             self
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
         }
         #else
         self

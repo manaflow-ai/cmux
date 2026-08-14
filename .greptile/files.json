@@ -114,8 +114,8 @@
       ]
     },
     {
-      "path": ".github/review-bot-rules/swift-file-package-boundaries.md",
-      "description": "Source-of-truth cmux lint rule for Swift file size and SwiftPM package boundary review.",
+      "path": ".github/review-bot-rules/swift-package-boundaries.md",
+      "description": "Source-of-truth cmux lint rule for SwiftPM package boundary review.",
       "scope": [
         "**/*.swift",
         "**/Package.swift",

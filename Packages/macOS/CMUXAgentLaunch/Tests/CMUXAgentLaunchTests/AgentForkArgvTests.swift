@@ -29,6 +29,22 @@ struct AgentForkArgvTests {
                 arguments: ["opencode", "--model", "anthropic/claude-sonnet-4-6"]
             ) == ["opencode", "--session", "SID", "--fork", "--model", "anthropic/claude-sonnet-4-6"]
         )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "pi",
+                sessionId: "SID",
+                executablePath: "/opt/bin/pi",
+                arguments: ["/opt/bin/pi", "--model", "anthropic/claude-sonnet-4-6"]
+            ) == ["/opt/bin/pi", "--fork", "SID", "--model", "anthropic/claude-sonnet-4-6"]
+        )
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "omp",
+                sessionId: "SID",
+                executablePath: "/opt/bin/omp",
+                arguments: ["/opt/bin/omp", "--model", "anthropic/claude-sonnet-4-6"]
+            ) == ["/opt/bin/omp", "--fork", "SID", "--model", "anthropic/claude-sonnet-4-6"]
+        )
     }
 
     @Test("Codex one-shot commands are not forkable")
