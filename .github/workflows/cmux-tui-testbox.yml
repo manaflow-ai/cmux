@@ -9,11 +9,14 @@ on:
         default: ""
         type: string
 
-# External prerequisite: create cmux-testbox-broker-v1 at the reviewed merge
-# commit, then protect that exact tag from update and deletion. Dispatch with
-# `--ref cmux-testbox-broker-v1`. Blacksmith Branch Protected Caches must be ON.
-# github.sha identifies the broker tag commit; it does not select source for
-# hydration.
+# External prerequisites, in order:
+# 1. Activate an exact-tag ruleset for cmux-testbox-broker-v1 that restricts
+#    creation, update, and deletion, with only a narrow temporary bypass.
+# 2. Use that bypass to create the tag at the reviewed merge SHA. Remove the
+#    bypass, then verify the tag SHA and active rules.
+# 3. Verify Blacksmith Branch Protected Caches is ON. Only then warm with
+#    `--ref cmux-testbox-broker-v1`. github.sha identifies the broker tag commit;
+#    it does not select source for hydration.
 #
 # After this job reports ready, the Blacksmith CLI syncs candidate changes into
 # this tag-scoped vendor Testbox job. Candidate code can read Testbox state and
@@ -155,6 +158,6 @@ jobs:
 
       - name: Run Testbox
         # The pinned action reads job.status and reports hydration_failed when
-        # any setup step after Begin fails.
-        if: always()
+        # any setup step after Begin fails. Cancellation skips the final action.
+        if: ${{ !cancelled() }}
         uses: useblacksmith/run-testbox@3f60ff9ceb2c10c3feefa87dc0c6490cffae059d
