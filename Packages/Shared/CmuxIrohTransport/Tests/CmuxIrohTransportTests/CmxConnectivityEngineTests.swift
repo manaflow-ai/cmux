@@ -328,6 +328,47 @@ struct CmxConnectivityEngineTests {
     }
 
     @Test
+    func routeRevisionInstallDoesNotWaitForStalledSessionClose() async throws {
+        let closeGate = TestIrohConnectionCloseGate()
+        let rig = try await Self.admittedPeerRig(
+            responses: [Self.peerRouteResponse(
+                revision: 9,
+                lastSeenAt: "2026-07-30T00:00:00Z"
+            )],
+            closeGate: closeGate
+        )
+        _ = try await rig.engine.acquireControl(
+            for: rig.request,
+            ownerID: UUID()
+        )
+        let changed = try #require(Self.peerRouteResponse(
+            revision: 10,
+            lastSeenAt: "2026-07-30T00:01:30Z",
+            identityGeneration: 2
+        ).snapshot)
+        let completion = ConnectivityObservationFlag()
+        let install = Task {
+            await rig.engine.didInstallRouteRevision(10, routes: changed)
+            await completion.markFinished()
+        }
+        await closeGate.waitUntilStarted()
+        for _ in 0 ..< 1_000 where !(await completion.value()) {
+            await Task.yield()
+        }
+        let finishedBeforeClose = await completion.value()
+
+        await closeGate.release()
+        await install.value
+
+        #expect(
+            finishedBeforeClose,
+            "route policy publication must not wait on physical QUIC close"
+        )
+        #expect(await rig.engine.snapshot().routeRevision == 10)
+        await rig.engine.stop()
+    }
+
+    @Test
     func reorderedCapabilitiesOnRevisionBumpKeepsTheLivePeerSession() async throws {
         let rig = try await Self.admittedPeerRig(responses: [
             Self.peerRouteResponse(
@@ -547,7 +588,8 @@ struct CmxConnectivityEngineTests {
 
     private static func admittedPeerRig(
         responses: [CmxConnectivitySyncResponse],
-        dialableConnections: Int = 1
+        dialableConnections: Int = 1,
+        closeGate: TestIrohConnectionCloseGate? = nil
     ) async throws -> AdmittedPeerRig {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "1", count: 64)
@@ -564,7 +606,8 @@ struct CmxConnectivityEngineTests {
                     ),
                     sendStream: TestIrohSendStream()
                 )],
-                selectedPath: .direct
+                selectedPath: .direct,
+                closeGate: closeGate
             )
         }
         let endpoint = TestDialingIrohEndpoint(

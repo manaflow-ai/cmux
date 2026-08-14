@@ -229,6 +229,46 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func pullToRefreshFinishesWhileLiveMacDiscoveryIsSuspended() async throws {
+        let saved = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let discovery = FirstThenSuspendedIrohDiscovery(
+            initialCandidates: [saved]
+        )
+        let fixture = try await makeFixture(
+            discovery: discovery,
+            reportedDeviceID: "mac-a"
+        )
+        defer {
+            discovery.resume()
+            fixture.cleanup()
+        }
+
+        #expect(await fixture.shell.reconnectActiveMacIfAvailable(
+            stackUserID: "user-1"
+        ))
+        fixture.shell.scheduleSecondaryAggregation(discoverLivePeers: true)
+        await discovery.waitUntilSuspendedRequest()
+
+        let completion = MainActorCompletionFlag()
+        let refresh = Task { @MainActor in
+            await fixture.shell.refreshWorkspaces()
+            completion.finish()
+        }
+        for _ in 0 ..< 1_000 where !completion.isFinished {
+            await Task.yield()
+        }
+        let finishedBeforeDiscovery = completion.isFinished
+
+        discovery.resume()
+        await refresh.value
+
+        #expect(
+            finishedBeforeDiscovery,
+            "the system refresh spinner must not wait for broker discovery"
+        )
+    }
+
+    @Test
     func storedReconnectDiscoversAndPersistsCompatibleSiblingInstances() async throws {
         let candidates = [
             try candidate(
@@ -581,6 +621,60 @@ private final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
     }
 
     func requestCount() -> Int { wasRequested ? 1 : 0 }
+}
+
+@MainActor
+private final class FirstThenSuspendedIrohDiscovery: MobileIrohMacDiscovering {
+    private let initialCandidates: [MobileDiscoveredIrohMac]
+    private var calls = 0
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var resumeWaiters: [CheckedContinuation<Void, Never>] = []
+    private var wasResumed = false
+
+    init(initialCandidates: [MobileDiscoveredIrohMac]) {
+        self.initialCandidates = initialCandidates
+    }
+
+    func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
+        calls += 1
+        guard calls > 1 else { return initialCandidates }
+        let waiters = requestWaiters
+        requestWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        if !wasResumed {
+            await withCheckedContinuation { continuation in
+                resumeWaiters.append(continuation)
+            }
+        }
+        return []
+    }
+
+    func invalidateDiscovery(forMacDeviceID _: String) async {}
+
+    func waitUntilSuspendedRequest() async {
+        guard calls > 1 else {
+            await withCheckedContinuation { continuation in
+                requestWaiters.append(continuation)
+            }
+            return
+        }
+    }
+
+    func resume() {
+        wasResumed = true
+        let waiters = resumeWaiters
+        resumeWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+}
+
+@MainActor
+private final class MainActorCompletionFlag {
+    private(set) var isFinished = false
+
+    func finish() {
+        isFinished = true
+    }
 }
 
 private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked Sendable {
