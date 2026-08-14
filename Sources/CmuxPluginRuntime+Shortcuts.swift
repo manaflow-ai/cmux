@@ -48,7 +48,8 @@ extension CmuxPluginRuntime {
                 let actionID = CmuxPluginRegistry.namespacedActionID(pluginID: pluginID, actionID: action.id)
                 if let stored = store?.shortcut(for: actionID) {
                     bindings[actionID] = stored
-                } else if let defaultShortcut = Self.parsePluginShortcut(action.defaultShortcut) {
+                } else if let defaultShortcut = Self.parsePluginShortcut(action.defaultShortcut),
+                          !defaultShortcut.isUnbound {
                     bindings[actionID] = defaultShortcut
                 }
             }

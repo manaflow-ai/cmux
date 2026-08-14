@@ -288,8 +288,17 @@ public actor CmuxPluginDirectoryLoader {
         )
     }
 
+    private static let lowercaseHexDigits = Array("0123456789abcdef".utf8)
+
     private static func fingerprint(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let digest = SHA256.hash(data: data)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(digest.count * 2)
+        for byte in digest {
+            bytes.append(lowercaseHexDigits[Int(byte >> 4)])
+            bytes.append(lowercaseHexDigits[Int(byte & 0x0F)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     private static func failureCode(for error: CmuxExtensionValidationError) -> CmuxPluginLoadFailure.Code {
