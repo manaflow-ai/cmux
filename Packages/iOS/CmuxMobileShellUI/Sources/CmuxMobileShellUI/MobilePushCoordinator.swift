@@ -120,6 +120,7 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var registrationRecoveryTask:
         Task<PushRegistrationSnapshot, Never>?
     @ObservationIgnored private var registrationRecoveryToken: UUID?
+    @ObservationIgnored private var registrationIntentTask: Task<Void, Never>?
     /// Authentication and settings reads may ignore cancellation. Keep one
     /// owned worker per direction until it actually exits, so an opt-out can
     /// advance independently without repeated retries accumulating tasks.
@@ -251,12 +252,10 @@ public final class MobilePushCoordinator {
         enabled: Bool,
         token: UUID,
         operation: @escaping @MainActor () async -> Bool
-    ) -> MobilePushMutationWorkers {
-        if let running = settingsMutationWorkers[enabled] {
-            if running.token != token {
-                settingsMutationNeedsRetry = true
-            }
-            return running
+    ) -> MobilePushMutationWorkers? {
+        guard settingsMutationWorkers[enabled] == nil else {
+            settingsMutationNeedsRetry = true
+            return nil
         }
         let completion = MobilePushMutationCompletion()
         let operationTask = Task { @MainActor [weak self] in
@@ -334,6 +333,15 @@ public final class MobilePushCoordinator {
             persistEnabledIntent()
         } else {
             prepareDisable()
+        }
+        registrationIntentTask?.cancel()
+        let registration = self.registration
+        let registrationGeneration = registrationIntentGeneration
+        registrationIntentTask = Task {
+            await registration.applyEnabledIntent(
+                enabled,
+                generation: registrationGeneration
+            )
         }
         return MobilePushSettingsIntent(
             token: token,
@@ -416,6 +424,7 @@ public final class MobilePushCoordinator {
                 registrationGeneration: intent.registrationGeneration
             )
         }
+        guard let workers else { return false }
         return await waitForSettingsMutation(workers)
     }
 
@@ -441,6 +450,7 @@ public final class MobilePushCoordinator {
                 registrationGeneration: intentGeneration
             )
         }
+        guard let workers else { return }
         _ = await waitForSettingsMutation(workers)
     }
 
@@ -595,6 +605,7 @@ public final class MobilePushCoordinator {
             )
             return self.isCurrentSettingsMutation(intent.token)
         }
+        guard let workers else { return }
         _ = await waitForSettingsMutation(workers)
     }
 
@@ -999,6 +1010,7 @@ public final class MobilePushCoordinator {
             workers.operation.cancel()
             workers.timeout.cancel()
         }
+        registrationIntentTask?.cancel()
         registrationSnapshotTask?.cancel()
         registrationRecoveryTask?.cancel()
     }
