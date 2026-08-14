@@ -816,7 +816,11 @@ struct FeedCoordinatorTests {
         let publishedEvents = bus.retainedSnapshot()
         #expect(
             publishedEvents.compactMap { $0["name"] as? String }
-                == ["agent.hook.PostToolUse", "feed.item.received"]
+                == [
+                    "agent.session.state_changed",
+                    "agent.hook.PostToolUse",
+                    "feed.item.received",
+                ]
         )
         for publishedEvent in publishedEvents {
             #expect(publishedEvent["workspace_id"] as? String == workspaceId)

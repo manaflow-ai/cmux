@@ -1845,6 +1845,22 @@ class TerminalController {
                 )
                 return
             }
+            let pluginProcessAuthorization = CmuxPluginRuntime.shared
+                .processAuthorization(forProcess: pid)
+            // A supervised plugin gets a descendant socket connection so it
+            // can use the existing transport, but its manifest grant is
+            // intentionally limited to the event stream in this core slice.
+            // Do not let the generic descendant allow-list turn a plugin into
+            // an unrestricted control-socket client.
+            let pluginPeerPolicy = CmuxPluginRuntime.socketPeerPolicy(
+                processAuthorization: pluginProcessAuthorization,
+                isEventStreamRequest: isEventsStreamRequest(trimmed)
+            )
+            if pluginPeerPolicy == .denied {
+                _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
+                return
+            }
+            let isLaunchedPlugin = pluginPeerPolicy == .pluginEventStream
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
@@ -1852,7 +1868,7 @@ class TerminalController {
             }
 
             if isEventsStreamRequest(trimmed) {
-                if let response = authResponseIfNeeded(
+                if !isLaunchedPlugin, let response = authResponseIfNeeded(
                     for: trimmed,
                     passwordAuthorization: &passwordAuthorization
                 ) {
@@ -1860,11 +1876,13 @@ class TerminalController {
                     continue
                 }
                 // The event-bus subscription has its own bounded slow-consumer
-                // policy. Keep its legacy stream loop isolated to this admitted
+                // policy. Keep its stream loop isolated to this admitted
                 // connection task; ordinary command traffic remains async.
                 handleEventsStreamRequest(
                     trimmed,
                     socket: socket,
+                    peerProcessID: pid,
+                    pluginAuthorizationRequired: isLaunchedPlugin,
                     authorizationGeneration: authorizationGeneration,
                     authorizationRevocationSignal: authorizationRevocationSignal,
                     passwordAuthorization: passwordAuthorization

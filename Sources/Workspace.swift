@@ -6145,7 +6145,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
         let existing = panelGitBranches[panelId]
-        let branchChanged = existing?.branch != nil && existing?.branch != branch
+        let branchChanged = existing?.branch != state.branch
         if existing?.branch != branch || existing?.isDirty != isDirty {
             panelGitBranches[panelId] = state
         }
@@ -6160,9 +6160,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if panelId == focusedPanelId, gitBranch != state {
             gitBranch = state
         }
+        // Dirty-state refreshes are useful to the sidebar but are not branch
+        // transitions. Keep the plugin lifecycle event tied to the branch
+        // value so a polling git status update cannot flood subscriptions.
+        guard branchChanged else { return }
+        publishCmuxGitBranchChanged(panelId: panelId, branch: state.branch, isDirty: state.isDirty, previousBranch: existing?.branch)
     }
 
     func clearPanelGitBranch(panelId: UUID) {
+        let previous = panelGitBranches[panelId]
         if panelGitBranches[panelId] != nil {
             panelGitBranches.removeValue(forKey: panelId)
         }
@@ -6177,6 +6183,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 pullRequest = nil
             }
         }
+        guard let previous else { return }
+        publishCmuxGitBranchChanged(panelId: panelId, branch: nil, isDirty: nil, previousBranch: previous.branch)
     }
 
     func updatePanelPullRequest(

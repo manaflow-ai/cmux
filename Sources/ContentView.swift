@@ -991,6 +991,7 @@ struct ContentView: View {
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
+    @State private var pluginSnapshotRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @State private var isFeedbackComposerPresented = false
     @AppStorage(AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
@@ -2870,6 +2871,11 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
             refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(notification)
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: CmuxPluginRuntime.snapshotDidChangeNotification)) { _ in
+            pluginSnapshotRevision &+= 1
+            commandPaletteResultsRevision &+= 1
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
@@ -5379,6 +5385,7 @@ struct ContentView: View {
         var hasher = Hasher()
         hasher.combine(commandsContext.snapshot.fingerprint())
         hasher.combine(cmuxConfigStore.configRevision)
+        hasher.combine(pluginSnapshotRevision)
         return hasher.finalize()
     }
 
@@ -8184,10 +8191,12 @@ struct ContentView: View {
             )
         }
 
+        contributions.append(contentsOf: pluginCommandPaletteContributions())
+
         return contributions
     }
 
-    private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
+    func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
         let dangerous: Set<Unicode.Scalar> = [
             "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
             "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
@@ -9025,6 +9034,8 @@ struct ContentView: View {
                 executeConfiguredAction(captured)
             }
         }
+
+        registerPluginCommandPaletteHandlers(&registry)
     }
 
     private func openCmuxConfigIssue(_ issue: CmuxConfigIssue) {
