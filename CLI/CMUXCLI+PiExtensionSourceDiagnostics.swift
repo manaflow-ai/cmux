@@ -73,10 +73,32 @@ function piHookDiagnosticPath(
     }
   }
 
+  let pointerDescriptor: number | undefined;
   try {
-    const lastPath = firstString(fs.readFileSync(lastDebugLogPathFile, "utf8"));
-    if (lastPath) return expandedPiHookLogPath(lastPath, environment.HOME);
-  } catch (_) {}
+    // The shared pointer is untrusted: inspect a nonblocking descriptor and
+    // bound the read so a special or oversized file cannot stall Pi.
+    pointerDescriptor = fs.openSync(
+      lastDebugLogPathFile,
+      fs.constants.O_RDONLY | fs.constants.O_NONBLOCK,
+    );
+    if (fs.fstatSync(pointerDescriptor).isFile()) {
+      const pointerContents = Buffer.alloc(4096);
+      const bytesRead = fs.readSync(
+        pointerDescriptor,
+        pointerContents,
+        0,
+        pointerContents.byteLength,
+        0,
+      );
+      const lastPath = firstString(pointerContents.subarray(0, bytesRead).toString("utf8"));
+      if (lastPath) return expandedPiHookLogPath(lastPath, environment.HOME);
+    }
+  } catch (_) {
+  } finally {
+    if (pointerDescriptor !== undefined) {
+      try { fs.closeSync(pointerDescriptor); } catch (_) {}
+    }
+  }
   return fallbackLogPath;
 }
 
