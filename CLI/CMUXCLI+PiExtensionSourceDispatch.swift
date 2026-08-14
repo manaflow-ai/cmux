@@ -368,7 +368,12 @@ class PiCmuxCommandDispatcher {
 
     const result = await this.spawnCmux(args, cwd, input, cancellation);
     const surfaceUnavailable = this.isSurfaceResolutionFailure(result);
-    const shouldLogFailure = !surfaceUnavailable || !sessionId || !this.unavailableSessions.has(sessionId);
+    let shouldLogFailure = true;
+    if (surfaceUnavailable && sessionId) {
+      // Claim synchronously so overlapping Feed/control failures emit one diagnostic.
+      shouldLogFailure = !this.unavailableSessions.has(sessionId);
+      this.unavailableSessions.add(sessionId);
+    }
     if (!result.ok && result.reason !== "cancelled" && shouldLogFailure) {
       await warn(context, "cmux hook command failed", {
         ...commandFailureDetails(args, result),
@@ -376,7 +381,6 @@ class PiCmuxCommandDispatcher {
       });
     }
     if (surfaceUnavailable) {
-      if (sessionId) this.unavailableSessions.add(sessionId);
       return { ...result, surfaceUnavailable: true };
     }
     return result;
