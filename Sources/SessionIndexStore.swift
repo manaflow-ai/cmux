@@ -451,7 +451,7 @@ final class SessionIndexStore: ObservableObject {
 
     nonisolated private static func defaultAgentOrder(workingDirectory: String?) async -> LoadedAgentOrder {
         let manifestState = await AppDelegate.currentAgentManifestRuntimeState()
-        await Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) {
             defaultAgentOrderSync(
                 workingDirectory: workingDirectory,
                 manifestSnapshot: manifestState.snapshot
@@ -478,7 +478,7 @@ final class SessionIndexStore: ObservableObject {
 
     nonisolated private static func vaultAgentRegistry(workingDirectory: String?) async -> CmuxVaultAgentRegistry {
         let manifestState = await AppDelegate.currentAgentManifestRuntimeState()
-        await Task.detached(priority: .utility) {
+        return await Task.detached(priority: .utility) {
             CmuxVaultAgentRegistry.load(
                 workingDirectory: workingDirectory,
                 manifestSnapshot: manifestState.snapshot
