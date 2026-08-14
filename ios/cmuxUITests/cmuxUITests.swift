@@ -63,12 +63,12 @@ final class cmuxUITests: XCTestCase {
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
     /// path. The first product scene uses the shipped workspace-list capture,
-    /// while the notification scene shows the shipped chronological feed. The
+    /// while the notification scene shows the push-notification preview. The
     /// connection scene keeps its live connection-state illustration. Relaunching
     /// after the simulated search finishes must resume at Connect without
     /// exposing manual pairing until Tailscale is selected.
     @MainActor
-    func testOnboardingScenesNotificationFeedResumeAndTailscaleScanner() throws {
+    func testOnboardingScenesPushPreviewResumeAndTailscaleScanner() throws {
         let app = XCUIApplication()
         XCUIDevice.shared.orientation = .portrait
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
