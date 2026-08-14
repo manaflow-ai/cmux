@@ -83,6 +83,8 @@ struct FakeTokenProvider: TokenProviding {
 
 actor MutablePushTokenProvider: TokenProviding {
     private var value: AuthenticatedSessionSnapshot?
+    private var snapshotBlocker: TestContinuationBlocker?
+    private var snapshotStarted: TestPhaseSignal?
 
     init(
         accountID: String,
@@ -115,8 +117,23 @@ actor MutablePushTokenProvider: TokenProviding {
         value = nil
     }
 
+    func blockAuthenticatedSessionSnapshot(
+        started: TestPhaseSignal,
+        until blocker: TestContinuationBlocker
+    ) {
+        snapshotStarted = started
+        snapshotBlocker = blocker
+    }
+
     func authenticatedSessionSnapshot() async throws
         -> AuthenticatedSessionSnapshot {
+        if let blocker = snapshotBlocker {
+            snapshotBlocker = nil
+            let started = snapshotStarted
+            snapshotStarted = nil
+            await started?.markStarted()
+            await blocker.wait()
+        }
         guard let value else { throw AuthError.unauthorized }
         return value
     }
@@ -361,6 +378,54 @@ actor RetryDelayRecorder {
                 .value(forHTTPHeaderField: "Authorization")
                 == "Bearer returned-access"
         )
+    }
+
+    @Test func cancelledQueuedSignOutStillPersistsCleanupObligation() async {
+        await PushRegistrationURLProtocol.script.reset([])
+        let provider = MutablePushTokenProvider(
+            accountID: "account-a",
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await provider.blockAuthenticatedSessionSnapshot(
+            started: started,
+            until: blocker
+        )
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil
+        )
+        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+
+        let heldMutation = Task {
+            await service.unregisterFromServer()
+        }
+        await started.waitUntilStarted()
+        await provider.clearSession()
+
+        let queuedSignOut = Task {
+            await service.unregisterFromServer(
+                accountID: "account-a",
+                accessToken: "captured-access",
+                refreshToken: "captured-refresh"
+            )
+        }
+        queuedSignOut.cancel()
+        // Cancellation must remove the waiter while the first mutation still
+        // owns the intent gate. If it were allowed to wait for the gate, this
+        // await would deadlock until the blocker below is released.
+        await queuedSignOut.value
+
+        await blocker.release()
+        await heldMutation.value
+
+        let queueText = defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        ).flatMap { String(data: $0, encoding: .utf8) }
+        #expect(queueText?.contains("account-a") == true)
+        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
     }
 
     @Test func signOutNeverUsesCapturedAccountBToDeleteRegisteredAccountA() async {
