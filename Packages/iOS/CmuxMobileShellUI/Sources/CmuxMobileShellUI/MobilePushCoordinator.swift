@@ -232,7 +232,7 @@ public final class MobilePushCoordinator {
     /// lifecycle reconciliation. The returned generation must be checked after
     /// each suspension before an operation publishes or persists state.
     @discardableResult
-    private func beginSettingsIntent(_ enabled: Bool) -> SettingsIntent {
+    private func beginSettingsIntent(_ enabled: Bool) -> MobilePushSettingsIntent {
         cancelSettingsMutation()
         let token = UUID()
         registrationIntentGeneration &+= 1
@@ -242,15 +242,10 @@ public final class MobilePushCoordinator {
         } else {
             prepareDisable()
         }
-        return SettingsIntent(
+        return MobilePushSettingsIntent(
             token: token,
             registrationGeneration: registrationIntentGeneration
         )
-    }
-
-    private struct SettingsIntent {
-        let token: UUID
-        let registrationGeneration: UInt64
     }
 
     /// Point routing at the active store (called by the root view on appear).

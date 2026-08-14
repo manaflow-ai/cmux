@@ -39,6 +39,9 @@ public actor PushRegistrationService: PushRegistering {
     private var operationGeneration = UUID()
     private var enabledIntentGeneration = UUID()
     private var coordinatorIntentGeneration: UInt64 = 0
+    private var coordinatorIntentTask: Task<Void, Never>?
+    private var coordinatorIntentTaskGeneration: UInt64?
+    private var coordinatorIntentTaskID: UUID?
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
         [UUID: AsyncStream<PushRegistrationSnapshot>.Continuation] = [:]
@@ -135,6 +138,11 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
+    /// Disables local delivery and removes the owned token from the server.
+    ///
+    /// The caller may persist the user's opt-out before invoking this method;
+    /// cleanup therefore uses the registered owner or live session rather than
+    /// the now-false preference to decide whether a delete is required.
     public func disableAndUnregister() async {
         let intentGeneration = UUID()
         enabledIntentGeneration = intentGeneration
@@ -146,6 +154,12 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
+    /// Applies the newest coordinator-owned preference exactly once while it
+    /// is in flight, ignoring older generations that are still queued.
+    ///
+    /// - Parameters:
+    ///   - enabled: The latest user preference.
+    ///   - generation: The monotonically increasing coordinator generation.
     public func applyEnabledIntent(
         _ enabled: Bool,
         generation: UInt64
@@ -154,12 +168,30 @@ public actor PushRegistrationService: PushRegistering {
             coordinatorIntentGeneration,
             generation
         )
-        await intentGate.withLock { [self] in
-            guard await self.isCurrentCoordinatorIntent(generation) else {
-                return
-            }
-            await self.applyEnabledIntentUnlocked(enabled)
+        guard coordinatorIntentGeneration == generation else { return }
+        if let task = coordinatorIntentTask,
+           coordinatorIntentTaskGeneration == generation {
+            await task.value
+            return
         }
+        let taskID = UUID()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.intentGate.withLock { [self] in
+                guard await self.isCurrentCoordinatorIntent(generation) else {
+                    return
+                }
+                await self.applyEnabledIntentUnlocked(enabled)
+            }
+        }
+        coordinatorIntentTask = task
+        coordinatorIntentTaskGeneration = generation
+        coordinatorIntentTaskID = taskID
+        await task.value
+        guard coordinatorIntentTaskID == taskID else { return }
+        coordinatorIntentTask = nil
+        coordinatorIntentTaskGeneration = nil
+        coordinatorIntentTaskID = nil
     }
 
     private func applyEnabledIntentUnlocked(_ enabled: Bool) async {
