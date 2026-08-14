@@ -291136,6 +291136,252 @@
         }
       }
     }
+,
+    "linksPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Links" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リンク" } }
+      }
+    },
+    "linksPane.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This workspace is no longer available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このワークスペースは利用できなくなりました。" } }
+      }
+    },
+    "linksPane.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No links captured yet." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "まだリンクは記録されていません。" } }
+      }
+    },
+    "linksPane.emptyFiltered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No links match the current filters." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在のフィルタに一致するリンクはありません。" } }
+      }
+    },
+    "linksPane.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Filter links" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リンクをフィルタ" } }
+      }
+    },
+    "linksPane.host.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All Hosts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのホスト" } }
+      }
+    },
+    "linksPane.source.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All Surfaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのサーフェス" } }
+      }
+    },
+    "linksPane.source.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untitled Surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無題のサーフェス" } }
+      }
+    },
+    "linksPane.count": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld Links" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 件のリンク" } }
+      }
+    },
+    "linksPane.repeatCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "×%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "×%lld" } }
+      }
+    },
+    "linksPane.day.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Today" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今日" } }
+      }
+    },
+    "linksPane.action.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy Link" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リンクをコピー" } }
+      }
+    },
+    "linksPane.action.openBuiltIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open in Built-in Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "内蔵ブラウザで開く" } }
+      }
+    },
+    "linksPane.action.openDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open in Default Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "既定のブラウザで開く" } }
+      }
+    },
+    "linksPane.action.reveal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reveal in Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインで表示" } }
+      }
+    },
+    "linksPane.action.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove Link" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リンクを削除" } }
+      }
+    },
+    "linksPane.action.clearAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear All Links" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのリンクを消去" } }
+      }
+    },
+    "command.openLinksPanel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Links Panel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Links パネルを開く" } }
+      }
+    },
+    "shortcut.openLinksPanel.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Links Panel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Links パネルを開く" } }
+      }
+    },
+    "settings.app.linksEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Capture Terminal Links" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリンクを記録" } }
+      }
+    },
+    "settings.app.linksEnabled.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Record URLs emitted by terminals into each workspace's Links pane." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルが出力した URL を各ワークスペースの Links ペインに記録します。" } }
+      }
+    },
+    "settings.app.linksIgnoreHosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ignored Link Hosts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無視するリンクホスト" } }
+      }
+    },
+    "settings.app.linksIgnoreHosts.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Comma-separated hosts to skip. Use host, host:port, or *.example.com." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スキップするホストをカンマ区切りで指定します。host、host:port、*.example.com を使用できます。" } }
+      }
+    },
+    "settings.app.linksIgnoreHosts.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "localhost:31034" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "localhost:31034" } }
+      }
+    },
+    "settings.app.linksIncludeFilePaths": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Include File URLs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "file URL を含める" } }
+      }
+    },
+    "settings.app.linksIncludeFilePaths.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keep file:// links in captured link history." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "記録されたリンク履歴に file:// リンクを保持します。" } }
+      }
+    },
+    "settings.app.linksRetentionLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Link Retention Limit" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リンク保持上限" } }
+      }
+    },
+    "settings.app.linksRetentionLimit.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Maximum captured links retained per workspace." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースごとに保持する記録済みリンクの最大数です。" } }
+      }
+    },
+    "settings.app.linksFetchTitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fetch Link Titles" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リンクタイトルを取得" } }
+      }
+    },
+    "settings.app.linksFetchTitles.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fetch page titles for public http(s) links. Private and local hosts are never fetched." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "公開の http(s) リンクのページタイトルを取得します。プライベートホストとローカルホストは取得しません。" } }
+      }
+    },
+    "settings.search.alias.setting.app.links-enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "links.enabled links urls url history capture terminal emitted" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "links.enabled links urls url history capture terminal emitted" } }
+      }
+    },
+    "settings.search.alias.setting.app.links-ignore-hosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "links.ignoreHosts links urls ignored hosts localhost wildcard filter" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "links.ignoreHosts links urls ignored hosts localhost wildcard filter" } }
+      }
+    },
+    "settings.search.alias.setting.app.links-include-file-paths": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "links.includeFilePaths file urls file paths links history" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "links.includeFilePaths file urls file paths links history" } }
+      }
+    },
+    "settings.search.alias.setting.app.links-retention-limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "links.retentionLimit retention limit cap count url history" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "links.retentionLimit retention limit cap count url history" } }
+      }
+    },
+    "settings.search.alias.setting.app.links-fetch-titles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "links.fetchTitles link titles fetch network urls history" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "links.fetchTitles link titles fetch network urls history" } }
+      }
+    }
   },
   "version": "1.0"
 }

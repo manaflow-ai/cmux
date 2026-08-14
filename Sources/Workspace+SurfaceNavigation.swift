@@ -205,6 +205,8 @@ extension Workspace {
             return SurfaceKind.extensionBrowser.rawValue
         case .workspaceTodo:
             return SurfaceKind.todo.rawValue
+        case .links:
+            return SurfaceKind.links.rawValue
         case .notifications:
             return SurfaceKind.notifications.rawValue
         case .cloudVMLoading:

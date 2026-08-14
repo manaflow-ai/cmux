@@ -46,6 +46,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
+    private var linkScanner = TerminalEmittedLinkScanner()
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
     init(
@@ -83,6 +84,25 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
             detectors[index].detector.consume(bytes)
             forwardDetectorChangeIfNeeded(at: index, now: now)
+        }
+    }
+
+    func consumeLinks(
+        _ bytes: UnsafeBufferPointer<UInt8>,
+        settings: LinkCaptureSettingsSnapshot
+    ) {
+        guard settings.enabled else { return }
+        let captured = linkScanner.consume(bytes)
+        guard !captured.isEmpty else { return }
+        let workspaceID = workspaceID
+        let surfaceID = surfaceID
+        Task { @MainActor in
+            TerminalLinkCaptureIngress.shared.ingest(
+                captured,
+                workspaceID: workspaceID,
+                sourcePanelId: surfaceID,
+                settings: settings
+            )
         }
     }
 

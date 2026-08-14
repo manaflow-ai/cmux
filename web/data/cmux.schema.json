@@ -1584,6 +1584,46 @@
         }
       }
     },
+    "links": {
+      "title": "links",
+      "description": "Workspace Links panel capture settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Capture URLs emitted by terminals into each workspace Links panel.",
+          "descriptionKey": "schemaDescriptions.links.enabled"
+        },
+        "ignoreHosts": {
+          "type": "string",
+          "default": "localhost:31034",
+          "description": "Comma-separated hosts to skip during link ingest. Entries support host, host:port, and *.example.com wildcard suffixes.",
+          "descriptionKey": "schemaDescriptions.links.ignoreHosts"
+        },
+        "includeFilePaths": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include file:// URLs in captured link history.",
+          "descriptionKey": "schemaDescriptions.links.includeFilePaths"
+        },
+        "retentionLimit": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 10000,
+          "default": 500,
+          "description": "Maximum captured links retained per workspace.",
+          "descriptionKey": "schemaDescriptions.links.retentionLimit"
+        },
+        "fetchTitles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Fetch page titles for captured public http(s) links. Private and local hosts are never fetched.",
+          "descriptionKey": "schemaDescriptions.links.fetchTitles"
+        }
+      }
+    },
     "canvas": {
       "title": "canvas",
       "description": "Freeform canvas workspace layout settings.",
@@ -1837,6 +1877,7 @@
               "toggleBrowserDesignMode",
               "toggleReactGrab",
               "openDiffViewer",
+              "openLinksPanel",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
               "diffViewerScrollHalfPageDown",

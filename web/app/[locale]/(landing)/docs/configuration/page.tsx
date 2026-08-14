@@ -50,6 +50,7 @@ const sectionOrder = [
   "agentChat",
   "browser",
   "markdown",
+  "links",
   "fileEditor",
   "fileExplorer",
   "shortcuts",
@@ -104,6 +105,19 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "fontFamily": "",
   //   // ${t("exampleMarkdownMaxWidth")}
   //   "maxWidth": 980
+  // },
+
+  // "links": {
+  //   // ${t("exampleLinksEnabled")}
+  //   "enabled": true,
+  //   // ${t("exampleLinksIgnoreHosts")}
+  //   "ignoreHosts": "localhost:31034",
+  //   // ${t("exampleLinksIncludeFilePaths")}
+  //   "includeFilePaths": false,
+  //   // ${t("exampleLinksRetentionLimit")}
+  //   "retentionLimit": 500,
+  //   // ${t("exampleLinksFetchTitles")}
+  //   "fetchTitles": false
   // },
 
   // "fileEditor": {

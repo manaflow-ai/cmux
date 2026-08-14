@@ -39,6 +39,11 @@ public struct AppSection: View {
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
     @State private var markdownMaxWidth: DefaultsValueModel<Int>
+    @State private var linksEnabled: DefaultsValueModel<Bool>
+    @State private var linksIgnoreHosts: DefaultsValueModel<String>
+    @State private var linksIncludeFilePaths: DefaultsValueModel<Bool>
+    @State private var linksRetentionLimit: DefaultsValueModel<Int>
+    @State private var linksFetchTitles: DefaultsValueModel<Bool>
     @State private var canvasPaneGap: DefaultsValueModel<Int>
     @State private var canvasSnapping: DefaultsValueModel<Bool>
     @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
@@ -101,6 +106,11 @@ public struct AppSection: View {
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
+        _linksEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.enabled))
+        _linksIgnoreHosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.ignoreHosts))
+        _linksIncludeFilePaths = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.includeFilePaths))
+        _linksRetentionLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.retentionLimit))
+        _linksFetchTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.fetchTitles))
         _canvasPaneGap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.paneGap))
         _canvasSnapping = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.snappingEnabled))
         _fileEditorWordWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.wordWrap))
@@ -155,7 +165,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, linksEnabled, linksIgnoreHosts, linksIncludeFilePaths, linksRetentionLimit, linksFetchTitles, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if soundAgents.isEmpty {
                 soundAgents = await hostActions.notificationSoundAgentOptions()
             }
@@ -518,6 +528,78 @@ public struct AppSection: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
                 .accessibilityIdentifier("SettingsMarkdownFontFamilyTextField")
+            }
+            SettingsCardDivider()
+
+            // Links Capture
+            SettingsCardRow(
+                configurationReview: .json("links.enabled"),
+                String(localized: "settings.app.linksEnabled", defaultValue: "Capture Terminal Links"),
+                subtitle: String(localized: "settings.app.linksEnabled.subtitle", defaultValue: "Record URLs emitted by terminals into each workspace's Links pane.")
+            ) {
+                Toggle("", isOn: Binding(get: { linksEnabled.current }, set: { linksEnabled.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsLinksEnabledToggle")
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("links.ignoreHosts"),
+                String(localized: "settings.app.linksIgnoreHosts", defaultValue: "Ignored Link Hosts"),
+                subtitle: String(localized: "settings.app.linksIgnoreHosts.subtitle", defaultValue: "Comma-separated hosts to skip. Use host, host:port, or *.example.com.")
+            ) {
+                TextField(
+                    String(localized: "settings.app.linksIgnoreHosts.placeholder", defaultValue: "localhost:31034"),
+                    text: Binding(get: { linksIgnoreHosts.current }, set: { linksIgnoreHosts.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 220)
+                .accessibilityIdentifier("SettingsLinksIgnoreHostsTextField")
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("links.includeFilePaths"),
+                String(localized: "settings.app.linksIncludeFilePaths", defaultValue: "Include File URLs"),
+                subtitle: String(localized: "settings.app.linksIncludeFilePaths.subtitle", defaultValue: "Keep file:// links in captured link history.")
+            ) {
+                Toggle("", isOn: Binding(get: { linksIncludeFilePaths.current }, set: { linksIncludeFilePaths.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsLinksIncludeFilePathsToggle")
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("links.retentionLimit"),
+                String(localized: "settings.app.linksRetentionLimit", defaultValue: "Link Retention Limit"),
+                subtitle: String(localized: "settings.app.linksRetentionLimit.subtitle", defaultValue: "Maximum captured links retained per workspace."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { linksRetentionLimit.current }, set: { linksRetentionLimit.set(min(max($0, 10), 10_000)) }),
+                    in: 10...10_000,
+                    step: 10
+                ) {
+                    Text(verbatim: "\(linksRetentionLimit.current)")
+                        .monospacedDigit()
+                        .frame(width: 52, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsLinksRetentionLimitStepper")
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("links.fetchTitles"),
+                String(localized: "settings.app.linksFetchTitles", defaultValue: "Fetch Link Titles"),
+                subtitle: String(localized: "settings.app.linksFetchTitles.subtitle", defaultValue: "Fetch page titles for public http(s) links. Private and local hosts are never fetched.")
+            ) {
+                Toggle("", isOn: Binding(get: { linksFetchTitles.current }, set: { linksFetchTitles.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsLinksFetchTitlesToggle")
             }
             SettingsCardDivider()
 

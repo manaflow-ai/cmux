@@ -153,6 +153,46 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    func parseLinksSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["enabled"]) {
+            snapshot.managedUserDefaults[LinksCaptureSettings.enabledKey] = .bool(value)
+        } else if section.keys.contains("enabled") {
+            logInvalid("links.enabled", sourcePath: sourcePath)
+        }
+
+        if let value = jsonString(section["ignoreHosts"]) {
+            snapshot.managedUserDefaults[LinksCaptureSettings.ignoreHostsKey] = .string(value)
+        } else if section.keys.contains("ignoreHosts") {
+            logInvalid("links.ignoreHosts", sourcePath: sourcePath)
+        }
+
+        if let value = jsonBool(section["includeFilePaths"]) {
+            snapshot.managedUserDefaults[LinksCaptureSettings.includeFilePathsKey] = .bool(value)
+        } else if section.keys.contains("includeFilePaths") {
+            logInvalid("links.includeFilePaths", sourcePath: sourcePath)
+        }
+
+        if let value = jsonDouble(section["retentionLimit"]) {
+            if value >= 10, value <= 10_000 {
+                snapshot.managedUserDefaults[LinksCaptureSettings.retentionLimitKey] = .int(Int(value.rounded()))
+            } else {
+                logInvalid("links.retentionLimit", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("retentionLimit") {
+            logInvalid("links.retentionLimit", sourcePath: sourcePath)
+        }
+
+        if let value = jsonBool(section["fetchTitles"]) {
+            snapshot.managedUserDefaults[LinksCaptureSettings.fetchTitlesKey] = .bool(value)
+        } else if section.keys.contains("fetchTitles") {
+            logInvalid("links.fetchTitles", sourcePath: sourcePath)
+        }
+    }
+
     func parseMobileSection(
         _ section: [String: Any],
         sourcePath: String,

@@ -1684,6 +1684,8 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
 /// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.
 struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
+/// Marker for a workspace links pane; captured URLs persist on the workspace.
+struct SessionLinksPanelSnapshot: Codable, Sendable {}
 /// Marker for the global notifications pane; its feed lives in the notification store.
 struct SessionNotificationsPanelSnapshot: Codable, Sendable {}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
@@ -1741,6 +1743,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
+    var links: SessionLinksPanelSnapshot? = nil
     var notificationsPanel: SessionNotificationsPanelSnapshot? = nil
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
@@ -1903,6 +1906,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// `true` when the workspace opted out of the status feature (None); absent for the default (feature engaged), so old manifests decode unchanged.
     var taskStatusHidden: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
+    var links: [SessionWorkspaceLinkSnapshot]? = nil
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}

@@ -7684,6 +7684,17 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openLinksPanel",
+                title: constant(String(localized: "command.openLinksPanel.title", defaultValue: "Open Links Panel")),
+                subtitle: workspaceSubtitle,
+                keywords: ["links", "urls", "history", "workspace", "terminal"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.openDirectoryDiffViewer",
                 title: constant(String(localized: "command.openDirectoryDiffViewer.title", defaultValue: "Open Directory Diff Viewer")),
                 subtitle: workspaceSubtitle,
@@ -8780,6 +8791,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.openDiffViewer") {
             if AppDelegate.shared?.openDiffViewerForFocusedWorkspace(for: tabManager) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.openLinksPanel") {
+            if AppDelegate.shared?.openLinksPanelForFocusedWorkspace(for: tabManager) != true {
                 NSSound.beep()
             }
         }

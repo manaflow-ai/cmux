@@ -163,6 +163,7 @@ extension ShortcutAction {
         case .canvasDistributeVertically:
             return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
         case .openDiffViewer: return "Open Diff Viewer"
+        case .openLinksPanel: return String(localized: "shortcut.openLinksPanel.label", defaultValue: "Open Links Panel")
         case .saveFilePreview: return "Save File Preview"
         case .openBrowser: return "Open Browser"
         case .focusBrowserAddressBar: return "Focus Address Bar"

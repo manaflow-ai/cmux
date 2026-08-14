@@ -37,6 +37,8 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let extensionBrowser = SurfaceKind(rawValue: "extensionBrowser")
     /// A workspace todo pane.
     public static let todo = SurfaceKind(rawValue: "todo")
+    /// A workspace links pane.
+    public static let links = SurfaceKind(rawValue: "links")
     /// A notifications pane.
     public static let notifications = SurfaceKind(rawValue: "notifications")
     /// A transient Cloud VM loading pane.

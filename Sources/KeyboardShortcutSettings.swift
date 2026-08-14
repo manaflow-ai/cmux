@@ -199,6 +199,7 @@ enum KeyboardShortcutSettings {
         case toggleBrowserDesignMode
         case toggleReactGrab
         case openDiffViewer
+        case openLinksPanel
         case diffViewerScrollDown
         case diffViewerScrollUp
         case diffViewerScrollHalfPageDown, diffViewerScrollHalfPageUp
@@ -361,6 +362,7 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserDesignMode: return String(localized: "shortcut.toggleBrowserDesignMode.label", defaultValue: "Toggle Browser Design Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
+            case .openLinksPanel: return String(localized: "shortcut.openLinksPanel.label", defaultValue: "Open Links Panel")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
             case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Viewers: Scroll Up")
             case .diffViewerScrollHalfPageDown: return String(localized: "shortcut.diffViewerScrollHalfPageDown.label", defaultValue: "Viewers: Scroll Half Page Down")
@@ -667,6 +669,8 @@ enum KeyboardShortcutSettings {
                 // Cmd+Opt+D, Cmd+Shift+Opt+D). Adding Shift yields a chord that reaches cmux while
                 // keeping the "D for Diff" mnemonic. Rebindable in Settings → Keyboard Shortcuts.
                 return StoredShortcut(key: "d", command: true, shift: true, option: false, control: true)
+            case .openLinksPanel:
+                return StoredShortcut(key: "l", command: true, shift: true, option: false, control: true)
             case .diffViewerScrollDown:
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:

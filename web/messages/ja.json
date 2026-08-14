@@ -2193,6 +2193,13 @@
           "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。",
           "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
           "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
+        },
+        "links": {
+          "enabled": "ターミナルが出力した URL を各ワークスペースの Links パネルに記録します。",
+          "ignoreHosts": "リンク取り込み時にスキップするホストのカンマ区切りリストです。host、host:port、*.example.com のワイルドカード接尾辞を使用できます。",
+          "includeFilePaths": "記録されたリンク履歴に file:// URL を含めます。",
+          "retentionLimit": "ワークスペースごとに保持する記録済みリンクの最大数です。",
+          "fetchTitles": "公開の http(s) リンクのページタイトルを取得します。プライベートホストとローカルホストは取得しません。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -2205,7 +2212,12 @@
       "shortcutsWhenBooleanKeys": "boolean キー。未知または存在しないキーは false として扱われ、リテラル true / false も使えます。",
       "shortcutsWhenTypedKeys": "比較用の型付きキー。右サイドバーのアクティブモード（文字列）と、ペイン数・ワークスペース数（整数）です。",
       "shortcutsWhenOperators": "boolean 演算子、型付き比較、正規表現マッチ、リスト所属。比較は && や || より強く結合します。",
-      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+1–5 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。"
+      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+1–5 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。",
+      "exampleLinksEnabled": "ターミナルが出力した URL を各ワークスペースの Links パネルに記録します。",
+      "exampleLinksIgnoreHosts": "ホストの無視リストをカンマ区切りで指定します。host、host:port、*.example.com を使用できます。",
+      "exampleLinksIncludeFilePaths": "リンク履歴に file:// URL を含めます。",
+      "exampleLinksRetentionLimit": "ワークスペースごとに保持する記録済みリンクの最大数です。",
+      "exampleLinksFetchTitles": "公開の http(s) リンクのタイトルを取得します。既定値 false ではネットワーク要求を行いません。"
     },
     "customCommands": {
       "title": "カスタムコマンド",

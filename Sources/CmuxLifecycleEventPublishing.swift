@@ -227,6 +227,8 @@ extension Workspace {
             return "extension_browser"
         case .workspaceTodo:
             return "workspace_todo"
+        case .links:
+            return "links"
         case .notifications:
             return "notifications"
         case .cloudVMLoading:

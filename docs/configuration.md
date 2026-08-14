@@ -165,6 +165,28 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 `terminal.focusTextBoxOnNewTerminals` opens the TextBox and focuses it for foreground terminal sessions created from the app UI, such as new terminal workspaces, tabs, and splits. Terminals created through the cmux CLI/control socket do not auto-focus the TextBox, even when this setting is enabled, so background automation does not steal keyboard focus.
 
+## `links`
+
+Controls workspace-scoped terminal link capture.
+
+```json
+{
+  "links": {
+    "enabled": true,
+    "ignoreHosts": "localhost:31034",
+    "includeFilePaths": false,
+    "retentionLimit": 500,
+    "fetchTitles": false
+  }
+}
+```
+
+- `enabled`: capture URLs emitted by terminals into each workspace Links panel. Default: `true`.
+- `ignoreHosts`: comma-separated hosts skipped during ingest. Entries support `host`, exact `host:port`, and wildcard suffixes such as `*.example.com`. Default: `localhost:31034`.
+- `includeFilePaths`: keep `file://` URLs in link history. Default: `false`.
+- `retentionLimit`: maximum captured links retained per workspace. Range: `10`-`10000`. Default: `500`.
+- `fetchTitles`: fetch page titles for captured public http(s) links. Default: `false`, so link capture performs no network requests unless explicitly enabled. Private and local hosts are never fetched.
+
 ## Workspace terminal font size shortcuts
 
 Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.

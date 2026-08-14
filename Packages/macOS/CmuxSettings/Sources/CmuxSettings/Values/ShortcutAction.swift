@@ -154,6 +154,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 
     // MARK: Browser & Find
     case openDiffViewer
+    case openLinksPanel
     case saveFilePreview
     case openBrowser
     case focusBrowserAddressBar
