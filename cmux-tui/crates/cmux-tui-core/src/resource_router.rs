@@ -1005,6 +1005,9 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SessionJournalHookPut
         | ResourceOperation::SessionJournalCheckpointCreate
         | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalInspect
+        | ResourceOperation::SessionJournalList
+        | ResourceOperation::SessionJournalRestore
         | ResourceOperation::SessionJournalRestorePreview
         | ResourceOperation::SessionJournalSegmentList
         | ResourceOperation::SessionJournalSegmentSeal
