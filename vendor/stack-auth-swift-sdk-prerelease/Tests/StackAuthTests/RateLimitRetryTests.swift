@@ -57,20 +57,39 @@ struct RateLimitRetryTests {
         let store = MemoryTokenStore()
         await store.setTokens(accessToken: "old-access", refreshToken: "refresh")
 
-        async let first = client.sendRequest(
-            path: "/users/me",
-            authenticated: true,
-            tokenStoreOverride: store
-        )
-        async let second = client.sendRequest(
-            path: "/users/me",
-            authenticated: true,
-            tokenStoreOverride: store
-        )
-        _ = try await (first, second)
+        let first = Task {
+            await capture { try await client.sendRequest(
+                path: "/users/me",
+                authenticated: true,
+                tokenStoreOverride: store
+            ) }
+        }
+        let second = Task {
+            await capture { try await client.sendRequest(
+                path: "/users/me",
+                authenticated: true,
+                tokenStoreOverride: store
+            ) }
+        }
+        let results = await [first.value, second.value]
+        for result in results {
+            if case let .failure(error) = result {
+                Issue.record("unexpected concurrent auth retry error: \(error)")
+            }
+        }
 
         #expect(AuthRetryURLProtocol.refreshCount == 1)
         #expect(AuthRetryURLProtocol.requestCount == 5)
+    }
+
+    private func capture(
+        _ operation: @escaping () async throws -> (Data, HTTPURLResponse)
+    ) async -> Result<(Data, HTTPURLResponse), Error> {
+        do {
+            return .success(try await operation())
+        } catch {
+            return .failure(error)
+        }
     }
 
     private func makeAuthRetryClient() -> APIClient {
@@ -125,6 +144,8 @@ private final class RateLimitURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 private final class AuthRetryURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let newAccessToken =
+        "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTksInN1YiI6InRlc3QifQ.signature"
     private static let lock = NSLock()
     private nonisolated(unsafe) static var count = 0
     private nonisolated(unsafe) static var refreshes = 0
@@ -165,15 +186,15 @@ private final class AuthRetryURLProtocol: URLProtocol, @unchecked Sendable {
         let isRefresh = request.url?.path.hasSuffix("/auth/oauth/token") == true
         let token = request.value(forHTTPHeaderField: "x-stack-access-token")
         let statusCode = isRefresh ? 200 :
-            (token == "new-access" && !shouldRejectRefreshedToken ? 200 : 401)
-        let headers = isRefresh
+            (token == Self.newAccessToken && !shouldRejectRefreshedToken ? 200 : 401)
+        let headers = statusCode == 200
             ? ["content-type": "application/json"]
             : [
                 "x-stack-actual-status": "401",
                 "x-stack-known-error": "invalid_access_token",
             ]
         let body = isRefresh
-            ? Data(#"{"access_token":"new-access"}"#.utf8)
+            ? Data(#"{"access_token":"eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTksInN1YiI6InRlc3QifQ.signature"}"#.utf8)
             : Data(#"{"message":"expired"}"#.utf8)
         let response = HTTPURLResponse(
             url: request.url!,

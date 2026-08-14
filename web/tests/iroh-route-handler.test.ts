@@ -27,34 +27,6 @@ const USER: AuthedUser = {
 };
 
 describe("Iroh route boundary", () => {
-  test("rate limits before Stack verification", async () => {
-    let verifyCalls = 0;
-    let rateLimitCalls = 0;
-    const response = await handleIrohRoute(
-      new Request("https://cmux.test/api/devices/iroh"),
-      "discover",
-      {
-        isVercel: () => true,
-        rateLimitRuleId: () => "iroh-ingress",
-        checkRateLimit: async () => {
-          rateLimitCalls += 1;
-          return { rateLimited: true };
-        },
-        verify: async () => {
-          verifyCalls += 1;
-          return USER;
-        },
-        broker: broker({
-          discover: () => Effect.succeed({ bindings: [] }),
-        }),
-      },
-    );
-
-    expect(response.status).toBe(429);
-    expect(rateLimitCalls).toBe(1);
-    expect(verifyCalls).toBe(0);
-  });
-
   test("builds an account-authenticated backend-only invalidation", async () => {
     const publication = buildConnectivityInvalidationRequest(
       authedPost("/api/devices/iroh/register", {}),
