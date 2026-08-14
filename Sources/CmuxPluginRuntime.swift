@@ -62,10 +62,13 @@ final class CmuxPluginRuntime: @unchecked Sendable {
     @MainActor
     init(
         registry: CmuxPluginRegistry = CmuxPluginRegistry(),
-        processSupervisor: CmuxPluginProcessSupervisor = CmuxPluginProcessSupervisor()
+        processSupervisor: CmuxPluginProcessSupervisor? = nil
     ) {
         self.registry = registry
-        self.processSupervisor = processSupervisor
+        // Construct the main-actor-owned supervisor inside this initializer's
+        // isolation domain. A default argument is evaluated by the caller and
+        // cannot invoke a main-actor initializer safely.
+        self.processSupervisor = processSupervisor ?? CmuxPluginProcessSupervisor()
         socketListenerObserver = nil
         shortcutSettingsObserver = nil
         registryUpdateTail = nil
