@@ -2815,6 +2815,7 @@ for (const [value, expected] of parsingCases) {
 
 const classified = [
   [mod.commandFailureReason(null, undefined, "timeout"), "timeout"],
+  [mod.commandFailureReason(0, new Error("write EPIPE")), undefined],
   [mod.commandFailureReason(42, undefined), "nonzero-exit"],
   [mod.commandFailureReason(null, new Error("ENOENT")), "spawn-error"],
 ];
