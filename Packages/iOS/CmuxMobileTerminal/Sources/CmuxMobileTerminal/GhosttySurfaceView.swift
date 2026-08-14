@@ -156,7 +156,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// local scrolling, geometry, and verified replay share one barrier.
     typealias RenderSubmissionKind = TerminalRenderSubmissionKind
     private static let maximumRenderPresentationRetries: UInt8 = 3
-    struct RenderSubmission: @unchecked Sendable {
+    /// Value-only render metadata captured by the serial surface queue.
+    ///
+    /// This type is explicitly nonisolated because its instances cross from
+    /// the main-actor admission path into `GhosttySurfaceWorkQueue.async`.
+    /// The raw surface pointer is valid for the matching generation, and the
+    /// owning view resets that generation before teardown; no UIKit state is
+    /// accessed from the queue closure.
+    nonisolated struct RenderSubmission: @unchecked Sendable {
         let token: UInt64
         let generation: UInt64
         let kind: RenderSubmissionKind
