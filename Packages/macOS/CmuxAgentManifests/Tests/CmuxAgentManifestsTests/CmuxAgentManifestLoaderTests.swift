@@ -237,7 +237,11 @@ struct CmuxAgentManifestLoaderTests {
         #expect(edited?.entry(id: "fixture")?.manifest.displayName == "Edited")
 
         try Data("{ nope".utf8).write(to: userDirectory.appendingPathComponent("fixture.json"), options: .atomic)
-        try await Task.sleep(for: .milliseconds(250))
+        let rejected = await store.reload()
+        guard case .failure = rejected else {
+            Issue.record("Malformed watcher input was accepted")
+            return
+        }
         #expect(await store.snapshot().entry(id: "fixture")?.manifest.displayName == "Edited")
         #expect(await store.reloadError() != nil)
 
