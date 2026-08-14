@@ -1,7 +1,8 @@
 import Foundation
 
 /// Reads a directory's git metadata directly from the on-disk repository,
-/// without spawning a `git` process.
+/// spawning a `git` process only for repositories whose `HEAD` is the reftable
+/// compatibility stub (`ref: refs/heads/.invalid`).
 ///
 /// This service does the filesystem work that powers the workspace sidebar's
 /// branch label, dirty indicator, and pull-request badge: resolving the

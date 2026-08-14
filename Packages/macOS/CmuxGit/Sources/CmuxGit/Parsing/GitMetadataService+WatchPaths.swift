@@ -41,6 +41,7 @@ extension GitMetadataService {
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("refs").path,
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("refs").path,
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs").path,
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("reftable").path,
         ] + gitConfigURLs(repository: repository).map(\.path)
     }
 

@@ -11,6 +11,10 @@ extension GitMetadataService {
 
     /// The current branch name from `HEAD` (`ref: refs/heads/<name>`), or `nil`
     /// for a detached HEAD or unreadable `HEAD`.
+    ///
+    /// Repositories using git's reftable backend keep a vestigial `HEAD` stub
+    /// (`ref: refs/heads/.invalid`); those resolve the real branch through git
+    /// plumbing instead of trusting the file contents.
     nonisolated static func gitBranchName(repository: ResolvedGitRepository) -> String? {
         let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
         guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
@@ -22,7 +26,11 @@ extension GitMetadataService {
             return nil
         }
         let branch = String(trimmed.dropFirst(branchPrefix.count))
-        return branch.isEmpty ? nil : branch
+        guard !branch.isEmpty else { return nil }
+        if headNamesReftableStub(contents) {
+            return gitBranchNameViaPlumbing(repository: repository)
+        }
+        return branch
     }
 
     /// Classifies the repository's `HEAD` into a ``GitCheckedOutBranch``,
@@ -38,6 +46,9 @@ extension GitMetadataService {
         if trimmed.hasPrefix(branchPrefix) {
             guard let branch = normalizedBranchName(String(trimmed.dropFirst(branchPrefix.count))) else {
                 return .unreadable
+            }
+            if headNamesReftableStub(contents) {
+                return gitCheckedOutBranchViaPlumbing(repository: repository)
             }
             return .branch(branch)
         }
@@ -72,6 +83,9 @@ extension GitMetadataService {
 
         let refName = String(trimmed.dropFirst(refPrefix.count))
         guard !refName.isEmpty else { return trimmed }
+        if headNamesReftableStub(contents) {
+            return gitHeadSignatureViaPlumbing(repository: repository)
+        }
         let refValue = gitRefValue(repository: repository, refName: refName) ?? ""
         return "\(trimmed)\n\(refValue)"
     }
@@ -126,7 +140,11 @@ extension GitMetadataService {
         let value: String
         if trimmed.hasPrefix(refPrefix) {
             let refName = String(trimmed.dropFirst(refPrefix.count))
-            guard !refName.isEmpty, let refValue = gitRefValue(repository: repository, refName: refName) else {
+            guard !refName.isEmpty else { return nil }
+            if headNamesReftableStub(contents) {
+                return gitCurrentCommitViaPlumbing(repository: repository)
+            }
+            guard let refValue = gitRefValue(repository: repository, refName: refName) else {
                 return nil
             }
             value = refValue

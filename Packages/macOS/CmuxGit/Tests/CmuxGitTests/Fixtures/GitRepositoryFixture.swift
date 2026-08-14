@@ -38,6 +38,15 @@ final class GitRepositoryFixture {
         try "\(commit)\n".write(to: refURL, atomically: true, encoding: .utf8)
     }
 
+    /// Writes the vestigial `HEAD` stub git uses for reftable repositories.
+    func writeReftableHeadStub() throws {
+        try "ref: refs/heads/.invalid\n".write(
+            to: gitDirectory.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
     /// Writes a detached `HEAD` holding a raw commit SHA.
     func writeDetachedHead(commit: String) throws {
         try "\(commit)\n".write(
