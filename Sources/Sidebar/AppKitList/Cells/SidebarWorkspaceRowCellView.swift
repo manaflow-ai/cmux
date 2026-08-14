@@ -316,13 +316,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func configure(
         model: SidebarWorkspaceRowModel,
         actions: SidebarAppKitRowActions,
-        chromePalette: ChromePalette? = nil,
+        chromePalette: ChromePalette,
         isPointerHovering: Bool,
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) {
-        let chromePalette = chromePalette ?? AppDelegate.shared?.chromePalette
-            ?? ChromePalette.resolve(theme: .default, colorScheme: model.colorSchemeIsDark ? .dark : .light)
         let requiresFullApply = self.actions == nil
         let previous = self.model
         let paletteChanged = self.chromePalette != chromePalette

@@ -3,14 +3,8 @@ import CmuxSettings
 extension SidebarWorkspaceRowTableCellView {
     func configurePresentation(
         model: SidebarWorkspaceRowModel,
-        chromePalette: ChromePalette? = nil
+        chromePalette: ChromePalette
     ) {
-        let chromePalette = chromePalette
-            ?? AppDelegate.shared?.chromePalette
-            ?? ChromePalette.resolve(
-                theme: .default,
-                colorScheme: model.colorSchemeIsDark ? .dark : .light
-            )
         let previous = self.model
         let paletteChanged = self.chromePalette != chromePalette
         suspendPresentation()
@@ -33,3 +27,29 @@ extension SidebarWorkspaceRowTableCellView {
         needsLayout = true
     }
 }
+
+#if DEBUG
+extension SidebarWorkspaceRowTableCellView {
+    /// Test convenience that supplies the default palette matching the row's
+    /// explicit color scheme. Production call sites pass the runtime palette.
+    func configure(
+        model: SidebarWorkspaceRowModel,
+        actions: SidebarAppKitRowActions,
+        isPointerHovering: Bool,
+        contextMenuDidOpen: @escaping () -> Void,
+        contextMenuDidClose: @escaping () -> Void
+    ) {
+        configure(
+            model: model,
+            actions: actions,
+            chromePalette: ChromePalette.resolve(
+                theme: .default,
+                colorScheme: model.colorSchemeIsDark ? .dark : .light
+            ),
+            isPointerHovering: isPointerHovering,
+            contextMenuDidOpen: contextMenuDidOpen,
+            contextMenuDidClose: contextMenuDidClose
+        )
+    }
+}
+#endif
