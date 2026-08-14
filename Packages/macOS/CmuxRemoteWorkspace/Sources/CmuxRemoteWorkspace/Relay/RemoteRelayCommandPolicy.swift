@@ -35,7 +35,12 @@ public import Foundation
 ///    allowlist either, and content-creating methods (`surface.create`,
 ///    `surface.split`, `pane.create`) must name an explicit aliased remote
 ///    target so they cannot attach to whatever local workspace happens to be
-///    focused.
+/// focused.
+///
+/// Contributors: before adding a method to the allowlist or a new ID param,
+/// read the "Remote CLI relay authorization" section of the repo-root
+/// AGENTS.md. Review bots enforce it via
+/// `.github/review-bot-rules/remote-relay-authorization.md`.
 public enum RemoteRelayCommandPolicy {
     public enum Verdict: Sendable, Equatable {
         case allow
