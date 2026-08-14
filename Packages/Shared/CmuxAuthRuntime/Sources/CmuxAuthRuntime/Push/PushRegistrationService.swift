@@ -37,6 +37,8 @@ public actor PushRegistrationService: PushRegistering {
     private var retryTask: Task<Void, Never>?
     private var unregisterDrainTask: Task<Void, Never>?
     private var operationGeneration = UUID()
+    private var enabledIntentGeneration = UUID()
+    private var coordinatorIntentGeneration: UInt64 = 0
     private var snapshotValue: PushRegistrationSnapshot
     private var snapshotContinuations:
         [UUID: AsyncStream<PushRegistrationSnapshot>.Continuation] = [:]
@@ -123,9 +125,66 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     public func setEnabled(_ enabled: Bool) async {
+        let intentGeneration = UUID()
+        enabledIntentGeneration = intentGeneration
         await intentGate.withLock { [self] in
+            guard await self.isCurrentEnabledIntent(intentGeneration) else {
+                return
+            }
             await self.setEnabledUnlocked(enabled)
         }
+    }
+
+    public func disableAndUnregister() async {
+        let intentGeneration = UUID()
+        enabledIntentGeneration = intentGeneration
+        await intentGate.withLock { [self] in
+            guard await self.isCurrentEnabledIntent(intentGeneration) else {
+                return
+            }
+            await self.disableAndUnregisterUnlocked()
+        }
+    }
+
+    public func applyEnabledIntent(
+        _ enabled: Bool,
+        generation: UInt64
+    ) async {
+        coordinatorIntentGeneration = max(
+            coordinatorIntentGeneration,
+            generation
+        )
+        await intentGate.withLock { [self] in
+            guard await self.isCurrentCoordinatorIntent(generation) else {
+                return
+            }
+            await self.applyEnabledIntentUnlocked(enabled)
+        }
+    }
+
+    private func applyEnabledIntentUnlocked(_ enabled: Bool) async {
+        if enabled {
+            defaults.set(true, forKey: Self.enabledKey)
+            await syncTokenIfPossibleUnlocked()
+        } else {
+            await disableAndUnregisterUnlocked()
+        }
+    }
+
+    private func disableAndUnregisterUnlocked() async {
+        cancelRetry()
+        publish(.disabled)
+        await unregisterFromServerUnlocked(requireKnownOwner: false)
+        defaults.set(false, forKey: Self.enabledKey)
+        publish(.disabled)
+    }
+
+    private func isCurrentEnabledIntent(_ generation: UUID) -> Bool {
+        enabledIntentGeneration == generation
+    }
+
+    private func isCurrentCoordinatorIntent(_ generation: UInt64) -> Bool {
+        coordinatorIntentGeneration == generation
     }
 
     private func setEnabledUnlocked(_ enabled: Bool) async {
@@ -214,13 +273,17 @@ public actor PushRegistrationService: PushRegistering {
         }
     }
 
-    private func unregisterFromServerUnlocked() async {
+    private func unregisterFromServerUnlocked(
+        requireKnownOwner: Bool = false
+    ) async {
         cancelRetry()
         guard let hex = cachedTokenHex else { return }
         let session = try? await tokenProvider.authenticatedSessionSnapshot()
-        let ownerID = defaults.string(
+        let registeredOwnerID = defaults.string(
             forKey: Self.registeredAccountIDKey
-        ) ?? session?.accountID
+        )
+        let ownerID = registeredOwnerID
+            ?? (requireKnownOwner ? nil : session?.accountID)
         guard let ownerID, !ownerID.isEmpty else { return }
         // Persist before requiring live auth. This is the privacy guarantee for
         // an offline or signed-out opt-out.
@@ -960,41 +1023,6 @@ private struct PushRequest {
 /// re-enter while URLSession is awaiting a response. The operation runs in an
 /// independent worker so cancelling a UI waiter cannot abandon a request after
 /// the server may have committed it.
-private actor PushRegistrationMutationGate {
-    private var isHeld = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func withLock<Value: Sendable>(
-        _ operation: @escaping @Sendable () async -> Value
-    ) async -> Value {
-        await acquire()
-        let worker = Task {
-            await operation()
-        }
-        let value = await worker.value
-        release()
-        return value
-    }
-
-    private func acquire() async {
-        guard isHeld else {
-            isHeld = true
-            return
-        }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    private func release() {
-        guard !waiters.isEmpty else {
-            isHeld = false
-            return
-        }
-        waiters.removeFirst().resume()
-    }
-}
-
 private struct RegistrationAcknowledgement: Decodable {
     let ok: Bool
     let pushServiceConfigured: Bool?
