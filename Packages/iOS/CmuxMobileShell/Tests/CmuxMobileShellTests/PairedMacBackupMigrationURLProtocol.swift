@@ -10,6 +10,7 @@ final class PairedMacBackupMigrationURLProtocol:
     private nonisolated(unsafe) static var legacyScope: String?
     private nonisolated(unsafe) static var legacyResponse = Data()
     private nonisolated(unsafe) static var primaryResponseAfterUpload: Data?
+    private nonisolated(unsafe) static var uploadStatusCode = 200
     private nonisolated(unsafe) static var didUpload = false
     private nonisolated(unsafe) static var requests: [URLRequest] = []
     private nonisolated(unsafe) static var requestBodies: [Data?] = []
@@ -19,7 +20,8 @@ final class PairedMacBackupMigrationURLProtocol:
         primaryResponse: Data,
         legacyScope: String?,
         legacyResponse: Data,
-        primaryResponseAfterUpload: Data? = nil
+        primaryResponseAfterUpload: Data? = nil,
+        uploadStatusCode: Int = 200
     ) {
         lock.withLock {
             self.primaryScope = primaryScope
@@ -27,6 +29,7 @@ final class PairedMacBackupMigrationURLProtocol:
             self.legacyScope = legacyScope
             self.legacyResponse = legacyResponse
             self.primaryResponseAfterUpload = primaryResponseAfterUpload
+            self.uploadStatusCode = uploadStatusCode
             didUpload = false
             requests = []
             requestBodies = []
@@ -50,12 +53,15 @@ final class PairedMacBackupMigrationURLProtocol:
     override func startLoading() {
         let requestBody = request.httpBody
             ?? Self.readBodyStream(request.httpBodyStream)
-        let body = Self.lock.withLock { () -> Data in
+        let result = Self.lock.withLock { () -> (Data, Int) in
             Self.requests.append(request)
             Self.requestBodies.append(requestBody)
             guard request.httpMethod == "GET" else {
                 Self.didUpload = true
-                return Data(#"{"ok":true}"#.utf8)
+                return (
+                    Data(#"{"ok":true}"#.utf8),
+                    Self.uploadStatusCode
+                )
             }
             let scope = request.value(
                 forHTTPHeaderField: "X-Cmux-Client-Scope"
@@ -64,18 +70,23 @@ final class PairedMacBackupMigrationURLProtocol:
                 if Self.didUpload,
                    let primaryResponseAfterUpload =
                     Self.primaryResponseAfterUpload {
-                    return primaryResponseAfterUpload
+                    return (primaryResponseAfterUpload, 200)
                 }
-                return Self.primaryResponse
+                return (Self.primaryResponse, 200)
             }
             if scope == Self.legacyScope {
-                return Self.legacyResponse
+                return (Self.legacyResponse, 200)
             }
-            return Data(#"{"records":[],"deletedMacDeviceIDs":[]}"#.utf8)
+            return (
+                Data(
+                    #"{"records":[],"deletedMacDeviceIDs":[],"revision":0}"#.utf8
+                ),
+                200
+            )
         }
         let response = HTTPURLResponse(
             url: request.url!,
-            statusCode: 200,
+            statusCode: result.1,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
         )!
@@ -84,7 +95,7 @@ final class PairedMacBackupMigrationURLProtocol:
             didReceive: response,
             cacheStoragePolicy: .notAllowed
         )
-        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocol(self, didLoad: result.0)
         client?.urlProtocolDidFinishLoading(self)
     }
 
