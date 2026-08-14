@@ -31,6 +31,134 @@ import Testing
 @MainActor
 @Suite("File preview editor TextKit backing", .serialized)
 struct FilePreviewTextEditorTextKitTests {
+    @Test("syntax highlighting is bounded while known extensions retain their language")
+    func syntaxHighlightPolicyBoundsWork() {
+        let policy = FilePreviewSyntaxHighlightPolicy()
+
+        #expect(
+            policy.decision(
+                path: "/tmp/example.swift",
+                byteCount: FilePreviewSyntaxHighlightPolicy.maximumHighlightBytes
+            ) == .highlight(language: "swift")
+        )
+        #expect(
+            policy.decision(
+                path: "/tmp/example.swift",
+                byteCount: FilePreviewSyntaxHighlightPolicy.maximumHighlightBytes + 1
+            ) == .skip
+        )
+        #expect(
+            policy.decision(
+                path: "/tmp/example.unknown",
+                byteCount: FilePreviewSyntaxHighlightPolicy.maximumAutomaticDetectionBytes - 1
+            ) == .highlight(language: nil)
+        )
+        #expect(
+            policy.decision(
+                path: "/tmp/example.unknown",
+                byteCount: FilePreviewSyntaxHighlightPolicy.maximumAutomaticDetectionBytes
+            ) == .skip
+        )
+    }
+
+    @Test("syntax highlighter returns token colors without changing source text")
+    func syntaxHighlighterColorsSource() async throws {
+        let source = "let answer = 42\n"
+        let result = await FilePreviewSyntaxHighlighter().highlight(
+            text: source,
+            path: "/tmp/example.swift",
+            theme: .dark
+        )
+        let highlighted = try #require(result?.value)
+        var coloredRanges = 0
+        highlighted.enumerateAttribute(
+            .foregroundColor,
+            in: NSRange(location: 0, length: highlighted.length)
+        ) { value, _, _ in
+            if value is NSColor {
+                coloredRanges += 1
+            }
+        }
+
+        #expect(highlighted.string == source)
+        #expect(coloredRanges > 1)
+    }
+
+    @Test("source locations select their one-based line and column")
+    func sourceLocationRangesSelectRequestedPosition() throws {
+        let ranges = try #require(
+            FilePreviewPanel.sourceLocationRanges(
+                in: "first\nsecond line\nthird\n",
+                line: 2,
+                column: 4
+            )
+        )
+
+        #expect(ranges.line == NSRange(location: 6, length: 12))
+        #expect(ranges.selection == NSRange(location: 9, length: 0))
+        #expect(FilePreviewPanel.sourceLocationRanges(in: "only", line: 2, column: nil) == nil)
+    }
+
+    @Test("line-one source locations wait for the initial text load")
+    func lineOneSourceLocationWaitsForInitialLoad() async {
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: "/tmp/cmux-source-location.swift",
+            startFileWatcher: false,
+            textLoader: { _ in .loaded(content: "first line\nsecond line\n", encoding: .utf8) }
+        )
+        defer { panel.close() }
+        let textView = SavingTextView.makeFilePreviewTextView()
+        panel.attachTextView(textView)
+
+        panel.revealSourceLocation(line: 1, column: 4)
+        await panel.loadTextContent().value
+        panel.retryPendingSourceLocationReveal()
+        textView.string = panel.textContent
+        panel.retryPendingSourceLocationReveal()
+
+        #expect(textView.selectedRange() == NSRange(location: 3, length: 0))
+    }
+
+    @Test("syntax colors use temporary layout attributes without mutating editor state")
+    func syntaxColorsPreserveEditorState() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = "let answer = 42\n"
+        textView.setSelectedRange(NSRange(location: 4, length: 6))
+        let originalFont = textView.font
+        let highlighted = NSMutableAttributedString(string: textView.string)
+        highlighted.addAttribute(
+            .foregroundColor,
+            value: NSColor.systemPurple,
+            range: NSRange(location: 0, length: 3)
+        )
+
+        FilePreviewTextEditor<TextEditingPanelSpy>.Coordinator.applySyntaxColors(
+            from: highlighted,
+            to: textView
+        )
+
+        let temporaryColor = textView.layoutManager?.temporaryAttribute(
+            .foregroundColor,
+            atCharacterIndex: 1,
+            effectiveRange: nil
+        ) as? NSColor
+        #expect(temporaryColor == .systemPurple)
+        #expect(textView.string == "let answer = 42\n")
+        #expect(textView.selectedRange() == NSRange(location: 4, length: 6))
+        #expect(textView.font == originalFont)
+        #expect(textView.isEditable)
+
+        FilePreviewTextEditor<TextEditingPanelSpy>.Coordinator.clearSyntaxColors(in: textView)
+        #expect(
+            textView.layoutManager?.temporaryAttribute(
+                .foregroundColor,
+                atCharacterIndex: 1,
+                effectiveRange: nil
+            ) == nil
+        )
+    }
+
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
     func editorIsPureTextKit1() {
         let textView = SavingTextView.makeFilePreviewTextView()
@@ -383,6 +511,7 @@ struct FilePreviewTextEditorTextKitTests {
     }
 
     private final class TextEditingPanelSpy: FilePreviewTextEditingPanel {
+        let filePath = "/tmp/cmux-file-preview-test.swift"
         var textContent = ""
         var saveCount = 0
 

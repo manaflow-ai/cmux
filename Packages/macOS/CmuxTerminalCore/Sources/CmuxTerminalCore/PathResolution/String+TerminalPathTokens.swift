@@ -7,6 +7,12 @@ import Foundation
 // (file-system probing) lives on `TerminalPathResolver`.
 
 extension String {
+    struct FileReferenceCandidate {
+        let path: String
+        let line: Int?
+        let column: Int?
+    }
+
     private static let sentencePunctuation: Set<Character> = [
         ".", ",", ";", ":", "!", "?"
     ]
@@ -154,6 +160,52 @@ extension String {
         }
 
         return candidates
+    }
+
+    /// Returns the literal token first, followed by a conventional source-location variant.
+    func fileReferenceCandidates() -> [FileReferenceCandidate] {
+        var candidates = [FileReferenceCandidate(path: self, line: nil, column: nil)]
+
+        if let hashRange = range(of: "#L", options: [.backwards]),
+           hashRange.upperBound < endIndex,
+           let line = positiveSourceLocationNumber(self[hashRange.upperBound...]) {
+            candidates.append(
+                FileReferenceCandidate(path: String(self[..<hashRange.lowerBound]), line: line, column: nil)
+            )
+            return candidates
+        }
+
+        let segments = split(separator: ":", omittingEmptySubsequences: false)
+        guard segments.count >= 2 else { return candidates }
+
+        if segments.count >= 3,
+           let line = positiveSourceLocationNumber(segments[segments.count - 2]),
+           let column = positiveSourceLocationNumber(segments[segments.count - 1]) {
+            candidates.append(
+                FileReferenceCandidate(
+                    path: segments.dropLast(2).joined(separator: ":"),
+                    line: line,
+                    column: column
+                )
+            )
+        } else if let line = positiveSourceLocationNumber(segments[segments.count - 1]) {
+            candidates.append(
+                FileReferenceCandidate(
+                    path: segments.dropLast().joined(separator: ":"),
+                    line: line,
+                    column: nil
+                )
+            )
+        }
+
+        return candidates
+    }
+
+    private func positiveSourceLocationNumber<S: StringProtocol>(_ value: S) -> Int? {
+        guard !value.isEmpty, value.allSatisfy(\.isNumber), let number = Int(value), number > 0 else {
+            return nil
+        }
+        return number
     }
 
     /// Path-token candidates around a column of a visible terminal line: the

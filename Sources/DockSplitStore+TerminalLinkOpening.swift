@@ -1,4 +1,5 @@
 import CmuxPanes
+import CmuxTerminalCore
 import Foundation
 
 extension DockSplitStore: TerminalLinkOpenContainer {
@@ -16,7 +17,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
 
     func deferTerminalFileLinkOpen(
         sourcePanelId _: UUID,
-        filePath _: String,
+        fileReference _: TerminalFileReference,
         fallback _: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {
         // The Dock currently hosts terminal and browser panels only. Returning

@@ -97,6 +97,7 @@ struct MarkdownPanelView: View {
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
+                    highlightTheme: themeBackgroundColor.isLightColor ? .light : .dark,
                     drawsBackground: appearance.drawsContentBackground,
                     wordWrap: fileEditorWordWrap
                 )

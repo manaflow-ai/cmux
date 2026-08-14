@@ -3537,18 +3537,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private struct WordPathResolution {
-        let path: String
+        let reference: TerminalFileReference
         let source: WordPathResolutionSource
         let rawToken: String
+
+        var path: String { reference.path }
     }
 
     private func makeWordPathResolution(
-        path: String,
+        reference: TerminalFileReference,
         source: WordPathResolutionSource,
         rawToken: String
     ) -> WordPathResolution {
         WordPathResolution(
-            path: path,
+            reference: reference,
             source: source,
             rawToken: rawToken
         )
@@ -6544,9 +6546,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #else
                     let resolvedQuicklookWord = decodedWord
 #endif
-                    if let resolvedPath = TerminalPathResolver().resolveQuicklookPath(resolvedQuicklookWord, cwd: cwd) {
+                    if let reference = TerminalPathResolver().resolveQuicklookFileReference(
+                        resolvedQuicklookWord,
+                        cwd: cwd
+                    ) {
                         quicklookResolution = makeWordPathResolution(
-                            path: resolvedPath,
+                            reference: reference,
                             source: .quicklook,
                             rawToken: resolvedQuicklookWord
                         )
@@ -6769,7 +6774,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, viewportOffsetStart % cols))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
+        guard let resolution = TerminalPathResolver().resolveVisibleLineFileReference(
             visibleLines[visibleRow],
             column: column,
             cwd: cwd
@@ -6778,7 +6783,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return makeWordPathResolution(
-            path: resolution.path,
+            reference: resolution.reference,
             source: .snapshot,
             rawToken: resolution.rawToken
         )
@@ -6820,7 +6825,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
+        guard let resolution = TerminalPathResolver().resolveVisibleLineFileReference(
             visibleLines[visibleRow],
             column: column,
             cwd: cwd
@@ -6829,7 +6834,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return makeWordPathResolution(
-            path: resolution.path,
+            reference: resolution.reference,
             source: .snapshot,
             rawToken: resolution.rawToken
         )
@@ -6960,7 +6965,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
            CommandClickFileOpenRouter.openInCmux(
                workspace: workspace,
                sourcePanelId: termSurface.id,
-               filePath: resolution.path
+               fileReference: resolution.reference
            ) {
             return resolution
         }

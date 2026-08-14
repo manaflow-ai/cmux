@@ -116,6 +116,44 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 
+    @Test func carriesLineAndColumnFromSourceLocationSuffix() throws {
+        let cwd = "/Users/dev/project"
+        let existingFile = "/Users/dev/project/src/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookFileReference(
+                "src/main.swift:42:7",
+                cwd: cwd
+            )
+        )
+
+        #expect(reference == TerminalFileReference(path: existingFile, line: 42, column: 7))
+    }
+
+    @Test func resolvesHashLineSuffix() throws {
+        let existingFile = "/tmp/cmux-source-link.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookFileReference(
+                "\(existingFile)#L19",
+                cwd: "/tmp"
+            )
+        )
+
+        #expect(reference == TerminalFileReference(path: existingFile, line: 19))
+    }
+
+    @Test func prefersLiteralFilenameThatLooksLikeSourceLocation() throws {
+        let literalPath = "/tmp/cmux-source-link.swift:42"
+        let strippedPath = "/tmp/cmux-source-link.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([literalPath, strippedPath])).resolveQuicklookFileReference(
+                literalPath,
+                cwd: "/tmp"
+            )
+        )
+
+        #expect(reference == TerminalFileReference(path: literalPath))
+    }
+
     @Test func returnsNilForRelativePathThatDoesNotExist() {
         #expect(
             TerminalPathResolver(fileExists: existsIn([])).resolveQuicklookPath(
@@ -156,6 +194,30 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 }
 
 @Suite struct TerminalOpenURLFilePathTests {
+    @Test func preservesSourceLocationOnBasename() throws {
+        let existingFile = "/Users/dev/project/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "main.swift:42",
+                cwd: "/Users/dev/project"
+            )
+        )
+
+        #expect(reference == TerminalFileReference(path: existingFile, line: 42))
+    }
+
+    @Test func preservesSourceLocationSuffix() throws {
+        let existingFile = "/Users/dev/project/src/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "src/main.swift:42:7",
+                cwd: "/Users/dev/project"
+            )
+        )
+
+        #expect(reference == TerminalFileReference(path: existingFile, line: 42, column: 7))
+    }
+
     @Test func resolvesAbsoluteMarkdownPathWithTrailingDot() {
         let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
         #expect(
@@ -238,6 +300,20 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             )
         )
         #expect(resolution.path == existingFile)
+    }
+
+    @Test func preservesSourceLocationUnderCursor() throws {
+        let existingFile = "/tmp/cmux-visible-source.swift"
+        let line = "open /tmp/cmux-visible-source.swift:27:4 now"
+        let resolution = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveVisibleLineFileReference(
+                line,
+                column: 12,
+                cwd: "/tmp"
+            )
+        )
+
+        #expect(resolution.reference == TerminalFileReference(path: existingFile, line: 27, column: 4))
     }
 
     @Test func returnsNilWhenColumnSitsOnHardDelimiter() {

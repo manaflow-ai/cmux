@@ -1,4 +1,5 @@
 import CmuxPanes
+import CmuxTerminalCore
 import Foundation
 
 extension Workspace: TerminalLinkOpenContainer {
@@ -24,7 +25,7 @@ extension Workspace: TerminalLinkOpenContainer {
 
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
-        filePath: String,
+        fileReference: TerminalFileReference,
         fallback: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
@@ -32,7 +33,7 @@ extension Workspace: TerminalLinkOpenContainer {
             workspace: self,
             preferredWorkspaceId: id,
             surfaceId: target.containerPanelID,
-            filePath: filePath,
+            fileReference: fileReference,
             fallback: fallback
         )
         return true

@@ -1002,6 +1002,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     var lastObservedFileState: FilePreviewFileState?
     var isClosed = false
     weak var textView: NSTextView?
+    private var pendingSourceLocation: (line: Int, column: Int?)?
+    private var hasAppliedTextLoadResult = false
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
     private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result
@@ -1057,6 +1059,66 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func focus() {
         _ = restoreFocusIntent(preferredFocusIntentForActivation())
+    }
+
+    func revealSourceLocation(line: Int?, column: Int?) {
+        guard let line, line > 0 else { return }
+        pendingSourceLocation = (line, column.flatMap { $0 > 0 ? $0 : nil })
+        retryPendingSourceLocationReveal()
+    }
+
+    func retryPendingSourceLocationReveal() {
+        guard hasAppliedTextLoadResult,
+              let pendingSourceLocation,
+              let textView,
+              textView.string == textContent else { return }
+        guard let ranges = Self.sourceLocationRanges(
+            in: textView.string,
+            line: pendingSourceLocation.line,
+            column: pendingSourceLocation.column
+        ) else { return }
+
+        self.pendingSourceLocation = nil
+        textView.setSelectedRange(ranges.selection)
+        textView.scrollRangeToVisible(ranges.line)
+        textView.showFindIndicator(for: ranges.line)
+    }
+
+    static func sourceLocationRanges(
+        in source: String,
+        line targetLine: Int,
+        column: Int?
+    ) -> (selection: NSRange, line: NSRange)? {
+        guard targetLine > 0 else { return nil }
+        let text = source as NSString
+        var lineStart = 0
+        var currentLine = 1
+
+        while currentLine < targetLine, lineStart < text.length {
+            let lineRange = text.lineRange(for: NSRange(location: lineStart, length: 0))
+            let nextLineStart = NSMaxRange(lineRange)
+            guard nextLineStart > lineStart else { return nil }
+            lineStart = nextLineStart
+            currentLine += 1
+        }
+
+        guard currentLine == targetLine, lineStart <= text.length else { return nil }
+        if lineStart == text.length, targetLine > 1 {
+            guard text.length > 0,
+                  let finalScalar = UnicodeScalar(text.character(at: text.length - 1)),
+                  CharacterSet.newlines.contains(finalScalar) else { return nil }
+        }
+
+        let lineRange = text.lineRange(for: NSRange(location: lineStart, length: 0))
+        let contentRange = text.rangeOfCharacter(
+            from: .newlines,
+            options: [],
+            range: lineRange
+        )
+        let lineContentEnd = contentRange.location == NSNotFound ? NSMaxRange(lineRange) : contentRange.location
+        let requestedOffset = max(0, (column ?? 1) - 1)
+        let caretLocation = min(lineStart + requestedOffset, lineContentEnd)
+        return (NSRange(location: caretLocation, length: 0), lineRange)
     }
 
     func unfocus() {
@@ -1271,6 +1333,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         _ result: FilePreviewTextLoader.Result,
         replacingDirtyContent: Bool
     ) {
+        hasAppliedTextLoadResult = true
         switch result {
         case .unavailable:
             guard replacingDirtyContent || !isDirty else {
@@ -1455,6 +1518,7 @@ struct FilePreviewPanelView: View {
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
+                    highlightTheme: appearance.backgroundColor.isLightColor ? .light : .dark,
                     drawsBackground: appearance.drawsContentBackground,
                     wordWrap: fileEditorWordWrap
                 )
