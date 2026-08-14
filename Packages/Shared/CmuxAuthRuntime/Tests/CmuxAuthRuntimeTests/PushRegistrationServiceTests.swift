@@ -1085,8 +1085,8 @@ actor RetryDelayRecorder {
             .response(200),
         ])
         let (service, defaults) = makeScriptedService(
-            accountID: "account-a",
-            retryDelays: []
+            retryDelays: [],
+            accountID: "account-a"
         )
         defaults.set(true, forKey: "cmux.notifications.pushEnabled")
 
@@ -1106,7 +1106,7 @@ actor RetryDelayRecorder {
 
         #expect(
             await service.snapshot.backendState
-                != .registering
+                != PushRegistrationBackendState.registering
         )
     }
 
