@@ -425,9 +425,8 @@ actor RetryDelayRecorder {
             )
         }
         queuedSignOut.cancel()
-        // Cancellation must remove the waiter while the first mutation still
-        // owns the intent gate. If it were allowed to wait for the gate, this
-        // await would deadlock until the blocker below is released.
+        // A coalesced call never adds another worker waiter, so cancellation
+        // returns while the first mutation is still blocked.
         await queuedSignOut.value
 
         await blocker.release()
@@ -849,12 +848,21 @@ actor RetryDelayRecorder {
         let snapshots = await service.snapshots()
         await cleanupAuthenticationStarted.waitUntilStarted()
         let enable = Task { await service.setEnabled(true) }
-        await registrationStarted.waitUntilStarted()
+
+        for _ in 0..<1_000
+            where !defaults.bool(
+                forKey: "cmux.notifications.pushEnabled"
+            ) {
+            await Task.yield()
+        }
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
 
         await cleanupAuthenticationBlocker.release()
-        for _ in 0..<1_000 { await Task.yield() }
+        await registrationStarted.waitUntilStarted()
         await registrationBlocker.release()
         await enable.value
+        #expect(await wait(for: .registered, from: service))
 
         #expect(
             await PushRegistrationURLProtocol.script.requests
@@ -1060,15 +1068,11 @@ actor RetryDelayRecorder {
         await disable.value
 
         let requests = await PushRegistrationURLProtocol.script.requests
-        #expect(requests.map(\.httpMethod) == ["POST", "DELETE", "DELETE"])
+        #expect(requests.map(\.httpMethod) == ["POST", "DELETE"])
         #expect(
             requests.map {
                 $0.value(forHTTPHeaderField: "Authorization")
-            } == [
-                "Bearer a-access",
-                "Bearer a-access",
-                "Bearer a-access",
-            ]
+            } == ["Bearer a-access", "Bearer a-access"]
         )
         #expect(
             defaults.data(
@@ -1186,7 +1190,7 @@ actor RetryDelayRecorder {
         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled") == false)
     }
 
-    @Test func stalledEnablePreparationAllowsSameDirectionRecovery() async {
+    @Test func stalledEnablePreparationCoalescesSameDirectionIntent() async {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let provider = MutablePushTokenProvider(
             accountID: "account-a",
@@ -1214,16 +1218,26 @@ actor RetryDelayRecorder {
             await service.applyEnabledIntent(true, generation: 2)
         }
 
-        #expect(await wait(for: .registered, from: service))
+        for _ in 0..<1_000
+            where !defaults.bool(
+                forKey: "cmux.notifications.pushEnabled"
+            ) {
+            await Task.yield()
+        }
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
         #expect(
             await PushRegistrationURLProtocol.script.requests
-                .map(\.httpMethod) == ["POST"]
+                .map(\.httpMethod).isEmpty
         )
-        #expect(await service.snapshot.backendState == .registered)
 
         await firstEnableBlocker.release()
         await firstEnable.value
         await recovery.value
+        #expect(await service.snapshot.backendState == .registered)
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST"]
+        )
     }
 
     @Test func inFlightRegistrationPersistsCleanupOwnerBeforePostCompletes() async {
@@ -1370,6 +1384,13 @@ actor RetryDelayRecorder {
         let queuedOptOut = Task {
             await service.applyEnabledIntent(false, generation: 2)
         }
+        for _ in 0..<1_000
+            where defaults.bool(
+                forKey: "cmux.notifications.pushEnabled"
+            ) {
+            await Task.yield()
+        }
+        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
         let directReenable = Task {
             await service.setEnabled(true)
         }
@@ -1517,8 +1538,8 @@ actor RetryDelayRecorder {
                 $0.value(forHTTPHeaderField: "Authorization")
             } == [
                 "Bearer a-live-access",
-                "Bearer a-captured-access",
                 "Bearer a-live-access",
+                "Bearer a-captured-access",
             ]
         )
         #expect(
@@ -1560,9 +1581,11 @@ actor RetryDelayRecorder {
         }
         await signOutStarted.waitUntilStarted()
 
-        await service.syncTokenIfPossible()
+        let sync = Task { await service.syncTokenIfPossible() }
+        for _ in 0..<1_000 { await Task.yield() }
         await signOutBlocker.release()
         await delayedSignOut.value
+        await sync.value
 
         #expect(
             await PushRegistrationURLProtocol.script.requests
@@ -1615,14 +1638,13 @@ actor RetryDelayRecorder {
         let requests = await PushRegistrationURLProtocol.script.requests
         #expect(
             requests.map(\.httpMethod)
-                == ["POST", "POST", "DELETE", "POST"]
+                == ["POST", "DELETE", "POST"]
         )
         #expect(
             requests.map {
                 $0.value(forHTTPHeaderField: "Authorization")
             } == [
                 "Bearer a-access",
-                "Bearer b-access",
                 "Bearer a-access",
                 "Bearer b-access",
             ]
