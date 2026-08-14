@@ -126,6 +126,7 @@ public final class MobilePushCoordinator {
     /// for the old task to unwind.
     @ObservationIgnored private var settingsMutationTask: Task<Void, Never>?
     @ObservationIgnored private var settingsMutationToken = UUID()
+    @ObservationIgnored private var settingsMutationNeedsRetry = false
     @ObservationIgnored private var registrationIntentGeneration: UInt64 = 0
     @ObservationIgnored private var workspaceAuthorizationRequestInFlight = false
     @ObservationIgnored private var hasRequestedRemoteRegistration = false
@@ -218,7 +219,9 @@ public final class MobilePushCoordinator {
     /// coordinator task and starts independently, so an opt-out can preempt an
     /// authorization prompt or other suspended enable path.
     public func setEnabledIntent(_ enabled: Bool) {
-        guard enabled != enabledMirror else { return }
+        guard enabled != enabledMirror || settingsMutationNeedsRetry else {
+            return
+        }
         let intent = beginSettingsIntent(enabled)
         settingsMutationTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -275,6 +278,7 @@ public final class MobilePushCoordinator {
         guard isCurrentSettingsMutation(token) else { return }
         settingsMutationTask = nil
         settingsMutationToken = UUID()
+        settingsMutationNeedsRetry = true
         if enabledMirror {
             registrationSnapshot = PushRegistrationSnapshot(
                 isEnabled: true,
@@ -299,6 +303,7 @@ public final class MobilePushCoordinator {
     @discardableResult
     private func beginSettingsIntent(_ enabled: Bool) -> MobilePushSettingsIntent {
         cancelSettingsMutation()
+        settingsMutationNeedsRetry = false
         let token = UUID()
         registrationIntentGeneration &+= 1
         settingsMutationToken = token
