@@ -348,15 +348,22 @@ struct PairedMacBackupMigrationTests {
             migrationDefaults: migrationDefaults
         )
 
-        #expect(
-            await client.fetchSnapshot(
-                teamID: nil,
-                expectedUserID: "user-1"
-            ) == nil
-        )
+        let first = try #require(await client.fetchSnapshot(
+            teamID: nil,
+            expectedUserID: "user-1"
+        ))
+        let second = try #require(await client.fetchSnapshot(
+            teamID: nil,
+            expectedUserID: "user-1"
+        ))
+
+        #expect(first.records.isEmpty)
+        #expect(first.deletedMacDeviceIDs.isEmpty)
+        #expect(second.records.isEmpty)
+        #expect(second.deletedMacDeviceIDs.isEmpty)
         #expect(
             PairedMacBackupMigrationURLProtocol.capturedRequests()
-                .map(\.httpMethod) == ["GET", "GET"]
+                .map(\.httpMethod) == ["GET", "GET", "GET", "GET"]
         )
     }
 

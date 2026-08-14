@@ -217,6 +217,49 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func pendingRevocationInvalidatesEmbeddedRegistrationDiscovery() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let staleDiscovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let authoritativeDiscovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 2
+        )
+        let pendingRevocations = fixture.pendingRevocations()
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: "older-build",
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestRevisionedClientBroker(
+            binding: fixture.binding,
+            discoveries: [authoritativeDiscovery],
+            relay: fixture.relayResponse(),
+            embeddedRegistrationDiscovery: staleDiscovery,
+            embeddedRegistrationDiscoveryIsComplete: true,
+            registrationRevision: 1
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.syncCount == 1)
+        #expect(await runtime.connectivityEngine.snapshot().routeRevision == 2)
+        await runtime.stop()
+    }
+
+    @Test
     func startupFetchesPaginatedDiscoveryWhenRegistrationAndSyncSnapshotsAreUnproven() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let truncatedRegistrationDiscovery = try ClientRuntimeTestFixture.discovery(

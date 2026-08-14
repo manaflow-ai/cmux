@@ -88,6 +88,54 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func pendingRevocationInvalidatesEmbeddedRegistrationDiscovery() async throws {
+        let fixture = try HostRuntimeFixture()
+        let staleDiscovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            lanGeneration: 1,
+            revision: 1
+        )
+        let authoritativeDiscovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            lanGeneration: 2,
+            revision: 2
+        )
+        let pendingRevocations = fixture.pendingRevocations()
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: "older-build",
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: authoritativeDiscovery,
+            embeddedRegistrationDiscovery: staleDiscovery,
+            embeddedRegistrationDiscoveryIsComplete: true,
+            registrationRevision: 1
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRevokedBindingIDs() == [pending.bindingID])
+        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(await runtime.connectivityEngine?.snapshot().routeRevision == 2)
+        #expect(await runtime.lanAdvertisementContext()?.rendezvous.generation == 2)
+        await runtime.stop()
+    }
+
+    @Test
     func embeddedDiscoveryMustExactlyMatchTheRegistrationRevision() async throws {
         let fixture = try HostRuntimeFixture()
         let discovery = try HostRuntimeFixture.discovery(
