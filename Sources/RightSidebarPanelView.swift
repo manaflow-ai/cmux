@@ -181,6 +181,9 @@ struct RightSidebarPanelView: View {
         }
         .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Keep every mode (including Dock and AppKit-backed file rows) on the
+        // same resolved cmux scheme as the window and left sidebar.
+        .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
         .background(
             RightSidebarKeyboardFocusBridge()
             .frame(width: 1, height: 1)

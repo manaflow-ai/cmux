@@ -39,6 +39,7 @@ struct PanelContentView: View {
 
     var body: some View {
         renderedPanel
+            .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
             .overlay {
                 paneDropTargetOverlay
             }
@@ -75,6 +76,8 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     paneOwnershipOverride: paneOwnershipOverride,
+                    resolvedColorScheme: windowAppearance.resolvedColorScheme,
+                    resolvedThemeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                 // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
@@ -111,6 +114,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     appearance: appearance,
+                    resolvedChromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }

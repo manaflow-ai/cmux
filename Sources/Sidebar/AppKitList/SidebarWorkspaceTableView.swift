@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxAppKitSupportUI
 import SwiftUI
 
 /// Container-level bridge mounting the AppKit-owned default workspace list once.
@@ -23,6 +24,8 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     /// owner must invalidate itself so this view re-applies (issue #9690).
     let onDeferredClickAwaitingApply: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
 #if DEBUG
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
@@ -32,10 +35,15 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> SidebarWorkspaceTableContainerView {
-        context.coordinator.makeContainerView()
+        let container = context.coordinator.makeContainerView()
+        container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+        container.emptyDropIndicatorView.colorScheme = colorScheme
+        return container
     }
 
     func updateNSView(_ nsView: SidebarWorkspaceTableContainerView, context: Context) {
+        nsView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+        nsView.emptyDropIndicatorView.colorScheme = colorScheme
 #if DEBUG
         context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
 #endif

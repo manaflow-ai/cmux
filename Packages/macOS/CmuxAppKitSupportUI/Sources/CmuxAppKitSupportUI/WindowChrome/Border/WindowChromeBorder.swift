@@ -3,6 +3,9 @@ public import SwiftUI
 
 /// One-pixel border derived from the terminal chrome background.
 public struct WindowChromeBorder: View {
+    private static let systemAppearanceDidChangeNotification = Notification.Name(
+        "cmux.systemAppearanceDidChange"
+    )
     private let orientation: WindowChromeBorderOrientation
     private let ignoresSafeAreaValue: Bool
     private let backgroundColorProvider: @MainActor () -> NSColor
@@ -38,6 +41,14 @@ public struct WindowChromeBorder: View {
     private var border: some View {
         let base = borderShape
             .onAppear {
+                refreshSeparatorColor()
+            }
+            // The provider resolves against the shared cmux theme authority,
+            // so a system-mode theme change must repaint even when the
+            // terminal background hex itself did not change.
+            .onReceive(NotificationCenter.default.publisher(
+                for: Self.systemAppearanceDidChangeNotification
+            )) { _ in
                 refreshSeparatorColor()
             }
 
