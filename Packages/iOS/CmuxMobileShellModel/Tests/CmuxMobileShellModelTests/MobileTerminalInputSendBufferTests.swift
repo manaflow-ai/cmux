@@ -131,4 +131,26 @@ import Testing
         #expect(batch?.text == "first\rsecond\r")
         #expect(batch?.sendStatusOperationID == secondOperationID)
     }
+
+    @Test func pausesWithoutDroppingInputAndResumesOnceTransportReturns() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+
+        #expect(buffer.enqueue("before", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        buffer.pauseDraining()
+        #expect(!buffer.isDraining)
+        #expect(buffer.pendingByteCount == 6)
+        #expect(buffer.pendingChunks.map(\.text) == ["before"])
+
+        #expect(buffer.enqueue("-during", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        #expect(buffer.resumeDraining() == false)
+        #expect(buffer.nextBatch()?.text == "before-during")
+        #expect(buffer.nextBatch() == nil)
+
+        #expect(buffer.enqueue("after", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        buffer.pauseDraining()
+        #expect(buffer.resumeDraining())
+        #expect(buffer.nextBatch()?.text == "after")
+    }
 }

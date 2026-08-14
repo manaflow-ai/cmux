@@ -58,7 +58,7 @@ extension ReconnectRouteSelectionTests {
         #expect(fixture.store.selectedWorkspace?.rpcWorkspaceID.rawValue == "hevy-cli")
     }
 
-    @Test func recoveryWaitsForOldPhysicalTransportBeforeRedialing() async throws {
+    @Test func recoveryRedialsWhileOldPhysicalTransportCloses() async throws {
         let closeGate = LivenessTransportCloseGate()
         let fixture = try await makeRecoveryOwnerFixture(
             firstTransportCloseGate: closeGate
@@ -78,9 +78,6 @@ extension ReconnectRouteSelectionTests {
         )
 
         #expect(await closeGate.waitUntilCloseStarted())
-        #expect(fixture.factory.attemptedKinds() == [.iroh])
-
-        await closeGate.release()
         #expect(await fixture.factory.waitForAttemptCount(2))
         #expect(try await pollUntil {
             guard let replacement = fixture.store.remoteClient else { return false }
@@ -88,6 +85,8 @@ extension ReconnectRouteSelectionTests {
                 && fixture.store.connectionState == .connected
         })
         #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+
+        await closeGate.release()
     }
 
     @Test func livenessAndForegroundRecoveryCoalesceOnOneIrohReplacement() async throws {
