@@ -526,6 +526,41 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
+    @Test func latestSettingsIntentSupersedesStalledEnable() async {
+        let settingsGate = LifecycleSetEnabledGate()
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-latest-intent-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            notificationSettings: {
+                await settingsGate.pause()
+                return .authorizationOnly(.authorized)
+            },
+            requestAuthorization: { true }
+        )
+
+        let enabling = coordinator.setEnabledIntent(true)
+        await settingsGate.waitUntilStarted()
+
+        let disabling = coordinator.setEnabledIntent(false)
+        #expect(!coordinator.isEnabled)
+        #expect(
+            defaults.object(forKey: "cmux.notifications.pushEnabled") as? Bool
+                == false
+        )
+
+        await disabling.value
+        await settingsGate.release()
+        await enabling.value
+
+        #expect(!coordinator.isEnabled)
+        #expect(!(await registration.snapshot.isEnabled))
+    }
+
+    @MainActor
     @Test func foregroundAndReachabilityRecoveryShareOneExhaustedRegistrationRetry() async {
         let gate = LifecycleSyncGate()
         let registration = LifecyclePushRegistration(
