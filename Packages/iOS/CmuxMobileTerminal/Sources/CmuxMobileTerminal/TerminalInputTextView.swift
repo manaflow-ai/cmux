@@ -1043,6 +1043,14 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             config.preferredSymbolConfigurationForImage = isComposer
                 ? Self.composerButtonSymbolConfig
                 : Self.accessoryButtonSymbolConfig
+            // Hierarchical SF Symbols such as `ellipsis.circle` can retain
+            // UIKit's default tint when installed on a glass configuration.
+            // Apply the same explicit foreground transform used by the text
+            // and background styling so resting custom icons stay white and
+            // armed built-ins keep their blue active state.
+            config.imageColorTransformer = UIConfigurationColorTransformer { _ in
+                armed || sticky ? activeForeground : self.themeChromeColor
+            }
             config.attributedTitle = nil
         } else {
             var attributed = AttributedString(title)
