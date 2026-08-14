@@ -3832,6 +3832,49 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testDiagnosticsLogLabelsAndIconsPresentTheShareSheet() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let appLog = app.buttons["MobileSettingsShareAppLog"]
+        let networkLog = app.buttons["MobileSettingsShareNetworkLog"]
+        for _ in 0..<8 where !appLog.isHittable || !networkLog.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(appLog.waitForExistence(timeout: 4))
+        XCTAssertTrue(networkLog.waitForExistence(timeout: 4))
+        XCTAssertTrue(appLog.isHittable)
+        XCTAssertTrue(networkLog.isHittable)
+
+        func assertShareSheetAfterTap(
+            _ element: XCUIElement,
+            at offset: CGVector,
+            name: String
+        ) {
+            element.coordinate(withNormalizedOffset: offset).tap()
+            let copy = app.buttons["Copy"]
+            XCTAssertTrue(
+                copy.waitForExistence(timeout: 4),
+                "Tapping the diagnostics \(name) must present the share sheet."
+            )
+            app.buttons["Cancel"].tap()
+            XCTAssertTrue(element.waitForExistence(timeout: 2))
+        }
+
+        assertShareSheetAfterTap(appLog, at: CGVector(dx: 0.1, dy: 0.5), name: "app-log icon")
+        assertShareSheetAfterTap(appLog, at: CGVector(dx: 0.5, dy: 0.5), name: "app-log label")
+        assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.1, dy: 0.5), name: "network-log icon")
+        assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.5, dy: 0.5), name: "network-log label")
+    }
+
+    @MainActor
     func testNotificationFeedPreviewSupportsTriageInteractions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
