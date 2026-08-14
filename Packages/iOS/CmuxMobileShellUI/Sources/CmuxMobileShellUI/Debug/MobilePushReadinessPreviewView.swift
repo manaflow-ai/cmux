@@ -106,6 +106,9 @@ struct MobilePushReadinessPreviewView: View {
     private func setPhoneEnabled(_ enabled: Bool) async -> Bool {
         if delaysPhoneMutation {
             return await withCheckedContinuation { continuation in
+                if let pendingPhoneMutation {
+                    pendingPhoneMutation.continuation.resume(returning: false)
+                }
                 pendingPhoneMutation = PendingPhoneMutation(
                     enabled: enabled,
                     continuation: continuation
