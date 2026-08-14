@@ -252,6 +252,9 @@ extension MobileShellComposite {
             b: trigger.diagnosticCode,
             c: activePeerDiagnosticAlias.map(Int.init)
         ))
+        MobileDebugLog.anchormux(
+            "connection.recovery started recoveryID=\(attempt.diagnosticID) trigger=\(trigger.description) generation=\(attempt.sourceConnectionGeneration.uuidString)"
+        )
         applyConnectionRecoveryOwnerState()
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
 
@@ -262,6 +265,7 @@ extension MobileShellComposite {
                 guard self.connectionRecoveryOwner.isCurrent(attempt) else { return }
 
                 if probeCurrentConnection, let expectedClient {
+                    let probeStartedAt = self.recordRecoveryStageStarted(.probe, attempt: attempt)
                     let epochAtProbeStart = self.foregroundResumeEpoch
                     let healthy = await self.reloadWorkspaceListFromMac(
                         timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
@@ -272,6 +276,12 @@ extension MobileShellComposite {
                           self.connectionGeneration == attempt.sourceConnectionGeneration else {
                         return
                     }
+                    self.recordRecoveryStageCompleted(
+                        .probe,
+                        attempt: attempt,
+                        startedAt: probeStartedAt,
+                        failure: healthy ? .none : .timedOut
+                    )
                     if healthy {
                         guard self.completeConnectionRecovery(attempt) else { return }
                         self.markMacConnectionHealthy()
@@ -314,26 +324,41 @@ extension MobileShellComposite {
                     // tracked producer and makes untracked producers fail their
                     // identity guard, so they cannot reopen the old endpoint
                     // while the fresh stored-Mac dial starts.
-                    self.connectionState = .disconnected
-                    self.macConnectionStatus = .unavailable
-                    self.clearRemoteConnectionContext()
+                    self.macConnectionStatus = .reconnecting
+                    self.connectionRecoveryPhase = .recovering
+                    let detachStartedAt = self.recordRecoveryStageStarted(.detach, attempt: attempt)
+                    let detachedClient = self.clearRemoteConnectionContext(
+                        preservingOtherMacWorkspaceState: true,
+                        preservingForegroundPresentation: true,
+                        disconnectRemoteClientInBackground: false
+                    )
+                    self.diagnosticLog?.record(DiagnosticEvent(
+                        .recoverySnapshotRetained,
+                        a: self.retainedRecoveryWorkspaceCount,
+                        b: self.pendingRecoveryTerminalInputByteCount,
+                        c: Int(attempt.diagnosticID)
+                    ))
                     self.applyConnectionRecoveryOwnerState()
                     MobileDebugLog.anchormux(
-                        "connection.recovery waiting for physical transport drain "
+                        "connection.recovery registering asynchronous transport cleanup "
                             + "attempt=\(attempt.id.uuidString)"
                     )
-                    await expectedClient.disconnectAndWaitForTransportDrain()
+                    await detachedClient?.disconnect()
                     guard !Task.isCancelled,
                           self.connectionRecoveryOwner.isCurrent(attempt) else { return }
                     MobileDebugLog.anchormux(
-                        "connection.recovery physical transport drained "
+                        "connection.recovery transport cleanup registered "
                             + "attempt=\(attempt.id.uuidString)"
                     )
+                    self.recordRecoveryStageCompleted(.detach, attempt: attempt, startedAt: detachStartedAt)
                 }
-                if self.connectionState == .connected {
-                    self.connectionState = .disconnected
-                    self.macConnectionStatus = .unavailable
-                    self.clearRemoteConnectionContext()
+                if self.connectionState == .connected, self.remoteClient != nil {
+                    self.macConnectionStatus = .reconnecting
+                    self.connectionRecoveryPhase = .recovering
+                    self.clearRemoteConnectionContext(
+                        preservingOtherMacWorkspaceState: true,
+                        preservingForegroundPresentation: true
+                    )
                 }
                 self.applyConnectionRecoveryOwnerState()
 
@@ -343,12 +368,27 @@ extension MobileShellComposite {
                 // shared reconnect entry owns the hard deadline after claiming
                 // its generation synchronously, so every lifecycle caller gets
                 // the same wedge protection without a second race here.
+                let dialStartedAt = self.recordRecoveryStageStarted(.dial, attempt: attempt)
                 let reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
-                    refreshBackupBeforeDial: false
+                    refreshBackupBeforeDial: false,
+                    force: true,
+                    deadlineNanoseconds: self.runtime?.foregroundRecoveryDeadlineNanoseconds
+                        ?? 3_000_000_000
                 )
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                let dialFailure: DiagnosticFailureKind = switch reconnectOutcome {
+                case .connected: .none
+                case .failed(let failure): failure
+                case .superseded: .superseded
+                }
+                self.recordRecoveryStageCompleted(
+                    .dial,
+                    attempt: attempt,
+                    startedAt: dialStartedAt,
+                    failure: dialFailure
+                )
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
@@ -382,10 +422,14 @@ extension MobileShellComposite {
             == connectionGeneration {
             return completeConnectionRecovery(attempt)
         }
-        return connectionRecoveryOwner.transitionToValidation(
+        let transitioned = connectionRecoveryOwner.transitionToValidation(
             attempt,
             connectionGeneration: connectionGeneration
         )
+        if transitioned {
+            _ = recordRecoveryStageStarted(.validate, attempt: attempt)
+        }
+        return transitioned
     }
 
     @discardableResult
@@ -429,27 +473,37 @@ extension MobileShellComposite {
     private func recordConnectionRecoverySucceeded(
         _ attempt: MobileConnectionRecoveryOwner.Attempt
     ) {
+        let elapsed = Self.recoveryElapsedMilliseconds(since: attempt.startedUptimeNanoseconds)
         diagnosticLog?.record(DiagnosticEvent(
             .recoverySucceeded,
             surface: attempt.diagnosticID,
+            ms: elapsed,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
             c: activePeerDiagnosticAlias.map(Int.init)
         ))
+        MobileDebugLog.anchormux(
+            "connection.recovery succeeded recoveryID=\(attempt.diagnosticID) elapsedMs=\(elapsed)"
+        )
     }
 
     private func recordConnectionRecoveryFailed(
         _ attempt: MobileConnectionRecoveryOwner.Attempt,
         failure: DiagnosticFailureKind
     ) {
+        let elapsed = Self.recoveryElapsedMilliseconds(since: attempt.startedUptimeNanoseconds)
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryFailed,
             surface: attempt.diagnosticID,
+            ms: elapsed,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
             b: failure.rawValue,
             c: activePeerDiagnosticAlias.map(Int.init)
         ))
+        MobileDebugLog.anchormux(
+            "connection.recovery failed recoveryID=\(attempt.diagnosticID) failure=\(failure.rawValue) elapsedMs=\(elapsed)"
+        )
     }
 
     /// A peer alias is stable for this process but never exports the Mac ID.
@@ -468,20 +522,71 @@ extension MobileShellComposite {
                 connectionGeneration: connectionGeneration,
                 listenerID: listenerID
             )
-        let attempt = connectionRecoveryOwner.activeAttempt
-        if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration),
-           let attempt {
+        let validationStartedAt = connectionRecoveryOwner.validationStartedUptimeNanoseconds
+        if let attempt = connectionRecoveryOwner.completeValidation(
+            connectionGeneration: connectionGeneration
+        ) {
+            recordRecoveryStageCompleted(
+                .validate,
+                attempt: attempt,
+                startedAt: validationStartedAt ?? attempt.startedUptimeNanoseconds
+            )
+            let resumeStartedAt = recordRecoveryStageStarted(.resume, attempt: attempt)
+            recordRecoveryStageCompleted(.resume, attempt: attempt, startedAt: resumeStartedAt)
             recordConnectionRecoverySucceeded(attempt)
             applyConnectionRecoveryOwnerState()
         }
     }
 
+    @discardableResult
+    private func recordRecoveryStageStarted(
+        _ stage: DiagnosticRecoveryStage,
+        attempt: MobileConnectionRecoveryOwner.Attempt
+    ) -> UInt64 {
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        diagnosticLog?.record(DiagnosticEvent(
+            .recoveryStageStarted,
+            a: stage.rawValue,
+            c: Int(attempt.diagnosticID)
+        ))
+        MobileDebugLog.anchormux(
+            "connection.recovery stage_started recoveryID=\(attempt.diagnosticID) stage=\(stage.rawValue)"
+        )
+        return startedAt
+    }
+
+    private func recordRecoveryStageCompleted(
+        _ stage: DiagnosticRecoveryStage,
+        attempt: MobileConnectionRecoveryOwner.Attempt,
+        startedAt: UInt64,
+        failure: DiagnosticFailureKind = .none
+    ) {
+        let elapsed = Self.recoveryElapsedMilliseconds(since: startedAt)
+        diagnosticLog?.record(DiagnosticEvent(
+            .recoveryStageCompleted,
+            ms: elapsed,
+            a: stage.rawValue,
+            b: failure.rawValue,
+            c: Int(attempt.diagnosticID)
+        ))
+        MobileDebugLog.anchormux(
+            "connection.recovery stage_completed recoveryID=\(attempt.diagnosticID) stage=\(stage.rawValue) failure=\(failure.rawValue) elapsedMs=\(elapsed)"
+        )
+    }
+
+    private static func recoveryElapsedMilliseconds(since startedAt: UInt64) -> UInt32 {
+        let now = DispatchTime.now().uptimeNanoseconds
+        return UInt32(clamping: (now >= startedAt ? now - startedAt : 0) / 1_000_000)
+    }
+
     func applyConnectionRecoveryOwnerState() {
         switch connectionRecoveryOwner.phase {
         case .idle:
+            connectionRecoveryPhase = .idle
             isRecoveringConnection = false
             connectionRecoveryFailed = false
         case .probing:
+            connectionRecoveryPhase = .probing
             // A probe is a background health check on a connection still
             // believed healthy: the terminal stays interactive and the visible
             // status untouched. Only an actual redial may surface reconnecting
@@ -489,10 +594,12 @@ extension MobileShellComposite {
             isRecoveringConnection = false
             connectionRecoveryFailed = false
         case .redialing, .validatingReplacement:
+            connectionRecoveryPhase = .recovering
             isRecoveringConnection = true
             connectionRecoveryFailed = false
             if connectionState == .connected { markMacConnectionReconnecting() }
         case .failed:
+            connectionRecoveryPhase = .failed
             isRecoveringConnection = false
             connectionRecoveryFailed = true
         }

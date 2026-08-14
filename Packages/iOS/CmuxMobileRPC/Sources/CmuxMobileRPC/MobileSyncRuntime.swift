@@ -61,6 +61,11 @@ public protocol MobileSyncRuntime: Sendable {
     /// and settled as timed out so the automatic backoff retry loop keeps
     /// running.
     var reconnectAttemptDeadlineNanoseconds: UInt64 { get }
+
+    /// Foreground recovery has a tighter product deadline than cold-start
+    /// restoration. The retained workspace stays mounted if this deadline is
+    /// missed, and the automatic retry owner can try again without blocking UI.
+    var foregroundRecoveryDeadlineNanoseconds: UInt64 { get }
 }
 
 public extension MobileSyncRuntime {
@@ -77,13 +82,17 @@ public extension MobileSyncRuntime {
     /// request timeout, but the sheet must not spin through stacked route waits.
     var pairingAttemptTimeoutNanoseconds: UInt64 { 8_000_000_000 }
 
-    /// Default probe deadline: generous against a momentarily loaded Mac,
-    /// while keeping dead-stream recovery within a few seconds of the silence
-    /// threshold instead of the full ``rpcRequestTimeoutNanoseconds``.
-    var livenessProbeTimeoutNanoseconds: UInt64 { 3_000_000_000 }
+    /// Foreground liveness is a small control RPC. A response slower than this
+    /// cannot satisfy the interactive recovery budget and is treated as a dead
+    /// generation while the old workspace remains visible.
+    var livenessProbeTimeoutNanoseconds: UInt64 { 750_000_000 }
 
     /// Default reconnect-attempt ceiling: comfortably above a slow relay dial
     /// (transport connects bound themselves near 15s) while turning a hung
     /// dial into a settled, retryable failure within half a minute.
     var reconnectAttemptDeadlineNanoseconds: UInt64 { 30_000_000_000 }
+
+    /// Recovery is bounded at three seconds end to end. Cold-start restoration
+    /// retains the wider deadline above because no usable workspace exists yet.
+    var foregroundRecoveryDeadlineNanoseconds: UInt64 { 3_000_000_000 }
 }

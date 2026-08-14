@@ -140,6 +140,20 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         return chunk
     }
 
+    /// Relinquishes drain ownership without changing queued bytes. Recovery
+    /// calls this while no transport exists so typing can continue to enqueue.
+    public mutating func pauseDraining() {
+        isDraining = false
+    }
+
+    /// Claims drain ownership for retained bytes after transport replacement.
+    /// Returns `true` only to the caller that should start the drain loop.
+    public mutating func resumeDraining() -> Bool {
+        guard !isDraining, !pendingChunks.isEmpty else { return false }
+        isDraining = true
+        return true
+    }
+
     /// Drops all pending input and resets the draining flag.
     public mutating func clear() {
         pendingChunks.removeAll()

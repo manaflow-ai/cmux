@@ -74,6 +74,16 @@ public struct DiagnosticEventPresentation: Sendable {
         String(describing: phase)
     }
 
+    /// The stable machine name of a recovery stage.
+    public func name(_ stage: DiagnosticRecoveryStage) -> String {
+        String(describing: stage)
+    }
+
+    /// The stable machine name of a recovery trigger.
+    public func name(_ trigger: DiagnosticRecoveryTrigger) -> String {
+        String(describing: trigger)
+    }
+
     /// The stable machine name of an app-wide iOS feature event.
     public func name(_ kind: DiagnosticAppEventKind) -> String {
         String(describing: kind)
@@ -418,6 +428,12 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.recoverySucceeded", defaultValue: "Connection recovery succeeded")
         case .recoveryFailed:
             localized("diagnostics.event.recoveryFailed", defaultValue: "Connection recovery failed")
+        case .recoveryStageStarted:
+            localized("diagnostics.event.recoveryStageStarted", defaultValue: "Recovery stage started")
+        case .recoveryStageCompleted:
+            localized("diagnostics.event.recoveryStageCompleted", defaultValue: "Recovery stage completed")
+        case .recoverySnapshotRetained:
+            localized("diagnostics.event.recoverySnapshotRetained", defaultValue: "Recovery snapshot retained")
         case .endpointStarting:
             localized("diagnostics.event.endpointStarting", defaultValue: "Iroh endpoint starting")
         case .endpointActive:
@@ -562,6 +578,10 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "leg", value: dialLegName(raw))
         case .lanPublicationState:
             return Field(key: "state", value: lanPublicationStateName(raw))
+        case .recoveryStageStarted, .recoveryStageCompleted:
+            return Field(key: "stage", value: recoveryStageName(raw))
+        case .recoverySnapshotRetained:
+            return Field(key: "workspace_count", value: String(raw))
         default:
             return Field(key: "detail_1", value: String(raw))
         }
@@ -574,6 +594,12 @@ public struct DiagnosticEventPresentation: Sendable {
         switch code {
         case .recoveryStarted:
             return Field(key: "trigger", value: recoveryTriggerName(raw))
+        case .recoveryStageCompleted:
+            return raw == DiagnosticFailureKind.none.rawValue
+                ? Field(key: "outcome", value: localized("diagnostics.recoveryOutcome.succeeded", defaultValue: "Succeeded"))
+                : Field(key: "failure", value: failureName(raw))
+        case .recoverySnapshotRetained:
+            return Field(key: "buffered_input", value: byteCount(raw))
         case .transportSessionLifecycle:
             return Field(key: "purpose", value: sessionPurposeName(raw))
         case .transportPathEvent:
@@ -646,6 +672,10 @@ public struct DiagnosticEventPresentation: Sendable {
         case .sessionClosed, .transportSessionLifecycle,
              .transportCloseAttribution, .transportPathEvent:
             return Field(key: "session", value: String(raw))
+        case .recoveryStarted, .recoverySucceeded, .recoveryFailed,
+             .recoveryStageStarted, .recoveryStageCompleted,
+             .recoverySnapshotRetained:
+            return Field(key: "recovery", value: String(raw))
         case .composerActiveTransition:
             return Field(key: "terminal_input_focused", value: booleanName(raw))
         case .browserStreamLifecycle, .browserInputReplayed,
@@ -987,11 +1017,33 @@ public struct DiagnosticEventPresentation: Sendable {
         case 7: localized("diagnostics.recoveryTrigger.subscriptionFailed", defaultValue: "Subscription failed to start")
         case 8: localized("diagnostics.recoveryTrigger.writeTimedOut", defaultValue: "Transport write timed out")
         case 9: localized("diagnostics.recoveryTrigger.retryDelayExpired", defaultValue: "Automatic retry delay expired")
+        case 10: localized("diagnostics.recoveryTrigger.connectionMethodChanged", defaultValue: "Connection method changed")
         default:
             localized(
                 "diagnostics.unknown.recoveryTrigger",
                 defaultValue: "Unknown recovery trigger (\(raw))"
             )
+        }
+    }
+
+    private func recoveryStageName(_ raw: Int) -> String {
+        guard let stage = DiagnosticRecoveryStage(rawValue: raw) else {
+            return localized(
+                "diagnostics.unknown.recoveryStage",
+                defaultValue: "Unknown recovery stage (\(raw))"
+            )
+        }
+        switch stage {
+        case .probe:
+            localized("diagnostics.recoveryStage.probe", defaultValue: "Probe current connection")
+        case .detach:
+            localized("diagnostics.recoveryStage.detach", defaultValue: "Detach failed transport")
+        case .dial:
+            localized("diagnostics.recoveryStage.dial", defaultValue: "Dial replacement")
+        case .validate:
+            localized("diagnostics.recoveryStage.validate", defaultValue: "Validate session")
+        case .resume:
+            localized("diagnostics.recoveryStage.resume", defaultValue: "Resume workspace")
         }
     }
 

@@ -125,13 +125,13 @@ import Testing
             tNanos: 1,
             a: DiagnosticTransportKind.iroh.rawValue,
             b: DiagnosticRecoveryTrigger.networkChange.rawValue,
-            c: 7
+            surface: 7
         )
 
         #expect(englishPresentation.describe(event).fields == [
+            .init(key: "recovery", value: "7"),
             .init(key: "transport", value: "Iroh"),
             .init(key: "trigger", value: "Network changed"),
-            .init(key: "recovery", value: "7"),
         ])
     }
 
@@ -272,6 +272,9 @@ import Testing
             .recoveryStarted: "Connection recovery started",
             .recoverySucceeded: "Connection recovery succeeded",
             .recoveryFailed: "Connection recovery failed",
+            .recoveryStageStarted: "Recovery stage started",
+            .recoveryStageCompleted: "Recovery stage completed",
+            .recoverySnapshotRetained: "Recovery snapshot retained",
             .endpointStarting: "Iroh endpoint starting",
             .endpointActive: "Iroh endpoint active",
             .endpointStopped: "Iroh endpoint stopped",

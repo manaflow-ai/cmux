@@ -304,6 +304,43 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// A close carried a bounded remote reason token. `surface` is the peer
     /// alias, `a` is ``DiagnosticRemoteCloseReason``, and `c` is the session ID.
     case transportCloseReason = 79
+
+    // MARK: Recovery incident diagnostics
+
+    /// One recovery stage began. `a` is ``DiagnosticRecoveryStage`` and `c`
+    /// is the process-local recovery ID shared by the full incident.
+    case recoveryStageStarted = 80
+    /// One recovery stage ended. `a` is ``DiagnosticRecoveryStage``, `b` is
+    /// zero for success or ``DiagnosticFailureKind``, `ms` is stage duration,
+    /// and `c` is the recovery ID.
+    case recoveryStageCompleted = 81
+    /// The visible foreground snapshot survived a transport replacement. `a`
+    /// is retained workspace count, `b` is buffered terminal-input bytes, and
+    /// `c` is the recovery ID.
+    case recoverySnapshotRetained = 82
+}
+
+/// Stable stages within one foreground recovery incident.
+public enum DiagnosticRecoveryStage: Int, Sendable, Codable, CaseIterable {
+    case probe = 1
+    case detach = 2
+    case dial = 3
+    case validate = 4
+    case resume = 5
+}
+
+/// Stable reason that started one recovery incident.
+public enum DiagnosticRecoveryTrigger: Int, Sendable, Codable, CaseIterable {
+    case networkChange = 1
+    case manual = 2
+    case presencePush = 3
+    case foreground = 4
+    case liveness = 5
+    case eventStreamEnded = 6
+    case subscriptionStartFailed = 7
+    case transportWriteTimedOut = 8
+    case automaticBackoffExpired = 9
+    case connectionMethodChanged = 10
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

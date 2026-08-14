@@ -803,6 +803,57 @@
         }
       }
     },
+    "diagnostics.event.recoverySnapshotRetained": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery snapshot retained"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復旧中もワークスペースを保持しました"
+          }
+        }
+      }
+    },
+    "diagnostics.event.recoveryStageCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery stage completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復旧ステージが完了しました"
+          }
+        }
+      }
+    },
+    "diagnostics.event.recoveryStageStarted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery stage started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復旧ステージを開始しました"
+          }
+        }
+      }
+    },
     "diagnostics.event.recoveryStarted": {
       "extractionState": "manual",
       "localizations": {
@@ -2947,6 +2998,48 @@
         }
       }
     },
+    "diagnostics.recoveryOutcome.succeeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Succeeded" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "成功" } }
+      }
+    },
+    "diagnostics.recoveryStage.detach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Detach failed transport" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "障害が発生したトランスポートを切り離す" } }
+      }
+    },
+    "diagnostics.recoveryStage.dial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dial replacement" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "代替接続を開始" } }
+      }
+    },
+    "diagnostics.recoveryStage.probe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Probe current connection" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在の接続を確認" } }
+      }
+    },
+    "diagnostics.recoveryStage.resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resume workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを再開" } }
+      }
+    },
+    "diagnostics.recoveryStage.validate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Validate session" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを検証" } }
+      }
+    },
     "diagnostics.recoveryTrigger.foreground": {
       "extractionState": "manual",
       "localizations": {
@@ -3948,6 +4041,13 @@
             "value": "不明な結合状態（%lld）"
           }
         }
+      }
+    },
+    "diagnostics.unknown.recoveryStage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown recovery stage (%lld)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な復旧ステージ（%lld）" } }
       }
     },
     "diagnostics.unknown.recoveryTrigger": {
