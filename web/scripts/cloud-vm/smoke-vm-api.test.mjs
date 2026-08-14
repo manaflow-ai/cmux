@@ -7,6 +7,21 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const smokeScript = path.join(scriptDir, "smoke-vm-api.mjs");
 
+function makeTimerScalePreload(fixtureDir) {
+  const preloadPath = path.join(fixtureDir, "scale-timers.mjs");
+  writeFileSync(
+    preloadPath,
+    `const nativeSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (callback, delay, ...args) => nativeSetTimeout(
+  callback,
+  Math.max(1, Math.ceil(Number(delay) * 0.001)),
+  ...args,
+);
+`,
+  );
+  return preloadPath;
+}
+
 function makeFakeWebDir(fixtureDir, { stackFailure = false } = {}) {
   const webDir = path.join(fixtureDir, "web");
   const stackModuleDir = path.join(webDir, "node_modules", "@stackframe", "js");
@@ -55,22 +70,30 @@ export class StackServerApp {
 }
 
 async function runSmoke({
+  createDelayMs = 0,
   createdProvider = "daytona",
+  deleteDelayMs = 0,
   deleteStatuses,
   deleteStatus = 200,
   extraVmAfterDelete = false,
   removeVmOnDeleteFailure = false,
   retainVmAfterDelete = false,
+  scaleTimers = false,
   stackFailure = false,
   verifyListStatus = 200,
 } = {}) {
   const fixtureDir = mkdtempSync(path.join(tmpdir(), "cmux-cloud-vm-smoke-test-"));
   const eventsPath = path.join(fixtureDir, "events.log");
   const webDir = makeFakeWebDir(fixtureDir, { stackFailure });
+  const timerScalePreload = scaleTimers ? makeTimerScalePreload(fixtureDir) : undefined;
   let vms = [];
   let deleteCompleted = false;
   let deleteAttempt = 0;
   const record = (event) => appendFileSync(eventsPath, `${event}\n`);
+  const delayResponse = async (response, delayMs) => {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return response;
+  };
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -99,7 +122,7 @@ async function runSmoke({
             imageVersion: "daytona-test",
           },
         ];
-        return Response.json(vms[0]);
+        return delayResponse(Response.json(vms[0]), createDelayMs);
       }
       if (url.pathname === "/api/vm/smoke-vm-1" && request.method === "DELETE") {
         record("api:delete");
@@ -114,7 +137,7 @@ async function runSmoke({
         }
         deleteCompleted = true;
         if (!retainVmAfterDelete) vms = [];
-        return Response.json({ ok: true });
+        return delayResponse(Response.json({ ok: true }), deleteDelayMs);
       }
       record(`api:unexpected:${request.method}:${url.pathname}`);
       return Response.json({ error: "not found" }, { status: 404 });
@@ -134,19 +157,21 @@ async function runSmoke({
   });
 
   try {
+    const command = [process.execPath];
+    if (timerScalePreload) command.push("--preload", timerScalePreload);
+    command.push(
+      smokeScript,
+      webDir,
+      "staging",
+      "--create",
+      "--provider",
+      "daytona",
+      "--url",
+      server.url.origin,
+      "--skip-attach",
+    );
     const child = Bun.spawn(
-      [
-        process.execPath,
-        smokeScript,
-        webDir,
-        "staging",
-        "--create",
-        "--provider",
-        "daytona",
-        "--url",
-        server.url.origin,
-        "--skip-attach",
-      ],
+      command,
       {
         env: childEnv,
         stdout: "pipe",
@@ -182,12 +207,12 @@ test("successful create deletes once and verifies the VM did not leak", async ()
   });
 });
 
-test("finally cleanup is bounded and still deletes the test user when VM deletion fails", async () => {
+test("finally cleanup keeps the test user when VM deletion fails", async () => {
   const result = await runSmoke({ deleteStatus: 500 });
 
   expect(result.exitCode).toBe(1);
   expect(result.events.filter((event) => event === "api:delete")).toHaveLength(2);
-  expect(result.events.at(-1)).toBe("stack:delete-user");
+  expect(result.events).not.toContain("stack:delete-user");
   expect(result.stderr).toContain("cleanup_delete_failed_vm=smoke-vm-1");
   expect(result.stderr).toContain("cleanup_needed_vm=smoke-vm-1");
 });
@@ -208,7 +233,7 @@ test("post-delete list membership fails the smoke as a leaked VM", async () => {
   expect(result.exitCode).toBe(1);
   expect(result.events.filter((event) => event === "api:delete")).toHaveLength(1);
   expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(2);
-  expect(result.events.at(-1)).toBe("stack:delete-user");
+  expect(result.events).not.toContain("stack:delete-user");
   expect(result.stderr).toContain("cleanup_leaked_vm=smoke-vm-1");
   expect(result.stderr).toContain("cleanup_needed_vm=smoke-vm-1");
 });
@@ -231,6 +256,7 @@ test("a first-attempt 404 remains a cleanup failure", async () => {
   expect(result.exitCode).toBe(1);
   expect(result.events.filter((event) => event === "api:delete")).toHaveLength(2);
   expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(1);
+  expect(result.events).not.toContain("stack:delete-user");
   expect(result.stderr).toContain("cleanup_delete_failed_vm=smoke-vm-1");
 });
 
@@ -239,6 +265,7 @@ test("a post-delete list status failure is reported with child diagnostics", asy
 
   expect(result.exitCode).toBe(1);
   expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(2);
+  expect(result.events).not.toContain("stack:delete-user");
   expect(result.stderr).toContain("cleanup_verify_failed_vm=smoke-vm-1");
 });
 
@@ -247,8 +274,25 @@ test("post-delete count drift fails even when the deleted VM is absent", async (
 
   expect(result.exitCode).toBe(1);
   expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(2);
+  expect(result.events).not.toContain("stack:delete-user");
   expect(result.stderr).toContain("cleanup_leaked_vm=smoke-vm-1");
   expect(result.stderr).toContain("returned 1 VMs, expected 0");
+});
+
+test("create request timeout covers the provider create budget", async () => {
+  const result = await runSmoke({ createDelayMs: 100, scaleTimers: true });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toMatchObject({ destroyed: true, leakVerified: true });
+});
+
+test("delete request timeout covers the provider delete budget", async () => {
+  const result = await runSmoke({ deleteDelayMs: 100, scaleTimers: true });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toMatchObject({ destroyed: true, leakVerified: true });
 });
 
 test("smoke preserves child diagnostics when the event log is missing", async () => {
