@@ -142,6 +142,9 @@
          location = "group:CmuxFeedback">
       </FileRef>
       <FileRef
+         location = "group:CmuxFilePreviewSyntax">
+      </FileRef>
+      <FileRef
          location = "group:CmuxFoundation">
       </FileRef>
       <FileRef

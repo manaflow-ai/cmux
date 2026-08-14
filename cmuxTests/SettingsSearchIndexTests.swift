@@ -46,6 +46,7 @@ struct SettingsSearchIndexTests {
         assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "canvas-pane-gap"))
         assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "canvas-snapping"))
         assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
+        assertSearch("syntax highlighting", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "file-editor-syntax-highlighting"))
     }
 
     @Test func exactAndSubstringMatchesRankAheadOfFuzzyFallbacks() {
@@ -109,6 +110,16 @@ struct SettingsSearchIndexTests {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "app.iMessageMode")
                 == SettingsSearchIndex.settingID(for: .app, idSuffix: "imessage-mode")
+        )
+    }
+
+    @Test func settingsPathAnchorIncludesFileEditorSyntaxHighlighting() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "fileEditor.syntaxHighlighting")
+                == SettingsSearchIndex.settingID(
+                    for: .app,
+                    idSuffix: "file-editor-syntax-highlighting"
+                )
         )
     }
 

@@ -1,6 +1,4 @@
-import Foundation
-
-/// Cursor over source scalars that keeps UTF-16 offsets aligned with TextKit ranges.
+/// A scalar cursor that tracks UTF-16 offsets for TextKit-compatible token ranges.
 struct FilePreviewSyntaxCursor {
     private let scalars: [Unicode.Scalar]
     private var index = 0
@@ -30,11 +28,18 @@ struct FilePreviewSyntaxCursor {
     }
 
     mutating func advanceWhile(_ predicate: (Unicode.Scalar) -> Bool) {
-        while let scalar = current, !Task.isCancelled, predicate(scalar) { advance() }
+        while let scalar = current, !Task.isCancelled, predicate(scalar) {
+            advance()
+        }
     }
 
     mutating func advanceToEndOfLine() {
-        while let scalar = current, !Task.isCancelled, scalar != "\n", scalar != "\r" { advance() }
+        while let scalar = current,
+              !Task.isCancelled,
+              scalar != "\n",
+              scalar != "\r" {
+            advance()
+        }
     }
 
     mutating func advanceUntilMatch(_ pattern: [Unicode.Scalar]) {
@@ -47,9 +52,13 @@ struct FilePreviewSyntaxCursor {
         }
     }
 
-    mutating func consumeIdentifier(where isContinuation: (Unicode.Scalar) -> Bool) -> String {
+    mutating func consumeIdentifier(
+        where isContinuation: (Unicode.Scalar) -> Bool
+    ) -> String {
         var result = ""
-        while let scalar = current, !Task.isCancelled, isContinuation(scalar) {
+        while let scalar = current,
+              !Task.isCancelled,
+              isContinuation(scalar) {
             result.unicodeScalars.append(scalar)
             advance()
         }
@@ -57,8 +66,10 @@ struct FilePreviewSyntaxCursor {
     }
 
     func matches(_ pattern: [Unicode.Scalar]) -> Bool {
-        guard !pattern.isEmpty, index + pattern.count <= scalars.count else { return false }
-        for offset in 0..<pattern.count where scalars[index + offset] != pattern[offset] {
+        guard !pattern.isEmpty,
+              index + pattern.count <= scalars.count else { return false }
+        for offset in 0..<pattern.count
+            where scalars[index + offset] != pattern[offset] {
             return false
         }
         return true
@@ -77,7 +88,7 @@ struct FilePreviewSyntaxCursor {
         return nil
     }
 
-    func range(from start: Int) -> NSRange {
-        NSRange(location: start, length: utf16Offset - start)
+    func range(from start: Int) -> Range<Int> {
+        start..<utf16Offset
     }
 }

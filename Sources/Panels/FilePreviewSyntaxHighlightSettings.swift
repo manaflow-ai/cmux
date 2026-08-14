@@ -8,7 +8,10 @@ import Foundation
 /// the `FilePreviewTextEditor`. `true` (the default) colorizes recognized source
 /// files; `false` restores plain, uncolored text. Changing this applies live to
 /// open editors.
-enum FilePreviewSyntaxHighlightSettings {
+struct FilePreviewSyntaxHighlightSettings {
+    /// Creates a settings namespace value.
+    init() {}
+
     /// UserDefaults / cmux.json key.
     static let key = "fileEditor.syntaxHighlighting"
 

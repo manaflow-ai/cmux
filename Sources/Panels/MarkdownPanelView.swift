@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFilePreviewSyntax
 import CmuxFoundation
 import SwiftUI
 import WebKit
@@ -100,7 +101,8 @@ struct MarkdownPanelView: View {
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
                     wordWrap: fileEditorWordWrap,
-                    syntaxLanguage: FilePreviewSyntaxLanguage.detect(for: URL(fileURLWithPath: panel.filePath)),
+                    syntaxLanguage: FilePreviewSyntaxLanguageResolver()
+                        .language(forFilename: URL(fileURLWithPath: panel.filePath).lastPathComponent),
                     syntaxHighlightingEnabled: fileEditorSyntaxHighlighting
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

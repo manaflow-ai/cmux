@@ -2,6 +2,7 @@ import CmuxFoundation
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFilePreviewSyntax
 import Foundation
 import PDFKit
 import Quartz
@@ -1458,7 +1459,8 @@ struct FilePreviewPanelView: View {
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
                     wordWrap: fileEditorWordWrap,
-                    syntaxLanguage: FilePreviewSyntaxLanguage.detect(for: panel.fileURL),
+                    syntaxLanguage: FilePreviewSyntaxLanguageResolver()
+                        .language(forFilename: panel.fileURL.lastPathComponent),
                     syntaxHighlightingEnabled: fileEditorSyntaxHighlighting
                 )
             case .pdf:
