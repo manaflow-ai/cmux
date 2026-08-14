@@ -41,6 +41,10 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     private static let path = "/v1/sync/paired-macs"
     private static let maximumMigrationUploadOperations = 200
+    // A fetch may perform at most two bounded requests. If more legacy state
+    // remains, the next fetch resumes from the current snapshot.
+    private static let maximumMigrationOperationsPerFetch =
+        maximumMigrationUploadOperations * 2
 
     /// Build the paired-Mac backup endpoint from a service base URL. The base
     /// may include or omit a trailing slash, and may include a deployment base
@@ -190,9 +194,12 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     /// Fetch live records and tombstones only if auth still belongs to the captured account.
     public func fetchSnapshot(teamID: String?, expectedUserID: String?) async -> PairedMacBackupSnapshot? {
+        // Capture the account once so every read, write, and migration marker
+        // in this reconciliation belongs to the same auth generation.
+        let capturedUserID = expectedUserID ?? await tokenSource.currentUserID()
         guard let primary = await fetchSnapshot(
             teamID: teamID,
-            expectedUserID: expectedUserID,
+            expectedUserID: capturedUserID,
             scope: .current
         ) else { return nil }
         guard let legacyClientScopeProvider else {
@@ -207,27 +214,36 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             currentScope: currentScope,
             legacyScope: legacyScope,
             teamID: teamID,
-            expectedUserID: expectedUserID
+            expectedUserID: capturedUserID
         )
-        if migrationDefaults.bool(forKey: migrationKey) {
+        if let migrationKey, migrationDefaults.bool(forKey: migrationKey) {
             return primary
         }
         guard let legacy = await fetchSnapshot(
             teamID: teamID,
-            expectedUserID: expectedUserID,
+            expectedUserID: capturedUserID,
             scope: .explicit(legacyScope)
         ) else { return primary }
         let currentIDs = Set(primary.records.map(pairedMacBackupPairingID))
         let currentTombstones = Set(primary.deletedMacDeviceIDs)
         let legacyTombstones = Set(legacy.deletedMacDeviceIDs)
-        let missingLegacyTombstones = legacyTombstones
-            .subtracting(currentTombstones)
-            .subtracting(currentIDs)
+        let missingLegacyTombstones = legacyTombstones.filter { legacyTombstone in
+            !currentIDs.contains(where: {
+                pairedMacBackupSameDevice($0, legacyTombstone)
+            })
+            && !currentTombstones.contains(where: {
+                pairedMacBackupTombstoneCovers($0, legacyTombstone)
+            })
+        }
         let missingLegacy = legacy.records.filter {
             let pairingID = pairedMacBackupPairingID($0)
             return !currentIDs.contains(pairingID)
-                && !currentTombstones.contains(pairingID)
-                && !legacyTombstones.contains(pairingID)
+                && !currentTombstones.contains(where: {
+                    pairedMacBackupTombstoneCovers($0, pairingID)
+                })
+                && !legacyTombstones.contains(where: {
+                    pairedMacBackupTombstoneCovers($0, pairingID)
+                })
         }
         let migrationOps =
             missingLegacyTombstones.sorted().map(
@@ -235,29 +251,40 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             )
             + missingLegacy.map { .upsert($0) }
         if migrationOps.isEmpty {
-            migrationDefaults.set(true, forKey: migrationKey)
+            if let migrationKey {
+                migrationDefaults.set(true, forKey: migrationKey)
+            }
             return primary
+        }
+        let uploadOperationCount = min(
+            migrationOps.count,
+            Self.maximumMigrationOperationsPerFetch
+        )
+        if uploadOperationCount < migrationOps.count {
+            pairedMacBackupLog.warning(
+                "paired-mac legacy migration deferred after \(Self.maximumMigrationOperationsPerFetch) operations"
+            )
         }
         for startIndex in stride(
             from: 0,
-            to: migrationOps.count,
+            to: uploadOperationCount,
             by: Self.maximumMigrationUploadOperations
         ) {
             let endIndex = min(
                 startIndex + Self.maximumMigrationUploadOperations,
-                migrationOps.count
+                uploadOperationCount
             )
             guard await upload(
                 ops: Array(migrationOps[startIndex ..< endIndex]),
                 teamID: teamID,
-                expectedUserID: expectedUserID
+                expectedUserID: capturedUserID
             ) else {
                 return primary
             }
         }
         guard let refreshed = await fetchSnapshot(
             teamID: teamID,
-            expectedUserID: expectedUserID,
+            expectedUserID: capturedUserID,
             scope: .current
         ) else {
             return primary
@@ -269,7 +296,8 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         if missingLegacy.allSatisfy({
             refreshedIDs.contains(pairedMacBackupPairingID($0))
         }),
-        missingLegacyTombstones.isSubset(of: refreshedTombstones) {
+        missingLegacyTombstones.allSatisfy({ refreshedTombstones.contains($0) }),
+        let migrationKey {
             migrationDefaults.set(true, forKey: migrationKey)
         }
         return refreshed
@@ -352,6 +380,24 @@ private func pairedMacBackupPairingID(
     )
 }
 
+private func pairedMacBackupSameDevice(
+    _ lhsPairingID: String,
+    _ rhsPairingID: String
+) -> Bool {
+    MobilePairedMac.pairingIdentity(from: lhsPairingID).macDeviceID
+        == MobilePairedMac.pairingIdentity(from: rhsPairingID).macDeviceID
+}
+
+private func pairedMacBackupTombstoneCovers(
+    _ tombstoneID: String,
+    _ pairingID: String
+) -> Bool {
+    let tombstone = MobilePairedMac.pairingIdentity(from: tombstoneID)
+    let pairing = MobilePairedMac.pairingIdentity(from: pairingID)
+    guard tombstone.macDeviceID == pairing.macDeviceID else { return false }
+    return tombstone.instanceTag == nil || tombstone.instanceTag == pairing.instanceTag
+}
+
 private func pairedMacBackupDeleteOp(
     _ pairingID: String
 ) -> PairedMacBackupOp {
@@ -370,12 +416,13 @@ private func pairedMacBackupMigrationKey(
     legacyScope: String?,
     teamID: String?,
     expectedUserID: String?
-) -> String {
+) -> String? {
+    guard let expectedUserID, !expectedUserID.isEmpty else { return nil }
     let identity = [
         currentScope ?? "<unscoped>",
         legacyScope ?? "<unscoped>",
         teamID ?? "<personal>",
-        expectedUserID ?? "<current-user>",
+        expectedUserID,
     ].joined(separator: "\u{0}")
     let encoded = Data(identity.utf8)
         .base64EncodedString()
