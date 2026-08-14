@@ -234,6 +234,9 @@ jobs:
       - name: Validate release attestation retry guard
         run: ./tests/test_ci_attestation_retry.sh
 
+      - name: Validate Testbox broker trust boundary
+        run: python3 tests/test_testbox_workflow_security.py
+
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
 
