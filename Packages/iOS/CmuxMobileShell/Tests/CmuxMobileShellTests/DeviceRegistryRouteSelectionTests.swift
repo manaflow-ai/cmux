@@ -64,6 +64,22 @@ import Testing
         ) == nil)
     }
 
+    @Test func registryIrohAndTailscaleRoutesRemainAuthoritative() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let current = try route(host: "100.0.0.2", port: 51000, id: "current")
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64))
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+
+        #expect(DeviceRegistryService.selectReconnectRoutes(
+            local: local,
+            registry: [iroh, current]
+        ) == [iroh, current])
+    }
+
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {
