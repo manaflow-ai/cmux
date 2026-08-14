@@ -81,7 +81,7 @@ extension CmuxPluginRuntime {
     /// this file so the app exposes only the dependency boundary.
     nonisolated static let parentProcessLookup:
         CmuxPluginProcessAuthorizationResolver.ParentProcessLookup = { processID in
-            Self.parentProcessID(processID)
+            CmuxPluginRuntime.parentProcessID(processID)
         }
 
     private static func parentProcessID(_ processID: Int32) -> Int32? {
