@@ -324,11 +324,13 @@ def main() -> int:
         pty_leader = textwrap.dedent(
             f"""
             import os
+            import signal
             import subprocess
             import sys
             import time
 
             subprocess.Popen([sys.executable, "-c", {stubborn_descendant!r}])
+            signal.signal(signal.SIGHUP, signal.SIG_IGN)
             for fd in (0, 1, 2):
                 try:
                     os.close(fd)
