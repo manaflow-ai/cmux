@@ -117877,6 +117877,23 @@
         }
       }
     },
+    "fileExplorer.contextMenu.copyGitHubURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy GitHub URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub URL をコピー"
+          }
+        }
+      }
+    },
     "fileExplorer.contextMenu.copyPath": {
       "extractionState": "manual",
       "localizations": {
