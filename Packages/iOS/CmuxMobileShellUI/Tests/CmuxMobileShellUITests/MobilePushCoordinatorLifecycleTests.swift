@@ -799,6 +799,48 @@ private final class LifecyclePushURLProtocol: URLProtocol,
     }
 
     @MainActor
+    @Test func deniedReenableSupersedesInFlightDisable() async {
+        let disableGate = LifecycleSetEnabledGate()
+        let settingsGate = LifecycleSyncGate()
+        let registration = LifecyclePushRegistration(
+            enabled: true,
+            setEnabledGate: disableGate
+        )
+        let suiteName = "push-coordinator-denied-reenable-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            notificationSettings: {
+                await settingsGate.pause()
+                return .authorizationOnly(.denied)
+            }
+        )
+
+        coordinator.setEnabledIntent(false)
+        await disableGate.waitUntilStarted()
+
+        coordinator.setEnabledIntent(true)
+        await settingsGate.waitUntilStarted()
+        await settingsGate.release()
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        await disableGate.release()
+        for _ in 0..<100 {
+            if await registration.snapshot.isEnabled { break }
+            await Task.yield()
+        }
+
+        #expect(await registration.snapshot.isEnabled)
+        #expect(coordinator.isEnabled)
+        #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+    }
+
+    @MainActor
     @Test func foregroundAndReachabilityRecoveryShareOneExhaustedRegistrationRetry() async {
         let gate = LifecycleSyncGate()
         let registration = LifecyclePushRegistration(
