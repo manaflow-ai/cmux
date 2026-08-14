@@ -1,5 +1,6 @@
 import XCTest
 import CMUXAgentLaunch
+import CmuxExtensionKit
 import Darwin
 
 #if canImport(cmux_DEV)
@@ -550,19 +551,22 @@ final class CmuxEventBusTests: XCTestCase {
     func testRevokedPluginProcessIdentityRemainsClassifiedAsDenied() {
         let processID = pid_t(42)
         let pluginID = "dev.example.plugin"
+        let resolver = CmuxPluginProcessAuthorizationResolver(
+            parentProcessLookup: { _ in nil }
+        )
 
         XCTAssertEqual(
-            CmuxPluginRuntime.processAuthorization(
-                for: processID,
-                in: [processID: .active(pluginID: pluginID)]
-            ),
+            resolver.resolve(
+                processID: processID,
+                authorizations: [processID: .active(pluginID: pluginID)]
+            )?.authorization,
             .active(pluginID: pluginID)
         )
         XCTAssertEqual(
-            CmuxPluginRuntime.processAuthorization(
-                for: processID,
-                in: [processID: .revoked]
-            ),
+            resolver.resolve(
+                processID: processID,
+                authorizations: [processID: .revoked]
+            )?.authorization,
             .revoked
         )
         XCTAssertEqual(

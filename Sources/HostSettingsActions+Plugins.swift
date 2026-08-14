@@ -12,7 +12,7 @@ extension HostSettingsActions {
         let valid = snapshot.plugins.map { descriptor in
             PluginManagementDescriptor(
                 id: descriptor.plugin.manifest.id,
-                displayName: descriptor.plugin.manifest.displayName,
+                displayName: sanitizedPluginDisplayText(descriptor.plugin.manifest.displayName),
                 isEnabled: descriptor.isEnabled,
                 needsApproval: !descriptor.isApproved,
                 requestedCapabilities: pluginRequestedCapabilities(for: descriptor.plugin.manifest),
@@ -22,9 +22,9 @@ extension HostSettingsActions {
             )
         }
         let failures = snapshot.failures.map { failure in
-            let directoryName = failure.directoryURL.lastPathComponent
-                .components(separatedBy: .controlCharacters)
-                .joined(separator: "�")
+            let directoryName = sanitizedPluginDisplayText(
+                failure.directoryURL.lastPathComponent
+            )
             return PluginManagementDescriptor(
                 id: failure.directoryURL.lastPathComponent,
                 displayName: directoryName,
@@ -53,7 +53,7 @@ extension HostSettingsActions {
             .filter { $0.isEnabled && $0.permissions.pluginScopes.contains(.paletteActions) }
             .flatMap { descriptor -> [PluginShortcutDescriptor] in
                 let pluginID = descriptor.plugin.manifest.id
-                let pluginName = descriptor.plugin.manifest.displayName
+                let pluginName = sanitizedPluginDisplayText(descriptor.plugin.manifest.displayName)
                 return descriptor.plugin.manifest.actions.compactMap {
                     action -> PluginShortcutDescriptor? in
                     guard descriptor.permissions.allowsAction(action.id) else { return nil }
@@ -67,7 +67,7 @@ extension HostSettingsActions {
                     )
                     return PluginShortcutDescriptor(
                         id: actionID,
-                        title: action.title,
+                        title: sanitizedPluginDisplayText(action.title),
                         subtitle: String.localizedStringWithFormat(
                             String(
                                 localized: "settings.plugin.shortcutSubtitle",
@@ -128,10 +128,30 @@ extension HostSettingsActions {
                     localized: "settings.plugins.capability.action",
                     defaultValue: "Action: %@"
                 ),
-                $0.title
+                sanitizedPluginDisplayText($0.title)
             )
         })
         return capabilities
+    }
+
+    /// Removes invisible/control scalars before plugin text reaches Settings.
+    /// Validation rejects these declarations at load time; keeping this
+    /// projection defensive also protects settings rows from future manifest
+    /// schema extensions or an already-cached snapshot.
+    private func sanitizedPluginDisplayText(_ value: String) -> String {
+        let visibleScalars = value.unicodeScalars.filter { scalar in
+            !CharacterSet.controlCharacters.contains(scalar)
+                && scalar.value != 0x200B
+                && scalar.value != 0x200C
+                && scalar.value != 0x200D
+                && scalar.value != 0x200E
+                && scalar.value != 0x200F
+                && !(0x202A...0x202E).contains(scalar.value)
+                && !(0x2066...0x2069).contains(scalar.value)
+                && scalar.value != 0xFEFF
+        }
+        return String(String.UnicodeScalarView(visibleScalars))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func localizedPluginScope(_ scope: CmuxExtensionPluginScope) -> String {
@@ -186,7 +206,7 @@ extension HostSettingsActions {
                 pluginID: pluginID,
                 actionID: action.id
             ) == conflictID {
-                return action.title
+                return sanitizedPluginDisplayText(action.title)
             }
         }
         return conflictID
@@ -206,15 +226,15 @@ extension HostSettingsActions {
         case .unreadableDirectory:
             return String(localized: "settings.plugins.error.unreadableDirectory", defaultValue: "The plugin directory could not be read.")
         case .missingManifest:
-            return String(localized: "settings.plugins.error.missingManifest", defaultValue: "manifest.json is missing.")
+            return String(localized: "settings.plugins.error.missingManifest", defaultValue: "The plugin could not be loaded because its descriptor is missing.")
         case .unreadableManifest:
-            return String(localized: "settings.plugins.error.unreadableManifest", defaultValue: "manifest.json could not be read or is too large.")
+            return String(localized: "settings.plugins.error.unreadableManifest", defaultValue: "The plugin could not be loaded from disk.")
         case .malformedManifest:
-            return String(localized: "settings.plugins.error.malformedManifest", defaultValue: "manifest.json could not be decoded.")
+            return String(localized: "settings.plugins.error.malformedManifest", defaultValue: "The plugin descriptor could not be read.")
         case .invalidManifest:
-            return String(localized: "settings.plugins.error.invalidManifest", defaultValue: "The plugin manifest contains an invalid or unsupported declaration.")
+            return String(localized: "settings.plugins.error.invalidManifest", defaultValue: "The plugin declaration is invalid or unsupported.")
         case .directoryIdentifierMismatch:
-            return String(localized: "settings.plugins.error.identifierMismatch", defaultValue: "The manifest identifier does not match its directory name.")
+            return String(localized: "settings.plugins.error.identifierMismatch", defaultValue: "The plugin identity does not match its installation.")
         case .missingEntrypoint:
             return String(localized: "settings.plugins.error.missingExecutable", defaultValue: "The declared plugin executable is missing or cannot be run.")
         case .duplicateIdentifier:

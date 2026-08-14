@@ -31,8 +31,7 @@ public struct PluginShortcutDescriptor: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Notification posted by a host when its plugin descriptor list changes.
-public enum PluginShortcutSettings {
+public extension Notification.Name {
     /// Posted after plugin actions or their effective bindings change.
-    public static let didChangeNotification = Notification.Name("cmux.pluginShortcutSettingsDidChange")
+    static let cmuxPluginShortcutsDidChange = Notification.Name("cmux.pluginShortcutSettingsDidChange")
 }

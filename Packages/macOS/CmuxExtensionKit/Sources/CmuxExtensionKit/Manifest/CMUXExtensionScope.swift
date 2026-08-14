@@ -175,7 +175,7 @@ public enum CmuxExtensionEvent: String, Codable, CaseIterable, Equatable, Hashab
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
-        guard let value = Self.declaration(forEventName: raw) else {
+        guard let value = Self.resolveWireName(raw) else {
             throw DecodingError.dataCorruptedError(
                 in: container,
                 debugDescription: "unknown CMUX plugin lifecycle event: \(raw)"
@@ -228,7 +228,7 @@ public enum CmuxExtensionEvent: String, Codable, CaseIterable, Equatable, Hashab
 
     /// Resolves an accepted wire spelling to the canonical event-bus name.
     public static func canonicalName(forWireName name: String) -> String? {
-        declaration(forEventName: name)?.rawValue
+        resolveWireName(name)?.rawValue
     }
 
     private static func normalize(_ value: String) -> String {
@@ -237,17 +237,23 @@ public enum CmuxExtensionEvent: String, Codable, CaseIterable, Equatable, Hashab
             .replacingOccurrences(of: "_", with: "")
             .lowercased()
     }
-}
 
-public extension CmuxExtensionEvent {
-    /// Returns the event declaration for an event-bus name, if it is part of
-    /// the stable plugin contract.
-    static func declaration(forEventName name: String) -> Self? {
+    /// Resolves canonical, aliased, and normalized wire spellings in one
+    /// place so manifest decoding and runtime authorization cannot diverge.
+    fileprivate static func resolveWireName(_ name: String) -> Self? {
         let normalized = normalize(name)
         return allCases.first { declaration in
             declaration.acceptedWireNames.contains { wireName in
                 normalize(wireName) == normalized
             }
         }
+    }
+}
+
+public extension CmuxExtensionEvent {
+    /// Returns the event declaration for an event-bus name, if it is part of
+    /// the stable plugin contract.
+    static func declaration(forEventName name: String) -> Self? {
+        resolveWireName(name)
     }
 }

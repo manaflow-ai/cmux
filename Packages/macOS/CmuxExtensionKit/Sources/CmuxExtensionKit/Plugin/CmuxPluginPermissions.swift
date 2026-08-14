@@ -181,11 +181,29 @@ public actor CmuxPluginPermissionStore {
         var grants: [String: CmuxPluginGrant]
     }
 
+    /// Cheap identity for the on-disk grant source. The store rechecks this
+    /// before every read so an external Settings/editor update cannot leave
+    /// the actor's projection stale indefinitely.
+    private struct FileSignature: Equatable, Sendable {
+        let exists: Bool
+        let byteCount: Int?
+        let modificationDate: Date?
+        let fileNumber: UInt64?
+
+        static let missing = Self(
+            exists: false,
+            byteCount: nil,
+            modificationDate: nil,
+            fileNumber: nil
+        )
+    }
+
     private let storageURL: URL?
     private let fileManager: FileManager
     private var grants: [String: CmuxPluginGrant] = [:]
     private var hasLoaded = false
     private var loadFailure: CmuxPluginPermissionStoreLoadFailure?
+    private var loadedFileSignature: FileSignature?
 
     /// Creates a store. Passing `nil` keeps grants in memory, which is useful
     /// for tests and hosts that provide their own persistence layer.
@@ -195,6 +213,7 @@ public actor CmuxPluginPermissionStore {
     ) {
         self.storageURL = storageURL?.standardizedFileURL
         self.fileManager = fileManager
+        loadedFileSignature = nil
     }
 
     /// Default grant location under Application Support.
@@ -303,8 +322,12 @@ public actor CmuxPluginPermissionStore {
     }
 
     private func loadIfNeeded() {
-        guard !hasLoaded else { return }
+        let signature = currentFileSignature()
+        guard !hasLoaded || signature != loadedFileSignature else { return }
         hasLoaded = true
+        loadedFileSignature = signature
+        grants.removeAll()
+        loadFailure = nil
         guard let storageURL,
               fileManager.fileExists(atPath: storageURL.path) else {
             return
@@ -330,5 +353,21 @@ public actor CmuxPluginPermissionStore {
             return
         }
         grants = envelope.grants
+    }
+
+    /// Reads only filesystem metadata to detect an external grant-file edit.
+    /// The actual JSON read remains inside this actor's executor and is only
+    /// performed when the signature changes.
+    private func currentFileSignature() -> FileSignature {
+        guard let storageURL else { return .missing }
+        guard let attributes = try? fileManager.attributesOfItem(atPath: storageURL.path) else {
+            return .missing
+        }
+        return FileSignature(
+            exists: true,
+            byteCount: attributes[.size] as? Int,
+            modificationDate: attributes[.modificationDate] as? Date,
+            fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        )
     }
 }

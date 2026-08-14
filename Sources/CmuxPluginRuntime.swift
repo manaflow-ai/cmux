@@ -11,16 +11,6 @@ enum CmuxPluginSocketAuthorization: Sendable, Equatable {
     case denied(String)
 }
 
-/// Authorization state retained for a supervised plugin process lineage.
-///
-/// Revoked roots remain classified until their process termination callback
-/// arrives. This prevents a disabled child that is still exiting from falling
-/// back to the control socket's broader "cmux descendant" allow-list.
-enum CmuxPluginProcessAuthorization: Sendable, Equatable {
-    case active(pluginID: String)
-    case revoked
-}
-
 /// Control-socket handling required for one peer and request shape.
 enum CmuxPluginSocketPeerPolicy: Sendable, Equatable {
     case standard
@@ -36,10 +26,13 @@ enum CmuxPluginSocketPeerPolicy: Sendable, Equatable {
 /// to those fields is lock-protected, and process, disk, socket, notification,
 /// and subscription-close work runs only after releasing the lock.
 final class CmuxPluginRuntime: @unchecked Sendable {
-    static let snapshotDidChangeNotification = PluginManagementSettings.didChangeNotification
+    static let snapshotDidChangeNotification = Notification.Name.cmuxPluginManagementDidChange
 
     let registry: CmuxPluginRegistry
     private let processSupervisor: CmuxPluginProcessSupervisor
+    /// Pure lineage resolution lives in the package core; this app-owned
+    /// runtime supplies only the Darwin parent-process lookup seam.
+    let processAuthorizationResolver: CmuxPluginProcessAuthorizationResolver
     // Internal so feature-specific extensions can share the synchronous
     // projection boundary. Package actors remain authoritative for manifests,
     // grants, tokens, and persistence.
@@ -70,6 +63,9 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         // isolation domain. A default argument is evaluated by the caller and
         // cannot invoke a main-actor initializer safely.
         self.processSupervisor = processSupervisor ?? CmuxPluginProcessSupervisor()
+        self.processAuthorizationResolver = CmuxPluginProcessAuthorizationResolver(
+            parentProcessLookup: Self.parentProcessID
+        )
         socketListenerObserver = nil
         shortcutSettingsObserver = nil
         registryUpdateTail = nil
@@ -130,7 +126,7 @@ final class CmuxPluginRuntime: @unchecked Sendable {
                     guard let self else { return }
                     self.refreshRoutablePluginShortcuts()
                     NotificationCenter.default.post(
-                        name: PluginShortcutSettings.didChangeNotification,
+                        name: .cmuxPluginShortcutsDidChange,
                         object: nil
                     )
                 }
@@ -333,7 +329,7 @@ final class CmuxPluginRuntime: @unchecked Sendable {
         Task { @MainActor in
             NotificationCenter.default.post(name: Self.snapshotDidChangeNotification, object: nil)
             NotificationCenter.default.post(
-                name: PluginShortcutSettings.didChangeNotification,
+                name: .cmuxPluginShortcutsDidChange,
                 object: nil
             )
         }
@@ -347,7 +343,7 @@ final class CmuxPluginRuntime: @unchecked Sendable {
             self.refreshRoutablePluginShortcuts()
             NotificationCenter.default.post(name: Self.snapshotDidChangeNotification, object: nil)
             NotificationCenter.default.post(
-                name: PluginShortcutSettings.didChangeNotification,
+                name: .cmuxPluginShortcutsDidChange,
                 object: nil
             )
         }

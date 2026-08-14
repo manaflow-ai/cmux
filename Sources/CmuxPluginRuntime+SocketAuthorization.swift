@@ -15,9 +15,9 @@ extension CmuxPluginRuntime {
         lock.lock()
         let processAuthorizationSnapshot = processAuthorizations
         lock.unlock()
-        guard let resolvedProcess = Self.processAuthorizationRecord(
-            for: peerProcessID,
-            in: processAuthorizationSnapshot
+        guard let resolvedProcess = processAuthorizationResolver.resolve(
+            processID: peerProcessID,
+            authorizations: processAuthorizationSnapshot
         ), resolvedProcess.authorization == .active(pluginID: pluginID) else {
             return .denied(Self.pluginIdentityMismatchMessage)
         }
@@ -92,9 +92,9 @@ extension CmuxPluginRuntime {
         lock.lock()
         let processAuthorizationSnapshot = processAuthorizations
         lock.unlock()
-        guard let resolvedProcess = Self.processAuthorizationRecord(
-            for: peerProcessID,
-            in: processAuthorizationSnapshot
+        guard let resolvedProcess = processAuthorizationResolver.resolve(
+            processID: peerProcessID,
+            authorizations: processAuthorizationSnapshot
         ), resolvedProcess.authorization == .active(pluginID: pluginID) else {
             return false
         }

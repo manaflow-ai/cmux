@@ -37,8 +37,7 @@ public struct PluginManagementDescriptor: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Notifications emitted when the host's plugin management snapshot changes.
-public enum PluginManagementSettings {
+public extension Notification.Name {
     /// Posted after discovery, approval, enablement, or process health changes.
-    public static let didChangeNotification = Notification.Name("cmux.pluginRuntimeSnapshotDidChange")
+    static let cmuxPluginManagementDidChange = Notification.Name("cmux.pluginRuntimeSnapshotDidChange")
 }

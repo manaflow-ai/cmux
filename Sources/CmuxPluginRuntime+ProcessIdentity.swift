@@ -1,3 +1,4 @@
+import CmuxExtensionKit
 import Darwin
 
 extension CmuxPluginRuntime {
@@ -52,9 +53,9 @@ extension CmuxPluginRuntime {
         lock.lock()
         let authorizationSnapshot = processAuthorizations
         lock.unlock()
-        guard let resolved = Self.processAuthorizationRecord(
-            for: processID,
-            in: authorizationSnapshot
+        guard let resolved = processAuthorizationResolver.resolve(
+            processID: processID,
+            authorizations: authorizationSnapshot
         ) else { return nil }
         lock.lock()
         defer { lock.unlock() }
@@ -62,36 +63,6 @@ extension CmuxPluginRuntime {
             return nil
         }
         return resolved.authorization
-    }
-
-    /// Walks a peer's ancestry to find an active or revoked plugin root.
-    /// Descendants intentionally inherit the root's state, while an orphaned
-    /// process stops matching once its supervised ancestor has exited.
-    static func processAuthorization(
-        for processID: pid_t,
-        in authorizations: [pid_t: CmuxPluginProcessAuthorization]
-    ) -> CmuxPluginProcessAuthorization? {
-        processAuthorizationRecord(for: processID, in: authorizations)?.authorization
-    }
-
-    /// Resolves the supervised root and its authorization from one projection.
-    static func processAuthorizationRecord(
-        for processID: pid_t,
-        in authorizations: [pid_t: CmuxPluginProcessAuthorization]
-    ) -> (rootProcessID: pid_t, authorization: CmuxPluginProcessAuthorization)? {
-        var current = processID
-        var visited = Set<pid_t>()
-        for _ in 0..<32 {
-            guard visited.insert(current).inserted else { return nil }
-            if let authorization = authorizations[current] {
-                return (current, authorization)
-            }
-            guard let parent = parentProcessID(current), parent > 0, parent != current else {
-                return nil
-            }
-            current = parent
-        }
-        return nil
     }
 
     /// Detaches a plugin's streams while the caller holds ``lock``.
@@ -105,7 +76,7 @@ extension CmuxPluginRuntime {
         return (subscriptions, actionSubscriptions?.isEmpty == false)
     }
 
-    private static func parentProcessID(_ processID: pid_t) -> pid_t? {
+    nonisolated private static func parentProcessID(_ processID: Int32) -> Int32? {
         guard processID > 0 else { return nil }
         var info = proc_bsdinfo()
         let expectedSize = Int32(MemoryLayout<proc_bsdinfo>.stride)

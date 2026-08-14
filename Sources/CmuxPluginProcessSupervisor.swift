@@ -27,6 +27,8 @@ nonisolated private let pluginProcessLogger = Logger(
 /// a single, testable composition-root concern.
 @MainActor
 final class CmuxPluginProcessSupervisor {
+    private let environmentKeys = CmuxPluginEnvironment()
+
     private struct RunningProcess {
         let process: Process
         let fingerprint: String
@@ -144,17 +146,17 @@ final class CmuxPluginProcessSupervisor {
         var environment = Self.inheritedPluginEnvironment(
             from: ProcessInfo.processInfo.environment
         )
-        environment[CmuxPluginEnvironment.pluginIDKey] = pluginID
-        environment[CmuxPluginEnvironment.pluginTokenKey] = sessionToken
-        environment[CmuxPluginEnvironment.pluginSocketPathKey] = socketPath
-        environment[CmuxPluginEnvironment.manifestPathKey] = descriptor.plugin.directoryURL
+        environment[environmentKeys.pluginIDKey] = pluginID
+        environment[environmentKeys.pluginTokenKey] = sessionToken
+        environment[environmentKeys.pluginSocketPathKey] = socketPath
+        environment[environmentKeys.manifestPathKey] = descriptor.plugin.directoryURL
             .appendingPathComponent("manifest.json", isDirectory: false)
             .path
-        environment[CmuxPluginEnvironment.apiVersionKey] = "\(descriptor.plugin.manifest.minimumAPIVersion.major).\(descriptor.plugin.manifest.minimumAPIVersion.minor)"
+        environment[environmentKeys.apiVersionKey] = "\(descriptor.plugin.manifest.minimumAPIVersion.major).\(descriptor.plugin.manifest.minimumAPIVersion.minor)"
         // Existing cmux SDKs and the bundled CLI both discover the socket via
         // this conventional variable. Keep it alongside the plugin-specific
         // name so a plugin can use any ordinary socket client library.
-        environment[CmuxPluginEnvironment.socketPathKey] = socketPath
+        environment[environmentKeys.socketPathKey] = socketPath
         process.environment = environment
         process.standardInput = launchGate
         process.standardOutput = FileHandle.nullDevice
@@ -295,7 +297,7 @@ final class CmuxPluginProcessSupervisor {
         pluginProcessLogger.debug("Stopped plugin \(pluginID, privacy: .public)")
     }
 
-    private static func inheritedPluginEnvironment(
+    nonisolated private static func inheritedPluginEnvironment(
         from host: [String: String]
     ) -> [String: String] {
         let allowedKeys: Set<String> = [

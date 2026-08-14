@@ -836,7 +836,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var computerUseRuntimeService: ComputerUseRuntimeService?
     /// Process-wide plugin graph owned by the app composition root and injected
     /// into Settings, SwiftUI, shortcut routing, and the control socket.
-    private(set) var pluginRuntime = CmuxPluginRuntime()
+    /// Injected by ``cmuxApp`` before any window or socket path starts.
+    private(set) var pluginRuntime: CmuxPluginRuntime!
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?

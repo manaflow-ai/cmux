@@ -52,10 +52,13 @@ struct PluginManagementSettingsCard: View {
                 ))
             }
         }
-        .onReceive(NotificationCenter.default.publisher(
-            for: PluginManagementSettings.didChangeNotification
-        )) { _ in
-            descriptors = hostActions.pluginManagementDescriptors()
+        .task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .cmuxPluginManagementDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                descriptors = hostActions.pluginManagementDescriptors()
+            }
         }
     }
 }

@@ -2874,20 +2874,28 @@ struct ContentView: View {
             refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(notification)
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: CmuxPluginRuntime.snapshotDidChangeNotification)) { _ in
-            pluginSnapshotRevision &+= 1
-            commandPaletteResultsRevision &+= 1
+        view = AnyView(view.task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .cmuxPluginManagementDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                pluginSnapshotRevision &+= 1
+                commandPaletteResultsRevision &+= 1
+            }
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
-            for: PluginShortcutSettings.didChangeNotification
-        )) { _ in
-            commandPaletteResultsRevision &+= 1
-            scheduleCommandPaletteResultsRefresh(
-                query: commandPaletteQuery,
-                forceSearchCorpusRefresh: true,
-                preservePendingActivation: true
-            )
+        view = AnyView(view.task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .cmuxPluginShortcutsDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                commandPaletteResultsRevision &+= 1
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    forceSearchCorpusRefresh: true,
+                    preservePendingActivation: true
+                )
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in

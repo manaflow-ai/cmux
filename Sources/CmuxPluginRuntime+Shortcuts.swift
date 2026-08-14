@@ -108,7 +108,7 @@ extension CmuxPluginRuntime {
         refreshRoutablePluginShortcuts()
         Task { @MainActor in
             NotificationCenter.default.post(
-                name: PluginShortcutSettings.didChangeNotification,
+                name: .cmuxPluginShortcutsDidChange,
                 object: nil
             )
         }
