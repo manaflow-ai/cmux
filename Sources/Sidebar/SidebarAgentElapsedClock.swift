@@ -46,7 +46,7 @@ final class SidebarAgentElapsedClock {
         targets.removeValue(forKey: ObjectIdentifier(target))
     }
 
-    fileprivate func tick(at now: Date) {
+    func tick(at now: Date) {
         var releasedTargets: [ObjectIdentifier] = []
         for (identifier, target) in targets {
             guard let value = target.value else {
