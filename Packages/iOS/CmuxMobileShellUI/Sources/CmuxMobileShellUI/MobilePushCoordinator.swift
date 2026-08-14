@@ -410,6 +410,18 @@ public final class MobilePushCoordinator {
             return false
         }
         guard granted else {
+            // Authorization is an independent OS gate. The app intent still
+            // has to reach the service so it can supersede an older disable
+            // that may be suspended in cleanup; readiness remains blocked by
+            // the denied/unsupported system status below.
+            await registration.applyEnabledIntent(
+                true,
+                generation: registrationGeneration
+            )
+            guard isCurrentSettingsMutation(settingsMutationToken),
+                  enabledMirror else {
+                return false
+            }
             await refreshReadiness(settingsMutationToken: settingsMutationToken)
             diagnosticLog?.recordAppEvent(.pushAuthorizationDenied)
             analytics.capture("ios_push_optin_declined", [
