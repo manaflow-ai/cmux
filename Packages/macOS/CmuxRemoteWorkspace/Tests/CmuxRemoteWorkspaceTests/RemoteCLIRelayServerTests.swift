@@ -218,11 +218,14 @@ struct RemoteCLIRelayServerTests {
         })
 
         // Forward one command; response comes from the fake unix socket.
-        client.send(Data("workspace.list {}\n".utf8))
+        client.send(Data((#"{"id":"1","method":"workspace.list","params":{}}"# + "\n").utf8))
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
         })
-        #expect(String(decoding: unixServer.request, as: UTF8.self) == "rewritten:workspace.list {}\n")
+        #expect(
+            String(decoding: unixServer.request, as: UTF8.self)
+                == #"rewritten:{"id":"1","method":"workspace.list","params":{}}"# + "\n"
+        )
         let call = try #require(rewriter.calls.first)
         #expect(call.workspace == [workspaceAlias.remote: workspaceAlias.local])
         #expect(call.surface.isEmpty)

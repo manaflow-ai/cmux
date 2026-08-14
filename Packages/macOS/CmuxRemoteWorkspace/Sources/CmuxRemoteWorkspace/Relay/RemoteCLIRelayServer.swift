@@ -16,6 +16,13 @@ import Network
 /// failure-response delay (anti-timing-oracle), and every NSError
 /// domain/code/message must not change.
 ///
+/// Post-authentication, every command line is authorized by
+/// `RemoteRelayCommandPolicy` (GHSA-9vmv-3hjw-j28c): deny-by-default method
+/// allowlist, remote-owned workspace/surface targets only, no command-bearing
+/// parameters on local objects. Denied commands receive a
+/// `{"id":...,"ok":false,"error":{"code":"remote_relay_denied","message":...}}`
+/// line and never reach the local socket.
+///
 /// Isolation design: all mutable state (listener, sessions, aliases,
 /// localPort, per-session phase/buffer) is confined to the private serial
 /// `queue`. Mutators are `start()`/`stop()` (caller thread, blocking on the
@@ -40,6 +47,13 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     private var localPort: Int?
     private var workspaceAliases: [UUID: UUID] = [:]
     private var surfaceAliases: [UUID: UUID] = [:]
+    /// Local IDs returned by allowed relay creates (surface.create /
+    /// surface.split / pane.create). The remote learns these IDs from the
+    /// create response, so recording them at response time is race-free, and
+    /// the created objects belong to the remote workspace the create was
+    /// scoped to (GHSA-9vmv-3hjw-j28c).
+    private var learnedWorkspaceIDs: Set<UUID> = []
+    private var learnedSurfaceIDs: Set<UUID> = []
 
     /// Creates a relay for one remote connection.
     ///
@@ -183,8 +197,11 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
             localSocketPath: localSocketPath,
             relayID: relayID,
             relayToken: relayToken,
-            commandRewriter: { [weak self] commandLine in
-                self?.rewriteCommandLineLocked(commandLine) ?? commandLine
+            commandEvaluator: { [weak self] commandLine in
+                self?.evaluateCommandLineLocked(commandLine) ?? .forward(commandLine)
+            },
+            createdIDRecorder: { [weak self] requestLine, response in
+                self?.recordCreatedIDsLocked(requestLine: requestLine, response: response)
             },
             queue: queue,
             clock: clock
@@ -195,12 +212,59 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
         session.start()
     }
 
-    private func rewriteCommandLineLocked(_ commandLine: Data) -> Data {
-        commandRewriter.rewriteRemoteRelayCommandLine(
-            commandLine,
+    /// Applies the remote-relay authorization policy first; only allowed
+    /// commands reach the app's alias-aware rewriter and the local socket.
+    private func evaluateCommandLineLocked(_ commandLine: Data) -> CommandDisposition {
+        let workspaceAliases = workspaceAliases.merging(learnedWorkspaceIDs.map { ($0, $0) }) { _, new in new }
+        let surfaceAliases = surfaceAliases.merging(learnedSurfaceIDs.map { ($0, $0) }) { _, new in new }
+        switch RemoteRelayCommandPolicy.evaluate(
+            commandLine: commandLine,
             workspaceAliases: workspaceAliases,
             surfaceAliases: surfaceAliases
-        )
+        ) {
+        case .deny(let reason):
+            return .deny(reason)
+        case .allow:
+            return .forward(commandRewriter.rewriteRemoteRelayCommandLine(
+                commandLine,
+                workspaceAliases: workspaceAliases,
+                surfaceAliases: surfaceAliases
+            ))
+        }
+    }
+
+    /// Learns the local IDs returned by an allowed relay create so the remote
+    /// can drive the objects it just created (the alias maps only ever
+    /// describe pre-existing objects). Runs on the serial queue before the
+    /// response reaches the remote, so the ID is owned before anyone can use
+    /// it.
+    private func recordCreatedIDsLocked(requestLine: Data, response: Data) {
+        guard let requestText = String(data: requestLine, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let requestData = requestText.data(using: .utf8),
+            let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
+            let method = request["method"] as? String,
+            RemoteRelayCommandPolicy.createMethodsRequiringRemoteTarget.contains(method)
+        else {
+            return
+        }
+        guard let responseText = String(data: response, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let responseData = responseText.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+            (object["ok"] as? Bool) == true,
+            let result = object["result"] as? [String: Any]
+        else {
+            return
+        }
+        if let workspaceID = (result["workspace_id"] as? String).flatMap(UUID.init(uuidString:)) {
+            learnedWorkspaceIDs.insert(workspaceID)
+        }
+        for key in ["surface_id", "panel_id"] {
+            if let surfaceID = (result[key] as? String).flatMap(UUID.init(uuidString:)) {
+                learnedSurfaceIDs.insert(surfaceID)
+            }
+        }
     }
 
     private static func makeLoopbackListener() throws -> NWListener {

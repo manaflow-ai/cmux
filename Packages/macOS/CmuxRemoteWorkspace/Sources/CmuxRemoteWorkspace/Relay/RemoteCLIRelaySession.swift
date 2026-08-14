@@ -5,10 +5,26 @@ import Network
 import Security
 
 extension RemoteCLIRelayServer {
+    /// The relay's authorization decision for one post-authentication command
+    /// line: forward the (rewritten) line to the local socket, or deny it and
+    /// return an error to the remote client without touching the local socket.
+    enum CommandDisposition {
+        case forward(Data)
+        case deny(String)
+    }
+
     /// One authenticated relay connection: sends the HMAC challenge, awaits
-    /// the MAC line, then forwards exactly one rewritten command line to the
-    /// local cmux unix socket and returns the response (faithful lift of the
-    /// legacy nested `WorkspaceRemoteCLIRelayServer.Session`).
+    /// the MAC line, then authorizes and forwards exactly one command line to
+    /// the local cmux unix socket and returns the response (faithful lift of
+    /// the legacy nested `WorkspaceRemoteCLIRelayServer.Session`).
+    ///
+    /// Authorization (GHSA-9vmv-3hjw-j28c): the command line first passes
+    /// through `RemoteRelayCommandPolicy` (applied by the server), which
+    /// denies methods outside the remote CLI surface, command-bearing
+    /// parameters, and workspace/surface targets the remote session does not
+    /// own. A denied command is answered with a
+    /// `{"id":...,"ok":false,"error":{"code":"remote_relay_denied",...}}` line
+    /// and the connection closes; the local socket is never contacted.
     ///
     /// Isolation design: all mutable state is confined to the server's
     /// serial `queue` (Network callbacks hop onto it; the blocking unix
@@ -27,7 +43,8 @@ extension RemoteCLIRelayServer {
         private let localSocketPath: String
         private let relayID: String
         private let relayToken: Data
-        private let commandRewriter: (Data) -> Data
+        private let commandEvaluator: (Data) -> CommandDisposition
+        private let createdIDRecorder: (Data, Data) -> Void
         private let queue: DispatchQueue
         private let clock: any RemoteProxyRetryClock
         private let onClose: () -> Void
@@ -47,7 +64,8 @@ extension RemoteCLIRelayServer {
             localSocketPath: String,
             relayID: String,
             relayToken: Data,
-            commandRewriter: @escaping (Data) -> Data,
+            commandEvaluator: @escaping (Data) -> CommandDisposition,
+            createdIDRecorder: @escaping (Data, Data) -> Void = { _, _ in },
             queue: DispatchQueue,
             clock: any RemoteProxyRetryClock,
             onClose: @escaping () -> Void
@@ -56,7 +74,8 @@ extension RemoteCLIRelayServer {
             self.localSocketPath = localSocketPath
             self.relayID = relayID
             self.relayToken = relayToken
-            self.commandRewriter = commandRewriter
+            self.commandEvaluator = commandEvaluator
+            self.createdIDRecorder = createdIDRecorder
             self.queue = queue
             self.clock = clock
             self.onClose = onClose
@@ -180,7 +199,15 @@ extension RemoteCLIRelayServer {
                 return
             }
             phase = .forwarding
-            let forwardedCommandLine = commandRewriter(commandLine)
+            switch commandEvaluator(commandLine) {
+            case .deny(let reason):
+                sendDenialAndClose(reason: reason, commandLine: commandLine)
+            case .forward(let forwardedCommandLine):
+                forwardCommandLine(forwardedCommandLine)
+            }
+        }
+
+        private func forwardCommandLine(_ forwardedCommandLine: Data) {
             DispatchQueue.global(qos: .utility).async { [localSocketPath, forwardedCommandLine, queue] in
                 let result = Result {
                     try Self.roundTripUnixSocket(socketPath: localSocketPath, request: forwardedCommandLine)
@@ -189,6 +216,10 @@ extension RemoteCLIRelayServer {
                     guard let self else { return }
                     switch result {
                     case .success(let response):
+                        // Record IDs returned by allowed creates before the
+                        // response reaches the remote, so follow-up commands
+                        // naming those IDs pass the authorization gate.
+                        self.createdIDRecorder(forwardedCommandLine, response)
                         self.connection.send(content: response, completion: .contentProcessed { [weak self] _ in
                             guard let self else { return }
                             self.queue.async {
@@ -198,6 +229,35 @@ extension RemoteCLIRelayServer {
                     case .failure:
                         self.sendFailureAndClose()
                     }
+                }
+            }
+        }
+
+        /// Answers a policy-denied command with a well-formed v2 error frame
+        /// (echoing the request id when it parses) and closes. The local
+        /// socket is never contacted for denied commands.
+        private func sendDenialAndClose(reason: String, commandLine: Data) {
+            phase = .closed
+            var requestID: Any = NSNull()
+            if let line = String(data: commandLine, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               let requestData = line.data(using: .utf8),
+               let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
+               let id = request["id"], !(id is NSNull) {
+                requestID = id
+            }
+            let denial: [String: Any] = [
+                "id": requestID,
+                "ok": false,
+                "error": [
+                    "code": "remote_relay_denied",
+                    "message": reason,
+                ],
+            ]
+            sendJSONLine(denial) { [weak self] _ in
+                guard let self else { return }
+                self.queue.async {
+                    self.close()
                 }
             }
         }

@@ -22,6 +22,7 @@ private struct PolicyPassthroughRewriter: RemoteRelayCommandRewriting {
 /// here and must never connect for denied ones.
 private final class PolicyFakeUnixSocketServer: @unchecked Sendable {
     let path: String
+    private let responseBody: Data
     private let lock = NSLock()
     private var _requests: [Data] = []
     private let listenFD: Int32
@@ -33,7 +34,8 @@ private final class PolicyFakeUnixSocketServer: @unchecked Sendable {
         return _requests
     }
 
-    init() throws {
+    init(responseBody: Data = Data("{\"ok\":true,\"result\":{}}\n".utf8)) throws {
+        self.responseBody = responseBody
         path = NSTemporaryDirectory() + "cmux-relay-policy-test-\(UUID().uuidString.prefix(8)).sock"
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -98,8 +100,7 @@ private final class PolicyFakeUnixSocketServer: @unchecked Sendable {
         lock.lock()
         _requests.append(request)
         lock.unlock()
-        let response = Data("{\"ok\":true,\"result\":{}}\n".utf8)
-        response.withUnsafeBytes { raw in
+        responseBody.withUnsafeBytes { raw in
             _ = Darwin.write(client, raw.baseAddress, raw.count)
         }
         Darwin.close(client)
@@ -232,9 +233,10 @@ struct RemoteCLIRelayPolicyTests {
     private func withServer(
         workspaceAliases: [UUID: UUID] = [:],
         surfaceAliases: [UUID: UUID] = [:],
+        responseBody: Data = Data("{\"ok\":true,\"result\":{}}\n".utf8),
         _ body: (Int, PolicyFakeUnixSocketServer) throws -> Void
     ) throws {
-        let unixServer = try PolicyFakeUnixSocketServer()
+        let unixServer = try PolicyFakeUnixSocketServer(responseBody: responseBody)
         defer { unixServer.close() }
         let server = try RemoteCLIRelayServer(
             localSocketPath: unixServer.path,
@@ -353,8 +355,11 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
-    @Test("surface.respawn with a start command is allowed on an aliased remote surface")
-    func allowsRespawnOnAliasedSurface() throws {
+    @Test("surface.respawn is denied even on an owned surface (local respawn fallback)")
+    func deniesRespawnOnAliasedSurface() throws {
+        // The app respawns a plain SSH remote surface locally under the same
+        // surface ID, so relay-carried respawn would convert an owned surface
+        // into a local shell the remote can drive. Deny the method outright.
         let alias = (remote: UUID(), local: UUID())
         try withServer(surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
             let exchange = try runPolicyRelayExchange(
@@ -362,11 +367,10 @@ struct RemoteCLIRelayPolicyTests {
                 relayID: relayID,
                 tokenHex: tokenHex,
                 commandLine: """
-                {"id":"p6","method":"surface.respawn","params":{"surface_id":"\(alias.remote.uuidString)","tmux_start_command":"/bin/sh -c htop"}}
+                {"id":"p6","method":"surface.respawn","params":{"surface_id":"\(alias.remote.uuidString)"}}
                 """
             )
-            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
-            #expect(unixServer.requests.count == 1)
+            expectDenial(exchange, unixServer, "respawn on owned surface")
         }
     }
 
@@ -440,6 +444,84 @@ struct RemoteCLIRelayPolicyTests {
                 commandLine: #"{"id":"p11","method":"window.create","params":{}}"#
             )
             expectDenial(exchange, unixServer, "window.create")
+        }
+    }
+
+    @Test("send_text to a live local ID from the alias values is forwarded (fresh-session shape)")
+    func allowsAliasedLocalIDValueSendText() throws {
+        // Fresh remote sessions carry no distinct remote IDs: the remote
+        // shell's environment holds the workspace's live local UUIDs, and the
+        // app syncs them as identity alias entries.
+        let localSurface = UUID()
+        try withServer(surfaceAliases: [localSurface: localSurface]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"p12","method":"surface.send_text","params":{"surface_id":"\(localSurface.uuidString)","text":"ls\\n"}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+        }
+    }
+
+    @Test("lifecycle methods from remote bootstrap scripts are forwarded")
+    func allowsLifecycleTerminalSessionLaunching() throws {
+        let localWorkspace = UUID()
+        try withServer(workspaceAliases: [localWorkspace: localWorkspace]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"p13","method":"workspace.remote.terminal_session_launching","params":{"workspace_id":"\(localWorkspace.uuidString)","terminal_lifecycle_id":"lc","attempt_id":"a1"}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+        }
+    }
+
+    @Test("a surface created through the relay is immediately drivable by its returned ID")
+    func createdSurfaceIsImmediatelyUsable() throws {
+        // The remote learns a created surface's local ID from the create
+        // response, so the relay records response IDs at response time;
+        // alias-map pushes from the app are too racy for split-then-send.
+        let workspaceAlias = (remote: UUID(), local: UUID())
+        let createdSurface = UUID()
+        let createResponse = Data("""
+        {"ok":true,"result":{"surface_id":"\(createdSurface.uuidString)","workspace_id":"\(workspaceAlias.local.uuidString)"}}
+
+        """.utf8)
+        try withServer(
+            workspaceAliases: [workspaceAlias.remote: workspaceAlias.local],
+            responseBody: createResponse
+        ) { port, unixServer in
+            let split = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"c1","method":"surface.split","params":{"workspace_id":"\(workspaceAlias.remote.uuidString)","direction":"right"}}
+                """
+            )
+            #expect(split.responseLines.first?["ok"] as? Bool == true)
+
+            let send = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"c2","method":"surface.send_text","params":{"surface_id":"\(createdSurface.uuidString)","text":"ls\\n"}}
+                """
+            )
+            #expect(
+                send.responseLines.first?["ok"] as? Bool == true,
+                "the created surface must be drivable immediately: \(send.rawResponse)"
+            )
+            #expect(unixServer.requests.count == 2)
         }
     }
 }

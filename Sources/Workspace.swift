@@ -5404,6 +5404,11 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
         endedPersistentRemotePTYAttachSurfaceIds = endedPersistentRemotePTYAttachSurfaceIds.filter { validSurfaceIds.contains($0) }
         pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
+        if isRemoteWorkspace {
+            // Keep the relay's owned-surface set tracking live panel adds and
+            // removals, not just alias pruning (GHSA-9vmv-3hjw-j28c).
+            syncRemoteRelayIDAliasesToController()
+        }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         restoredPanelTitleBoundariesByPanelId = restoredPanelTitleBoundariesByPanelId.filter {
@@ -5879,6 +5884,9 @@ final class Workspace: Identifiable, ObservableObject {
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        // Publish this workspace's owned-ID set (identity entries) before the
+        // remote shell's first relay RPC can arrive (GHSA-9vmv-3hjw-j28c).
+        syncRemoteRelayIDAliasesToController()
         defer { applyPendingRemoteTerminalConnections() }
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
@@ -6204,9 +6212,23 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func syncRemoteRelayIDAliasesToController() {
+        var workspaceAliases = remoteRelayWorkspaceIDAliases
+        var surfaceAliases = remoteRelaySurfaceIDAliases
+        if isRemoteWorkspace {
+            // The remote shell's environment carries this workspace's live
+            // local UUIDs, so a fresh session (no snapshot restore, no
+            // distinct remote IDs) legitimately targets its own objects by
+            // local UUID. Publish identity entries so the relay's
+            // authorization gate treats exactly these local objects as
+            // remote-owned (GHSA-9vmv-3hjw-j28c).
+            workspaceAliases[id] = id
+            for panelId in panels.keys {
+                surfaceAliases[panelId] = panelId
+            }
+        }
         remoteSessionController?.updateRemoteRelayIDAliases(
-            workspaceAliases: remoteRelayWorkspaceIDAliases,
-            surfaceAliases: remoteRelaySurfaceIDAliases
+            workspaceAliases: workspaceAliases,
+            surfaceAliases: surfaceAliases
         )
     }
 

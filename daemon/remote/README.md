@@ -152,6 +152,7 @@ Authenticated relay details:
 1. Each SSH workspace gets its own relay ID and relay token.
 2. The app runs a local loopback relay server that requires an HMAC-SHA256 challenge-response before forwarding a command to the real local Unix socket.
 3. The remote shell never gets direct access to the local app socket. It only gets the reverse-forwarded relay port plus `~/.cmux/relay/<port>.auth`, which is written with `0600` permissions and removed when the relay stops.
+4. Authentication is not authorization. The relay credential is stored on the remote host, so the relay additionally authorizes every command (`RemoteRelayCommandPolicy`, GHSA-9vmv-3hjw-j28c): only the v2 methods the remote CLI and agent hooks use are forwarded (deny by default, so `cmux rpc` cannot reach local-only methods); workspace/surface/tab ID params must name objects owned by the remote session (unmapped local UUIDs and `surface:12`-style refs are denied); command-bearing params (`initial_command`, `command`, `tmux_start_command`, `pane_start_command`) are denied on every method, and `surface.respawn` is denied entirely because respawning a plain SSH surface falls back to local execution; `workspace.create`, `window.create`, and `workspace.group.create`/`new_workspace`/`delete` are denied outright; `surface.create`/`surface.split`/`pane.create` require an explicit aliased remote target. Denied commands return `{"ok":false,"error":{"code":"remote_relay_denied",...}}` and never reach the local socket.
 
 Integration additions for the relay path:
 
@@ -171,6 +172,8 @@ Environment fallbacks:
 ### Migration notes
 
 **`new-workspace`**: The flag `--working-directory` was removed. It was accepted by the old relay but sent the wrong param name (`working_directory` instead of `cwd`), so the server silently ignored it. Use `--cwd` for the working directory. The flag `--command` is now supported: it sends the command text to the new workspace's default surface after creation.
+
+**Relay authorization (GHSA-9vmv-3hjw-j28c)**: `new-workspace` and `new-window` are no longer available through a remote relay: they can only create local objects on the Mac, which a remote session may not drive. They now fail with `remote_relay_denied`. Commands that target workspaces/surfaces must use the remote session's own issued UUIDs; IDs copied from local `list-*` output are rejected.
 
 **`send` / `send-key`**: The `--text` and `--key` flags were removed. Both commands now take their argument positionally, matching the Mac CLI convention: `cmux send "hello world"` and `cmux send-key ctrl+c`.
 
